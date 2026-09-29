@@ -27,7 +27,7 @@ compare_reported_sales_amount(reported, recalculated)   허용 오차 **없음**
 
 from __future__ import annotations
 
-from app.finance.capabilities.sales import REQUIRED_SALES_INPUT_FIELDS
+from app.finance.domain.sales_validation import REQUIRED_SALES_INPUT_FIELDS
 from app.sales.domain.proposal_reply import proposal_payload
 from app.sales.service.proposal import run_proposal
 from tests.sales.test_sales_proposal import _request

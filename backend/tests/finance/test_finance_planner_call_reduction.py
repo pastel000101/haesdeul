@@ -22,13 +22,13 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.application.harness import (
-    TOOL_BUDGET_EXHAUSTED,
-    CapabilityState,
-    FinanceHarness,
-    FinanceToolRegistry,
+from app.finance.llm.planner import (
+    DeterministicFinancePlanner,
+    FinancePlannerFailure,
+    ToolAction,
 )
-from app.finance.application.orchestration import (
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.service.agent import (
     SELECTION_FINALIZE,
     SELECTION_LLM,
     SELECTION_SINGLE,
@@ -36,12 +36,12 @@ from app.finance.application.orchestration import (
     _decide,
     _settled_action,
 )
-from app.finance.llm.planner import (
-    DeterministicFinancePlanner,
-    FinancePlannerFailure,
-    ToolAction,
+from app.finance.service.harness import (
+    TOOL_BUDGET_EXHAUSTED,
+    CapabilityState,
+    FinanceHarness,
+    FinanceToolRegistry,
 )
-from app.finance.state import FinanceAgentState
 from tests.finance.test_finance_harness_langchain import (
     Port,
     request,
@@ -118,7 +118,7 @@ class _Finalizer:
 
 
 def _run(mode: str, planner):
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         return FinanceAgentController(Port(), planner, _Finalizer()).run(
             _request_for(mode)
         )
@@ -417,7 +417,7 @@ def test_a_step_that_chose_nothing_records_no_selection_source():
     일어난 것처럼** 읽힌다 — 업무 결과는 그대로라서 더 늦게 들킨다.
     """
     planner = _CountingPlanner()
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, metadata = FinanceAgentController(
             Port(), planner, _Finalizer(), max_tool_calls=1
         ).run(_request_for("PRE_PURCHASE"))
@@ -507,7 +507,7 @@ def test_many_scenarios_share_one_harness_without_asking_the_model():
             for index, amount in enumerate((600, 1000, 900), start=1)
         ]
     }
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, metadata = FinanceAgentController(Port(), planner, _Finalizer()).run(
             request("SCENARIO_VALIDATION", payloads)
         )
@@ -547,7 +547,7 @@ def test_many_scenarios_keep_every_business_value_identical():
     }
 
     def _go(planner):
-        with patch("app.finance.execution.save_finance_execution"):
+        with patch("app.finance.service.run_history.save_finance_execution"):
             return FinanceAgentController(Port(), planner, _Finalizer()).run(
                 request("SCENARIO_VALIDATION", payloads)
             )
@@ -605,7 +605,7 @@ def test_llm_status_describes_this_run_not_the_controller_lifetime():
     """
     controller = FinanceAgentController(Port(), _CountingPlanner(), _Finalizer())
 
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         _first, first_metadata = controller.run(_request_for("PRE_PURCHASE"))
         _second, second_metadata = controller.run(_request_for("SALES_VALIDATION"))
 

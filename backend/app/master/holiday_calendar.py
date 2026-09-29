@@ -66,7 +66,7 @@ from typing import Any
 
 from psycopg import sql
 
-from app.finance.db import fetch_all, get_db_schema
+from app.master.db import fetch_all, get_db_schema
 from app.master.execution_day import CalendarNotCovered
 
 __all__ = ["MlCalendarDays", "get_calendar", "reset"]

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.finance.expenses import KNOWN_EXPENSE_CATEGORIES
+from app.finance.schemas.expenses import KNOWN_EXPENSE_CATEGORIES
 from app.main import app
 
 _ROOT = Path(__file__).parents[3]
@@ -159,18 +159,22 @@ def test_a_new_closing_always_writes_an_explicit_operating_expense_value():
     🔴 그래서 `NULL` 은 새 마감에서 절대 안 나온다. `NULL` 이 남아 있는 행은 이 축이
        생기기 전에 닫힌 마감뿐이고, 그 의미는 «기록하지 않았다» 다.
     """
-    from app.finance import closing
+    from app.finance.domain import closing as closing_rules
+    from app.finance.repository import closing as closing_statements
 
-    source = Path(closing.__file__).read_text(encoding="utf-8")
+    #  2026-09-29 재구성 BL-014: 마감 사실 · 행 조립은 `domain/closing.py`, SQL 은
+    #  `repository/closing.py` 다.
+    rules = Path(closing_rules.__file__).read_text(encoding="utf-8")
+    statements = Path(closing_statements.__file__).read_text(encoding="utf-8")
 
-    assert "operating_expense_cash_out_krw: Decimal" in source
-    assert '"operating_expense_cash_out_krw": facts.operating_expense_cash_out_krw' in source
-    assert "%(operating_expense_cash_out_krw)s" in source
+    assert "operating_expense_cash_out_krw: Decimal" in rules
+    assert '"operating_expense_cash_out_krw": facts.operating_expense_cash_out_krw' in rules
+    assert "%(operating_expense_cash_out_krw)s" in statements
 
 
 def test_the_read_contract_lets_an_unrecorded_closing_stay_unknown():
     """🔴 조회 계약이 `None` 을 못 담으면, 읽는 순간 «기록 없음» 이 «0원» 이 된다."""
-    from app.finance.schemas import FinanceClosingItem
+    from app.finance.schemas.dashboard import FinanceClosingItem
 
     field = FinanceClosingItem.model_fields["operating_expense_cash_out_krw"]
 
@@ -180,7 +184,7 @@ def test_the_read_contract_lets_an_unrecorded_closing_stay_unknown():
 
 def test_the_closing_reader_never_substitutes_zero_for_an_unrecorded_axis():
     """조회가 `.get(key, 0)` 로 메우면 그 순간 두 사실이 같아진다."""
-    from app.finance import dashboard
+    from app.finance.readmodel import dashboard
 
     source = Path(dashboard.__file__).read_text(encoding="utf-8")
 

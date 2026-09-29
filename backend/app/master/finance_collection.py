@@ -26,7 +26,7 @@ financing_mode   🔴 **마스터 축이 아니다** — 재무 축 (sim_run_id,
   ⚠️ **여기에 `financing_mode` 를 상수로 박으면 안 된다.** 실측으로 `finance_states`
     에 `LOAN_BASELINE` 252행과 `BASE_NO_LOAN` 2행이 **실제로 공존한다**. 마스터가
     하나를 골라 박으면 *"무차입 상태가 대출 baseline 자리에 조용히 들어오는"* 사고가
-    나고, 그 사고는 에러 없이 숫자만 바꾼다 — `app/finance/db.py` 의
+    나고, 그 사고는 에러 없이 숫자만 바꾼다 — `app/finance/readmodel/finance_state.py` 의
     `get_finance_runtime_axis` 가 그 문장을 이미 적어 뒀다.
 
 ★ **그래서 물어본다.** `get_finance_runtime_axis()` 가 재무 축의 주인이고, 이
@@ -90,9 +90,11 @@ from datetime import date
 from typing import Any
 
 from app.contracts.parts import CollectionPartOut
-from app.finance.collection import CollectionEvent, DeterministicCollectionFixtureSource
-from app.finance.collection_adapter import FinanceCollectionSource
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis, get_finance_runtime_axis
+from app.finance.readmodel.finance_state import get_finance_runtime_axis
+from app.finance.schemas.collections import CollectionEvent, DeterministicCollectionFixtureSource
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
+from app.finance.service.collections import FinanceCollectionSource
 from app.master.collection_events import read_collection_events
 
 __all__ = ["FinanceCollectionAdapter"]

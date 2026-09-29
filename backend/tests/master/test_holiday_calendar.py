@@ -609,6 +609,8 @@ def test_실행일_모듈에_SQL_이_없다():
     ):
         assert 금지 not in 본문, f"실행일 모듈이 DB 를 안다: {금지}"
     assert "app.finance.db" not in source, "실행일 모듈이 DB 모듈을 임포트한다"
+    #  2026-09-29 재구성 BL-014: 마스터 DB 입구가 `app.master.db` 로 옮겼다 — 그것도 막는다.
+    assert "app.master.db" not in source, "실행일 모듈이 DB 모듈을 임포트한다"
 
 
 def test_실행일_모듈이_달력을_직접_만들지_않는다():

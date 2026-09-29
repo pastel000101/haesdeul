@@ -5,7 +5,7 @@
   private 함수 다섯(`_generate_scenarios` · `_all_feedback_replies` · `_interpret_scenarios` ·
   `_missing_capabilities` · `_reply_refs`)은 공개 이름으로 올렸다.
 
-★ DB · HTTP · LLM 을 부르지 않는다. 정책값은 재무가 상수로 낸 `app.finance.sales_policy` 를
+★ DB · HTTP · LLM 을 부르지 않는다. 정책값은 재무가 상수로 낸 `app.finance.domain.sales_policy` 를
   읽는다 — 판매 → 재무 import 는 이것 하나다(`test_sales_never_imports_finance_runtime`).
 """
 
@@ -16,7 +16,7 @@ from decimal import ROUND_CEILING, Decimal
 
 from pydantic import ValidationError
 
-from app.finance.sales_policy import (
+from app.finance.domain.sales_policy import (
     FINANCE_SALES_MVP_POLICY_REF,
     load_finance_sales_mvp_policy,
 )

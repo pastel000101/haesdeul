@@ -1374,7 +1374,7 @@ def test_finance_report_facts_keep_null_operating_expense(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
 
-    from app.finance import (
+    from app.finance.readmodel import (
         console_credit,
         console_expenses,
         console_payables,
@@ -1426,7 +1426,7 @@ def test_finance_report_cash_trend_uses_full_requested_range(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
 
-    from app.finance import (
+    from app.finance.readmodel import (
         console_credit,
         console_expenses,
         console_payables,

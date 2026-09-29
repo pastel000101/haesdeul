@@ -55,7 +55,7 @@ from app.finance.llm.finalizer import (
     GeminiFinanceFinalizer,
     OllamaFinanceFinalizer,
 )
-from app.finance.schemas import FinanceMode
+from app.finance.schemas.agent import FinanceMode
 
 # ---------------------------------------------------------------------------
 # Planner/Finalizer 계약과 출력 검증
@@ -402,7 +402,7 @@ class DeterministicFinancePlanner:
         # capability 소유표는 Harness 가 든다. 모듈 최상단에서 부르면 순환이 되므로
         # (Harness → planner → Harness) 실행 시점에 읽는다 — 고르는 순서를 바꾸지
         # 않기 위해서다. 순서가 바뀌면 결정론 실행의 Tool 순서가 달라진다.
-        from app.finance.application.harness import CAPABILITY_OWNER
+        from app.finance.service.harness import CAPABILITY_OWNER
 
         self.attempts += 1
         if not missing_capabilities:
@@ -534,7 +534,7 @@ def _langchain_planner(provider: str, *, model: str | None = None) -> LangChainF
     )
 
 
-def _configured_finance_llms(
+def configured_finance_llms(
 ) -> tuple[FinancePlanner, FinanceFinalizer, _ProviderFallbackState | None]:
     """설정이 정하는 Planner/Finalizer 한 쌍.
 

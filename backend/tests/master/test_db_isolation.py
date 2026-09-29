@@ -102,7 +102,7 @@ def test_미적용_전이_조회가_막혀_있다() -> None:
     ★ 문이 하나라 한 줄로 잰다 — `approved_decisions` 도 `ledger_purchase_ids` 도
       같은 `fetch_all` 을 지난다.
     """
-    from app.finance.db import fetch_all as 진짜
+    from app.finance.repository._cursor import fetch_all as 진짜
     from app.master import pending_transition_repository as 저장소
 
     assert 저장소.fetch_all is not 진짜, (

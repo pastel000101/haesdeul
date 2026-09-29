@@ -360,7 +360,8 @@ from typing import Any, Literal, get_args
 from app.contracts.commitment import ITEM_CODES
 from app.core import clock
 from app.core import db as core_db
-from app.finance.expenses import ExpenseSettlement, settle_due_expenses
+from app.finance.schemas.expenses import ExpenseSettlement
+from app.finance.service.expenses import settle_due_expenses
 from app.master import persistence
 from app.master.backfill import BackfillOut, SalesTermsRule, backfill_decisions
 from app.master.closing import ClosingOut, close_day

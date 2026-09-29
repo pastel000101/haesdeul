@@ -22,11 +22,13 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
-from app.finance import user_messages as messages
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.db import FinanceDataNotReady
+from app.finance.domain import messages
 from app.finance.llm.finalizer import _FINAL_EXPLANATIONS
 from app.finance.llm.planner import ToolAction
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service import agent_run
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 from tests.finance.test_finance_adapter import _AdapterPlanner, _Context
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
@@ -52,13 +54,11 @@ def _req(mode: str = "PRE_PURCHASE", payload: dict | None = None) -> AgentReques
 
 @pytest.fixture(autouse=True)
 def _wired(monkeypatch):
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _AdapterPlanner()))
     monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _AdapterPlanner()),
+        "app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None
     )
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
 
 
 def _assert_korean(text: str, label: str) -> None:
@@ -136,8 +136,8 @@ def test_invalid_scenario_input_message_is_korean_but_field_paths_are_not():
 
 
 def test_boundary_not_ready_message_is_korean(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
-    with patch("app.finance.adapter.save_finance_execution"):
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
+    with patch("app.finance.service.agent_replies.save_finance_execution"):
         reply, _meta = adapter.finance_port(_req())
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -148,7 +148,8 @@ def test_boundary_not_ready_message_is_korean(monkeypatch):
 
 def test_persistence_failure_message_is_korean():
     with patch(
-        "app.finance.execution.save_finance_execution", side_effect=RuntimeError("db down")
+        "app.finance.service.run_history.save_finance_execution",
+        side_effect=RuntimeError("db down"),
     ):
         reply, _meta = adapter.finance_port(_req())
 
@@ -178,7 +179,7 @@ def test_runtime_not_ready_reasoning_from_controller_is_korean():
     def _load(_self, as_of, horizon):
         del as_of, horizon
 
-    with patch.object(adapter._RuntimeContextDataPort, "load_payroll", _load):
+    with patch.object(agent_run.RuntimeContextDataPort, "load_payroll", _load):
         reply, _meta = adapter.finance_port(_req())
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -414,8 +415,8 @@ def test_sales_business_status_gets_its_own_user_sentence():
 
 def test_llm_and_deterministic_paths_say_the_same_thing():
     """🔴 LLM 경로만 다듬으면, 모델이 죽은 날에만 사용자에게 다른 말투가 나간다."""
-    from app.finance.application.orchestration import fallback_reasoning
     from app.finance.llm.finalizer import DeterministicFinanceFinalizer
+    from app.finance.service.agent import fallback_reasoning
 
     finalizer = DeterministicFinanceFinalizer()
     for mode, status in (
@@ -478,7 +479,7 @@ def _run(mode: str, payload: dict | None = None, *, port=None, finalizer=None):
             ToolAction(finalize=True),
         ]
     )
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         return FinanceAgentController(
             port or Port(), ScriptedPlanner(plan), finalizer or Finalizer()
         ).run(harness_request(mode, payload))

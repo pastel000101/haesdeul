@@ -38,7 +38,8 @@ from datetime import date
 from typing import Any, Literal, get_args, get_origin
 
 from app.contracts.parts import CollectionPartOut
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
 from app.master.collection_seed import SeedStatus, seed_day
 from app.master.finance_collection import FinanceCollectionAdapter
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID

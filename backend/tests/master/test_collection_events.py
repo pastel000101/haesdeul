@@ -39,8 +39,10 @@ from typing import Any, Self
 
 import pytest
 
-from app.finance.collection import CollectionEvent
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis, get_db_schema
+from app.core.settings import get_db_schema
+from app.finance.schemas.collections import CollectionEvent
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
 from app.master.collection_events import read_collection_events
 from app.master.finance_collection import FinanceCollectionAdapter
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
@@ -191,7 +193,8 @@ def test_행을_재무_사건으로_옮긴다() -> None:
     assert len(사건들) == 1
     사건 = 사건들[0]
     assert isinstance(사건, CollectionEvent)
-    assert type(사건).__module__ == "app.finance.collection", (
+    #  2026-09-29 재구성 BL-014: 수금 사건 모양은 `app/finance/schemas/collections.py` 에 산다.
+    assert type(사건).__module__ == "app.finance.schemas.collections", (
         f"수금 사건 모양이 재무 것이 아니다: {type(사건).__module__}"
     )
     assert 사건.sim_run_id == BURN_IN_SIM_RUN_ID

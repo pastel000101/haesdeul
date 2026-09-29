@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.finance.schemas import ChannelTerm
+from app.finance.schemas.agent import ChannelTerm
 from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 

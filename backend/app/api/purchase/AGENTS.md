@@ -64,12 +64,12 @@ def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** 매입 에이전트(`app.purchase_agent`)는
-`get_db_schema` 를 **쓰지 않습니다** — 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는
-*"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
-에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
-`.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
-이유로 같은 선택을 했습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
+🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
+(2026-09-29 — SQL 은 `app/master/purchase_tab_repository.py`, 조회 헬퍼는 마스터 입구
+`app.master.db`). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
+안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
+스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
 
 ## ★ 아직 안 정한 것 — `sim_run_id`
 
@@ -107,7 +107,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
 
 ```python
-from app.finance.db import fetch_one, fetch_all, get_db_schema
+from app.master.db import fetch_one, fetch_all, get_db_schema
 ```
 
 ```python
@@ -287,7 +287,7 @@ Card(
 
 ```text
 max_price       재무 STRESS 로 나간다 — 남이 등식을 검사한다
-                finance/capabilities/scenario.py   amount_max_krw 등식
+                finance/service/capabilities/scenario.py   amount_max_krw 등식
                 master/verifier.py                 검사 이름 L-PAYSCHED-MAX
 cut_unit_price  우리 컷 (self_check.check_max_price)
 ```
@@ -332,13 +332,13 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 그 상수 주석이 *"여러 개가 되면 요청 파라미터로 올린다"* 이므로 매입이
 **먼저 그 자리에 간 것**입니다.
 
-**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `_read` 는 전부 읽고
+**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
 `_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
    WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 됩니다
-② 검사가 `_read` 를 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
+② 검사가 `read_purchase_tab` 을 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
    필터를 건너뛰어 축이 도는지를 못 잽니다
 ```
 

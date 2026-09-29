@@ -202,8 +202,8 @@ SALES_BUDGET = 25
   않는다.** 사이클이 다르면 예산도 다르다. 매입 값을 16 으로 올리면 매입이 안 쓰는
   4 회분 상한이 매입 쪽에서 풀린다.
 
-🔴 **재무 `SALES_VALIDATION` 이 한 번에 한 후보만 받는다** (`app/finance/capabilities/
-  sales.py` `parse_sales_validation_input` — `scenario_id`·`quantity_kg` 가 전부 단수).
+🔴 **재무 `SALES_VALIDATION` 이 한 번에 한 후보만 받는다** (`app/finance/domain/
+  sales_validation.py` `parse_sales_validation_input` — `scenario_id`·`quantity_kg` 가 전부 단수).
   배열을 안 받으므로 **후보 3개면 재무를 3번 부른다.** 매입에 물어 둔 batch /
   ONE_BY_ONE 질문이 판매 쪽에서는 이미 ONE_BY_ONE 으로 정해진 셈이고, 재무가 그렇게
   구현한 것을 마스터가 바꿀 수 없다.

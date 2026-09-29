@@ -14,9 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
-from app.finance import user_messages as messages
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.db import FinanceDataNotReady
+from app.finance.domain import messages
 from app.finance.llm.client import finance_llm_enabled
 from app.finance.llm.finalizer import DeterministicFinanceFinalizer
 from app.finance.llm.planner import (
@@ -25,7 +23,9 @@ from app.finance.llm.planner import (
     FinancePlannerUnavailable,
     ToolAction,
 )
-from app.finance.schemas import FinancePolicy
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service.agent import FinanceAgentController
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
 
@@ -221,7 +221,7 @@ def sales_payload():
 
 @pytest.fixture(autouse=True)
 def _no_persistence():
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         yield
 
 
@@ -265,10 +265,10 @@ def test_finance_provider_does_not_inherit_the_global_provider(monkeypatch):
 
 def test_disabled_finance_llm_builds_no_provider(monkeypatch):
     """껐으면 Provider 를 만들지 않는다 — API 키도 로컬 서버도 확인하러 나가지 않는다."""
-    from app.finance.llm.planner import _configured_finance_llms
+    from app.finance.llm.planner import configured_finance_llms
 
     monkeypatch.setenv("FINANCE_LLM_ENABLED", "false")
-    planner, finalizer, provider_state = _configured_finance_llms()
+    planner, finalizer, provider_state = configured_finance_llms()
 
     assert isinstance(planner, DeterministicFinancePlanner)
     assert isinstance(finalizer, DeterministicFinanceFinalizer)

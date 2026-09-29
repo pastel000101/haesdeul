@@ -123,7 +123,6 @@ from app.contracts.sales_logistics import (
     reservation_id_for_sale_item,
 )
 from app.core import db as core_db
-from app.finance.db import get_db_schema
 from app.logistics.fefo_allocation import allocate_reserved_stock_fefo
 from app.logistics.outbound import (
     recommend_fefo_candidates,
@@ -132,6 +131,7 @@ from app.logistics.outbound import (
 )
 from app.logistics.sales_outbound import reserve_confirmed_sale_available
 from app.master.day_opening_repository import handled_on_first_open_day
+from app.master.db import get_db_schema
 from app.master.sim_time import SimPhase, phase_instant
 from app.sales.service.sale_ledger import mark_sale_delivered
 

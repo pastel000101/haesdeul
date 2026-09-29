@@ -37,8 +37,10 @@ from typing import Any
 import pytest
 
 import app.main  # noqa: F401  — import 시점에 채권 발행을 등록한다. 이 검사의 전제다
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
-from app.finance.receivables import ReceivablePersistenceConflict, receivable_id_for
+from app.finance.domain.receivables import receivable_id_for
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
+from app.finance.schemas.receivables import ReceivablePersistenceConflict
 from app.master import receivable
 from app.master.finance_receivable import (
     ISSUABLE_ORDER_STATUSES,
@@ -198,7 +200,7 @@ def test_배선이_판매_목록을_들고_있지_않다() -> None:
 
 def test_원장에_직접_쓰지_않고_재무_경계를_부른다() -> None:
     """🔴 **마스터가 `receivables` 에 직접 INSERT 하지 않는다.**"""
-    from app.finance.receivables import confirm_receivable
+    from app.finance.service.receivables import confirm_receivable
 
     impl = _등록된()
     assert impl.confirm is confirm_receivable, (

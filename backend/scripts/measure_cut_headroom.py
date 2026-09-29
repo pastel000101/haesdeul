@@ -75,7 +75,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.core import db as core_db
-from app.finance.db import fetch_all, get_db_schema
+from app.core.settings import get_db_schema
+from app.master.db import fetch_all
 
 #: 커버일수. `constraints.yaml` 의 `coverage_days` 와 같은 셋이지만 **여기서 판정하지
 #: 않는다** — 표의 열 이름일 뿐이다.

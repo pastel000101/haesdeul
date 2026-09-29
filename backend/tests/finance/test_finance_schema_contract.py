@@ -163,7 +163,7 @@ def test_fresh_ddl_mode_vocabulary_matches_the_finance_mode_contract():
     """DDL 과 코드가 갈리면 **판정은 되는데 저장이 안 되는** 날이 온다."""
     from typing import get_args
 
-    from app.finance.schemas import FinanceMode
+    from app.finance.schemas.agent import FinanceMode
 
     body = _mode_check_body(_fresh())
     assert set(re.findall(r"'([A-Z_]+)'", body)) == set(get_args(FinanceMode))

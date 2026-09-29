@@ -25,10 +25,12 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.execution import _finance_dept_meta
+from app.finance.domain.evidence import finance_dept_meta
 from app.finance.llm.planner import ToolAction
-from app.finance.state import FinanceAgentState
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.service import agent_replies
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 from tests.finance.test_finance_adapter import _Context, _Policy
 
 AS_OF = date(2025, 12, 31)
@@ -86,17 +88,15 @@ def controller_wired(monkeypatch):
     ★ 이력 **자체**를 검증하는 테스트는 각자 `with patch(...)` 로 다시 덮어쓰므로
       영향이 없다 — 그쪽이 저장 호출 수를 직접 센다.
     """
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _AdapterPlanner()))
     monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _AdapterPlanner()),
+        "app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None
     )
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
 
 
 @pytest.fixture
 def wired(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
 
 
 # ---------------------------------------------------------------------------
@@ -112,8 +112,8 @@ def test_adapter_run_id_is_a_uuid_per_execution():
     두 번 실행할 때 같은 run_id 가 나온다 — 이력은 append-only 이고 run_id 가
     기본키라 **두 번째 실행이 통째로 사라진다.**
     """
-    first = adapter._run_id(req())
-    second = adapter._run_id(req())
+    first = agent_replies.new_run_id(req())
+    second = agent_replies.new_run_id(req())
     assert UUID(first) and UUID(second)  # 파싱되지 않으면 저장 자체가 불가능하다
     assert first != second
 
@@ -125,8 +125,8 @@ def test_same_request_executed_twice_writes_two_history_rows(monkeypatch):
     봉투를 두 번 보내는 것은 막을 수 없고, 막을 일도 아니다 — 재실행은 **지워야 할
     중복이 아니라 남아야 할 두 번째 실행**이다.
     """
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         first_reply, _ = adapter.finance_port(req())
         second_reply, _ = adapter.finance_port(req())
 
@@ -138,7 +138,7 @@ def test_same_request_executed_twice_writes_two_history_rows(monkeypatch):
 
 def test_controller_run_ids_are_also_per_execution(wired):
     """Controller 경로도 같은 규칙이다 — 어댑터만 다르게 굴면 이력 축이 갈린다."""
-    with patch("app.finance.execution.save_finance_execution") as saved:
+    with patch("app.finance.service.run_history.save_finance_execution") as saved:
         first, _ = adapter.finance_port(req())
         second, _ = adapter.finance_port(req())
 
@@ -154,8 +154,8 @@ def test_controller_run_ids_are_also_per_execution(wired):
 
 def test_boundary_not_ready_is_recorded_once(monkeypatch):
     """재무 상태를 못 읽어 Controller 에 닿지 못한 실행도 이력에 남는다."""
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, metadata = adapter.finance_port(req())
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -167,8 +167,8 @@ def test_boundary_not_ready_is_recorded_once(monkeypatch):
 
 
 def test_as_of_mismatch_boundary_is_recorded(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, _ = adapter.finance_port(req(as_of=date(2026, 1, 1)))
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -180,8 +180,8 @@ def test_missing_payroll_source_boundary_is_recorded(monkeypatch):
         class policy(_Policy):
             source_refs: ClassVar[dict[str, str]] = {}
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _NoPayrollRef())
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _NoPayrollRef())
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, _ = adapter.finance_port(req())
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -189,8 +189,8 @@ def test_missing_payroll_source_boundary_is_recorded(monkeypatch):
 
 
 def test_invalid_scenario_input_is_recorded(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, _ = adapter.finance_port(req("SCENARIO_VALIDATION", payload={"nope": 1}))
 
     assert reply.runtime_status == "ERROR"
@@ -201,8 +201,8 @@ def test_invalid_scenario_input_is_recorded(monkeypatch):
 def test_ready_run_is_saved_by_the_controller_only(wired):
     """★ 이중 저장 금지 — 정상 완료는 Controller 가 한 번만 저장한다."""
     with (
-        patch("app.finance.execution.save_finance_execution") as controller_saved,
-        patch("app.finance.adapter.save_finance_execution") as adapter_saved,
+        patch("app.finance.service.run_history.save_finance_execution") as controller_saved,
+        patch("app.finance.service.agent_replies.save_finance_execution") as adapter_saved,
     ):
         reply, _ = adapter.finance_port(req())
 
@@ -216,9 +216,9 @@ def test_history_failure_does_not_change_the_business_answer(monkeypatch):
 
     다만 감추지는 않는다 — 실패 자체가 observations 에 남아 마스터가 볼 수 있다.
     """
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
     with patch(
-        "app.finance.adapter.save_finance_execution",
+        "app.finance.service.agent_replies.save_finance_execution",
         side_effect=RuntimeError("no database here"),
     ):
         reply, metadata = adapter.finance_port(req())
@@ -239,7 +239,7 @@ def test_status_query_stays_deterministic_and_calls_no_llm(wired, monkeypatch):
     def _boom(*_args, **_kwargs):
         raise AssertionError("STATUS_QUERY must not build a Finance Agent Controller")
 
-    monkeypatch.setattr(adapter, "FinanceAgentController", _boom)
+    wire_controller(monkeypatch, _boom)
     reply, metadata = adapter.finance_port(req("STATUS_QUERY"))
 
     assert reply.runtime_status == "READY"
@@ -254,7 +254,7 @@ def test_status_query_is_not_written_to_the_v22_history(wired):
     조회 이력을 남기려면 스키마를 고쳐야 하고 그것은 Finance 코드 밖이다 —
     억지로 넣으면 INSERT 가 CHECK 위반으로 죽는다. 지금은 남기지 않는 것이 맞다.
     """
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, _ = adapter.finance_port(req("STATUS_QUERY"))
 
     assert reply.runtime_status == "READY"
@@ -275,7 +275,7 @@ def test_status_query_never_labels_a_policy_value_with_the_state_row(monkeypatch
                 "payroll_date": "SRC-FIN-N6",
             }
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _NoPolicyRefs())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _NoPolicyRefs())
     reply, _ = adapter.finance_port(req("STATUS_QUERY"))
 
     assert reply.runtime_status == "READY"
@@ -311,11 +311,11 @@ def test_status_query_keeps_policy_refs_when_they_exist(wired):
 
 def test_status_query_llm_status_reflects_the_setting(wired, monkeypatch):
     """🔴 켜 뒀는데 안 부른 것은 `DISABLED` 가 아니라 `SKIPPED_TEMPLATE` 다."""
-    monkeypatch.setattr("app.finance.adapter.finance_llm_enabled", lambda: True)
+    monkeypatch.setattr("app.finance.service.agent_replies.finance_llm_enabled", lambda: True)
     _reply, metadata = adapter.finance_port(req("STATUS_QUERY"))
     assert metadata.llm_status == "SKIPPED_TEMPLATE"
 
-    monkeypatch.setattr("app.finance.adapter.finance_llm_enabled", lambda: False)
+    monkeypatch.setattr("app.finance.service.agent_replies.finance_llm_enabled", lambda: False)
     _reply, metadata = adapter.finance_port(req("STATUS_QUERY"))
     assert metadata.llm_status == "DISABLED"
 
@@ -344,7 +344,8 @@ def test_finance_port_dispatches_only_to_the_controller_path():
     source = adapter.finance_port.__code__.co_names
     assert "_controller_pre_purchase" in source
     assert "_controller_scenario_validation" in source
-    assert "_status_query" in source
+    #  2026-09-29 재구성 BL-014: 상태 조회 응답은 `service/status_query.py` 로 나갔다.
+    assert "answer_status_query" in source
 
 
 # ---------------------------------------------------------------------------
@@ -381,14 +382,14 @@ def test_dept_meta_inputs_are_observed_not_declared():
     state = FinanceAgentState(req())
     state.tool_order.append("assess_finance_position")
 
-    meta = _finance_dept_meta("PRE_PURCHASE", {"available_cash": 1000}, [state])
+    meta = finance_dept_meta("PRE_PURCHASE", {"available_cash": 1000}, [state])
     inputs = meta["inputs_used"]["finance_cap_amount_krw"]
     assert "finance_state.current_cash_krw" in inputs
     # cap Tool 을 안 돌렸으므로 그 Tool 의 입력은 나타나지 않는다.
     assert "base_projection.projected_cash_by_date" not in inputs
 
     state.tool_order.append("calculate_purchase_finance_cap")
-    widened = _finance_dept_meta("PRE_PURCHASE", {"available_cash": 1000}, [state])
+    widened = finance_dept_meta("PRE_PURCHASE", {"available_cash": 1000}, [state])
     assert (
         "base_projection.projected_cash_by_date"
         in widened["inputs_used"]["finance_cap_amount_krw"]
@@ -422,8 +423,8 @@ def test_dept_meta_produced_fields_match_the_reply_payload(wired):
 
 def test_dept_meta_is_absent_when_the_run_is_not_ready(monkeypatch):
     """못 낸 실행에 사용 입력을 적으면, 하지 않은 일을 했다고 적는 것이다."""
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
-    with patch("app.finance.adapter.save_finance_execution"):
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
+    with patch("app.finance.service.agent_replies.save_finance_execution"):
         reply, metadata = adapter.finance_port(req())
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -487,7 +488,7 @@ def test_finance_dept_meta_reaches_critic_and_runs_both_checks(wired):
     )
     try:
         runner = MasterRunner(context, wiring.registry(), CallBudget())
-        with patch("app.finance.execution.save_finance_execution"):
+        with patch("app.finance.service.run_history.save_finance_execution"):
             reply = runner.call("finance", "PRE_PURCHASE")
     finally:
         wiring._REGISTRY = saved_registry
@@ -548,7 +549,7 @@ def test_finance_dept_meta_reaches_critic_and_runs_both_checks(wired):
     ],
 )
 def test_invalid_scenario_payload_is_a_recorded_error_not_an_exception(wired, payload):
-    with patch("app.finance.adapter.save_finance_execution") as saved:
+    with patch("app.finance.service.agent_replies.save_finance_execution") as saved:
         reply, _metadata = adapter.finance_port(req("SCENARIO_VALIDATION", payload=payload))
 
     assert reply.runtime_status == "ERROR"
@@ -571,7 +572,7 @@ def test_model_level_validation_error_falls_back_to_its_type(wired, purchase_pay
     payload = deepcopy(purchase_payload)
     payload["no_proposal_reason"] = "시나리오가 있는 제안에는 설정할 수 없다"
 
-    with patch("app.finance.adapter.save_finance_execution"):
+    with patch("app.finance.service.agent_replies.save_finance_execution"):
         reply, _ = adapter.finance_port(req("SCENARIO_VALIDATION", payload=payload))
 
     assert reply.runtime_status == "ERROR"

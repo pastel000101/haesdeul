@@ -10,7 +10,7 @@ from decimal import Decimal
 import pytest
 
 from app.api.finance.console_routes import MAX_CASHFLOW_DAYS
-from app.finance import dashboard
+from app.finance.repository import dashboard
 from app.sales.readmodel import dashboard as sales_dashboard
 from app.sales.schemas.console_trend import MAX_TREND_DAYS
 
@@ -20,7 +20,7 @@ class _Reader:
         self.rows = rows or []
         self.calls: list[tuple[str, list]] = []
 
-    def __call__(self, query, params=None):
+    def __call__(self, conn, query, params=None):
         self.calls.append((str(query), list(params or [])))
         return list(self.rows)
 
@@ -38,7 +38,7 @@ def test_recent_closings_come_back_newest_first(monkeypatch):
     monkeypatch.setattr(dashboard, "fetch_all", reader)
     monkeypatch.setattr(dashboard, "get_db_schema", lambda: "haetdeul")
 
-    dashboard.load_recent_closings(sim_run_id="RUN", as_of=date(2026, 1, 26), limit=10)
+    dashboard.load_recent_closings(None, sim_run_id="RUN", as_of=date(2026, 1, 26), limit=10)
 
     query, params = reader.calls[0]
     assert "ORDER BY close_date DESC" in query
@@ -51,7 +51,7 @@ def test_recent_closings_never_reach_past_the_as_of(monkeypatch):
     monkeypatch.setattr(dashboard, "fetch_all", reader)
     monkeypatch.setattr(dashboard, "get_db_schema", lambda: "haetdeul")
 
-    dashboard.load_recent_closings(sim_run_id="RUN", as_of=date(2026, 1, 26), limit=10)
+    dashboard.load_recent_closings(None, sim_run_id="RUN", as_of=date(2026, 1, 26), limit=10)
 
     assert "close_date <= %s" in reader.calls[0][0]
 

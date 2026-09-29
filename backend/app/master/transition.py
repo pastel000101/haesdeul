@@ -402,7 +402,7 @@ def _ledger_blocked(commitment: ApprovedCommitment) -> LedgerBlock | None:
     ★ **회차가 둘 이상이어도 회차 금액이 다 실려 있으면 지나간다** (2026-09-08).
       전에는 무조건 막았고 그 시절 주석은 *"재무도 같은 이유로 무조건 막는다"* 고
       적었는데 **사실이 아니었다** — 재무 `_payment_legs`
-      (`app/finance/transition.py:207`)는 `len(legs) > 1` 일 때 금액이 비었으면만
+      (`app/finance/domain/transition.py`)는 `len(legs) > 1` 일 때 금액이 비었으면만
       막는 **조건부**다. 이제 두 곳이 같은 조건으로 막는다.
 
     ★ 회차가 **하나도 없는** 경우는 여기서 가르지 않는다 — 그건 원장 이전에 재무가

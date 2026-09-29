@@ -14,9 +14,9 @@ import os
 import urllib.request
 
 from app.contracts.core import Evidence
+from app.finance.domain.messages import FINANCE_EXPLANATIONS, explanation_keys
 from app.finance.llm.client import _finance_model, _gemini_generate
-from app.finance.schemas import FinanceMode
-from app.finance.user_messages import FINANCE_EXPLANATIONS, explanation_keys
+from app.finance.schemas.agent import FinanceMode
 
 #: 사용자에게 그대로 보이는 확정 설명. **정본은 `app.finance.user_messages`** 다.
 #:

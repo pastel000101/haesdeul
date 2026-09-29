@@ -13,13 +13,13 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.schemas import CashEvent
-from app.finance.tools import (
+from app.finance.domain.tools import (
     build_proposed_sales_collection_event,
     calculate_collection_date,
     project_cashflow,
     project_sales_scenario_cashflow,
 )
+from app.finance.schemas.agent import CashEvent
 
 AS_OF = date(2026, 3, 1)
 HORIZON = date(2026, 6, 1)

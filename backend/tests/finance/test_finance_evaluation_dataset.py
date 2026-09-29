@@ -14,9 +14,10 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.finance import adapter
-from app.finance.application.orchestration import FinanceAgentController
 from app.finance.llm.planner import ToolAction
-from app.finance.schemas import CashEvent
+from app.finance.schemas.agent import CashEvent
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 
 AS_OF = date(2025, 12, 31)
 
@@ -44,12 +45,8 @@ class _EvaluationPlanner:
 
 @pytest.fixture(autouse=True)
 def controller_wired(monkeypatch):
-    monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _EvaluationPlanner()),
-    )
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _EvaluationPlanner()))
+    monkeypatch.setattr("app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None)
 
 
 @dataclass(frozen=True)
@@ -126,7 +123,7 @@ def test_평가_데이터셋이_필수_라벨을_모두_가진다():
 
 
 def test_정상과_Cap_초과는_결정론_Adapter_결과를_라벨로_쓴다(monkeypatch, evaluation_request):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
     healthy, metadata = adapter.finance_port(evaluation_request)
     assert healthy.runtime_status == "READY"
     assert healthy.business_status == "ok"
@@ -202,7 +199,7 @@ def _call(
         cash_events=tuple(cash_events),
         unresolved_sources=(),
     )
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: context)
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: context)
     return adapter.finance_port(request)
 
 

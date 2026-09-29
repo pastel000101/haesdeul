@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from app.api.finance import query as finance_query
 from app.api.router import router
 from app.api.sales import query as sales_query
-from app.finance.schemas import (
+from app.finance.schemas.dashboard import (
     FinanceCashflowResponse,
     FinanceCashflowSummary,
     FinanceClosingItem,

@@ -3,7 +3,7 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from app.finance.sales_policy import FINANCE_SALES_MVP_POLICY_REF
+from app.finance.domain.sales_policy import FINANCE_SALES_MVP_POLICY_REF
 from app.sales.domain.proposal import self_check_scenarios
 from app.sales.schemas.proposal import SalesProposalInput
 from app.sales.service.proposal import run_proposal

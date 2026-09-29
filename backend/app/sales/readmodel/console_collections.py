@@ -9,15 +9,17 @@ the one rule; a Sales-local copy would let the 수금 screen and the 채권 scre
 the same receivable in different buckets, and neither would be wrong on its own.
 
 ★ 2026-09-29 BL-013: `sales/console_collections.py` 에서 옮겼다. SQL 은
-  `repository/console_collections.py`, 채권 상태 규칙은 `domain/receivable_history.py` 다.
+  `repository/console_collections.py`, 채권 상태 규칙은 계약
+  `app/contracts/receivable_history.py` 다(2026-09-29 재구성 BL-014 전에는
+  `domain/receivable_history.py`).
 """
 
 from datetime import date
 from decimal import Decimal
 
 from app.contracts.aging import AgingBucket, classify_receivable_aging
+from app.contracts.receivable_history import projected_status
 from app.core import db as core_db
-from app.sales.domain.receivable_history import projected_status
 from app.sales.repository.console_collections import load_collection_rows
 from app.sales.schemas.console_collections import (
     ConsoleCollectionRow,

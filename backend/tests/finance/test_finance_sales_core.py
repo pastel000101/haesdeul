@@ -13,7 +13,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.tools import (
+from app.finance.domain.tools import (
     build_sales_calculation_facts,
     calculate_collection_date,
     calculate_contribution_margin,

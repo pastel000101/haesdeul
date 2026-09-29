@@ -28,7 +28,7 @@ from uuid import UUID, uuid4
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from app.finance.db import execute_returning_one, fetch_all, fetch_one, get_db_schema
+from app.master.db import execute_returning_one, fetch_all, fetch_one, get_db_schema
 
 logger = logging.getLogger(__name__)
 

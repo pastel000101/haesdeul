@@ -10,8 +10,12 @@ from app.api.finance.schema import FinanceTab, FlowCell, StateOption
 from app.api.primitives import CalendarAxis, Card, Chart, Column, Note, Series, Source, Stat, Table
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
-from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
-from app.finance.schemas import FinanceClosingItem, FinanceDashboardResponse, FinanceStateView
+from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
+from app.finance.schemas.dashboard import (
+    FinanceClosingItem,
+    FinanceDashboardResponse,
+    FinanceStateView,
+)
 
 STATES = ("base", "loan")
 _STATE_TO_MODE = {"base": "BASE_NO_LOAN", "loan": "LOAN_BASELINE"}

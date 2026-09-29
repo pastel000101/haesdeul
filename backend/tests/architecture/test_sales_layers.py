@@ -193,7 +193,8 @@ def test_the_adapter_only_translates():
 
 #: 계층마다 **들이면 안 되는** 모듈. 표준 라이브러리 · pydantic 은 막지 않는다.
 _FORBIDDEN: dict[str, tuple[str, ...]] = {
-    #  판단·계산: 입력 → 출력만. 정책값은 재무가 상수로 낸 `app.finance.sales_policy` 하나.
+    #  판단·계산: 입력 → 출력만. 정책값은 재무가 상수로 낸 `app.finance.domain.sales_policy` 하나
+    #  (2026-09-29 재구성 BL-014 전에는 `app.finance.sales_policy`).
     "domain": (
         "psycopg",
         "psycopg_pool",
@@ -256,7 +257,7 @@ _DOMAIN_APP_ALLOWED = (
     "app.contracts",
     "app.core.text",
     #  판매 → 재무 import 는 정책 상수 하나 (`test_sales_never_imports_finance_runtime`).
-    "app.finance.sales_policy",
+    "app.finance.domain.sales_policy",
 )
 
 

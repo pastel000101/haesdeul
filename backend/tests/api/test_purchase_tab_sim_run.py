@@ -10,6 +10,11 @@
 
 ★ 그래서 여기서는 **축 있는 행을 일부러 더 오래된 것으로** 주입한다. 그 상황에서만
 «④ 축이 ⑤ 최신 하나보다 앞이다» 가 판정으로 드러난다.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -97,7 +102,7 @@ def inject(monkeypatch):
         #  🔴 `**_kwargs` 가 있어야 한다 (2026-09-16). `build` 가 `_read` 에
         #     `window_days=` 를 넘기는데, 스텁이 안 받으면 `TypeError` 가 나고
         #     `build` 의 `except Exception` 이 그것을 삼켜 **조용히 예시값**이 나간다.
-        monkeypatch.setattr(purchase_query, "_read", lambda as_of, **_kwargs: data)
+        monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda as_of, **_kwargs: data)
 
     return _inject
 

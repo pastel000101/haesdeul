@@ -60,7 +60,7 @@ from typing import Any, Literal
 from psycopg import sql
 
 from app.core import db as core_db
-from app.finance.db import get_db_schema
+from app.master.db import get_db_schema
 from app.master.sim_run_open import RUN_TABLE
 
 __all__ = [

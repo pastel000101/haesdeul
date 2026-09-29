@@ -54,7 +54,7 @@ from datetime import date
 from typing import Any
 
 from app.contracts.commitment import ApprovedCommitment
-from app.finance.cancellation import cancel_finance_payables
+from app.finance.service.cancellation import cancel_finance_payables
 
 __all__ = ["FinanceCancellationAdapter"]
 

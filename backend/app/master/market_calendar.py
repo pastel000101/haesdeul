@@ -66,7 +66,7 @@ from typing import Any, Protocol
 
 from psycopg import sql
 
-from app.finance.db import fetch_all, get_db_schema
+from app.master.db import fetch_all, get_db_schema
 from app.master.execution_day import CalendarNotCovered
 from app.master.holiday_calendar import TABLE
 

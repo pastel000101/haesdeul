@@ -11,14 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
-from app.finance import user_messages as messages
-from app.finance.application.harness import (
-    FINALIZE_TOOL_NAME,
-    build_planner_tool_adapter,
-    finalize_tool,
-)
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.db import FinanceDataNotReady
+from app.finance.domain import messages
 from app.finance.llm.client import (
     _DEFAULT_MODELS,
     _DEFAULT_OLLAMA_TOOL_CALLING_MODEL,
@@ -33,6 +26,7 @@ from app.finance.llm.client import (
 )
 from app.finance.llm.finalizer import GeminiFinanceFinalizer, OllamaFinanceFinalizer
 from app.finance.llm.planner import (
+    FINALIZE_TOOL_NAME,
     DeterministicFinancePlanner,
     FinanceChatModel,
     FinancePlannerContractViolation,
@@ -40,11 +34,14 @@ from app.finance.llm.planner import (
     ToolAction,
     _AvailabilityFallbackFinanceFinalizer,
     _AvailabilityFallbackFinancePlanner,
-    _configured_finance_llms,
     _ProviderFallbackState,
+    configured_finance_llms,
     finance_chat_model,
 )
-from app.finance.schemas import FinancePolicy
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service.agent import FinanceAgentController
+from app.finance.service.harness import build_planner_tool_adapter, finalize_tool
 
 
 class _Response:
@@ -411,7 +408,7 @@ def test_gemini_contract_failures_are_not_eligible_for_ollama(error):
     assert _is_gemini_availability_failure(error) is False
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_configured_gemini_unavailable_uses_observable_ollama_provider_fallback(
     save_run, monkeypatch
 ):
@@ -455,7 +452,7 @@ def test_configured_gemini_unavailable_uses_observable_ollama_provider_fallback(
         ),
     ],
 )
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_double_provider_failure_uses_deterministic_planner_without_changing_business_result(
     save_run, monkeypatch, primary_error, primary_reason
 ):
@@ -503,7 +500,7 @@ def test_double_provider_failure_uses_deterministic_planner_without_changing_bus
     save_run.assert_called_once()
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_gemini_http_400_does_not_use_deterministic_planner_fallback(
     save_run, monkeypatch
 ):
@@ -533,7 +530,7 @@ def test_gemini_http_400_does_not_use_deterministic_planner_fallback(
     save_run.assert_called_once()
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_normal_gemini_provider_observation_is_distinct(save_run, monkeypatch):
     monkeypatch.setenv("FINANCE_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("FINANCE_LLM_MODEL", "gemini-primary-model")
@@ -554,7 +551,7 @@ def test_normal_gemini_provider_observation_is_distinct(save_run, monkeypatch):
     save_run.assert_called_once()
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_explicit_ollama_provider_observation_is_distinct(save_run, monkeypatch):
     monkeypatch.setenv("FINANCE_LLM_PROVIDER", "ollama")
     monkeypatch.setenv("FINANCE_LLM_MODEL", "gemma3:4b")
@@ -707,7 +704,7 @@ def test_gemini_rejects_invalid_finalize_tool_combinations(
         _planner_decide(_gemini_planner(), missing=missing, exposed=exposed)
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_gemini_planner_failure_is_error_with_fallback_metadata(save_run, monkeypatch):
     monkeypatch.delenv("FINANCE_GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
@@ -928,7 +925,7 @@ def test_ollama_fallback_planner_uses_a_tool_calling_model(monkeypatch):
     """
     monkeypatch.setenv("FINANCE_LLM_PROVIDER", "gemini")
     monkeypatch.setenv("FINANCE_LLM_MODEL", "gemini-3.5-flash-lite")
-    planner, _finalizer, state = _configured_finance_llms()
+    planner, _finalizer, state = configured_finance_llms()
     assert state is not None and state.primary_provider == "gemini"
     fallback_model = planner.fallback.model
     assert fallback_model == _ollama_tool_calling_model()
@@ -959,7 +956,7 @@ def test_explicit_finance_model_still_wins_for_the_ollama_planner(monkeypatch):
 def test_finalizer_keeps_the_non_tool_calling_default(monkeypatch):
     """★ 설명은 tool calling 이 아니다 — 기본값을 같이 바꾸지 않았다."""
     monkeypatch.setenv("FINANCE_LLM_PROVIDER", "gemini")
-    _planner, finalizer, _state = _configured_finance_llms()
+    _planner, finalizer, _state = configured_finance_llms()
     assert finalizer.fallback.model == _DEFAULT_MODELS["ollama"]
 
 

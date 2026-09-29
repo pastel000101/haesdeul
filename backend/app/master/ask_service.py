@@ -37,6 +37,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
@@ -46,24 +48,23 @@ from app.core import db as core_db
 from app.core.settings import SHOWN_SIM_RUN_ID
 
 # DOMAIN_ACTION은 기존 Domain read/write를 호출만 한다. Master에 SQL/재계산을 두지 않는다.
-from app.finance.console_credit import get_console_credit
-from app.finance.console_expenses import get_console_expenses
-from app.finance.console_payables import get_console_payables
-from app.finance.console_receivables import get_console_receivables
-from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
-from app.finance.router import (
-    CashAdjustmentChange,
-    CreditLimitChange,
-    ExpenseCancel,
-    ExpenseCreate,
-    ExpenseSettle,
-    ReceivableCollectionChange,
-    cancel_operating_expense,
-    create_cash_adjustment,
-    create_operating_expense,
-    record_receivable_collection,
-    register_credit_limit,
-    settle_operating_expense,
+from app.finance.readmodel.console_credit import get_console_credit
+from app.finance.readmodel.console_expenses import get_console_expenses
+from app.finance.readmodel.console_payables import get_console_payables
+from app.finance.readmodel.console_receivables import get_console_receivables
+from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
+from app.finance.schemas.cash_adjustments import CashAdjustmentChange
+from app.finance.schemas.collections import ReceivableCollectionChange
+from app.finance.schemas.credit_limits import CreditLimitChange
+from app.finance.schemas.expenses import ExpenseCancel, ExpenseCreate, ExpenseSettle
+from app.finance.schemas.write_rejection import FinanceWriteRejected
+from app.finance.service.cash_adjustments import apply_cash_adjustment
+from app.finance.service.collections import record_collection
+from app.finance.service.credit_limits import change_credit_limit
+from app.finance.service.expenses import (
+    accrue_operating_expense,
+    cancel_accrued_expense,
+    pay_accrued_expense,
 )
 from app.master import persistence, wiring
 from app.master.answer import (
@@ -723,6 +724,23 @@ def _domain_read(
     raise NotImplementedError(f"{action} 읽기 경로가 배선되지 않았다.")
 
 
+@contextmanager
+def _finance_write() -> Iterator[None]:
+    """재무 쓰기 service 가 받지 않은 요청을 ask 의 오류로 옮긴다.
+
+    ★ 화면 재무 라우터와 **같은 상태 코드 · 같은 문장**이다 — 마스터 라우터가 `LookupError` 를
+      404 로, `DecisionRejected` 를 409(`conflict=True`) · 422 로 접는다. 2026-09-29 재구성
+      BL-014 전에는 재무 라우터 핸들러를 함수로 불러 그 `HTTPException` 이 그대로 나갔다(규칙 1
+      위반) — 지금은 같은 재무 service 를 부르고 여기서 옮긴다.
+    """
+    try:
+        yield
+    except FinanceWriteRejected as error:
+        if error.reason == "NOT_FOUND":
+            raise LookupError(error.message) from error
+        raise DecisionRejected(error.message, conflict=error.reason == "CONFLICT") from error
+
+
 def _domain_write(
     intent: Intent,
     *,
@@ -744,8 +762,9 @@ def _domain_write(
         category = slots.cash_category or (
             "OWNER_INJECTION" if direction == "INFLOW" else "OWNER_WITHDRAWAL"
         )
-        with core_db.connection() as conn:
-            result = create_cash_adjustment(
+        with core_db.connection() as conn, _finance_write():
+            result = apply_cash_adjustment(
+                conn,
                 CashAdjustmentChange(
                     sim_run_id=SHOWN_SIM_RUN_ID,
                     financing_mode=mode,
@@ -757,7 +776,6 @@ def _domain_write(
                     recorded_by=actor,
                     note=slots.note,
                 ),
-                conn,
             )
         return DomainActionAnswer(
             domain="finance",
@@ -768,8 +786,9 @@ def _domain_write(
 
     if action == "FINANCE_CREDIT_LIMIT_UPSERT":
         partner_id = _partner_id(intent, as_of=as_of)
-        with core_db.connection() as conn:
-            result = register_credit_limit(
+        with core_db.connection() as conn, _finance_write():
+            result = change_credit_limit(
+                conn,
                 CreditLimitChange(
                     partner_id=partner_id,
                     credit_limit_krw=_money(
@@ -783,7 +802,6 @@ def _domain_write(
                     recorded_by=actor,
                     note=slots.note,
                 ),
-                conn,
             )
         return DomainActionAnswer(
             domain="finance",
@@ -798,8 +816,9 @@ def _domain_write(
     if action == "FINANCE_COLLECTION_CREATE":
         receivable_id = _find_receivable(intent, as_of=as_of)
         mode = _financing_mode(intent, as_of=as_of)
-        with core_db.connection() as conn:
-            result = record_receivable_collection(
+        with core_db.connection() as conn, _finance_write():
+            result = record_collection(
+                conn,
                 ReceivableCollectionChange(
                     sim_run_id=SHOWN_SIM_RUN_ID,
                     financing_mode=mode,
@@ -811,7 +830,6 @@ def _domain_write(
                     recorded_by=actor,
                     note=slots.note,
                 ),
-                conn,
             )
         return DomainActionAnswer(
             domain="finance",
@@ -824,8 +842,9 @@ def _domain_write(
         )
 
     if action == "FINANCE_EXPENSE_CREATE":
-        with core_db.connection() as conn:
-            result = create_operating_expense(
+        with core_db.connection() as conn, _finance_write():
+            result = accrue_operating_expense(
+                conn,
                 ExpenseCreate(
                     sim_run_id=SHOWN_SIM_RUN_ID,
                     expense_date=_user_date(
@@ -841,7 +860,6 @@ def _domain_write(
                     is_fixed=bool(slots.is_fixed),
                     note=slots.note,
                 ),
-                conn,
             )
         return DomainActionAnswer(
             domain="finance",
@@ -852,8 +870,9 @@ def _domain_write(
 
     if action == "FINANCE_EXPENSE_SETTLE":
         mode = _financing_mode(intent, as_of=as_of)
-        with core_db.connection() as conn:
-            result = settle_operating_expense(
+        with core_db.connection() as conn, _finance_write():
+            result = pay_accrued_expense(
+                conn,
                 slots.expense_id or "",
                 ExpenseSettle(
                     sim_run_id=SHOWN_SIM_RUN_ID,
@@ -862,7 +881,6 @@ def _domain_write(
                         slots.paid_date, as_of=as_of, field="실제 지급일", required=True
                     ),
                 ),
-                conn,
             )
         return DomainActionAnswer(
             domain="finance",
@@ -875,10 +893,9 @@ def _domain_write(
         )
 
     if action == "FINANCE_EXPENSE_CANCEL":
-        with core_db.connection() as conn:
-            result = cancel_operating_expense(
-                slots.expense_id or "", ExpenseCancel(sim_run_id=SHOWN_SIM_RUN_ID),
-                conn,
+        with core_db.connection() as conn, _finance_write():
+            result = cancel_accrued_expense(
+                conn, slots.expense_id or "", ExpenseCancel(sim_run_id=SHOWN_SIM_RUN_ID)
             )
         return DomainActionAnswer(
             domain="finance",

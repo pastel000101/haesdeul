@@ -21,8 +21,8 @@ from typing import Any
 
 from app.contracts.core import SuggestedAdjustment
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.finance.capabilities.sales import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
-from app.finance.execution import _adjustment_from_dict
+from app.finance.domain.evidence import adjustment_from_dict
+from app.finance.domain.sales_validation import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
 from app.master import AgentRegistry, CallBudget, MasterRunner
 from app.master.sales_flow import SalesFlow
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
@@ -93,7 +93,7 @@ def _finance_port(*, with_adjustment: bool = True):
             # 계산할 수 없는 실패 — 상한을 못 센다.
             payload["max_finance_allowed_amount_krw"] = None
         adjustments: tuple[SuggestedAdjustment, ...] = tuple(
-            _adjustment_from_dict(item) for item in build_sales_adjustments(payload)
+            adjustment_from_dict(item) for item in build_sales_adjustments(payload)
         )
         reply = _reply(
             request,

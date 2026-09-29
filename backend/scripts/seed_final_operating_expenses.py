@@ -37,8 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from psycopg import sql
 
 from app.core import db as core_db
-from app.finance.db import get_db_schema
-from app.finance.expenses import create_expense
+from app.core.settings import get_db_schema
+from app.finance.service.expenses import create_expense
 
 #: 합의된 운영비. 월 3,855,000원 × 9개월 = 34,695,000원.
 #:

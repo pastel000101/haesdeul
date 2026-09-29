@@ -56,8 +56,9 @@ from typing import Any
 import pytest
 
 import app.main  # noqa: F401  — import 시점에 수금 실행을 등록한다. 이 검사의 전제다
-from app.finance.collection import CollectionEvent
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
+from app.finance.schemas.collections import CollectionEvent
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
 from app.master import collection
 from app.master.collection_events import read_collection_events
 from app.master.finance_collection import FinanceCollectionAdapter

@@ -223,9 +223,9 @@ from typing import Any
 from psycopg import sql
 
 from app.core import db as core_db
-from app.finance.db import get_db_schema
 from app.master.backfill import BACKFILL_CONFIG_KEY, read_rules
 from app.master.backtest_runner import _use_utf8_output
+from app.master.db import get_db_schema
 from app.master.sim_run import create_sim_run
 from app.master.sim_run_open import (
     RUN_TABLE,

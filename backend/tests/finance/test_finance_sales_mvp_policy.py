@@ -12,7 +12,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.finance.sales_policy import (
+from app.finance.domain.sales_policy import (
     FINANCE_SALES_MVP_POLICY_REF,
     FinanceSalesMvpPolicy,
     load_finance_sales_mvp_policy,

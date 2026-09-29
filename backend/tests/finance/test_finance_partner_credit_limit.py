@@ -17,15 +17,18 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady, load_partner_credit_limit
+from app.finance.readmodel.partner_credit import load_partner_credit_limit
+from app.finance.schemas.data_port import FinanceDataNotReady
 
-_DB = "app.finance.db"
+#: 2026-09-29 재구성 BL-014: 한도 SQL 은 repository 가 loader 가 빌린 조회 연결로 실행한다.
+_DB = "app.finance.repository.partner_credit"
 AS_OF = date(2026, 4, 1)
 PARTNER = "KIMCHI_FACTORY_001"
 
@@ -37,7 +40,7 @@ class _Rows:
         self.rows = rows
         self.calls: list[tuple[str, list]] = []
 
-    def __call__(self, query, params=None):
+    def __call__(self, _conn, query, params=None):
         text = query.as_string(None) if hasattr(query, "as_string") else str(query)
         self.calls.append((text, list(params or [])))
         return list(self.rows)
@@ -50,6 +53,7 @@ def _row(amount, limit_id="PCL-1"):
 def _load(rows, *, as_of=AS_OF, partner_id=PARTNER):
     fetch_all = _Rows(rows)
     with (
+        patch("app.core.db.read_connection", return_value=nullcontext(None)),
         patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
         patch(f"{_DB}.fetch_all", fetch_all),
     ):
@@ -128,6 +132,7 @@ def test_two_active_limits_on_the_same_day_block_instead_of_guessing():
 def test_a_broken_lookup_is_not_an_absent_limit():
     """조회 실패는 *"한도 없음"* 이 아니다 — 실행이 서야 한다."""
     with (
+        patch("app.core.db.read_connection", return_value=nullcontext(None)),
         patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
         patch(f"{_DB}.fetch_all", side_effect=RuntimeError("connection refused")),
         pytest.raises(FinanceDataNotReady) as raised,
@@ -135,6 +140,16 @@ def test_a_broken_lookup_is_not_an_absent_limit():
         load_partner_credit_limit(as_of=AS_OF, partner_id=PARTNER)
 
     assert raised.value.key == "partner_credit_limit"
+
+    #  2026-09-29 재구성 BL-014: 연결을 빌리는 실패도 같은 사실이다 — 종전에는 조회 헬퍼
+    #  안에서 빌렸고, 이제 loader 가 빌린다.
+    with (
+        patch("app.core.db.read_connection", side_effect=RuntimeError("connection refused")),
+        pytest.raises(FinanceDataNotReady) as borrowed,
+    ):
+        load_partner_credit_limit(as_of=AS_OF, partner_id=PARTNER)
+
+    assert borrowed.value.key == "partner_credit_limit"
 
 
 @pytest.mark.parametrize(
@@ -163,8 +178,8 @@ def test_a_blank_partner_is_refused_outright():
 
 
 def _credit(limit, *, ar, sales_amount):
-    from app.finance.capabilities.sales import evaluate_receivable_capacity
-    from app.finance.sales_validation import PartnerReceivableFacts
+    from app.finance.domain.sales_validation import evaluate_receivable_capacity
+    from app.finance.schemas.sales_validation import PartnerReceivableFacts
 
     facts = PartnerReceivableFacts(
         partner_id=PARTNER,

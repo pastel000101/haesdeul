@@ -5,7 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.cash_adjustments import CashAdjustmentConflict, record_cash_adjustment
+from app.finance.schemas.cash_adjustments import CashAdjustmentConflict
+from app.finance.service.cash_adjustments import record_cash_adjustment
 
 
 class _Cursor:
@@ -66,7 +67,7 @@ def _record(conn: _Connection, *, direction: str = "INFLOW", amount: Decimal = D
 
 
 def test_user_cash_inflow_is_ledgered_and_updates_the_exact_state(monkeypatch):
-    monkeypatch.setattr("app.finance.cash_adjustments.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.cash_adjustments.get_db_schema", lambda: "haetdeul")
     conn = _Connection(Decimal(1000))
 
     result = _record(conn)
@@ -78,7 +79,7 @@ def test_user_cash_inflow_is_ledgered_and_updates_the_exact_state(monkeypatch):
 
 
 def test_user_cash_outflow_cannot_make_the_state_negative(monkeypatch):
-    monkeypatch.setattr("app.finance.cash_adjustments.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.cash_adjustments.get_db_schema", lambda: "haetdeul")
     conn = _Connection(Decimal(100))
 
     with pytest.raises(CashAdjustmentConflict, match="0원"):

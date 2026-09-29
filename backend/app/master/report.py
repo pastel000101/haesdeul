@@ -645,11 +645,11 @@ def _chat_won(value: Any) -> str:
 
 def render_finance_chat_report(*, sim_run_id: str, as_of, start_date, end_date) -> dict[str, Any]:
     """기존 Finance read model만으로 만드는 보고서. LLM/새 계산 없음."""
-    from app.finance.console_credit import get_console_credit
-    from app.finance.console_expenses import get_console_expenses
-    from app.finance.console_payables import get_console_payables
-    from app.finance.console_receivables import get_console_receivables
-    from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
+    from app.finance.readmodel.console_credit import get_console_credit
+    from app.finance.readmodel.console_expenses import get_console_expenses
+    from app.finance.readmodel.console_payables import get_console_payables
+    from app.finance.readmodel.console_receivables import get_console_receivables
+    from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
 
     # 기말 상태 KPI는 요청 시점이 아니라 보고서 종료일의 동일 실행 read model을 쓴다.
     dashboard = get_finance_dashboard(sim_run_id=sim_run_id, as_of=end_date)

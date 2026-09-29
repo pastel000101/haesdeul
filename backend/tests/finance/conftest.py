@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.schemas import (
+from app.finance.schemas.agent import (
     FinanceDebtPolicy,
     FinancePolicy,
     FinanceRuntimeContext,

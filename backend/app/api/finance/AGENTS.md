@@ -60,7 +60,7 @@ def build(as_of: date, state: str) -> FinanceTab:
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.finance.dashboard import get_finance_dashboard, get_finance_cashflow
+from app.finance.readmodel.dashboard import get_finance_dashboard, get_finance_cashflow
 dash = get_finance_dashboard(sim_run_id=..., as_of=as_of)
 flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
 ```
@@ -99,28 +99,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.finance.db import fetch_one, fetch_all, get_db_schema
+재무는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/finance/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/finance/readmodel/` 입니다.
+
+```text
+app/finance/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/finance/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.finance_states WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---

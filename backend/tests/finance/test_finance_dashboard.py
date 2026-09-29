@@ -1,13 +1,14 @@
 from datetime import date
 from decimal import Decimal
 
-from app.finance import dashboard
+from app.finance.readmodel import dashboard
+from tests.finance.finance_fake_connection import lend
 
 AS_OF = date(2025, 12, 31)
 
 
 def test_finance_dashboard_keeps_base_and_loan_states_separate(monkeypatch):
-    _patch_common(monkeypatch)
+    conn = _patch_common(monkeypatch)
 
     response = dashboard.get_finance_dashboard(
         sim_run_id="SIM-BURNIN-202512", as_of=AS_OF
@@ -29,6 +30,8 @@ def test_finance_dashboard_keeps_base_and_loan_states_separate(monkeypatch):
         date(2025, 12, 31),
         date(2025, 12, 30),
     ]
+    #  2026-09-29 재구성 BL-014: 한 화면 응답은 조회 연결 하나로 읽는다.
+    assert conn.borrows == ["read"]
 
 
 def test_finance_cashflow_is_ascending_and_has_buffers(monkeypatch):
@@ -36,7 +39,7 @@ def test_finance_cashflow_is_ascending_and_has_buffers(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_cashflow",
-        lambda **_: [_closing(date(2025, 12, 30), 29), _closing(date(2025, 12, 31), 30)],
+        lambda _conn, **_: [_closing(date(2025, 12, 30), 29), _closing(date(2025, 12, 31), 30)],
     )
 
     response = dashboard.get_finance_cashflow(
@@ -56,16 +59,21 @@ def test_finance_cashflow_is_ascending_and_has_buffers(monkeypatch):
 
 
 def _patch_common(monkeypatch):
+    conn = lend(monkeypatch)
     monkeypatch.setattr(
         dashboard,
         "load_finance_dashboard_meta",
-        lambda **_: {"sim_run_id": "SIM-BURNIN-202512", "as_of": AS_OF, "data_type": "SIMULATION"},
+        lambda _conn, **_: {
+            "sim_run_id": "SIM-BURNIN-202512",
+            "as_of": AS_OF,
+            "data_type": "SIMULATION",
+        },
     )
-    monkeypatch.setattr(dashboard, "load_finance_states", lambda **_: _states())
+    monkeypatch.setattr(dashboard, "load_finance_states", lambda _conn, **_: _states())
     monkeypatch.setattr(
         dashboard,
         "load_cashflow_summary",
-        lambda **_: {
+        lambda _conn, **_: {
             "purchase_cash_out_krw": Decimal(1),
             "logistics_cash_out_krw": Decimal(2),
             "payroll_interest_cash_out_krw": Decimal(3),
@@ -79,7 +87,7 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_receivable_summary",
-        lambda **_: {
+        lambda _conn, **_: {
             "count": 15,
             "collected_count": 6,
             "partial_count": 2,
@@ -93,7 +101,7 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_payable_summary",
-        lambda **_: {
+        lambda _conn, **_: {
             "count": 16,
             "original_amount_krw": Decimal(1000),
             "paid_amount_krw": Decimal(1000),
@@ -101,12 +109,12 @@ def _patch_common(monkeypatch):
             "overdue_amount_krw": Decimal(0),
         },
     )
-    monkeypatch.setattr(dashboard, "load_receivables", lambda **_: [])
-    monkeypatch.setattr(dashboard, "load_payables", lambda **_: [])
+    monkeypatch.setattr(dashboard, "load_receivables", lambda _conn, **_: [])
+    monkeypatch.setattr(dashboard, "load_payables", lambda _conn, **_: [])
     monkeypatch.setattr(
         dashboard,
         "load_expense_summary",
-        lambda **_: [
+        lambda _conn, **_: [
             {
                 "expense_category": "PAYROLL",
                 "status": "PAID",
@@ -120,8 +128,9 @@ def _patch_common(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_recent_closings",
-        lambda **_: [_closing(date(2025, 12, 31), 30), _closing(date(2025, 12, 30), 29)],
+        lambda _conn, **_: [_closing(date(2025, 12, 31), 30), _closing(date(2025, 12, 30), 29)],
     )
+    return conn
 
 
 def _states() -> list[dict[str, object]]:

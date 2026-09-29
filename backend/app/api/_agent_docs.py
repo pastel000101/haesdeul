@@ -362,6 +362,28 @@ app/ml/readmodel/<자원>.py    창고에 맞는 풀에서 조회 연결을 빌�
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 """
 
+#: 재무 DB 안내 (2026-09-29 재구성 BL-014). `sim_run_id` 절은 `DB_HELP` 와 같고,
+#: DB 절만 재무 계층으로.
+FINANCE_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+재무는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/finance/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/finance/readmodel/` 입니다.
+
+```text
+app/finance/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/finance/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
 VERIFY = """\
 ## 다 됐는지 확인하기
 
@@ -482,7 +504,7 @@ PARTS = [
     Part(
         key="dashboard", owner="마스터", title="대시보드",
         route="/api/dashboard?as_of=2026-01-06", screen="/console",
-        db_module="app.finance.db", table="daily_closings",
+        db_module="app.master.db", table="daily_closings",
         model=DashboardTab,
         signature="def build(as_of: date) -> DashboardTab:",
         tables="""\
@@ -564,7 +586,7 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
     Part(
         key="purchase", owner="매입", title="매입",
         route="/api/purchase?as_of=2026-01-22", screen="/console/purchase",
-        db_module="app.finance.db", table="purchases",
+        db_module="app.master.db", table="purchases",
         model=PurchaseTab,
         signature="def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:",
         tables="""\
@@ -575,12 +597,12 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** 매입 에이전트(`app.purchase_agent`)는
-`get_db_schema` 를 **쓰지 않습니다** — 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는
-*"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
-에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
-`.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
-이유로 같은 선택을 했습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
+🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
+(2026-09-29 — SQL 은 `app/master/purchase_tab_repository.py`, 조회 헬퍼는 마스터 입구
+`app.master.db`). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
+안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
+스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
 """,
         notes="""\
 ## ★ 이 파트만의 규칙
@@ -597,7 +619,7 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 
 ```text
 max_price       재무 STRESS 로 나간다 — 남이 등식을 검사한다
-                finance/capabilities/scenario.py   amount_max_krw 등식
+                finance/service/capabilities/scenario.py   amount_max_krw 등식
                 master/verifier.py                 검사 이름 L-PAYSCHED-MAX
 cut_unit_price  우리 컷 (self_check.check_max_price)
 ```
@@ -642,13 +664,13 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 그 상수 주석이 *"여러 개가 되면 요청 파라미터로 올린다"* 이므로 매입이
 **먼저 그 자리에 간 것**입니다.
 
-**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `_read` 는 전부 읽고
+**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
 `_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
    WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 됩니다
-② 검사가 `_read` 를 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
+② 검사가 `read_purchase_tab` 을 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
    필터를 건너뛰어 축이 도는지를 못 잽니다
 ```
 
@@ -660,14 +682,14 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
     Part(
         key="finance", owner="재무", title="재무",
         route="/api/finance?as_of=2025-12-31&state=base", screen="/console/finance",
-        db_module="app.finance.db", table="finance_states",
+        db_module="app.finance.repository", table="finance_states", db_help=FINANCE_DB_HELP,
         model=FinanceTab,
         signature="def build(as_of: date, state: str) -> FinanceTab:",
         tables="""\
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.finance.dashboard import get_finance_dashboard, get_finance_cashflow
+from app.finance.readmodel.dashboard import get_finance_dashboard, get_finance_cashflow
 dash = get_finance_dashboard(sim_run_id=..., as_of=as_of)
 flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
 ```

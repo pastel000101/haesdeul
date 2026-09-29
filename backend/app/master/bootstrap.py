@@ -27,10 +27,12 @@ from __future__ import annotations
 
 from functools import partial
 
-from app.finance.adapter import finance_port
-from app.finance.closing_adapter import FinanceClosingAdapter
-from app.finance.day_open import FinanceDayOpening
-from app.finance.transition import FinanceTransitionAdapter
+from app.finance.adapter import (
+    FinanceClosingAdapter,
+    FinanceDayOpening,
+    FinanceTransitionAdapter,
+    finance_port,
+)
 from app.logistics.adapter import logistics_port
 from app.logistics.cancellation import LogisticsCancellationAdapter
 from app.logistics.day_open import LogisticsDayOpening

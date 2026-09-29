@@ -7,7 +7,7 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance.adapter import finance_port
-from app.finance.schemas import (
+from app.finance.schemas.agent import (
     FinanceDebtPolicy,
     FinancePolicy,
     FinanceRuntimeContext,
@@ -15,6 +15,7 @@ from app.finance.schemas import (
 )
 from app.sales.schemas.proposal import SalesProposalInput
 from app.sales.service.proposal import run_proposal
+from tests.finance.finance_fake_connection import lent
 
 
 def _sales_request(**overrides):
@@ -119,7 +120,7 @@ def _finance_request(payload):
 
 
 def _capture_save(saved):
-    def _inner(_query, params):
+    def _inner(_conn, _query, params):
         saved["params"] = params
         return {"run_id": UUID("00000000-0000-0000-0000-000000000009")}
 
@@ -236,14 +237,15 @@ def test_finance_sales_validation_port_preserves_identity_and_missing_states(fin
 
     with (
         patch(
-            "app.finance.adapter.get_current_finance_runtime_context",
+            "app.finance.service.agent_run.get_current_finance_runtime_context",
             return_value=finance_context,
         ),
-        patch("app.finance.adapter.load_partner_receivables", return_value=[]),
+        patch("app.finance.service.agent_run.load_partner_receivables", return_value=[]),
         patch("app.finance.llm.planner.finance_llm_enabled", return_value=False),
-        patch("app.finance.adapter.finance_llm_enabled", return_value=False),
-        patch("app.finance.execution.get_db_schema", return_value="haetdeul"),
-        patch("app.finance.execution.execute_returning_one", side_effect=_capture_save(saved)),
+        patch("app.finance.service.agent_replies.finance_llm_enabled", return_value=False),
+        patch("app.finance.repository.runs.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.repository.runs.returning_one", side_effect=_capture_save(saved)),
+        lent(reads=False),  # 이력 저장의 쓰기 연결만 — 조회는 종전처럼 막힌다
     ):
         reply, metadata = finance_port(
             _finance_request({"scenarios": [complete, incomplete]})

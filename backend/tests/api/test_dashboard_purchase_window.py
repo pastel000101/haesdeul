@@ -21,6 +21,11 @@
 
 🔴 **실 DB 에 안 닿는다.** 매입의 `_read` 와 나머지 네 탭 · 두 그래프 · 실매입 기록을
    전부 대역으로 세운다.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -143,7 +148,7 @@ def _source(owner: str) -> Source:
 @pytest.fixture
 def screen(monkeypatch):
     """매입만 **진짜**로 돌리고 나머지는 대역. 매입의 DB 자리만 갈아 끼운다."""
-    monkeypatch.setattr(purchase_query, "_read", _read)
+    monkeypatch.setattr(purchase_query, "read_purchase_tab", _read)
     monkeypatch.setattr(purchase_query, "recorded_totals_by_plan", lambda **_: {})
     monkeypatch.setattr(dashboard_query, "recorded_totals_by_plan", lambda **_: {})
     monkeypatch.setattr(

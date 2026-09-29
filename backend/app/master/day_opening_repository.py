@@ -48,7 +48,7 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from app.core import db as core_db
-from app.finance.db import get_db_schema
+from app.master.db import get_db_schema
 
 __all__ = [
     "DayOpeningRecord",

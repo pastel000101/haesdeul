@@ -11,16 +11,16 @@
 from datetime import date
 from decimal import Decimal
 
-from app.finance.capabilities.sales import (
+from app.finance.domain.sales_validation import (
     evaluate_sales_scenario,
     parse_sales_validation_input,
 )
-from app.finance.sales_validation import PartnerReceivable
-from app.finance.tools import (
+from app.finance.domain.tools import (
     build_proposed_sales_collection_event,
     project_sales_scenario_cashflow,
     summarize_partner_receivables,
 )
+from app.finance.schemas.sales_validation import PartnerReceivable
 
 AS_OF = date(2026, 3, 1)
 HORIZON = date(2026, 6, 1)
@@ -643,7 +643,7 @@ def test_the_payload_carries_the_collection_date_as_text():
     """
     import json
 
-    from app.finance.capabilities.sales import build_sales_validation_payload
+    from app.finance.domain.sales_validation import build_sales_validation_payload
 
     result = _evaluate(_payload(collection_reference_date=date(2026, 1, 10)))
     payload = build_sales_validation_payload(result)
@@ -657,7 +657,7 @@ def test_the_payload_carries_the_collection_date_as_text():
 
 def test_an_unresolved_collection_date_stays_null():
     """회수일을 못 셈한 것은 **빈 문자열이 아니라 `None`** 이다."""
-    from app.finance.capabilities.sales import build_sales_validation_payload
+    from app.finance.domain.sales_validation import build_sales_validation_payload
 
     result = _evaluate(_payload(payment_days=None))
     payload = build_sales_validation_payload(result)

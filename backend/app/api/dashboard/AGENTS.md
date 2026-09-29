@@ -103,7 +103,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
 
 ```python
-from app.finance.db import fetch_one, fetch_all, get_db_schema
+from app.master.db import fetch_one, fetch_all, get_db_schema
 ```
 
 ```python

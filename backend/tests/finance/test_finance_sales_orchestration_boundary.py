@@ -56,7 +56,9 @@ def test_sales_never_imports_finance_runtime():
     """Sales는 실행 계층을 부르지 않고 immutable 판매 정책만 읽을 수 있다."""
     offenders = {name for name in _imported_modules(SALES) if name.startswith("app.finance")}
 
-    assert offenders == {"app.finance.sales_policy"}, offenders
+    #  2026-09-29 재구성 BL-014: 판매 정책 규칙은 `app/finance/domain/sales_policy.py` 로 옮겼다
+    #  (몸통 그대로). 판매가 들이는 재무 모듈은 여전히 그 하나다.
+    assert offenders == {"app.finance.domain.sales_policy"}, offenders
 
 
 def test_finance_touches_master_only_through_shared_contract_modules():
@@ -83,7 +85,7 @@ def test_the_sales_capability_takes_a_payload_not_a_sales_client():
     """판매 Capability 는 payload 를 받는다 — 영업을 부르지 않는다."""
     import inspect
 
-    from app.finance.capabilities import sales
+    from app.finance.service.capabilities import sales
 
     signature = inspect.signature(sales.evaluate_sales_scenario)
     assert next(iter(signature.parameters)) == "payload"
@@ -142,13 +144,13 @@ def test_sales_validation_is_not_opened_to_other_agents():
 
 def test_finance_side_of_the_contract_is_nevertheless_complete():
     """재무 쪽 절반은 다 되어 있다 — 막힌 것은 공통 계약이지 재무가 아니다."""
-    from app.finance.adapter import (
+    from app.finance.domain.sales_validation import (
         SALES_VERDICT_TO_BUSINESS_STATUS,
         build_sales_validation_payload,
+        evaluate_sales_scenario,
         map_sales_finance_verdict,
     )
-    from app.finance.application.harness import SALES_VALIDATION_TOOLS
-    from app.finance.capabilities.sales import evaluate_sales_scenario
+    from app.finance.service.harness import SALES_VALIDATION_TOOLS
 
     assert callable(evaluate_sales_scenario)
     assert callable(map_sales_finance_verdict)

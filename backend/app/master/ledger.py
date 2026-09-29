@@ -24,7 +24,7 @@
 🔴 **다회차 원장은 회차 금액이 다 실려 있을 때만 연다** (2026-09-08). 전에는 회차가
    둘 이상이면 **무조건** 막았다 — 매입이 회차별 금액을 안 보내던 시절의 규칙이다.
    지금은 매입이 `#265` 로 회차 금액을 싣고(seq1 6,182,450 + seq2 6,180,800 = total),
-   재무 `_payment_legs`(`app/finance/transition.py:207`)가 **조건부**로 지나가며,
+   재무 `_payment_legs`(`app/finance/domain/transition.py`)가 **조건부**로 지나가며,
    물류가 `purchase_ids.get(leg.seq)` 로 회차별 매입 ID 를 받는다. 마스터 한 곳만
    막고 있었다. 새 규칙은 **모든 leg 에 `amount_krw` 와 `payment_due_date` 가 다
    있을 때만 연다**이고, 하나라도 없으면 **어느 seq 가 비었는지 이름을 대고** 멈춘다.
@@ -50,7 +50,7 @@ from typing import Any
 from psycopg import sql
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.finance.db import get_db_schema
+from app.master.db import get_db_schema
 
 # ⚠️ **`transition` 을 모듈 맨 위에서 부르지 않는다.** 전이 경계가 이 파일을 부르고
 #    (`apply_approval`), 이 파일은 그쪽이 소유한 ID 짓는 함수를 쓴다 — 양쪽 다 위에서
@@ -223,7 +223,7 @@ def ledger_block_reason(commitment: ApprovedCommitment) -> str:
 
     🔴 **회차가 둘 이상이면 회차마다 금액이 있어야 한다.** 없는 회차를 총액이나
        수량 비율로 채우면 회차마다 단가가 다른 분할 매입에서 **조용히 틀린 원장**이
-       생긴다. 재무 `_payment_legs`(`app/finance/transition.py:207`)가 같은 자리를
+       생긴다. 재무 `_payment_legs`(`app/finance/domain/transition.py`)가 같은 자리를
        같은 조건으로 막는다 — 마스터가 앞에서 먼저 멈추는 것뿐이다.
 
     ★ **회차가 하나면 금액이 없어도 막지 않는다.** 축이 하나뿐이라 총액이 곧 그
@@ -386,7 +386,7 @@ def _row_for_leg(
     if leg.amount_krw is None:
         # ★ **회차가 하나뿐인 옛 입력만 여기로 온다** (`ledger_block_reason` 이 다회차의
         #   빈 금액을 위에서 이미 막았다). 축이 하나뿐이라 총액이 곧 그 회차 금액이고,
-        #   재무 `_payment_legs`(`app/finance/transition.py:207`)가 같은 보존을 한다.
+        #   재무 `_payment_legs`(`app/finance/domain/transition.py`)가 같은 보존을 한다.
         amount = _scaled(commitment.total_amount_krw)
         나눌_수량 = _scaled(commitment.total_qty_kg)
     else:

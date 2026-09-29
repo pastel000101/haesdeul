@@ -48,8 +48,10 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
-from app.finance import user_messages as messages
-from app.finance.application.orchestration import FinanceAgentController
+from app.finance.domain import messages
+from app.finance.service import agent_run, status_query
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import CONTEXT_CALLERS, wire_context, wire_controller
 from tests.finance.test_finance_adapter import AS_OF, _AdapterPlanner, _Context
 
 #: 실 장애가 난 조합 그대로. 번인과 걷기가 **함께** 서 있다.
@@ -109,13 +111,13 @@ class _조회_기록기:
 @pytest.fixture(autouse=True)
 def _wired(monkeypatch):
     """Controller 와 이력 저장만 격리한다. **축 경로는 실물 그대로 둔다.**"""
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _AdapterPlanner()))
     monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _AdapterPlanner()),
+        "app.finance.service.agent_replies.save_finance_execution", lambda **_kwargs: None
     )
-    monkeypatch.setattr(adapter, "save_finance_execution", lambda **_kwargs: None)
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None
+    )
 
 
 def _nfc(text: str) -> str:
@@ -131,12 +133,12 @@ def _nfc(text: str) -> str:
 def test_봉투의_축이_그대로_load_context_까지_간다(monkeypatch, mode):
     """🔴 오늘 513건을 막은 자리. 축이 여기까지 안 오면 전역 조회가 된다."""
     기록기 = _축_기록기(_Context())
-    monkeypatch.setattr(adapter, "_load_context", 기록기)
+    wire_context(monkeypatch, 기록기)
 
     if mode == "STATUS_QUERY":
-        adapter._status_query(_req(sim_run_id=WALK, mode=mode))
+        status_query.answer_status_query(_req(sim_run_id=WALK, mode=mode))
     else:
-        adapter._controller_boundary(_req(sim_run_id=WALK, mode=mode))
+        agent_run.controller_boundary(_req(sim_run_id=WALK, mode=mode))
 
     assert 기록기.calls, "_load_context 를 부르지 않았다"
     assert [축 for _as_of, 축 in 기록기.calls] == [WALK]
@@ -147,7 +149,7 @@ def test_봉투의_축이_그대로_load_context_까지_간다(monkeypatch, mode
 def test_공개_진입점도_봉투의_축을_그대로_넘긴다(monkeypatch, mode, 축):
     """★ 값이 박혀 있지 않다 — 봉투가 무엇을 싣든 그것이 간다."""
     기록기 = _축_기록기(_Context())
-    monkeypatch.setattr(adapter, "_load_context", 기록기)
+    wire_context(monkeypatch, 기록기)
 
     adapter.finance_port(_req(sim_run_id=축, mode=mode))
 
@@ -157,7 +159,7 @@ def test_공개_진입점도_봉투의_축을_그대로_넘긴다(monkeypatch, m
 def test_as_of_도_함께_간다(monkeypatch):
     """★ 축이 생겼다고 `as_of` 계약이 사라지지 않는다 (§1.2-6)."""
     기록기 = _축_기록기(_Context())
-    monkeypatch.setattr(adapter, "_load_context", 기록기)
+    wire_context(monkeypatch, 기록기)
 
     adapter.finance_port(_req(sim_run_id=WALK))
 
@@ -172,9 +174,9 @@ def test_as_of_도_함께_간다(monkeypatch):
 def test_load_context_는_받은_축으로_조회한다(monkeypatch):
     """🔴 `sim_run_id=None` 으로 물으면 번인과 걷기가 둘 다 보여 막힌다."""
     기록기 = _조회_기록기(_Context())
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", 기록기)
+    monkeypatch.setattr(agent_run, "get_current_finance_runtime_context", 기록기)
 
-    context = adapter._load_context(AS_OF, sim_run_id=WALK)
+    context = agent_run.load_runtime_context(AS_OF, sim_run_id=WALK)
 
     assert context is not None
     assert 기록기.calls == [{"as_of": AS_OF, "sim_run_id": WALK}]
@@ -183,9 +185,9 @@ def test_load_context_는_받은_축으로_조회한다(monkeypatch):
 def test_load_context_는_축_없이_묻지_않는다(monkeypatch):
     """★ 축을 받고도 전역으로 묻는 순간 남의 실행 잔액이 섞인다."""
     기록기 = _조회_기록기(_Context())
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", 기록기)
+    monkeypatch.setattr(agent_run, "get_current_finance_runtime_context", 기록기)
 
-    adapter._load_context(AS_OF, sim_run_id=WALK)
+    agent_run.load_runtime_context(AS_OF, sim_run_id=WALK)
 
     assert all(call["sim_run_id"] for call in 기록기.calls), "축 없는 조회가 있다"
 
@@ -193,8 +195,8 @@ def test_load_context_는_축_없이_묻지_않는다(monkeypatch):
 def test_다른_실행의_축으로는_조회하지_않는다(monkeypatch):
     """번인이 함께 서 있어도 걷기 봉투는 걷기만 묻는다."""
     기록기 = _조회_기록기(_Context())
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", 기록기)
-    monkeypatch.setattr(adapter, "_load_context", adapter._load_context)
+    monkeypatch.setattr(agent_run, "get_current_finance_runtime_context", 기록기)
+    wire_context(monkeypatch, agent_run.load_runtime_context)
 
     adapter.finance_port(_req(sim_run_id=WALK))
 
@@ -207,7 +209,7 @@ def test_load_context_는_sim_run_id_에_기본값을_두지_않는다():
 
     ★ 그래서 키워드 전용 · 기본값 없음이다. 빠뜨리면 문법이 막는다.
     """
-    파라미터 = inspect.signature(adapter._load_context).parameters["sim_run_id"]
+    파라미터 = inspect.signature(agent_run.load_runtime_context).parameters["sim_run_id"]
 
     assert 파라미터.kind is inspect.Parameter.KEYWORD_ONLY
     assert 파라미터.default is inspect.Parameter.empty
@@ -224,9 +226,9 @@ def test_빈_축이면_DB_에_아예_묻지_않는다(monkeypatch):
     ★ 「못 물어봤다」와 「자료가 없다」는 고칠 자리가 완전히 다르다.
     """
     기록기 = _조회_기록기(_Context())
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", 기록기)
+    monkeypatch.setattr(agent_run, "get_current_finance_runtime_context", 기록기)
 
-    assert adapter._load_context(AS_OF, sim_run_id="") is None
+    assert agent_run.load_runtime_context(AS_OF, sim_run_id="") is None
     assert 기록기.calls == [], "빈 축으로 조회했다"
 
 
@@ -235,7 +237,7 @@ def test_빈_축이면_DB_에_아예_묻지_않는다(monkeypatch):
 def test_빈_축이면_어떤_실행으로도_떨어지지_않는다(monkeypatch, 빈_축, mode):
     """★ 하나뿐이라고 그것을 집으면 **오류 없이 숫자만** 남의 것이 된다."""
     기록기 = _조회_기록기(_Context())
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", 기록기)
+    monkeypatch.setattr(agent_run, "get_current_finance_runtime_context", 기록기)
 
     reply, _meta = adapter.finance_port(_req(sim_run_id=빈_축, mode=mode))
 
@@ -295,7 +297,7 @@ def test_빈_축_사유에는_구현_용어가_없다():
 @pytest.mark.parametrize("mode", _PAYLOAD_FREE_MODES)
 def test_축이_있고_자료가_없으면_예전_어휘_그대로다(monkeypatch, mode):
     """★ 축 누락과 **자료 없음**은 다른 사건이다. 자료 없음은 그대로 남는다."""
-    monkeypatch.setattr(adapter, "_load_context", _축_기록기(None))
+    wire_context(monkeypatch, _축_기록기(None))
 
     reply, _meta = adapter.finance_port(_req(sim_run_id=WALK, mode=mode))
 
@@ -306,7 +308,9 @@ def test_축이_있고_자료가_없으면_예전_어휘_그대로다(monkeypatc
 
 def test_축이_있는_단일_실행은_READY_까지_간다(monkeypatch):
     """🟢 번인 단일 실행 회귀 — 축을 채운 봉투는 예전처럼 끝까지 간다."""
-    monkeypatch.setattr(adapter, "get_current_finance_runtime_context", _조회_기록기(_Context()))
+    monkeypatch.setattr(
+        agent_run, "get_current_finance_runtime_context", _조회_기록기(_Context())
+    )
 
     reply, _meta = adapter.finance_port(_req(sim_run_id=BURN_IN))
 
@@ -318,19 +322,45 @@ def test_축이_있는_단일_실행은_READY_까지_간다(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def _adapter_tree() -> ast.Module:
-    source = Path(inspect.getsourcefile(adapter)).read_text(encoding="utf-8")
-    return ast.parse(source)
+#: ★ 2026-09-29 재구성 BL-014: 종전에는 `adapter.py` 한 파일을 훑었다. 적재(`load_runtime_context`)
+#:   · 빈 축 방어(`axis_not_ready_reply`) · 조회가 재무 service 로 나뉘어, 재무 패키지 원문
+#:   전체를 훑는다.
+_FINANCE_ROOT = Path(inspect.getsourcefile(adapter)).parent
+
+
+def _finance_trees() -> dict[str, ast.Module]:
+    return {
+        ".".join(("app", "finance", *path.relative_to(_FINANCE_ROOT).with_suffix("").parts)):
+        ast.parse(path.read_text(encoding="utf-8"))
+        for path in sorted(_FINANCE_ROOT.rglob("*.py"))
+    }
+
+
+def _calls(name: str) -> dict[str, list[ast.Call]]:
+    found: dict[str, list[ast.Call]] = {}
+    for module, tree in _finance_trees().items():
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == name
+        ]
+        if calls:
+            found[module] = calls
+    return found
 
 
 def _load_context_calls() -> list[ast.Call]:
-    return [
-        node
-        for node in ast.walk(_adapter_tree())
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_load_context"
-    ]
+    return [call for calls in _calls("load_runtime_context").values() for call in calls]
+
+
+def test_컨텍스트_대역_자리가_부르는_모듈과_같다():
+    """★ `wire_context` 가 바꿔 끼우는 모듈이 실제로 적재를 부르는 모듈과 같아야 한다.
+
+    부르는 곳이 늘었는데 대역 목록이 그대로면, 그 경로만 실물 DB 조회로 새어 나간다.
+    """
+    assert sorted(_calls("load_runtime_context")) == sorted(CONTEXT_CALLERS)
 
 
 def test_load_context_를_부르는_자리가_하나도_안_빠진다():
@@ -355,25 +385,22 @@ def test_load_context_를_부르는_자리가_하나도_안_빠진다():
 def test_축을_읽는_자리와_부르는_자리의_개수가_같다():
     """★ 호출은 늘었는데 빈 축 방어가 안 붙는 것을 막는다."""
     calls = _load_context_calls()
-    방어 = [
-        node
-        for node in ast.walk(_adapter_tree())
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "_axis_not_ready"
-    ]
+    방어 = [call for calls in _calls("axis_not_ready_reply").values() for call in calls]
 
     assert len(방어) == len(calls)
+    # 모듈마다도 같다 — 한 모듈의 방어가 다른 모듈의 호출을 대신 세지 않게.
+    assert {module: len(found) for module, found in _calls("axis_not_ready_reply").items()} == {
+        module: len(found) for module, found in _calls("load_runtime_context").items()
+    }
 
 
 def test_어댑터는_축_없는_전역_조회를_남겨_두지_않는다():
     """🔴 `get_current_finance_runtime_context(as_of)` 가 되살아나면 여기서 걸린다."""
     조회 = [
-        node
-        for node in ast.walk(_adapter_tree())
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "get_current_finance_runtime_context"
+        call
+        for module, calls in _calls("get_current_finance_runtime_context").items()
+        if module.startswith("app.finance.service.")
+        for call in calls
     ]
 
     assert 조회, "조회 자체가 사라졌다 — 검사가 헛돈다"

@@ -26,10 +26,13 @@ from uuid import UUID
 import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
-from app.finance import user_messages as messages
 from app.finance.adapter import finance_port
+from app.finance.domain import messages
+from tests.finance.finance_fake_connection import lent
 
-_EXECUTION = "app.finance.execution"
+#: 2026-09-29 재구성 BL-014: 실행이력 SQL 은 `repository/runs.py` 가 짓고, 저장은
+#: `service/run_history.py` 가 자기 연결 하나 · 트랜잭션 하나로 한다(가짜 연결은 `lent`).
+_EXECUTION = "app.finance.repository.runs"
 
 
 def _request(payload, *, mode="SALES_VALIDATION"):
@@ -78,14 +81,17 @@ def _run(
       되고, 장애를 시험한다고 믿는 검사가 통과한다.
     """
 
-    def _capture(query, params):
+    def _capture(_conn, query, params):
         return {"run_id": UUID("00000000-0000-0000-0000-000000000009")}
 
     receivable_patch = (
-        patch("app.finance.adapter.load_partner_receivables", side_effect=receivables_error)
+        patch(
+            "app.finance.service.agent_run.load_partner_receivables",
+            side_effect=receivables_error,
+        )
         if receivables_error is not None
         else patch(
-            "app.finance.adapter.load_partner_receivables", return_value=list(receivables)
+            "app.finance.service.agent_run.load_partner_receivables", return_value=list(receivables)
         )
     )
     # ★ 판정이 실제로 난 결과는 오늘 저장소로는 만들 수 없다 — 여신한도가 없어서
@@ -94,7 +100,7 @@ def _run(
     #   **문장**으로 나가는가이지, 그 판정이 어떻게 나왔는가가 아니다.
     capability_patch = (
         patch.dict(
-            "app.finance.application.harness._CAPABILITIES",
+            "app.finance.service.harness._CAPABILITIES",
             {"evaluate_sales_scenario": lambda port, args, state: dict(sales_result)},
         )
         if sales_result is not None
@@ -102,15 +108,16 @@ def _run(
     )
     with (
         patch(
-            "app.finance.adapter.get_current_finance_runtime_context",
+            "app.finance.service.agent_run.get_current_finance_runtime_context",
             return_value=finance_context,
         ),
         receivable_patch,
         capability_patch,
         patch("app.finance.llm.planner.finance_llm_enabled", return_value=False),
-        patch("app.finance.adapter.finance_llm_enabled", return_value=False),
+        patch("app.finance.service.agent_replies.finance_llm_enabled", return_value=False),
         patch(f"{_EXECUTION}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_EXECUTION}.execute_returning_one", side_effect=_capture),
+        patch(f"{_EXECUTION}.returning_one", side_effect=_capture),
+        lent(reads=False),  # 이력 저장의 쓰기 연결만 — 조회는 종전처럼 막힌다
     ):
         return finance_port(request)
 
@@ -219,17 +226,18 @@ def test_persistence_failure_is_still_error(finance_context):
     """이력을 남기지 못한 실행은 확정되지 않는다 — 이것도 실제 장애다."""
     with (
         patch(
-            "app.finance.adapter.get_current_finance_runtime_context",
+            "app.finance.service.agent_run.get_current_finance_runtime_context",
             return_value=finance_context,
         ),
-        patch("app.finance.adapter.load_partner_receivables", return_value=[]),
+        patch("app.finance.service.agent_run.load_partner_receivables", return_value=[]),
         patch("app.finance.llm.planner.finance_llm_enabled", return_value=False),
-        patch("app.finance.adapter.finance_llm_enabled", return_value=False),
+        patch("app.finance.service.agent_replies.finance_llm_enabled", return_value=False),
         patch(f"{_EXECUTION}.get_db_schema", return_value="haetdeul"),
         patch(
-            f"{_EXECUTION}.execute_returning_one",
+            f"{_EXECUTION}.returning_one",
             side_effect=RuntimeError("connection refused"),
         ),
+        lent(reads=False),  # 이력 저장의 쓰기 연결만 — 조회는 종전처럼 막힌다
     ):
         reply, _metadata = finance_port(_request(_sales_payload()))
 

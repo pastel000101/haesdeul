@@ -46,9 +46,10 @@ from psycopg import sql
 
 from app.core import db as core_db
 from app.core.clock import SEOUL
-from app.finance.closing_adapter import FinanceClosingAdapter
-from app.finance.db import get_db_schema
-from app.finance.expenses import ExpenseSettlement, settle_due_expenses
+from app.core.settings import get_db_schema
+from app.finance.adapter import FinanceClosingAdapter
+from app.finance.schemas.expenses import ExpenseSettlement
+from app.finance.service.expenses import settle_due_expenses
 from app.master import backtest_runner
 from app.master import closing as master_closing
 from app.master.backtest_runner import WalkResult, format_summary, walk

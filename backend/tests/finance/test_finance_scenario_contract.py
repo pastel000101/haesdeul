@@ -21,8 +21,9 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.capabilities.scenario import _scenario_schedule
+from app.finance.domain.scenario import scenario_schedule
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 from tests.finance.test_finance_adapter import _AdapterPlanner, _Context
 
 AS_OF = date(2025, 12, 31)
@@ -47,13 +48,11 @@ def _req(payload: dict, mode: str = "SCENARIO_VALIDATION") -> AgentRequest:
 
 @pytest.fixture(autouse=True)
 def _wired(monkeypatch):
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _AdapterPlanner()))
     monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _AdapterPlanner()),
+        "app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None
     )
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
 
 
 def _non_split(**over) -> dict:
@@ -76,7 +75,7 @@ def _non_split(**over) -> dict:
 
 
 def _schedule(scenario: dict):
-    return _scenario_schedule(
+    return scenario_schedule(
         scenario=scenario, as_of=AS_OF, horizon=HORIZON, default_payment_days=N5
     )
 
@@ -340,7 +339,7 @@ def test_missing_reconstruction_input_fails_closed(missing, expected_key):
     scenario = _non_split()
     scenario.pop(missing)
 
-    from app.finance.db import FinanceDataNotReady
+    from app.finance.schemas.data_port import FinanceDataNotReady
 
     with pytest.raises(FinanceDataNotReady) as raised:
         _schedule(scenario)
@@ -349,7 +348,7 @@ def test_missing_reconstruction_input_fails_closed(missing, expected_key):
 
 def test_multi_split_without_payment_schedule_fails_closed():
     """분할이 여러 건인데 지급 일정이 없으면 **금액 배분은 매입이 정할 일**이다."""
-    from app.finance.db import FinanceDataNotReady
+    from app.finance.schemas.data_port import FinanceDataNotReady
 
     scenario = _non_split(
         split_plan=[
@@ -365,7 +364,7 @@ def test_multi_split_without_payment_schedule_fails_closed():
 def test_reconstruction_outside_horizon_fails_closed():
     scenario = _non_split(split_plan=[{"seq": 1, "date": "2026-01-28", "qty_kg": 100}])
 
-    from app.finance.db import FinanceDataNotReady
+    from app.finance.schemas.data_port import FinanceDataNotReady
 
     with pytest.raises(FinanceDataNotReady) as raised:
         _schedule(scenario)

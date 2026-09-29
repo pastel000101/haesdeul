@@ -42,7 +42,8 @@ from typing import Any, Self
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
 from app.master import day_open
 from app.master.collection_seed import (
     CollectionSeedOutcome,
@@ -317,7 +318,7 @@ def test_PARTIAL_은_잔여만_들어온다() -> None:
     🔴 **delta 를 여기서 계산하지 않는다.** 재무 `build_collection_transition` 이
       한다 — 여기서는 그 계산이 잔여를 내는지만 확인한다.
     """
-    from app.finance.collection import build_collection_transition
+    from app.finance.domain.collections import build_collection_transition
 
     db = _가짜DB(receivables=[일부])
     _만든다(db)

@@ -47,7 +47,7 @@ from typing import Any, Literal
 from psycopg import sql
 
 from app.contracts.core import ITEMS
-from app.finance.db import fetch_all, fetch_one, get_db_schema
+from app.master.db import fetch_all, fetch_one, get_db_schema
 
 #: 값 하나의 출처 등급. **리포트에 그대로 나간다.**
 Grade = Literal[

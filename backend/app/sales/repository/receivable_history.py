@@ -18,19 +18,19 @@
   있어, `collection_date <= as_of` 인 사건만 쓰면 그날의 상태가 복원된다.
 
 ★ **`target_received_total_krw` 는 누적값이다** — 증분이 아니다. 정본은
-  재무의 `collection.build_collection_transition` 이고, 그 함수가
+  재무의 `domain/collections.py::build_collection_transition` 이고, 그 함수가
   `delta = target - current` 로 전이를 만든다. 그래서 여기서는 **합이 아니라
   기준일 이하의 마지막 누적값**을 쓴다.
 
-🔴 **재무에도 같은 규칙이 있다** (`app.finance.receivable_history`). 두 도메인은 서로를
-   import 하지 않는 것이 계약이라(`test_sales_never_imports_the_finance_agent`) 규칙을
-   한 벌로 둘 자리가 지금은 없다. 대신 **두 벌이 갈리는 순간 빨간불이 뜨도록**
-   `tests/finance/test_receivable_history.py` 가 두 모듈의 SQL 과 상태 규칙을 대조한다.
-   제자리는 공용 계약 패키지 승격이고, 그건 이 판의 소유 범위 밖이다 (재무 계층화 BL-014 ·
-   설계 쟁점 6).
+🔴 **재무에도 같은 SQL 조각이 있다** (`app.finance.repository.receivable_history`). 두 도메인은
+   서로를 import 하지 않는 것이 계약이고(`test_sales_never_imports_finance_runtime`), 계약
+   패키지는 DB 를 모른다 — 그래서 SQL 조각은 한 벌로 둘 자리가 없다. 대신 **두 벌이 갈리는
+   순간 빨간불이 뜨도록** `tests/finance/test_receivable_history.py` 가 두 조각을 대조한다.
 
-★ 2026-09-29 BL-013: `sales/receivable_history.py` 에서 SQL 조각을 옮겼다. 복원한 금액에서
-  상태를 세우는 규칙(`projected_status`)은 `domain/receivable_history.py` 다.
+★ 2026-09-29 BL-013: `sales/receivable_history.py` 에서 SQL 조각을 옮겼다. 2026-09-29 재구성
+  BL-014: 복원한 금액에서 상태를 세우는 규칙(`projected_status`)은 재무 · 판매 두 벌이 글자까지
+  같아 계약 `app/contracts/receivable_history.py` 한 벌로 합쳤다(판매 `domain/receivable_history.py`
+  는 지웠다).
 """
 
 from psycopg import sql

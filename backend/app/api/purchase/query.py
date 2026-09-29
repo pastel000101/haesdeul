@@ -11,14 +11,11 @@
   확정 매입 원장(`purchases`)을 **읽기만** 합니다. 화면을 열 때마다 LLM 이
   돌면 안 됩니다 (CLAUDE.md 규칙 2 — read-only).
 
-🔴 **DB 헬퍼를 ``app.finance.db`` 에서 가져오는 이유.**
-  매입 에이전트(``app.purchase_agent``)는 ``get_db_schema`` 를 **쓰지 않습니다.** 일부러
-  뺐고 (``readmodel/quotes.py`` 머리말 «읽기 전용» — 2026-09-29 전에는 ``db.py`` 머리말)
-  이유는 *"``.env`` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그 이유는
-  **에이전트 경로**의 것이고, 여기는 화면 층이라 ``haetdeul`` 도메인 표를 읽습니다 —
-  스키마를 ``.env`` 가 정하는 것이 맞습니다.
-  마스터 ``ledger_repository.py`` 가 같은 이유로 같은 선택을 했습니다.
-  ⚠️ 쓰기 헬퍼(``execute_returning_one``)는 **가져오지 않습니다.**
+★ **DB 를 여기서 읽지 않습니다** (2026-09-29 재구성 BL-014). 저장된 실행 · 확정 매입 · 결정 ·
+  품목 이름 조회는 마스터 readmodel ``read_purchase_tab``(SQL 은
+  ``master/purchase_tab_repository.py``)이 합니다 — 전에는 이 모듈의 ``_read`` 가 재무 DB 입구
+  (``app.finance.db``)의 조회 헬퍼로 직접 돌렸습니다. 스키마를 ``.env`` 가 정하는 이유(매입
+  에이전트 경로와 다르다)는 그 repository 머리말이 이어 적습니다.
 
 ★ **look-ahead 를 화면에도 적용합니다.** 확정 매입은 ``purchase_date <= as_of``
   만 봅니다. 그날 화면에 다음 주 매입이 보이면 «그날 알 수 있었던 것» 이
@@ -36,6 +33,7 @@ from app.api.purchase.schema import Plan, PurchaseTab, Reason
 from app.contracts.core import ITEMS
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
+from app.master.readmodel.purchase_tab import read_purchase_tab
 
 log = logging.getLogger(__name__)
 
@@ -87,195 +85,6 @@ _EMPTY_COMMITTED = "아직 확정된 매입이 없습니다 — 안이 승인되
 #: 낡는다 (전에는 둘 다 「지급일 규칙이 아직 미결」이었고 같이 틀렸다 · ``_payments`` 참조).
 _PAY_EMPTY_SINGLE = "한 번에 사는 안이라 지급 계획을 따로 만들지 않습니다"
 
-#: 실행 조회(`runs`)가 응답 본문에서 **뽑는 칸** — 이 모듈이 `payload` 에서 읽는 전부다.
-#:
-#: 🔵 (2026-09-17) 전에는 `response_payload` 를 통째로 끌어왔다 — REH-0914 08-31 41행이
-#:   1.6MB 인데 읽는 칸은 6% 남짓이었다 (scenarios 79KB · judgment 14KB · reason 2.5KB).
-#:   V13 01-26 은 137행 7.8MB 였다.
-#:
-#: 🔴 **여기 없는 칸을 `payload` 에서 읽으면 조용히 비어 온다** — `.get()` 이라 예외도
-#:    안 난다(안별 컷 사유 · 사유 문장이 「사유를 남긴 실행이 없습니다」로 바뀐다).
-#:    그래서 `tests/api/test_purchase_read_narrow.py` 가 이 모듈 소스를 읽어 `payload`
-#:    에서 부르는 `.get("…")` 이 전부 여기 있는지 본다. 칸을 새로 읽으면 **여기에 먼저** 적는다.
-#:
-#: 값이 튜플이면 그 칸 안에서 다시 **그 하위 칸만** 뽑는다 (`judgment` 는 컷 사유만 쓴다).
-_RUN_PAYLOAD: dict[str, tuple[str, ...]] = {
-    "scenarios": (),
-    "judgment": ("rejected_reasons",),
-    "reason": (),
-}
-
-
-# ══════════════════════════════════════════════════════════════════════════
-#  DB 읽기
-# ══════════════════════════════════════════════════════════════════════════
-
-def _payload_projection() -> Any:
-    """`response_payload` 에서 `_RUN_PAYLOAD` 칸만 뽑아 **같은 모양의 객체**로 만든다.
-
-    ★ 읽는 쪽 코드는 한 글자도 안 바뀐다 — `run["payload"]["scenarios"]` 그대로다.
-    ⚠️ 원본에 칸이 없으면 뽑은 객체에는 `null` 로 선다. 읽는 쪽이 전부 `.get(…) or …` 라
-       「칸 없음」과 「null」이 같은 판정으로 간다 (실측 — PROCUREMENT 15,235행 중 judgment
-       없는 행 3,098 · scenarios 없는 행 3,072 · 본문이 SQL NULL 인 행 0).
-    """
-    from psycopg import sql
-
-    def field(key: str, sub: tuple[str, ...]) -> sql.Composable:
-        path = sql.SQL("response_payload->{}").format(sql.Literal(key))
-        if not sub:
-            return sql.SQL("{}, {}").format(sql.Literal(key), path)
-        inner = sql.SQL(", ").join(
-            sql.SQL("{}, {}->{}").format(sql.Literal(k), path, sql.Literal(k)) for k in sub
-        )
-        return sql.SQL("{}, jsonb_build_object({})").format(sql.Literal(key), inner)
-
-    body = sql.SQL(", ").join(field(k, sub) for k, sub in _RUN_PAYLOAD.items())
-    return sql.SQL(
-        "CASE WHEN response_payload IS NULL THEN NULL ELSE jsonb_build_object({}) END"
-    ).format(body)
-
-
-def _read(
-    as_of: date, *, window_days: int | None = None, sim_run_id: str | None = None
-) -> dict[str, Any]:
-    """저장된 실행과 확정 매입을 읽는다. **SELECT 뿐이다.**
-
-    🔴 **축(`sim_run_id`)으로 여기서 거르지 않는다.** 칸을 읽어 오기만 하고 고르는 것은
-    ``_pick`` · ``_committed`` 가 한다. 이유 둘::
-
-        ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 한다.
-           WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 된다
-        ② 검사가 이 함수를 대신 세워 상황을 주입한다. WHERE 에 두면 그 주입이
-           필터를 건너뛰어 **축이 도는지를 못 잰다** (규칙 8)
-
-    🔵 **예외 하나 — 도착일 조회(``arrivals``)만 축을 SQL 에 건다** (2026-09-17).
-    ① 은 그 조회에 해당이 없다 — 건수를 안 세고 도착일을 찾아 오기만 한다. ② 는
-    ``_arrival_index`` 의 파이썬 축 필터를 **그대로 두어** 지킨다. ``sim_run_id=None``
-    이면 지금까지처럼 안 건다. 이유는 실측 — 그 조회가 모든 걷기의 시나리오를 끌어와
-    (REH-0914 08-31 · 13,220행 · 45.6MB) 한 판 ``1,285ms`` 중 ``1,150ms`` 를 먹었고,
-    축을 걸면 ``164ms`` 에 **응답 본문 sha 가 같다** (REH · FINAL · V13 세 실행).
-
-    🔵 **``window_days`` 는 도착일 조회(``arrivals``)의 날짜 창이다** (2026-09-16).
-
-    ``N`` 은 **``as_of`` 를 포함한 최근 N 일**이다 — ``0`` 이면 0일이라 **한 날도 안 읽고**,
-    ``1`` 이면 그날 하루, ``None`` 이면 **안 좁힌다**(지금까지의 동작).
-
-    ⚠️ **이 인자는 다른 넷(``runs`` · ``buys`` · ``decisions`` · ``items``)에 안 닿는다.**
-    좁히는 것은 도착일을 맞추려고 **다시 훑는** 실행 표 하나뿐이다.
-
-    🔴 **왜 생겼나.** 대시보드가 이 함수를 통째로 재사용하는데, 물류가 재 보니 그 왕복이
-    약 600ms 로 대시보드 단일 최대였다 (2026-09-16 회신). 우리 머신 실측으로도
-    ``arrivals`` 가 ``829.6ms`` · 7,700행이고 나머지 셋을 합쳐야 ``162.5ms`` 다.
-
-    ★★ **그런데 대시보드는 그 결과를 안 읽는다.** ``pu.plans`` · ``pu.source`` 만 읽고,
-    ``arrivals`` 가 먹이는 곳은 ``_committed`` 하나다. 그래서 대시보드가 넘길 값은
-    «12일» 이 아니라 **``0``** 이다 — 좁히는 게 아니라 **안 읽는 것**이 맞다.
-
-    🔴 **좁히면 그 사실을 화면이 말해야 한다** — ``arrivals_complete`` 를 같이 돌려준다.
-    도착일을 못 채운 채 「입고 예정 0kg」 을 적으면 «확정된 0» 과 «안 읽었다» 가 한 값이
-    된다 (규칙 3). 그 칸을 쓰는 자리는 ``build`` 다.
-    """
-    from psycopg import sql
-
-    from app.finance.db import fetch_all, get_db_schema
-
-    schema = get_db_schema()
-
-    def table(name: str) -> sql.Composable:
-        return sql.SQL("{}.{}").format(sql.Identifier(schema), sql.Identifier(name))
-
-    runs = fetch_all(
-        sql.SQL(
-            #  🔴 `run_id` 는 **말로 한 승인이 짚을 행**이다 (2026-09-16). 업무 키 하나에
-            #     실행이 여러 행이라(실측 75행) 키만으로는 본 것과 다른 안이 승인될 수
-            #     있다 — 마스터 승인 경로가 `history_run_id` 를 받는 이유와 같다.
-            "SELECT run_id, request_id, item, end_code, runtime_status, created_at,"
-            #  🔵 본문은 **쓰는 칸만** 뽑아 같은 모양(`payload`)으로 싣는다 (`_RUN_PAYLOAD`).
-            " sim_run_id, {} AS payload"
-            " FROM {} WHERE as_of = %(as_of)s AND cycle = 'PROCUREMENT'"
-            " ORDER BY created_at DESC"
-        ).format(_payload_projection(), table("master_agent_runs")),
-        {"as_of": as_of},
-    )
-    #  🔴 레슨 ③ — purchases 와 purchase_items 를 조인하면 total_amount_krw 가
-    #     줄마다 반복된다 (PUR-KIMCHI-015 는 5줄이고 다섯 다 3,370,487). 줄 금액은
-    #     line_amount_krw 로 읽는다. 여기서는 아예 total 을 안 가져온다.
-    buys = fetch_all(
-        sql.SQL(
-            "SELECT p.purchase_id, p.purchase_date, p.payment_due_date,"
-            " p.settlement_status, p.sim_run_id, i.item_id, i.grade, i.quantity_kg,"
-            " i.unit_price_krw_per_kg, i.line_amount_krw"
-            " FROM {} p JOIN {} i USING (purchase_id)"
-            " WHERE p.purchase_type = 'MASTER_APPROVAL' AND p.purchase_date <= %(as_of)s"
-            #  🔵 **최신순이다** (2026-09-17). 오래된 순이면 오늘 산 줄이 수백 줄 맨 아래에
-            #     깔린다 (REH-0914 08-31 · 291줄). 같은 날 안에서도 뒤집어 **통째로 역순**이다.
-            #  ⚠️ 순서에 기대는 계산은 없다 — 이번 주 매입액 · 입고 예정은 합이고, 도착일 맞춤은
-            #     `arrivals` 쪽 순서를 쓴다. 화면이 자르는 것은 페이지뿐이다(`page.tsx`).
-            " ORDER BY p.purchase_date DESC, i.purchase_item_id DESC"
-        ).format(table("purchases"), table("purchase_items")),
-        {"as_of": as_of},
-    )
-    #  🔵 **그날 실행의 요청 ID 로 좁힌다** (2026-09-17). 전에는 조건이 없어 결정 표 전부
-    #     (11,427행)를 읽었다. 읽은 결정을 쓰는 자리는 `build` 가 **그날 고른 실행의 요청**을
-    #     찾는 것 하나이고, 그 요청은 전부 위 `runs` 안에 있다 — 그래서 결과가 같다.
-    #  ★ 걷기 축으로 거르는 것이 아니다 — `runs` 는 모든 걷기의 행이다. docstring 의 이유 둘
-    #    (건수를 센다 · 주입)은 여기 안 걸린다: 결정으로 세는 수가 없고, 주입 검사는 `_read`
-    #    를 통째로 갈아 끼운다.
-    #  🟡 **그날 실행이 없어도 조회를 낸다** — 빈 목록이면 0행이다(실 DB 로 확인 · 2026-09-18).
-    #     `WHERE` 는 **SELECT 줄과 떨어진 자리에** 붙인다. 번복 고침(`#820`)이 그 SELECT 줄에
-    #     `decision_seq` 를 더하고, 그 검사는 실행 없이 결정 조회 문면을 본다 — 둘이 어느 순서로
-    #     들어와도 줄이 안 부딪치고 검사도 안 깨지게 한다.
-    request_ids = sorted({str(r["request_id"]) for r in runs if r["request_id"] is not None})
-    decisions = fetch_all(
-        #  🔴 `decision_seq` 를 같이 읽는다 (2026-09-17) — 결정 표는 append-only 라 번복도
-        #     새 행이고 **최대 회차가 유효하다**. 순서를 안 읽으면 되돌린 승인이 남는다.
-        sql.SQL("SELECT request_id, decision_seq, decision, scenario_label FROM {}").format(
-            table("master_decisions")
-        )
-        + sql.SQL(" WHERE request_id = ANY(%(request_ids)s)"),
-        {"request_ids": request_ids},
-    )
-    items = fetch_all(sql.SQL("SELECT item_id, item_name FROM {}").format(table("items")))
-    #  확정 매입의 도착일은 원장에 없다. 그날 실행의 시나리오에서 **금액으로**
-    #  맞춰 온다 — purchase_id 문자열을 쪼개면 이름 규칙에 묶인다.
-    #  🔵 축을 주면 **그 축의 원장 날짜만** 건다. 도착일이 필요한 줄은 `_committed` 가
-    #     남기는 그 축의 줄뿐이다 — 다른 걷기만 산 날을 걸면 끌어온 행이 전부 버려진다.
-    all_dates = sorted({
-        row["purchase_date"] for row in buys
-        if sim_run_id is None or row["sim_run_id"] == sim_run_id
-    })
-    #  🔵 날짜 창. `None` 이면 안 좁힌다 — 그때 `dates is all_dates` 라 아래 조회가
-    #     지금까지와 **한 글자도 다르지 않다.**
-    #
-    #  ★ `window_days=0` 에 분기를 따로 안 만든다. 창이 0이면 이 목록이 비고, 아래
-    #    `if dates else []` 가 **이미** 조회를 건너뛴다. 「0 이면 아예 안 돈다」는
-    #    새로 짓는 동작이 아니라 있던 단락이 하는 일이다.
-    dates = all_dates if window_days is None else [
-        d for d in all_dates if 0 <= (as_of - d).days < window_days
-    ]
-    #  🔵 축 조건은 **줄 때만** 붙인다. `None` 을 `= %(sim)s` 에 넣으면 `NULL = NULL` 이라
-    #     0행이 되고, 그건 «안 거른다» 가 아니라 «다 버린다» 다.
-    axis = sql.SQL("") if sim_run_id is None else sql.SQL(" AND sim_run_id = %(sim)s")
-    arrivals = fetch_all(
-        sql.SQL(
-            "SELECT as_of, item, sim_run_id, response_payload->'scenarios' AS scenarios"
-            " FROM {} WHERE as_of = ANY(%(dates)s) AND cycle = 'PROCUREMENT'{}"
-        ).format(table("master_agent_runs"), axis),
-        {"dates": dates} if sim_run_id is None else {"dates": dates, "sim": sim_run_id},
-    ) if dates else []
-    return {
-        "runs": runs,
-        "buys": buys,
-        "decisions": decisions,
-        "items": {row["item_id"]: row["item_name"] for row in items},
-        "arrivals": arrivals,
-        #  🔴 **「전부 읽었나」를 값으로 돌려준다.** 창을 좁히면 도착일이 비는데, 그
-        #     공란이 «맞출 것이 없었다» 인지 «안 읽었다» 인지 여기서만 알 수 있다.
-        #     읽는 쪽(`build`)이 다시 계산하면 두 벌이 되고, 한쪽만 고치는 날이 온다.
-        #  ⚠️ 「전부」는 **그 축의** 날짜다. 다른 걷기만 산 날을 안 건 것은 «안 읽었다» 가
-        #     아니다 — 그 줄은 `_committed` 가 어차피 뺀다.
-        "arrivals_complete": dates == all_dates,
-    }
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -804,7 +613,7 @@ def build(
 
     ⚠️ 값을 여기서 짓지 않는다 — 받아서 그대로 흘린다 (마스터 당부 2026-09-10).
 
-    🔵 ``window_days`` 는 도착일 조회의 날짜 창이고 뜻은 ``_read`` 가 적는다
+    🔵 ``window_days`` 는 도착일 조회의 날짜 창이고 뜻은 ``read_purchase_tab`` 이 적는다
     (2026-09-16). **매입 탭 자신은 안 넘긴다** — 이 인자는 이 함수를 재사용하는
     대시보드를 위한 자리다.
 
@@ -818,14 +627,14 @@ def build(
     try:
         #  🔴 축을 흘린다 — 안 흘리면 도착일 조회가 모든 걷기를 다시 끌어온다.
         #     `tests/api/test_purchase_tab_axis_sql.py` 가 이 자리를 직접 잠근다.
-        data = _read(as_of, window_days=window_days, sim_run_id=sim_run_id)
+        data = read_purchase_tab(as_of, window_days=window_days, sim_run_id=sim_run_id)
     except Exception as error:  # noqa: BLE001  DB 미연결 · 표 없음 둘 다
         log.info("매입 값을 못 읽어 예시값을 씁니다: %s", error)
         return _demo(f"DB 를 못 읽었습니다 ({type(error).__name__})")
 
-    #  🔴 **기본이 「전부 읽었다」다.** 검사가 `_read` 를 대신 세울 때 이 칸을 안 넣는데,
-    #     그 주입은 자기가 준 `arrivals` 가 전부인 세상이라 «온전» 이 맞다.
-    #  ⚠️ 위 `except` 가 **통째로 잡는다** — 그래서 `_read` 시그니처가 안 맞으면
+    #  🔴 **기본이 「전부 읽었다」다.** 검사가 `read_purchase_tab` 을 대신 세울 때 이 칸을
+    #     안 넣는데, 그 주입은 자기가 준 `arrivals` 가 전부인 세상이라 «온전» 이 맞다.
+    #  ⚠️ 위 `except` 가 **통째로 잡는다** — 그래서 `read_purchase_tab` 시그니처가 안 맞으면
     #     `TypeError` 도 삼켜져 조용히 예시값이 나간다. 스텁을 넓힐 때 그것이 실제
     #     위험이었고, `tests/api/test_purchase_tab_window.py` 가 그 자리를 지킨다.
     arrivals_complete = data.get("arrivals_complete", True)
@@ -849,7 +658,7 @@ def build(
             #  _pick 이 ITEMS 로 걸렀으므로 여기서 item 은 언제나 계약 품목이다
             plan = _plan(
                 str(run["item"]), scenario, decided, run["request_id"], run["sim_run_id"],
-                #  ⚠️ `.get` 이다. 검사가 `_read` 를 대신 세울 때 이 칸을 안 넣는데,
+                #  ⚠️ `.get` 이다. 검사가 `read_purchase_tab` 을 대신 세울 때 이 칸을 안 넣는데,
                 #     그때 «못 읽었다» 로 두는 것이 맞다 — 지어내지 않는다.
                 run_id=run.get("run_id"),
                 records=records,

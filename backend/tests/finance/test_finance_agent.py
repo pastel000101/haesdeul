@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
@@ -13,26 +14,26 @@ from app.contracts.envelope import (
     ExecutionMetadata,
     validate_reply,
 )
-from app.finance import user_messages as messages
-from app.finance.application.harness import (
+from app.finance.domain import messages
+from app.finance.llm.planner import FinancePlannerContractViolation, ToolAction
+from app.finance.readmodel.as_of_data_port import PostgresFinanceAsOfDataPort
+from app.finance.readmodel.runs import get_finance_execution
+from app.finance.schemas.agent import CashEvent, FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service.agent import (
+    DEFAULT_MAX_REPLANS,
+    DEFAULT_MAX_TOOL_CALLS,
+    FinanceAgentController,
+)
+from app.finance.service.harness import (
     PRE_PURCHASE_TOOLS,
     SCENARIO_VALIDATION_TOOLS,
     FinanceToolRegistry,
     validate_finance_scenario_output,
     validate_planner_tool_arguments,
 )
-from app.finance.application.orchestration import (
-    DEFAULT_MAX_REPLANS,
-    DEFAULT_MAX_TOOL_CALLS,
-    FinanceAgentController,
-)
-from app.finance.db import (
-    FinanceDataNotReady,
-    PostgresFinanceAsOfDataPort,
-)
-from app.finance.execution import get_finance_execution, save_finance_execution
-from app.finance.llm.planner import FinancePlannerContractViolation, ToolAction
-from app.finance.schemas import CashEvent, FinancePolicy
+from app.finance.service.run_history import save_finance_execution
+from tests.finance.finance_fake_connection import lend
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
 
@@ -46,7 +47,8 @@ def _harness_trace(metadata) -> dict:
 
 
 #: `patch()` 대상 모듈 경로 — 소유 모듈을 직접 가리킨다.
-_STATE_REPO = "app.finance.db"
+#: 2026-09-29 재구성 BL-014: as-of DataPort 가 조회 연결을 빌려 상태 행을 고른다.
+_STATE_REPO = "app.finance.readmodel.as_of_data_port"
 
 
 class Port:
@@ -236,7 +238,7 @@ def test_registry_exposes_exactly_six_business_tools():
     assert DEFAULT_MAX_REPLANS == 2
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_pre_purchase_dynamic_order_and_envelope(save_run):
     """순서는 고정 파이프라인이 아니다 — **합법이기만 하면 Planner 가 정한다.**
 
@@ -269,7 +271,7 @@ def test_pre_purchase_dynamic_order_and_envelope(save_run):
     save_run.assert_called_once()
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_pre_purchase_returns_margin_policy_with_evidence(save_run):
     planner = Planner(
         [
@@ -285,7 +287,7 @@ def test_pre_purchase_returns_margin_policy_with_evidence(save_run):
     assert evidence["margin_defense_floor_rate"].ref_ids == ("policy:margin-floor",)
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_missing_n5_is_not_ready_and_never_returns_finance_cap(save_run):
     reply, _ = FinanceAgentController(
         MissingN5Port(), Planner([ToolAction("assess_finance_position")])
@@ -296,7 +298,7 @@ def test_missing_n5_is_not_ready_and_never_returns_finance_cap(save_run):
     assert "finance_cap_amount_krw" not in reply.payload
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_different_legal_tool_orders_produce_the_same_finance_result(save_run):
     """🔴 예전에는 cap·압박도 Tool 이 투영이 없으면 **안에서 몰래** 현금흐름을 돌렸다.
 
@@ -366,7 +368,7 @@ def test_different_legal_tool_orders_produce_the_same_finance_result(save_run):
     assert evidence["critical_payment_dates"].unit == "KRW"
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_multi_scenario_results_are_isolated_and_common_contract_valid(save_run):
     planner = Planner(
         [
@@ -413,7 +415,7 @@ def test_multi_scenario_results_are_isolated_and_common_contract_valid(save_run)
     assert validate_finance_scenario_output(reply) == ()
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_base_cashflow_failure_is_not_presented_as_repairable(save_run):
     planner = Planner([ToolAction("evaluate_purchase_scenario"), ToolAction(finalize=True)])
     reply, _ = FinanceAgentController(BaseViolationPort(), planner).run(
@@ -441,14 +443,14 @@ def test_base_cashflow_failure_is_not_presented_as_repairable(save_run):
     ],
 )
 def test_finance_owned_payload_validation_rejects_invalid_scenarios(payload):
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, _ = FinanceAgentController(Port(), Planner([])).run(
             request("SCENARIO_VALIDATION", payload)
         )
     assert reply.runtime_status == "ERROR"
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_scenario_payment_dates_change_projected_cashflow(save_run):
     planner = Planner(
         [
@@ -503,7 +505,7 @@ def test_scenario_payment_dates_change_projected_cashflow(save_run):
     assert late["verdict"] == "ok"
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_default_payment_date_is_reconstructed_from_approved_policy(save_run):
     planner = Planner(
         [
@@ -536,7 +538,7 @@ def test_default_payment_date_is_reconstructed_from_approved_policy(save_run):
     ]
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_multi_scenario_reuses_one_policy_context(save_run):
     port = CountingPort()
     planner = Planner(
@@ -573,7 +575,7 @@ def test_run_history_persistence_failure_becomes_agent_error():
         ]
     )
     with patch(
-        "app.finance.execution.save_finance_execution",
+        "app.finance.service.run_history.save_finance_execution",
         side_effect=RuntimeError("database down"),
     ):
         reply, _ = FinanceAgentController(Port(), planner).run(request())
@@ -582,7 +584,7 @@ def test_run_history_persistence_failure_becomes_agent_error():
     assert reply.reasoning == messages.PERSISTENCE_FAILED
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_finalization_failure_uses_deterministic_fallback_after_evidence(save_run):
     planner = Planner(
         [
@@ -605,7 +607,7 @@ def test_finalization_failure_uses_deterministic_fallback_after_evidence(save_ru
     assert not any(character.isdigit() for character in reply.reasoning)
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_zero_debt_does_not_require_debt_policy(save_run):
     # ★ `PRE_PURCHASE_TOOLS` 는 frozenset 이라 순회 순서가 정해져 있지 않다. 선행
     #   capability 를 Harness 가 강제하는 이상, 순서를 운에 맡기면 이 테스트가
@@ -628,7 +630,7 @@ def test_zero_debt_does_not_require_debt_policy(save_run):
     assert reply.runtime_status == "READY"
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_positive_debt_without_policy_is_not_ready(save_run):
     port = Port()
     port.debt = Decimal(1)
@@ -639,7 +641,7 @@ def test_positive_debt_without_policy_is_not_ready(save_run):
     assert reply.missing_data == ("debt_policy",)
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_missing_payroll_is_not_ready_and_never_zero_filled(save_run):
     port = Port()
     port.payroll = None
@@ -652,7 +654,7 @@ def test_missing_payroll_is_not_ready_and_never_zero_filled(save_run):
     assert reply.needs_followup is True
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_scenario_adjustment_carries_the_label_of_the_branch_it_judged(save_run):
     """🔴 판정한 안의 라벨이 조정안까지 살아서 가는가.
 
@@ -683,7 +685,7 @@ def test_scenario_adjustment_carries_the_label_of_the_branch_it_judged(save_run)
     assert reply.suggested_adjustments[0].split_date is None
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_scenario_adjustment_has_no_label_when_the_proposal_gave_none(save_run):
     """라벨 없이 들어온 안에는 라벨을 지어내지 않는다.
 
@@ -709,7 +711,7 @@ def test_scenario_adjustment_has_no_label_when_the_proposal_gave_none(save_run):
     assert "S1" not in reply.suggested_adjustments[0].scenario_labels
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_each_branch_adjustment_carries_only_its_own_label(save_run):
     """여러 안을 한 번에 판정해도 조정안은 **자기 안의 라벨만** 든다."""
     planner = Planner(
@@ -752,7 +754,7 @@ def test_each_branch_adjustment_carries_only_its_own_label(save_run):
         assert adjustment.scenario_labels == (expected,)
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_unlabelled_branch_does_not_borrow_a_sibling_label(save_run):
     """라벨이 없는 안의 조정은 **빈 채로** 나간다 — 옆 안의 라벨을 빌려오지 않는다.
 
@@ -793,7 +795,7 @@ def test_unlabelled_branch_does_not_borrow_a_sibling_label(save_run):
             assert borrowed not in adjustment.scenario_labels
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_scenario_reject_stays_reject_with_verified_amount_adjustment(save_run):
     planner = Planner(
         [
@@ -821,7 +823,7 @@ def test_scenario_reject_stays_reject_with_verified_amount_adjustment(save_run):
 
 def test_payment_schedule_sum_mismatch_is_error():
     planner = Planner([ToolAction("evaluate_purchase_scenario")])
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, _ = FinanceAgentController(Port(), planner).run(
             request(
                 "SCENARIO_VALIDATION",
@@ -835,7 +837,7 @@ def test_payment_schedule_sum_mismatch_is_error():
     assert reply.runtime_status == "ERROR"
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_purchase_pr62_shape_uses_label_identity_and_validates_base_stress(save_run):
     del save_run
     scenario = {
@@ -897,7 +899,7 @@ def test_purchase_pr62_shape_uses_label_identity_and_validates_base_stress(save_
     ][0]["scenario_projected_cash_min"]
 
 
-@patch("app.finance.execution.save_finance_execution")
+@patch("app.finance.service.run_history.save_finance_execution")
 def test_purchase_labels_must_be_unique_when_scenario_id_is_absent(save_run):
     del save_run
     reply, metadata = FinanceAgentController(Port(), Planner([])).run(
@@ -923,7 +925,7 @@ def test_duplicate_tool_call_is_blocked():
     planner = Planner(
         [ToolAction("assess_finance_position"), ToolAction("assess_finance_position")]
     )
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, _ = FinanceAgentController(Port(), planner).run(request())
     assert reply.runtime_status == "ERROR"
 
@@ -945,7 +947,10 @@ def test_non_amount_adjustment_axis_is_rejected():
 
 def test_postgres_port_fails_closed_for_historical_as_of():
     row = {"state_date": date(2025, 1, 2)}
-    with patch(f"{_STATE_REPO}._get_current_finance_state_row", return_value=row):
+    with (
+        patch("app.core.db.read_connection", return_value=nullcontext(None)),
+        patch(f"{_STATE_REPO}.current_state_row_on", return_value=row),
+    ):
         try:
             PostgresFinanceAsOfDataPort().load_finance_position(date(2025, 1, 1))
         except FinanceDataNotReady as error:
@@ -954,7 +959,7 @@ def test_postgres_port_fails_closed_for_historical_as_of():
             raise AssertionError("historical request silently read current state")
 
 
-def test_run_id_resolves_finance_history():
+def test_run_id_resolves_finance_history(monkeypatch):
     run_id = UUID("00000000-0000-0000-0000-000000000022")
     row = {
         "run_id": run_id,
@@ -963,15 +968,17 @@ def test_run_id_resolves_finance_history():
         "as_of": date(2025, 1, 1),
         "runtime_status": "READY",
     }
+    conn = lend(monkeypatch)
     with (
-        patch("app.finance.execution.get_db_schema", return_value="haetdeul"),
-        patch("app.finance.execution.fetch_one", return_value=row) as fetch,
+        patch("app.finance.repository.runs.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.repository.runs.fetch_one", return_value=row) as fetch,
     ):
         assert get_finance_execution(run_id) == row
-    assert fetch.call_args.args[1] == (run_id,)
+    assert fetch.call_args.args[2] == (run_id,)
+    assert conn.borrows == ["read"]
 
 
-def test_run_history_persists_reproducibility_fields():
+def test_run_history_persists_reproducibility_fields(monkeypatch):
     req = request()
     reply = AgentReply(
         request_id=req.context.request_id,
@@ -989,13 +996,17 @@ def test_run_history_persists_reproducibility_fields():
         used_tools=("assess_finance_position",),
         tool_order=(1,),
     )
+    conn = lend(monkeypatch)
     with (
-        patch("app.finance.execution.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.repository.runs.get_db_schema", return_value="haetdeul"),
         patch(
-            "app.finance.execution.execute_returning_one",
+            "app.finance.repository.runs.returning_one",
             return_value={"run_id": UUID(reply.run_id)},
         ) as execute,
     ):
         save_finance_execution(request=req, reply=reply, metadata=metadata)
-    params = execute.call_args.args[1]
+    #  2026-09-29 재구성 BL-014: 이력 한 건 = 자기 연결 하나 · 트랜잭션 하나.
+    assert conn.borrows == ["write"]
+    assert conn.events == ["commit", "returned:write"]
+    params = execute.call_args.args[2]
     assert params[5:8] == ("v1.3-PROVISIONAL", "USER_REQUEST", 1)

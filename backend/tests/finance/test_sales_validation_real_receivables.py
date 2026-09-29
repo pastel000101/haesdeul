@@ -17,10 +17,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.capabilities.sales import run_sales_validation
-from app.finance.db import FinanceDataNotReady
-from app.finance.sales_validation import PartnerReceivable
-from app.finance.schemas import FinancePolicy
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.sales_validation import PartnerReceivable
+from app.finance.service.capabilities.sales import run_sales_validation
 
 AS_OF = date(2025, 12, 31)
 

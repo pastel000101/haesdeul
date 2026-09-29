@@ -52,7 +52,7 @@ from typing import Any
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from app.finance.db import get_db_schema
+from app.master.db import get_db_schema
 
 __all__ = [
     "SIM_RUN_ID_PREFIX",

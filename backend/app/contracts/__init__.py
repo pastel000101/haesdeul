@@ -14,6 +14,7 @@
     parts.py             하루 단계 파트 결과 (입고 · 마감 · 수금 · 채권 발행)
     forecast.py          ML 가격 예측
     aging.py             매출채권 연체 구간
+    receivable_history.py  기준일 시점 매출채권 상태 규칙 (재무 · 판매 공용 · 2026-09-29 BL-014)
     sales_logistics.py   판매 → 물류 출고 예약 요청
 
 ★ **`app` 안에서는 `app.contracts` 와 `app.core` 만 import 한다.** 파트·마스터·화면을

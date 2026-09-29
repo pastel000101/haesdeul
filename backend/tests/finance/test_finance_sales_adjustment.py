@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from app.finance.capabilities.sales import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
+from app.finance.domain.sales_validation import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
 
 
 def _payload(**over) -> dict[str, object]:

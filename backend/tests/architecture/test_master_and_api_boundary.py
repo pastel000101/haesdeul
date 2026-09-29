@@ -116,8 +116,14 @@ def test_screen_takes_only_readmodel_and_domain_from_master():
     }
 
     assert {path: lines for path, lines in wrong.items() if lines} == {}
-    #  ★ 무엇을 봤는지 — 지금 마스터를 부르는 화면은 대시보드와 매입 탭 둘이다.
-    assert set(refs) == {"api/dashboard/query.py", "api/purchase/query.py"}, refs
+    #  ★ 무엇을 봤는지 — 지금 마스터를 부르는 화면은 대시보드 · 매입 탭 · 콘솔 실행 목록 셋이다.
+    #    (2026-09-29 재구성 BL-014: 콘솔 실행 목록과 매입 탭 조회가 `finance.db` 직접 SQL 에서
+    #    마스터 readmodel 로 옮겨 왔다.)
+    assert set(refs) == {
+        "api/console/routes.py",
+        "api/dashboard/query.py",
+        "api/purchase/query.py",
+    }, refs
 
 
 def test_screen_check_catches_planted_repository_imports():

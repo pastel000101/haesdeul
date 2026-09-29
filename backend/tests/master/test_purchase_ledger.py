@@ -284,7 +284,7 @@ def test_회차가_둘인데_금액이_비면_NOT_APPLIED_이고_커넥션을_�
     """★ 막는 것은 *"회차가 둘"* 이 아니라 **회차 금액이 비었다**는 사실이다.
 
     ⚠️ 전에는 회차가 둘이면 무조건 막았고, 주석은 재무도 그렇다고 적었다. 재무
-      `_payment_legs`(`app/finance/transition.py:207`)는 `len(legs) > 1` 이면서 금액이
+      `_payment_legs`(`app/finance/domain/transition.py`)는 `len(legs) > 1` 이면서 금액이
       비었을 때만 막는 **조건부**다 — 이제 두 곳이 같은 조건으로 막는다.
     """
     log: list[tuple[str, Any]] = []

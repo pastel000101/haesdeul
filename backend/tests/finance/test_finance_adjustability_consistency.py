@@ -16,21 +16,21 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import user_messages as messages
-from app.finance.application.harness import (
+from app.finance.domain import messages
+from app.finance.llm.planner import ToolAction
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.service.agent import FinanceAgentController, _settled_action
+from app.finance.service.harness import (
     _ADJUSTMENT_REQUIRED_VERDICTS,
     FinanceHarness,
     FinanceToolRegistry,
 )
-from app.finance.application.orchestration import FinanceAgentController, _settled_action
-from app.finance.llm.planner import ToolAction
-from app.finance.state import FinanceAgentState
 from tests.finance.test_finance_agent import Planner, Port, request, scenario
 
 
 def _run(payload, actions, finalizer=None):
     planner = Planner(actions)
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         controller = (
             FinanceAgentController(Port(), planner, finalizer=finalizer)
             if finalizer is not None
@@ -110,7 +110,7 @@ def test_a_non_ok_scenario_can_no_longer_skip_the_amount_adjustment_tool():
     이제는 되물어서가 아니라 **애초에 그 상태가 만들어지지 않아서** 그렇다.
     """
     planner = Planner([*[_FINALIZE] * 12])
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         reply, metadata = FinanceAgentController(Port(), planner).run(
             request("SCENARIO_VALIDATION", scenario("S1", 1000, payment_schedule=None))
         )
@@ -152,8 +152,8 @@ def test_the_deterministic_dispatch_never_finalizes_while_a_capability_is_missin
 
 def test_unvalidated_non_ok_scenario_never_reaches_the_result_builder():
     """결과 조립 단계에도 방어가 있다 — 두 층이 같은 사실을 지킨다."""
-    from app.finance.application.orchestration import _amount_adjustment_was_evaluated
-    from app.finance.state import FinanceAgentState
+    from app.finance.schemas.agent_state import FinanceAgentState
+    from app.finance.service.agent import _amount_adjustment_was_evaluated
 
     state = FinanceAgentState(request=request("SCENARIO_VALIDATION", scenario("S1", 1000)))
     state.tool_order = ["evaluate_purchase_scenario"]
@@ -167,8 +167,8 @@ def test_base_violation_is_the_documented_exception():
     어떤 금액도 안전하지 않다는 답이 결정론 판정에서 이미 나왔으므로 Tool 을 부르지
     않는다 — 유일한 예외이고, 숨기지 않고 여기 못 박는다.
     """
-    from app.finance.application.orchestration import _amount_adjustment_was_evaluated
-    from app.finance.state import FinanceAgentState
+    from app.finance.schemas.agent_state import FinanceAgentState
+    from app.finance.service.agent import _amount_adjustment_was_evaluated
 
     state = FinanceAgentState(request=request("SCENARIO_VALIDATION", scenario("S1", 1000)))
     state.tool_order = ["evaluate_purchase_scenario"]

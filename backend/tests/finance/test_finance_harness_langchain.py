@@ -24,13 +24,29 @@ from unittest.mock import patch
 import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
-from app.finance import user_messages as messages
-from app.finance.application import harness as harness_module
-from app.finance.application.harness import (
+from app.finance.domain import messages
+from app.finance.domain.messages import explanation_keys
+from app.finance.llm.planner import (
+    FINALIZE_TOOL_NAME,
+    FinancePlannerContractViolation,
+    LangChainFinancePlanner,
+    ToolAction,
+    finance_chat_model,
+)
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service import harness as harness_module
+from app.finance.service.agent import FinanceAgentController
+from app.finance.service.capabilities.procurement import (
+    FinancePreconditionMissing,
+    analyze_payment_pressure,
+    calculate_purchase_finance_cap,
+)
+from app.finance.service.harness import (
     CAPABILITY_OWNER,
     DEPENDENCY_NOT_SATISFIED,
     DUPLICATE_UNRESOLVED_TOOL_CALL,
-    FINALIZE_TOOL_NAME,
     TOOL_BUDGET_EXHAUSTED,
     TOOL_DEPENDENCIES,
     TOOL_PERMISSION_DENIED,
@@ -40,22 +56,6 @@ from app.finance.application.harness import (
     build_planner_tool_adapter,
     validate_planner_tool_arguments,
 )
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.capabilities.procurement import (
-    FinancePreconditionMissing,
-    analyze_payment_pressure,
-    calculate_purchase_finance_cap,
-)
-from app.finance.db import FinanceDataNotReady
-from app.finance.llm.planner import (
-    FinancePlannerContractViolation,
-    LangChainFinancePlanner,
-    ToolAction,
-    finance_chat_model,
-)
-from app.finance.schemas import FinancePolicy
-from app.finance.state import FinanceAgentState
-from app.finance.user_messages import explanation_keys
 
 
 @contextmanager
@@ -82,7 +82,7 @@ def two_explanation_candidates():
         return [first[0], second]
 
     with patch(
-        "app.finance.application.orchestration.explanation_keys", side_effect=two_keys
+        "app.finance.service.agent.explanation_keys", side_effect=two_keys
     ):
         yield
 
@@ -234,7 +234,7 @@ def pre_purchase_plan():
 
 @pytest.fixture(autouse=True)
 def _no_persistence():
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         yield
 
 

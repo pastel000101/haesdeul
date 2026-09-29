@@ -46,9 +46,9 @@ from fastapi.testclient import TestClient
 
 from app.contracts.parts import ClosingPartOut
 from app.core.clock import SEOUL
-from app.finance import closing_adapter as finance_closing_adapter
-from app.finance.closing import FinanceDayClosingResult
-from app.finance.closing_adapter import FinanceClosingAdapter
+from app.finance import adapter as finance_closing_adapter
+from app.finance.adapter import FinanceClosingAdapter
+from app.finance.schemas.closing import FinanceDayClosingResult
 from app.master import closing
 from app.master.closing import close_day
 from app.master.day_gate import DayGate
@@ -137,7 +137,7 @@ def test_finance_closing_adapter_passes_the_exact_master_axis(monkeypatch: pytes
             created=1,
         )
 
-    monkeypatch.setattr(finance_closing_adapter, "close_day", _finance_close_day)
+    monkeypatch.setattr(finance_closing_adapter, "close_finance_day", _finance_close_day)
     conn = _가짜커넥션()
 
     out = FinanceClosingAdapter().close(conn, as_of=AS_OF, sim_run_id=축)
@@ -155,7 +155,7 @@ def test_master_closing_registry_calls_finance_adapter(monkeypatch: pytest.Monke
         calls.append((as_of, sim_run_id))
         return FinanceDayClosingResult(part="finance", status="CLOSED", closed=["row"], created=1)
 
-    monkeypatch.setattr(finance_closing_adapter, "close_day", _finance_close_day)
+    monkeypatch.setattr(finance_closing_adapter, "close_finance_day", _finance_close_day)
     closing.register_closing("finance", FinanceClosingAdapter())
     conn = _가짜커넥션()
 

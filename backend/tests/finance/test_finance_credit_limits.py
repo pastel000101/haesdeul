@@ -68,7 +68,7 @@ class _Connection:
 
 def _install(monkeypatch, cursor: _Cursor) -> _Connection:
     """HTTP 입구의 연결 의존성(`core_db.db_connection`)을 대역으로 바꾼다 — DB 를 안 탄다."""
-    monkeypatch.setattr("app.finance.router.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.credit_limits.get_db_schema", lambda: "haetdeul")
     connection = _Connection(cursor)
 
     def _borrowed():

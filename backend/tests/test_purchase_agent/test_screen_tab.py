@@ -57,7 +57,7 @@ def _run(request_id: str, *scenarios: dict, **over: object) -> dict:
         "end_code": "E1_APPROVED",
         "runtime_status": "READY",
         "created_at": f"2026-09-05 10:0{len(request_id) % 10}",
-        #  🔴 조회가 이 칸을 늘 실어 온다 (`query._read`). 픽스처가 빼면 «걷기 밖»
+        #  🔴 조회가 이 칸을 늘 실어 온다 (`read_purchase_tab`). 픽스처가 빼면 «걷기 밖»
         #     으로 읽히는데, 그건 **안 읽어 온 것**과 다른 사실이다. 기본값은 걷기
         #     안으로 두고, 걷기 밖을 재는 검사만 `sim_run_id=None` 을 넘긴다.
         "sim_run_id": "SIM-BURNIN-202512",
@@ -92,7 +92,8 @@ def read(monkeypatch):
                 raise data
             return data
 
-        monkeypatch.setattr(tab, "_read", fake)
+        #  2026-09-29 재구성 BL-014: 조회는 마스터 readmodel `read_purchase_tab` 이 되었다.
+        monkeypatch.setattr(tab, "read_purchase_tab", fake)
 
     return install
 

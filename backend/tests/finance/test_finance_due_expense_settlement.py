@@ -25,11 +25,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady
-from app.finance.expenses import (
-    ExpenseConflict,
-    settle_due_expenses,
-)
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.expenses import ExpenseConflict
+from app.finance.service.expenses import settle_due_expenses
 
 RUN = "SIM-DUE-A"
 OTHER_RUN = "SIM-DUE-B"
@@ -189,7 +187,7 @@ def _expense(
 
 @pytest.fixture(autouse=True)
 def _schema(monkeypatch):
-    monkeypatch.setattr("app.finance.expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.expenses.get_db_schema", lambda: "haetdeul")
 
 
 # ── B. 지급일 전 ──────────────────────────────────────────────────────────

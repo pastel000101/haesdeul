@@ -6,17 +6,18 @@
   screen never shows run A's turnover next to run B's partner list.
 
 ★ 2026-09-29 BL-013: `sales/console_partners.py` 에서 옮겼다. SQL 은
-  `repository/console_partners.py`, 채권 상태 규칙은 `domain/receivable_history.py` 다. 상세
-  조회는 다섯 조회를 한 번 빌린 조회 연결로 종전과 같은 순서로 읽는다.
+  `repository/console_partners.py`, 채권 상태 규칙은 계약 `app/contracts/receivable_history.py`
+  다(2026-09-29 재구성 BL-014 전에는 `domain/receivable_history.py`). 상세 조회는 다섯 조회를 한 번
+  빌린 조회 연결로 종전과 같은 순서로 읽는다.
 """
 
 from datetime import date
 from decimal import Decimal
 
 from app.contracts.aging import classify_receivable_aging
+from app.contracts.receivable_history import projected_status
 from app.core import db as core_db
 from app.core.text import decimal_or_zero
-from app.sales.domain.receivable_history import projected_status
 from app.sales.repository.console_partners import (
     load_partner_basic,
     load_partner_items,

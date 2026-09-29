@@ -44,7 +44,7 @@ def finance(kinds: dict[str, str] | None = None, default: str = "ok"):
 
     ★ `business_status` 만 바꾸지 않는다. 이번 구분은 `runtime_status` 와
       `payload.status` 까지 봐야 성립하므로, 재무가 실제로 보내는 칸을 그대로 싣는다
-      (`app/finance/capabilities/sales.py` · `map_sales_finance_verdict`).
+      (`app/finance/domain/sales_validation.py` · `map_sales_finance_verdict`).
     """
 
     def port(request):

@@ -9,9 +9,9 @@ from unittest.mock import patch
 import pytest
 
 from app.contracts.parts import CollectionPartOut
-from app.finance.collection import CollectionEvent, DeterministicCollectionFixtureSource
-from app.finance.collection_adapter import FinanceCollectionSource
-from app.finance.state_identity import daily_finance_state_id
+from app.finance.domain.state_identity import daily_finance_state_id
+from app.finance.schemas.collections import CollectionEvent, DeterministicCollectionFixtureSource
+from app.finance.service.collections import FinanceCollectionSource
 
 source_SIM_RUN_ID = "SIM-COLLECTION-SOURCE"
 source_MODE = "LOAN_BASELINE"
@@ -177,7 +177,7 @@ class source_Connection:
 
 @pytest.fixture(autouse=True)
 def source_schema():
-    with patch("app.finance.collection.get_db_schema", return_value="test_schema"):
+    with patch("app.finance.repository.collections.get_db_schema", return_value="test_schema"):
         yield
 
 
@@ -417,14 +417,14 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance import db as finance_db
-from app.finance.collection import (
-    FinanceCollectionConflict,
-    apply_collection_event,
-    apply_explicit_collection,
-)
-from app.finance.day_open import FinanceDayOpening
-from app.finance.db import FinanceDataNotReady, InventorySnapshot, PostgresFinanceAsOfDataPort
+from app.finance.adapter import FinanceDayOpening
+from app.finance.readmodel import finance_state as finance_state_readmodel
+from app.finance.readmodel.as_of_data_port import PostgresFinanceAsOfDataPort
+from app.finance.schemas.collections import FinanceCollectionConflict
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service.collections import apply_collection_event, apply_explicit_collection
+from tests.finance.finance_fake_connection import lend
 
 execution_SIM_RUN_ID = "SIM-COLLECTION-30D"
 execution_MODE = "LOAN_BASELINE"
@@ -437,7 +437,7 @@ execution_ORIGINAL = Decimal(10_000_000)
 @pytest.fixture(autouse=True)
 def execution_inventory_snapshot():
     with patch(
-        "app.finance.day_open.load_inventory_snapshot_as_of",
+        "app.finance.service.day_open.load_inventory_snapshot_as_of",
         return_value=InventorySnapshot(
             Decimal(1), Decimal(3_000_000), Decimal(2_500_000)
         ),
@@ -628,8 +628,8 @@ class execution_Connection:
 @pytest.fixture(autouse=True)
 def execution_schema():
     with (
-        patch("app.finance.collection.get_db_schema", return_value="test_schema"),
-        patch("app.finance.day_open.get_db_schema", return_value="test_schema"),
+        patch("app.finance.repository.collections.get_db_schema", return_value="test_schema"),
+        patch("app.finance.repository.day_open.get_db_schema", return_value="test_schema"),
     ):
         yield
 
@@ -749,14 +749,14 @@ def test_30_day_walk_changes_ledgers_only_on_explicit_event_days(monkeypatch):
         )
     ]
     monkeypatch.setattr(
-        finance_db,
-        "get_finance_runtime_axis",
-        lambda **_kwargs: {
+        finance_state_readmodel,
+        "runtime_axis_on",
+        lambda _conn, **_kwargs: {
             "sim_run_id": execution_SIM_RUN_ID,
             "financing_mode": execution_MODE,
         },
     )
-    monkeypatch.setattr(finance_db, "fetch_all", lambda *_args, **_kwargs: [final_state])
+    lend(monkeypatch, lambda _query, _params: [final_state])
     runtime_position = PostgresFinanceAsOfDataPort().load_finance_position(execution_END)
     assert runtime_position["current_cash_krw"] == Decimal(30_000_000)
     assert runtime_position["receivables_krw"] == 0

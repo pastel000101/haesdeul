@@ -26,6 +26,11 @@
 
 🔴 **실 DB 에 안 닿는다.** `_read` 와 실매입 기록 조회를 대역으로 세우고, 「읽어 온 값을
    어떻게 싣는가」만 본다.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -38,6 +43,7 @@ import pytest
 from app.api.purchase import query as purchase_query
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals
+from app.master.readmodel.purchase_tab import read_purchase_tab
 
 AS_OF = date(2026, 4, 13)
 AXIS = "SIM-CHECK-HOLIDAY-0916"
@@ -99,7 +105,7 @@ def tab(monkeypatch):
 
     #  ⚠️ `**_` 다 — `build` 가 `window_days=` 를 넘긴다 (`#740`). 안 받으면 `TypeError`
     #     가 나고 `build` 의 `except Exception` 이 그것을 삼켜 조용히 예시값이 나간다.
-    monkeypatch.setattr(purchase_query, "_read", lambda _as_of, **_: state["data"])
+    monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda _as_of, **_: state["data"])
     monkeypatch.setattr(
         purchase_query, "recorded_totals_by_plan", lambda **_: state["records"]
     )
@@ -216,7 +222,7 @@ def test_축이_없으면_기록을_안_맞춘다(monkeypatch):
 
     monkeypatch.setattr(
         purchase_query,
-        "_read",
+        "read_purchase_tab",
         lambda _as_of, **_: _data(
             [_run("REQ-A", _scenario("기본"), sim_run_id=None)], [_approval("REQ-A", "기본")]
         ),
@@ -436,7 +442,7 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
     대역 검사들은 `_read` 를 통째로 갈아 끼우므로 이 칸이 빠져도 안 운다 — 질의 문면을
     직접 본다.
     """
-    import app.finance.db as finance_db
+    from app.master import purchase_tab_repository
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     문면: list[str] = []
@@ -445,9 +451,9 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
         문면.append(query.as_string(None))
         return []
 
-    monkeypatch.setattr(finance_db, "fetch_all", _record)
+    monkeypatch.setattr(purchase_tab_repository, "fetch_all", _record)
 
-    purchase_query._read(AS_OF, sim_run_id=AXIS)
+    read_purchase_tab(AS_OF, sim_run_id=AXIS)
 
     (결정,) = [t for t in 문면 if "master_decisions" in t]
     assert "decision_seq" in 결정

@@ -1,7 +1,11 @@
 """부서 `db.py` 입구 — 풀 전환 뒤에도 **부서마다 다른 동작**이 그대로인지 (실 DB 연결 없음).
 
 ```text
-재무·물류       조회는 서비스 풀의 조회 연결 · RETURNING 쓰기는 한 호출 = 한 트랜잭션
+마스터·물류     조회는 서비스 풀의 조회 연결 · RETURNING 쓰기는 한 호출 = 한 트랜잭션
+               (마스터 입구 `master/db.py` 는 2026-09-29 재구성 BL-014 전에 `finance/db.py` 였다)
+재무           입구 `finance/db.py` 가 없다 (2026-09-29 재구성 BL-014) — 조회는 readmodel 이
+               조회 연결을, 실행이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
+               repository 에 넘긴다 (아래 재무 절)
 영업           입구 `sales/db.py` 가 없다 (2026-09-29 BL-013) — 조회는 readmodel 이 조회 연결을,
                쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려 repository 에 넘긴다
                (아래 판매 절)
@@ -21,6 +25,7 @@ ML             입구 `ml/db.py` 가 없다 (2026-09-29 BL-017) — 원본 창�
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 import psycopg
@@ -28,13 +33,13 @@ import pytest
 from fake_pg_connection import FakeCursor, FakePgConnection
 from psycopg.rows import dict_row
 
-import app.finance.db as finance_db
 import app.logistics.db as logistics_db
+import app.master.db as master_db
 from app.core import db as core_db
 from app.core import settings
 
-READ_MODULES = [finance_db, logistics_db]
-WRITE_MODULES = [finance_db, logistics_db]
+READ_MODULES = [master_db, logistics_db]
+WRITE_MODULES = [master_db, logistics_db]
 
 
 @pytest.mark.parametrize("module", READ_MODULES, ids=lambda m: m.__name__)
@@ -145,7 +150,7 @@ def test_missing_env_message_is_unchanged(
 
 
 @pytest.mark.parametrize(
-    "module", [finance_db, logistics_db], ids=lambda m: m.__name__
+    "module", [master_db, logistics_db], ids=lambda m: m.__name__
 )
 def test_schema_comes_from_db_schema(module, db_env: dict[str, str]) -> None:
     assert module.get_db_schema() == "haetdeul_test"
@@ -176,7 +181,7 @@ def test_the_pool_reads_connection_settings_once_not_per_borrow(
     monkeypatch.setattr(settings, "load_dotenv", lambda path: loads.append(path))
 
     for _ in range(3):
-        finance_db.fetch_all("Q")
+        master_db.fetch_all("Q")
         logistics_db.fetch_all("Q")
 
     # 접속 정보 1 + 풀 크기 1 — 대여마다 늘지 않는다
@@ -246,11 +251,11 @@ def test_ml_service_read_borrows_one_read_connection_from_the_shared_pool(
     from app.ml.readmodel import qa_reads
 
     fake_pg.one = {"base_dt": date(2026, 9, 14)}
-    finance_db.fetch_all("Q")
+    master_db.fetch_all("Q")
 
     assert qa_reads.latest_base_date(date(2026, 9, 15)) == date(2026, 9, 14)
 
-    assert len(fake_pg.connects) == 1  # 재무와 같은 풀 · 같은 연결
+    assert len(fake_pg.connects) == 1  # 마스터 입구와 같은 풀 · 같은 연결
     (conn,) = fake_pg.made
     query, params = conn.executed[-1]
     assert "haetdeul_test.ml_price_forecasts" in query  # 스키마 이름은 DB_SCHEMA 에서
@@ -563,6 +568,119 @@ def test_purchase_borrows_only_read_connections() -> None:
                 offenders += [f"{path.name}: {a.name}" for a in node.names
                               if a.name == "get_db_schema"]
     assert offenders == []
+
+
+# ── 재무 — 입구 대신 계층이 빌린다 (2026-09-29 재구성 BL-014) ─────────────────────────
+#
+# 옛 `finance/db.py` 입구에서 재던 것 — 조회는 조회 연결을 빌려 돌려주고 commit 하지 않는다 ·
+# 쓰기는 남의 연결에 얹히지 않는 한 트랜잭션이다 · 행이 없으면 되돌린다 — 을 그 일을 맡은 재무
+# readmodel · service 에서 같은 진짜 풀로 잰다. 헬퍼 몸통은 마스터 입구(`app/master/db.py`)로
+# 옮겨 위 입구 검사가 그대로 잰다.
+
+_FINANCE_STATE_ROW = {
+    "finance_state_id": "FIN-DAY-SIM-1-LOAN_BASELINE-20260105",
+    "sim_run_id": "SIM-1",
+    "state_date": date(2026, 1, 5),
+    "state_type": "DAY",
+    "financing_mode": "LOAN_BASELINE",
+    "current_cash_krw": Decimal(53_952_691),
+    "minimum_operating_cash_krw": Decimal(15_902_640),
+    "committed_outflows_krw": Decimal(0),
+    "unsettled_purchase_payables_krw": Decimal(0),
+    "receivables_krw": Decimal(0),
+    "current_debt_krw": Decimal(0),
+    "financial_limit_krw": Decimal(38_050_051),
+}
+
+
+def _save_finance_run() -> object:
+    from app.finance.service.run_history import save_finance_agent_run
+
+    return save_finance_agent_run(
+        cycle="PROCUREMENT",
+        as_of=date(2026, 1, 5),
+        snapshot_id=None,
+        runtime_status="RUNTIME_NOT_READY",
+        verdict=None,
+        request_payload={},
+        response_payload={"verdict": None},
+    )
+
+
+def test_finance_read_borrows_one_read_connection_and_returns_it(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    from app.finance.readmodel.finance_state import load_finance_state_row
+
+    fake_pg.rows = [dict(_FINANCE_STATE_ROW)]
+
+    row = load_finance_state_row(date(2026, 1, 5), sim_run_id="SIM-1")
+
+    assert row["finance_state_id"] == _FINANCE_STATE_ROW["finance_state_id"]
+    (conn,) = fake_pg.made  # 축 조회와 상태 조회가 한 연결을 썼다
+    assert len(conn.executed) == 2
+    assert "commit" not in conn.events  # 조회는 트랜잭션을 열지 않는다
+    assert conn.autocommit is False  # 돌려받은 연결은 쓰기용으로 되돌려져 있다
+
+
+def test_finance_failed_read_returns_the_connection_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    from app.finance.readmodel.finance_state import get_finance_runtime_axis
+
+    with core_db.connection() as warm:
+        warm.fail_on_execute = psycopg.errors.UndefinedTable("no table")
+
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        get_finance_runtime_axis(sim_run_id="SIM-1")
+
+    (conn,) = fake_pg.made
+    conn.fail_on_execute = None
+    conn.rows = [dict(_FINANCE_STATE_ROW)]
+    assert get_finance_runtime_axis(sim_run_id="SIM-1")["sim_run_id"] == "SIM-1"
+
+
+def test_finance_run_history_write_is_one_transaction_on_its_own_connection(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    """실행이력은 원장 연결에 얹히지 않는다 — 얹히면 원장 rollback 이 이력까지 지운다."""
+    fake_pg.one = {"run_id": "RUN-1"}
+
+    with core_db.connection() as held:
+        _ = held.cursor().execute("SELECT held")
+        assert _save_finance_run() == {"run_id": "RUN-1"}
+
+    write = next(c for c in fake_pg.made if c is not held)
+    assert len(write.executed) == 1
+    assert write.events[-1] == "commit"
+    assert "commit" not in held.events
+
+
+def test_finance_run_history_write_without_a_row_rolls_back(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    """RETURNING 행이 없으면 종전 문구로 멈추고, 그 예외로 쓰기가 rollback 된다."""
+    with pytest.raises(RuntimeError) as raised:
+        _save_finance_run()
+
+    assert str(raised.value) == "Database write did not return a row"
+    (conn,) = fake_pg.made
+    assert conn.events[-1] == "rollback"
+    assert "commit" not in conn.events
+
+
+def test_finance_run_history_write_failure_rolls_back_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    with core_db.connection() as warm:
+        warm.fail_on_execute = psycopg.errors.UniqueViolation("dup")
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _save_finance_run()
+
+    (conn,) = fake_pg.made
+    assert conn.events[-1] == "rollback"
+    assert "commit" not in conn.events
 
 
 # ── 판매 — 입구 대신 계층이 빌린다 (2026-09-29 BL-013) ─────────────────────────────

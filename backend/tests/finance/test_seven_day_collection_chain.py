@@ -18,9 +18,9 @@ Day 8 (01-22)  만기 도래 → 수금 사건 1건 (누적 target = 원금)
 from datetime import date, timedelta
 from decimal import Decimal
 
-from app.finance.collection import build_collection_transition
-from app.finance.sales_validation import PartnerReceivable
-from app.finance.tools import calculate_available_credit, summarize_partner_receivables
+from app.finance.domain.collections import build_collection_transition
+from app.finance.domain.tools import calculate_available_credit, summarize_partner_receivables
+from app.finance.schemas.sales_validation import PartnerReceivable
 from app.master.collection_seed import seed_collection_events
 
 SIM = "SIM-7DAY-CHAIN"

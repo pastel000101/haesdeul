@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.finance import console_routes
-from app.finance.console_credit import ConsoleCreditResponse, ConsolePartnerCredit
+from app.finance.schemas.console_credit import ConsoleCreditResponse, ConsolePartnerCredit
 
 
 def _client(monkeypatch, captured: dict) -> TestClient:

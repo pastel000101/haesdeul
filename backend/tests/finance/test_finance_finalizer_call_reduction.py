@@ -23,12 +23,9 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.application.orchestration import (
-    FinanceAgentController,
-    fallback_reasoning,
-)
+from app.finance.domain.messages import FINANCE_EXPLANATIONS, explanation_keys
 from app.finance.llm.planner import DeterministicFinancePlanner
-from app.finance.user_messages import FINANCE_EXPLANATIONS, explanation_keys
+from app.finance.service.agent import FinanceAgentController, fallback_reasoning
 from tests.finance.test_finance_harness_langchain import (
     Port,
     request,
@@ -113,7 +110,7 @@ class _LlmPlanner:
 
 def _run(mode: str, finalizer, *, llm_enabled: bool = False):
     planner = _LlmPlanner() if llm_enabled else DeterministicFinancePlanner()
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         return FinanceAgentController(Port(), planner, finalizer).run(
             _request_for(mode)
         )
@@ -218,7 +215,7 @@ def test_two_candidates_bring_the_finalizer_back():
         return [first[0], "SCENARIO_NOT_CONCLUDED"]
 
     with patch(
-        "app.finance.application.orchestration.explanation_keys", side_effect=two_keys
+        "app.finance.service.agent.explanation_keys", side_effect=two_keys
     ):
         reply, _metadata = _run("SCENARIO_VALIDATION", finalizer)
 
@@ -239,7 +236,7 @@ def test_a_failing_finalizer_still_answers_when_there_was_a_choice():
         return [first[0], "SCENARIO_NOT_CONCLUDED"]
 
     with patch(
-        "app.finance.application.orchestration.explanation_keys", side_effect=two_keys
+        "app.finance.service.agent.explanation_keys", side_effect=two_keys
     ):
         reply, metadata = _run("SCENARIO_VALIDATION", finalizer, llm_enabled=True)
 

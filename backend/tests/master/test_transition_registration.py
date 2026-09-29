@@ -22,8 +22,9 @@ import pytest
 
 import app.main  # noqa: F401  — import 시점에 두 전이를 등록한다. 이 검사의 전제다
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.finance import transition as finance_transition
-from app.finance.day_open import FinanceDayOpening
+from app.finance import adapter as finance_adapter
+from app.finance.adapter import FinanceDayOpening
+from app.finance.service import transition as finance_transition
 from app.logistics.day_open import LogisticsDayOpening
 from app.logistics.transition import LogisticsTransitionAdapter
 from app.master import day_open, transition
@@ -231,7 +232,7 @@ def test_물류_자리에_물류_어댑터가_앉아_있다() -> None:
 
     assert isinstance(bind_sim_run(registered["logistics"], 실행축), LogisticsTransitionAdapter)
     assert isinstance(
-        bind_sim_run(registered["finance"], 실행축), finance_transition.FinanceTransitionAdapter
+        bind_sim_run(registered["finance"], 실행축), finance_adapter.FinanceTransitionAdapter
     )
 
 

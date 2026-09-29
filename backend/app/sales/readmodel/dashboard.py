@@ -1,16 +1,17 @@
 """판매 현황(대시보드) 조회 — 실행 하나 · 기준일 하나의 판매 · 채권 사실을 응답으로 편다.
 
 ★ 2026-09-29 BL-013: `sales/dashboard.py` 에서 응답 조립을 옮겼다. SQL 은
-  `repository/dashboard.py`, 채권 상태 규칙은 `domain/receivable_history.py` 다. 종전에는 조회
-  일곱 개가 조회마다 연결을 빌렸고, 지금은 한 번 빌린 조회 연결로 같은 순서로 읽는다.
+  `repository/dashboard.py`, 채권 상태 규칙은 계약 `app/contracts/receivable_history.py`
+  다(2026-09-29 재구성 BL-014 전에는 `domain/receivable_history.py`). 종전에는 조회 일곱 개가
+  조회마다 연결을 빌렸고, 지금은 한 번 빌린 조회 연결로 같은 순서로 읽는다.
 """
 
 from datetime import date
 from decimal import Decimal
 
+from app.contracts.receivable_history import projected_status
 from app.core import db as core_db
 from app.core.text import decimal_or_zero
-from app.sales.domain.receivable_history import projected_status
 from app.sales.repository.dashboard import (
     load_collection_summary,
     load_item_summaries,

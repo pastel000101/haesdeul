@@ -37,7 +37,7 @@ from typing import Any
 
 from psycopg import sql
 
-from app.finance.db import fetch_all, fetch_one, get_db_schema
+from app.master.db import fetch_all, fetch_one, get_db_schema
 
 #: 번인 구간의 시뮬레이션 키. 지금은 하나뿐이라 상수로 둔다 — 여러 개가 되면
 #: 요청 파라미터로 올린다. **없는 값을 미리 만들지 않는다.**

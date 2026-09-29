@@ -34,16 +34,16 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import db as finance_db
-from app.finance.day_open import FinanceDayOpening
-from app.finance.db import (
-    FinanceDataNotReady,
-    _get_current_finance_state_row,
+from app.finance.adapter import FinanceDayOpening
+from app.finance.readmodel import finance_state as finance_state_readmodel
+from app.finance.readmodel.finance_state import (
+    current_state_row_on,
     get_finance_runtime_axis,
     load_finance_state_row,
 )
-
-_DB = "app.finance.db"
+from app.finance.repository import finance_states as finance_state_repository
+from app.finance.schemas.data_port import FinanceDataNotReady
+from tests.finance.finance_fake_connection import lent
 
 BURN_IN = "SIM-BURNIN-202512"
 WALK = "SIM-WALK-202601-LOAN"
@@ -103,8 +103,7 @@ def test_another_running_sim_run_does_not_make_this_one_ambiguous():
     fetch_all = _Recorder([_axis_row(BURN_IN), _axis_row(WALK)])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
     ):
         axis = get_finance_runtime_axis(sim_run_id=WALK)
 
@@ -117,8 +116,7 @@ def test_the_scoped_query_actually_narrows_by_sim_run_id():
     fetch_all = _Recorder([_axis_row(BURN_IN), _axis_row(WALK)])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
     ):
         get_finance_runtime_axis(sim_run_id=WALK)
 
@@ -132,8 +130,7 @@ def test_the_burn_in_state_is_never_used_for_the_walk_run():
     fetch_all = _Recorder([_axis_row(BURN_IN), _axis_row(WALK)])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
     ):
         axis = get_finance_runtime_axis(sim_run_id=WALK)
 
@@ -150,8 +147,7 @@ def test_a_missing_sim_run_never_falls_back_to_another_one():
     fetch_all = _Recorder([_axis_row(BURN_IN)])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
         pytest.raises(LookupError),
     ):
         get_finance_runtime_axis(sim_run_id="SIM-NOT-EXISTS")
@@ -167,8 +163,7 @@ def test_two_axes_inside_one_run_stay_ambiguous():
     fetch_all = _Recorder([_axis_row(WALK, "LOAN_BASELINE"), _axis_row(WALK, "BASE_NO_LOAN")])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
         pytest.raises(FinanceDataNotReady) as raised,
     ):
         get_finance_runtime_axis(sim_run_id=WALK)
@@ -187,8 +182,7 @@ def test_two_runs_and_two_axes_are_told_apart():
     )
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", 쪼개진_실행),
+        lent(쪼개진_실행),
     ):
         # 번인은 축이 하나라 정상이다.
         assert get_finance_runtime_axis(sim_run_id=BURN_IN)["sim_run_id"] == BURN_IN
@@ -211,11 +205,10 @@ def test_the_unscoped_current_row_never_picks_one_of_many_runs():
     fetch_all = _Recorder([_state_row(BURN_IN), _state_row(WALK)])
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all) as conn,
         pytest.raises(FinanceDataNotReady) as raised,
     ):
-        _get_current_finance_state_row()
+        current_state_row_on(conn)
 
     assert raised.value.key == "finance_runtime_axis_ambiguous"
 
@@ -223,22 +216,25 @@ def test_the_unscoped_current_row_never_picks_one_of_many_runs():
 def test_the_current_row_can_be_scoped_to_one_run():
     fetch_all = _Recorder([_state_row(BURN_IN), _state_row(WALK)])
 
-    with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
-    ):
-        row = _get_current_finance_state_row(sim_run_id=WALK)
+    with lent(fetch_all) as conn:
+        row = current_state_row_on(conn, sim_run_id=WALK)
 
     assert row["sim_run_id"] == WALK
 
 
 def test_finance_db_no_longer_reads_the_current_state_with_fetch_one():
-    """★ 무가드 경로가 되살아나면 여기서 걸린다."""
+    """★ 무가드 경로가 되살아나면 여기서 걸린다.
+
+    ★ 2026-09-29 재구성 BL-014: `finance/db.py` 의 한 함수가 readmodel(현재 행 고르기)과
+      repository(SQL 실행)로 나뉘었다 — 두 자리 모두 본다.
+    """
     import inspect
 
-    source = inspect.getsource(finance_db._get_current_finance_state_row)
-
-    assert "fetch_one(" not in source
+    for function in (
+        finance_state_readmodel.current_state_row_on,
+        finance_state_repository.select_current_state_rows,
+    ):
+        assert "fetch_one(" not in inspect.getsource(function)
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +255,7 @@ def test_state_row_lookup_is_scoped_to_the_requested_run():
         return [_state_row(WALK)]
 
     with (
-        patch(f"{_DB}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_DB}.fetch_all", fetch_all),
+        lent(fetch_all),
     ):
         row = load_finance_state_row(AS_OF, sim_run_id=WALK)
 
@@ -344,12 +339,12 @@ class _Conn:
 
 @pytest.fixture
 def _inventory():
-    from app.finance.db import InventorySnapshot
+    from app.finance.schemas.inventory import InventorySnapshot
 
     with patch(
-        "app.finance.day_open.load_inventory_snapshot_as_of",
+        "app.finance.service.day_open.load_inventory_snapshot_as_of",
         return_value=InventorySnapshot(Decimal(1), Decimal(2), Decimal(2)),
-    ), patch("app.finance.day_open.get_db_schema", return_value="haetdeul"):
+    ), patch("app.finance.repository.day_open.get_db_schema", return_value="haetdeul"):
         yield
 
 

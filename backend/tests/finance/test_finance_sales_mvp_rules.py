@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.rules import (
+from app.finance.domain.rules import (
     aggregate_sales_finance_rules,
     evaluate_collection_risk_rule,
     evaluate_receivable_capacity_rule,
@@ -20,7 +20,7 @@ from app.finance.rules import (
     evaluate_sales_margin_rule,
     evaluate_sales_payment_term_rule,
 )
-from app.finance.sales_policy import load_finance_sales_mvp_policy
+from app.finance.domain.sales_policy import load_finance_sales_mvp_policy
 
 POLICY = load_finance_sales_mvp_policy()
 

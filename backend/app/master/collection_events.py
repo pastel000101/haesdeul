@@ -20,7 +20,7 @@ haetdeul.receivables   15행
 
 ---
 
-🔴 **`CollectionEvent` 를 새로 만들지 않는다.** 재무 것(`app.finance.collection`)을
+🔴 **`CollectionEvent` 를 새로 만들지 않는다.** 재무 것(`app.finance.schemas.collections`)을
   그대로 쓴다. 마스터가 같은 모양을 하나 더 두면 *"수금 사건이 무엇인가"* 의 주인이
   둘이 되고, 재무가 칸을 더하는 날 조용히 갈린다.
 
@@ -53,8 +53,8 @@ from typing import Any
 from psycopg import sql
 
 from app.core import db as core_db
-from app.finance.collection import CollectionEvent
-from app.finance.db import get_db_schema
+from app.finance.schemas.collections import CollectionEvent
+from app.master.db import get_db_schema
 
 __all__ = ["TABLE", "read_collection_events"]
 

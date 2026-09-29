@@ -5,19 +5,22 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.finance.aging import AgingBucket
-from app.finance.console_credit import ConsoleCreditResponse, get_console_credit
-from app.finance.console_expenses import ConsoleExpensesResponse, get_console_expenses
-from app.finance.console_payables import ConsolePayablesResponse, get_console_payables
-from app.finance.console_receivables import ConsoleReceivablesResponse, get_console_receivables
-from app.finance.console_runs import (
-    ConsoleFinanceRun,
-    ConsoleFinanceRunsResponse,
+from app.contracts.aging import AgingBucket
+from app.finance.readmodel.console_credit import get_console_credit
+from app.finance.readmodel.console_expenses import get_console_expenses
+from app.finance.readmodel.console_payables import get_console_payables
+from app.finance.readmodel.console_receivables import get_console_receivables
+from app.finance.readmodel.console_runs import (
     get_console_finance_latest_run,
     get_console_finance_runs,
 )
-from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
-from app.finance.schemas import FinanceCashflowResponse, FinanceDashboardResponse
+from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
+from app.finance.schemas.console_credit import ConsoleCreditResponse
+from app.finance.schemas.console_expenses import ConsoleExpensesResponse
+from app.finance.schemas.console_payables import ConsolePayablesResponse
+from app.finance.schemas.console_receivables import ConsoleReceivablesResponse
+from app.finance.schemas.console_runs import ConsoleFinanceRun, ConsoleFinanceRunsResponse
+from app.finance.schemas.dashboard import FinanceCashflowResponse, FinanceDashboardResponse
 
 router = APIRouter(prefix="/console/finance", tags=["console:finance"])
 

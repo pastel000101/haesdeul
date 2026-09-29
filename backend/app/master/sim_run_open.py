@@ -185,7 +185,7 @@ from typing import Any
 from psycopg import sql
 from psycopg.errors import ForeignKeyViolation
 
-from app.finance.db import get_db_schema
+from app.master.db import get_db_schema
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 
 __all__ = [

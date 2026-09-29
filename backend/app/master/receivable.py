@@ -13,7 +13,7 @@ haetdeul.receivables 에 그 셋의 채권       **0행**   ← 배선이 없어
 
 ★★ **재무 경계는 이미 서 있다.** `receivables` 원장에 멱등으로 넣는 것도,
   `finance_states.receivables_krw` 를 같이 올리는 것도, 같은 `sale_id` 로 다른 사실이
-  들어오면 막는 것도 `app/finance/receivables.py` 안에 다 있다. **없는 것은 그것을
+  들어오면 막는 것도 `app/finance/service/receivables.py` 안에 다 있다. **없는 것은 그것을
   판매 확정 뒤에 부르는 자리**이고, 이 등록소가 그 자리를 만든다.
 
 ⚠️ `register_inbound` 호출이 0건이던 것(`#337`) · `register_collection` 이 0건이던
