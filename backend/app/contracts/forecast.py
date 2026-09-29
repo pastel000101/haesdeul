@@ -26,7 +26,8 @@ IO명세 §1-① 의 반환 형태가 기준이다.
 🟢 **`app/contracts/forecast.py`** (2026-09-29 재구성 BL-011 — 전에는 `app/ml/schemas.py`).
   판매가 이 계약을 받으려고 ML 패키지를 import 하던 부서 간 의존을 공용 계약 자리로
   옮겼다. 필드 · 기본값 · validator 는 그대로다. 예측을 만드는 쪽의 설정값
-  (``HORIZON_DAYS`` · ``ITEMS`` · ``SPEC``)은 ML 것이라 ``app/ml/schemas.py`` 에 남는다.
+  (``HORIZON_DAYS`` · ``ITEMS`` · ``SPEC``)은 ML 것이라 ML 에 남는다 — 2026-09-29 BL-017 부터
+  ``app/ml/schemas/forecast.py``.
 
 ⚠️ ``app.contracts.core.Forecast`` 와 **다른 타입이다.** 그쪽은 T0 스냅샷의 분위 예측
   (``q10`` · ``q50`` · ``q90``) dataclass 이고 이름만 같다.

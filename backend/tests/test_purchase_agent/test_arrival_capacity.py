@@ -20,7 +20,7 @@ import pytest
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.self_check import (
     arrival_capacity,
     cap_window,
     check_arrival_capacity,

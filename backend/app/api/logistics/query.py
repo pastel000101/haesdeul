@@ -68,9 +68,9 @@ from app.api.primitives import (
     Stat,
     Table,
 )
-from app.api.shown_run import SHOWN_SIM_RUN_ID
 from app.contracts.core import ITEMS
 from app.core import db as core_db
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.logistics.console_service import (
     get_fefo_candidates_by_item,
     get_inbound_console,
@@ -78,6 +78,7 @@ from app.logistics.console_service import (
     get_outbound_console,
     load_console_runtime,
 )
+from app.logistics.domain.console_rules import severity_at, still_working
 from app.logistics.historical_repository import (
     onhand_total_by_day,
     reservation_state_at,
@@ -88,7 +89,7 @@ from app.logistics.inbound_schedules import (  # noqa: F401  아래 주석대로
     schedule_view_scope as read_scope,
 )
 from app.logistics.monitoring.exceptions import live_exceptions_at, resolved_exceptions_on
-from app.logistics.monitoring.schemas import DetectionRecord, ExceptionRow
+from app.logistics.monitoring.schemas import ExceptionRow
 from app.logistics.schemas import (
     ConsoleInboundResponse,
     ConsoleInventoryResponse,
@@ -371,28 +372,9 @@ def _on_screen(item_name: str | None) -> bool:
     return item_name is None or item_name in _SCREEN_ITEMS
 
 
-def _still_working(r: ConsoleReservation) -> bool:
-    """그날 **아직 일이 남은** 예약인가 — 발표 화면이 그리는 모집단이다.
-
-    🔴 **«완료» 를 할당 0 · 미할당 0 두 칸만으로 짐작하지 않는다** (#675 지시 §10).
-       그날 유도한 상태(`status`)와 출고된 할당(`SHIPPED`)을 같이 본다.
-
-    ```text
-    RESERVED · PARTIALLY_ALLOCATED        아직 Lot 을 다 못 골랐다        → 남았다
-    잡고 있는 양(allocated + unallocated) > 0                            → 남았다
-    ALLOCATED 이고 잡은 양 0 · SHIPPED 할당 있음   전량 출고가 끝났다      → 끝났다
-    RELEASED · CANCELLED                   놓아줬다                       → 끝났다
-    ```
-
-    ⚠️ **숨기는 것이 아니다.** 뺀 건수를 카드 footer 에 적는다 — Historical 은 그대로다.
-    """
-    if r.status in ("RESERVED", "PARTIALLY_ALLOCATED"):
-        return True
-    if r.status in ("RELEASED", "CANCELLED"):
-        return False
-    if r.allocated_qty_kg > 0 or r.unallocated_qty_kg > 0:
-        return True
-    return not any(a.status == "SHIPPED" for a in r.allocations)
+#  🟢 **«그날 아직 일이 남은 예약» 판정은 물류 domain 이 갖는다** (2026-09-29 · 재구성
+#     BL-012). 전에는 여기 `_still_working` 이었고 마스터 보고서가 이 비공개 함수를 빌려
+#     썼다. 이제 둘 다 `app/logistics/domain/console_rules.still_working` 을 부른다.
 
 
 #: 그날 우선도를 증명할 수 없을 때 칸에 붙이는 말.
@@ -403,38 +385,24 @@ def _still_working(r: ConsoleReservation) -> bool:
 _SEVERITY_UNKNOWN = "우선도 정보 없음"
 
 
-def _severity_at(row: ExceptionRow, as_of: date) -> tuple[str, str | None]:
-    """그날 우선도. 🔴 **미래 값을 과거 화면으로 흘리지 않는다.**
-
-    `touch_exception` 이 `severity` 를 **덮어쓴다** (`SET severity = …`) — 그래서 지금
-    행의 `severity` 는 마지막 감지값(캐시)이지 과거값이 아니다. LOG-AGENT-005 로
-    `detection_history` 가 «그날 severity» 를 쌓으므로, 그 이력에서 그날 값을 복원한다.
+def _severity_label(row: ExceptionRow, as_of: date) -> tuple[str, str | None]:
+    """그날 우선도를 **사람 말로.** 어느 코드가 그날 값인지는 물류 domain 이 가린다.
 
     ```text
-    detection_history 에 as_of <= 기준일 원소 있음  → 그중 max(as_of) 원소의 severity
-                                                       🔴 배열 순서를 믿지 않는다 — 날짜로 고른다
-    이력 있으나 기준일 이하 감지 없음               → «—» (그날 우선도 증명 불가)
-    이력 없음(옛 행 · [])                          → 기존 fallback:
-        last_detected_as_of <= as_of   지금 값이 그날 값이다
-        그 밖                          «—»
+    severity_at 이 코드를 냄      → (_SEVERITY 이름 · 사전에 없으면 코드 그대로, None)
+    severity_at 이 None          → («—», «우선도 정보 없음»)  그날 우선도 증명 불가
     ```
+
+    🟢 2026-09-29 (재구성 BL-012) 전에는 이 함수(`_severity_at`)가 판정까지 했다. 미래
+       감지를 과거 화면으로 흘리지 않는 규칙은 `app/logistics/domain/console_rules.
+       severity_at` 으로 옮겼고, 여기에는 이름 사전과 칸에 붙일 말만 남았다.
 
     :returns: `(보일 말, 아래 붙일 한 줄)`.
     """
-    chosen: DetectionRecord | None = None
-    for record in row.detection_history:
-        if record.as_of <= as_of and (chosen is None or record.as_of > chosen.as_of):
-            chosen = record
-    if chosen is not None:
-        return _SEVERITY.get(chosen.severity, chosen.severity), None
-    if row.detection_history:
-        # 이력은 있으나 기준일 이하 감지가 없다 — 그날 우선도를 증명할 수 없다.
+    code = severity_at(row, as_of)
+    if code is None:
         return "—", _SEVERITY_UNKNOWN
-    # 이력 없는 옛 행(적용 전 생성) — 기존 규칙 그대로.
-    detected = row.last_detected_as_of
-    if detected is None or detected > as_of:
-        return "—", _SEVERITY_UNKNOWN
-    return _SEVERITY.get(row.severity, row.severity), None
+    return _SEVERITY.get(code, code), None
 
 
 def _summary_pane(
@@ -477,7 +445,7 @@ def _summary_pane(
         return lot_name.get(row.subject_id) or "Lot 정보 없음"
 
     def issue_row(row: ExceptionRow, state: str) -> dict[str, str | float | int | None]:
-        severity, hint = _severity_at(row, as_of)
+        severity, hint = _severity_label(row, as_of)
         last_seen = row.last_detected_as_of
         return {
             "kind": _EXCEPTION_LABEL.get(row.code, row.code),
@@ -549,7 +517,7 @@ def _summary_pane(
         if _on_screen(lo.item_name) and (lo.sell_priority or lo.disposal_candidate)
     )
     open_issues = len(newly_opened) + len(carried_over)
-    working = [r for r in ob.reservations if _on_screen(r.item_name) and _still_working(r)]
+    working = [r for r in ob.reservations if _on_screen(r.item_name) and still_working(r)]
 
     return Pane(
         key="summary",
@@ -794,7 +762,7 @@ def _stock_pane(
                             "state": _label(_RESERVATION_LABEL, r.status),
                         }
                         for r in ob.reservations
-                        if _on_screen(r.item_name) and _still_working(r)
+                        if _on_screen(r.item_name) and still_working(r)
                     ],
                     empty_text="처리 중인 예약이 없습니다",
                 ),
@@ -1209,7 +1177,7 @@ def _outbound_pane(ob: ConsoleOutboundResponse, inv: ConsoleInventoryResponse) -
     #  ★ 화면이 그리는 품목만 · 그날 아직 일이 남은 예약만 — 범위 밖 품목이나 이미 다
     #    나간 예약에 FEFO 를 물을 이유가 없다.
     item_reservations = [r for r in ob.reservations if _on_screen(r.item_name)]
-    shown_reservations = [r for r in item_reservations if _still_working(r)]
+    shown_reservations = [r for r in item_reservations if still_working(r)]
     settled_count = len(item_reservations) - len(shown_reservations)
     #  🔴 **FEFO 는 «아직 Lot 을 안 고른 몫» 이 있는 예약에만 그린다.** 목표량이 0 이면
     #     `allocate_reserved_stock_fefo` 도 아무것도 안 하므로 후보를 구할 이유가 없다.

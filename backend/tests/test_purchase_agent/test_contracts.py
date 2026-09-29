@@ -42,8 +42,8 @@ from pydantic import ValidationError
 from app.contracts.core import ITEMS
 from app.purchase_agent import mocks, ports
 from app.purchase_agent.config import CONSTRAINTS_PATH, load_constraints
-from app.purchase_agent.schemas import PurchaseProposal, revalidate_for_output
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.schemas.proposal import PurchaseProposal, revalidate_for_output
+from app.purchase_agent.service.graph import build_initial_state
 
 #: IO명세 §1이 규정한 계약 포트 6개. 이 목록이 곧 외부 입력 경계다.
 CONTRACT_PORTS = (

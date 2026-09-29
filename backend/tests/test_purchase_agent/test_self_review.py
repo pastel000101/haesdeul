@@ -14,6 +14,9 @@ from datetime import date
 
 import pytest
 
+from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain import review_rationale as rr_rules
+from app.purchase_agent.domain.review_templates import FINDINGS
 from app.purchase_agent.llm import self_review as sr
 from app.purchase_agent.llm.review_schemas import (
     ClaimIn,
@@ -22,8 +25,7 @@ from app.purchase_agent.llm.review_schemas import (
     ReviewOutput,
     ReviewResult,
 )
-from app.purchase_agent.nodes import review_rationale as rr
-from app.purchase_agent.review_templates import FINDINGS
+from app.purchase_agent.service.nodes import review_rationale as rr
 
 ITEM = "배추"
 AS_OF = date(2026, 8, 21)
@@ -168,8 +170,7 @@ def test_성공하면_지적이_실린다() -> None:
 
 # ── 노드 ───────────────────────────────────────────────────────
 def _제안(monkeypatch: pytest.MonkeyPatch, *, 켬: bool, reviewer=None):
-    from app.purchase_agent.graph import build_graph
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_graph, build_initial_state
 
     monkeypatch.setattr(rr, "enabled", lambda key, default=False: 켬)
     state = build_initial_state(ITEM, AS_OF)
@@ -253,16 +254,16 @@ class _가짜판단:
 
 def test_안_돌았으면_사유를_안_넣는다() -> None:
     """🔴 ``None`` 이다 — **빈 문자열이 아니다** (규칙 3 의 문자열 판)."""
-    assert rr.mix_reason_for_review(None) is None
+    assert rr_rules.mix_reason_for_review(None) is None
 
 
 def test_규칙_기본안이면_사유를_안_넣는다() -> None:
     """떨어진 날의 사유는 판단자가 쓴 문장이 아니라 **코드가 박은 상수**다."""
-    assert rr.mix_reason_for_review(_가짜판단("규칙 기본안", applied=False)) is None
+    assert rr_rules.mix_reason_for_review(_가짜판단("규칙 기본안", applied=False)) is None
 
 
 def test_사유의_숫자를_가려서_넣는다() -> None:
-    가린 = rr.mix_reason_for_review(_가짜판단("2026-09-11 기준 중품을 30% 더 싣는다"))
+    가린 = rr_rules.mix_reason_for_review(_가짜판단("2026-09-11 기준 중품을 30% 더 싣는다"))
     assert 가린 is not None
     assert "2026-09-11" not in 가린 and "30%" not in 가린
     assert "<DATE>" in 가린 and "<PCT>" in 가린
@@ -273,7 +274,7 @@ def test_못_가린_숫자가_남으면_아예_안_넣는다() -> None:
 
     ``½`` 는 ``\\d`` 로는 안 잡히는데 ``isnumeric()`` 에는 걸린다. 정제가 못 덮는 자리다.
     """
-    assert rr.mix_reason_for_review(_가짜판단("중품을 ½ 만큼 싣는다")) is None
+    assert rr_rules.mix_reason_for_review(_가짜판단("중품을 ½ 만큼 싣는다")) is None
 
 
 def test_사유가_있으면_그_지적을_고를_수_있다() -> None:
@@ -315,8 +316,7 @@ def test_판단자_사유가_검토_재료로_들어가고_지적이_왕복한�
     ★ 사유는 **그날 하나**다. ⑤ 가 그날 한 번 돌고 ⑥ 이 같은 등급 비율을 모든 안에
       곱하므로, 검토 대상 안들이 **같은 문장**을 받는다.
     """
-    from app.purchase_agent.graph import build_graph
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_graph, build_initial_state
 
     본_것: list[ReviewContext] = []
 
@@ -444,8 +444,7 @@ def test_판단자에게_사유와_라벨이_같이_간다(monkeypatch: pytest.M
     ``MIX_REASON_LABEL_MISMATCH`` 의 뜻이 *"사유가 입력 라벨·선택 후보와 안 맞는다"* 라,
     라벨이 빠지면 그 코드는 고를 수는 있는데 **무엇을 보고 고르는지가 없는** 상태가 된다.
     """
-    from app.purchase_agent.graph import build_graph
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_graph, build_initial_state
 
     본_것: list[ReviewContext] = []
 
@@ -478,9 +477,10 @@ def test_다섯번이_안_돌면_라벨도_빈_목록이다(monkeypatch: pytest.
     """사유가 없으면 라벨도 없다 — 안 한 판단에 라벨을 붙이지 않는다."""
     _, 기록 = _제안(monkeypatch, 켬=True, reviewer=_모두지적)
     assert 기록  # 흔적은 남는다
-    context = rr.build_context(
+    context = rr_rules.build_context(
         {"label": "기본", "strategy_type": "quantity", "rationale": [], "risks": []},
-        rr.ScenarioSignals(label="기본"),
+        rr_rules.ScenarioSignals(label="기본"),
+        load_constraints(),
     )
     assert context.mix_reason is None
     assert context.mix_labels == []
@@ -517,19 +517,20 @@ def test_어조는_마지막_절의_어미로_가른다(기대: str, 문장: str
     지시문이 *"ASSERTIVE 인데 ASSUMED 면 결론이 근거보다 세다"* 로 판단자를 몰아
     **없는 위반을 찾게** 한다.
     """
-    assert rr.claim_strength(문장) == 기대
+    assert rr_rules.claim_strength(문장, load_constraints()) == 기대
 
 
-def test_어미_선언을_바꾸면_판정이_따라_바뀐다(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_어미_선언을_바꾸면_판정이_따라_바뀐다() -> None:
     """🔴 **규칙 8** — 어미 목록의 주인이 ``constraints.yaml`` 하나인지 본다.
 
     ⚠️ 값 비교로는 못 잡는다. 코드가 같은 목록을 하드코딩해도 «선언과 같다» 는 통과한다.
       선언에서 「이다」를 빼고 판정이 ``NEUTRAL`` 로 떨어지는지 본다.
-    """
-    from app.purchase_agent.config import load_constraints
 
+    2026-09-29 재구성 BL-016 보완: 판정 함수는 선언을 읽지 않고 인자로 받는다 — 바꾼 사본을
+    그대로 넘긴다 (선언은 ⑧ 노드가 읽어 넘긴다).
+    """
     문장 = "중품을 상한만큼 취급하는 것이 위험을 최소화하는 전략이다."
-    assert rr.claim_strength(문장) == "ASSERTIVE"
+    assert rr_rules.claim_strength(문장, load_constraints()) == "ASSERTIVE"
 
     사본 = load_constraints()
     어미 = 사본["review"]["claim_strength_endings"]
@@ -540,8 +541,47 @@ def test_어미_선언을_바꾸면_판정이_따라_바뀐다(monkeypatch: pyte
             "assertive": [말 for 말 in 어미["assertive"] if 말 != "이다"],
         },
     }
-    monkeypatch.setattr(rr, "load_constraints", lambda: 사본)
-    assert rr.claim_strength(문장) == "NEUTRAL"
+    assert rr_rules.claim_strength(문장, 사본) == "NEUTRAL"
+
+
+def test_노드가_읽은_어미_선언이_판단자_재료까지_간다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 **⑧ 노드가 읽은 선언으로 어조를 가른다** (2026-09-29 재구성 BL-016 보완).
+
+    어조 판정(``claim_strength``)은 선언을 인자로 받고, 그 선언은 ⑧ 노드가 읽어 넘긴다.
+    노드가 읽은 것과 다른 것을 넘겨도 위 판정 함수 검사는 그대로 통과한다 — 그래서 노드를
+    실제로 돌려 재료에 실린 어조를 본다.
+
+    선언은 **모든 절을 단정으로 읽는 것**(단정 어미 ``""`` · 완화 어미 없음)으로 바꿔 읽힌다.
+    어느 문장이든 끝이 ``""`` 로 끝나므로, 노드가 그 선언을 넘겼다면 재료의 어조가 전부
+    ``ASSERTIVE`` 여야 한다 — 이 앵커의 문장이 원래 무슨 어조인지와 상관없이 갈린다.
+    """
+    from app.purchase_agent.service.graph import build_graph, build_initial_state
+
+    선언 = load_constraints()
+    선언["review"] = {
+        **선언["review"],
+        "claim_strength_endings": {"hedged": [], "assertive": [""]},
+    }
+    본_것: list[ReviewContext] = []
+
+    def 본다(context: ReviewContext) -> ReviewResult:
+        본_것.append(context)
+        return ReviewResult(
+            output=ReviewOutput(findings=[]),
+            llm_status="SUCCESS",
+            llm_provider="anthropic",
+            llm_model="haiku",
+            llm_attempts=1,
+            llm_fallback_used=False,
+        )
+
+    monkeypatch.setattr(rr, "enabled", lambda key, default=False: True)
+    monkeypatch.setattr(rr, "load_constraints", lambda: 선언)
+    build_graph(reviewer=본다).invoke(build_initial_state(ITEM, AS_OF))
+
+    어조 = [claim.claim_strength for context in 본_것 for claim in context.claims]
+    assert 어조, "⑧ 이 재료를 안 만들었다 — 이 앵커가 더 이상 그 자리가 아니다"
+    assert set(어조) == {"ASSERTIVE"}, 어조
 
 
 def test_도달_불가한_예시가_지시문에_없다() -> None:

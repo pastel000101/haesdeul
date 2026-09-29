@@ -20,7 +20,6 @@ from datetime import date
 from functools import partial
 from typing import Any
 
-from app.api import plan_state
 from app.api.calendar import build_axis
 from app.api.dashboard.schema import DashboardTab
 from app.api.finance import query as finance_q
@@ -29,8 +28,9 @@ from app.api.logistics import query as logistics_q
 from app.api.primitives import Badge, Column, Note, Stat, Table
 from app.api.purchase import query as purchase_q
 from app.api.sales import query as sales_q
-from app.api.shown_run import SHOWN_SIM_RUN_ID
-from app.master.purchase_record_repository import RecordedTotals, recorded_totals_by_plan
+from app.core.settings import SHOWN_SIM_RUN_ID
+from app.master.domain import plan_state
+from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +39,8 @@ log = logging.getLogger(__name__)
 #:   재무 탭이 준 상태 이름(`fi.states[].label`)을 그대로 쓴다.
 _BASIS = {"base": "대출 제외", "loan": "대출 포함"}
 
-#: 🔴 **상태 어휘와 판정은 `app/api/plan_state.py` 가 소유한다** (2026-09-16).
+#: 🔴 **상태 어휘와 판정은 `app/master/domain/plan_state.py` 가 소유한다** (2026-09-16 · 자리는
+#:   2026-09-29 재구성 BL-012 전까지 `app/api/plan_state.py`).
 #:
 #:   매입 탭도 같은 낱말을 싣게 되면서 규칙이 두 화면의 것이 됐다. 두 벌로 짜면
 #:   한쪽만 고치는 날 **같은 안이 화면마다 다른 상태**로 뜬다. 여기서는 그 이름을
@@ -49,9 +50,9 @@ PLAN_STATES = plan_state.PLAN_STATES
 #: 모르는 값 한 글자. 재고 칸(`_현재고`)이 쓰는 것과 **같은 글자**다.
 _UNKNOWN = "—"
 
-#: 안 이름에서 품목·안 이름을 읽는 규칙도 같은 자리에서 온다.
-_plan_item = plan_state.plan_item
-_recorded = plan_state.recorded_for
+#: 안 이름에서 품목·안 이름을 읽는 규칙은 그 이름을 짓는 매입 탭(`purchase_q._plan`)에서 온다.
+_plan_item = purchase_q.plan_item
+_recorded = purchase_q.recorded_for
 
 
 def _pending(plans) -> int:
@@ -60,15 +61,16 @@ def _pending(plans) -> int:
 
 def _state(plan: Any, recorded: RecordedTotals | None) -> str:
     """안의 상태를 사람 말로. **판정은 `plan_state.state_of` 가 한다.**"""
-    return plan_state.state_of(approved=plan.approved, recorded=recorded)
+    return plan_state.state_of(approved=plan.approved, recorded=recorded is not None)
 
 
 def _records(as_of: date) -> dict[tuple[str, str], RecordedTotals]:
     """그날 · 보고 있는 실행의 **실매입 기록 합계**.
 
-    🔴 **여기서 숫자를 만들지 않는다.** 표를 읽는 자리는 마스터 한 곳이고
-       (`master/purchase_record_repository.recorded_totals_by_plan`) 이 함수는 그것을
-       부르기만 한다. 같은 SELECT 를 화면 층에 한 벌 더 두면 PK 가 바뀌는 날 갈린다.
+    🔴 **여기서 숫자를 만들지 않는다.** 표를 읽고 합계를 엮는 자리는 마스터 한 곳이고
+       (`master/readmodel/purchase_record.recorded_totals_by_plan` — SQL 은 그 아래
+       repository) 이 함수는 그것을 부르기만 한다. 같은 SELECT 를 화면 층에 한 벌 더 두면
+       PK 가 바뀌는 날 갈린다.
 
     ⚠️ 못 읽으면 **빈 표**다. 다섯 부서 탭이 저마다 DB 실패를 삼키고 「예시값」으로 뜨는
       것과 같은 태도 — 기록 하나 때문에 대시보드가 통째로 죽으면 안 된다.
@@ -169,7 +171,7 @@ def build(as_of: date) -> DashboardTab:
 
         f_fc = 맡긴다(forecast_q.build, as_of, "배추")
         #  ★ 매입은 축을 안 주면 모든 실행을 섞는다. 다른 네 탭과 같은 실행을 넘긴다
-        #    (`app/api/shown_run.py` 한 자리).
+        #    (`app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 한 자리).
         #
         #  🔵 **`window_days=0` — 도착일을 안 읽는다** (2026-09-16 · `#740` 의 인자).
         #     이 화면이 매입에서 읽는 것은 `pu.plans` · `pu.source` 둘뿐이다. 도착일

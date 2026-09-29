@@ -312,7 +312,7 @@ class CandidateVerdict:
 
     ★ **후보 단위다** (설계 정정 ① · 2026-09-06). 판매 v1.7 §4 는
       `required_validations` 를 최상위 배열로 적었지만 구현은 시나리오별이다
-      (`app/sales/schemas.py` `SalesScenario.required_validations`). 1안은 재무만,
+      (`app/sales/schemas/proposal.py` `SalesScenario.required_validations`). 1안은 재무만,
       2안은 재무+매입 식으로 **후보마다 요구가 다를 수 있다.**
 
     ★ **통과/탈락을 필드로 들지 않는다.** `passed` 는 `validations` 와 `unroutable`
@@ -971,7 +971,8 @@ class SalesFlow:
             #   payload 를 직접 들고 오므로 여기서 거쳐야 한다.
             payload["finance_context"] = wire_payload(dict(self.finance_context))
         if self.ml_context is not None:
-            # ★ **칸 이름은 판매 것이다** (`app/sales/schemas.py` `SalesProposalInput`).
+            # ★ **칸 이름은 판매 것이다**
+            #   (`app/sales/schemas/proposal.py` `SalesProposalInput`).
             #   매입은 같은 값을 `forecast` 로 받는다 — 받는 쪽 낱말에 맞춘다
             #   (`feedback_attempt` 와 같은 자리).
             payload["ml_context"] = dict(self.ml_context)

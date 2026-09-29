@@ -35,7 +35,7 @@
 
 후보 판정이 `delivery_date` · `payment_days` 를 **승인 가능한 후보의 필수조건**으로
 잡았고 (`sales_flow.CandidateVerdict.missing_terms`), 판매는 그 둘을
-`preferred_*` 에서만 만든다 (`app/sales/proposal.py` `_baseline`). 즉 **마스터가 안
+`preferred_*` 에서만 만든다 (`app/sales/domain/proposal.py` `_baseline`). 즉 **마스터가 안
 실어 보내서** 실측의 후보 3안이 전부 `delivery_date=None` 이었다 — 판매가 값을 못
 만든 것이 아니다. 요구한 caller 가 생겼으므로 자리를 만든다.
 
@@ -64,7 +64,7 @@ from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import wiring
 from app.master.schemas import SalesRunRequest
 from app.master.service import _sales_user_request, run_sales
-from app.sales.schemas import SalesUserRequest
+from app.sales.schemas.proposal import SalesUserRequest
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 평일 = date(2026, 9, 10)

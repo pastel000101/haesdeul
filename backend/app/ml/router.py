@@ -9,16 +9,20 @@
 
   마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 판매는 `app.contracts.forecast.Forecast`
   모양만 씁니다 (2026-09-29 전 `app.ml.schemas.Forecast`).
-  **`schemas.py` · `service.py` 는 그대로 둡니다.**
+  **쓰던 함수는 그대로 둡니다** — 2026-09-29 재구성 BL-017 에 자리만 옮겼습니다
+  (예측 설정 `schemas/forecast.py` · 조회 `readmodel/forecasts.py` · 적재 `service/forecasts.py`).
   되살리려면 아래 `# ` 를 지우면 됩니다.
+
+★ 이 파일은 HTTP 입구다 — `/ml/qa` 두 라우트는 질의응답 service(`service/qa_graph.py::answer`,
+  마스터 어댑터와 같은 함수)를 부르고 응답 모델로 돌려준다. `app/api/ml/` 로 옮기는 것은 BL-019.
 """
 
 from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.ml.qa_graph import answer as qa_answer
-from app.ml.qa_schemas import QaAnswer, QaRequest
+from app.ml.schemas.qa import QaAnswer, QaRequest
+from app.ml.service.qa_graph import answer as qa_answer
 
 # from datetime import date
 # from typing import Annotated
@@ -26,8 +30,9 @@ from app.ml.qa_schemas import QaAnswer, QaRequest
 # from fastapi import HTTPException, Query, status
 #
 # from app.contracts.forecast import Forecast, TargetKind
-# from app.ml.schemas import ITEMS
-# from app.ml.service import get_forecast, push_forecasts
+# from app.ml.readmodel.forecasts import get_forecast
+# from app.ml.schemas.forecast import ITEMS
+# from app.ml.service.forecasts import push_forecasts
 
 router = APIRouter(prefix="/ml", tags=["ml"])
 #

@@ -28,10 +28,7 @@ from datetime import date
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
-from app.purchase_agent.nodes.self_check import (
-    MARKET_SKIP_REASONS,
-    market_open_days,
-)
+from app.purchase_agent.domain.self_check import MARKET_SKIP_REASONS, market_open_days
 
 AS_OF = date(2025, 12, 31)
 ITEM = "배추"
@@ -155,7 +152,7 @@ def _payload(calendar: dict | None) -> dict:
 
 
 def _built(calendar: dict | None) -> dict:
-    from app.purchase_agent.adapter import build_state
+    from app.purchase_agent.service.scenarios import build_state
 
     request = AgentRequest(
         context=ExecutionContext("REQ-300", AS_OF, "ML_COMPLETE", "v2.3"),

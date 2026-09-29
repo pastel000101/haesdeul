@@ -153,8 +153,9 @@ def test_비운_확정_주문은_매입이_누락으로_받는다():
 
     조용히 0 수요로 사거나 노드에서 터지지 않는다는 것을 받는 쪽 한 자리에서 확인한다.
     """
-    from app.purchase_agent.adapter import validate_payload
+    from app.purchase_agent.config import load_constraints
+    from app.purchase_agent.domain.payload import validate_payload
 
-    missing = validate_payload({"item": ITEM}, AS_OF)
+    missing = validate_payload({"item": ITEM}, AS_OF, load_constraints())
 
     assert "confirmed_orders" in missing

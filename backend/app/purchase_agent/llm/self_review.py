@@ -12,6 +12,7 @@
 
 from collections.abc import Callable
 
+from app.purchase_agent.domain.review_templates import FINDINGS
 from app.purchase_agent.llm.review_schemas import (
     ReviewContext,
     ReviewOutput,
@@ -26,7 +27,6 @@ from app.purchase_agent.llm.runtime import (
     run_with_fallback,
 )
 from app.purchase_agent.llm.text_guard import contains_control_chars, contains_number
-from app.purchase_agent.review_templates import FINDINGS
 
 # 🔴 **도달 불가한 예시를 걷어냈다** (2026-09-18 · 검증설계 v0.2 §4 · 결정 ②).
 #   예시가 *"라벨이 SPREAD_NORMAL·SHELF_TIGHT 인데"* 였는데, ⑤ 가 도는 날은 언제나
@@ -176,7 +176,7 @@ def _service() -> SelfReviewService:
 
 
 #: 🔴 ``contains_number`` 는 이 역할에서 **응답이 아니라 요청**을 잰다 —
-#: 정제가 실제로 됐는지 노드가 확인할 때 쓴다 (``nodes/review_rationale``).
+#: 정제가 실제로 됐는지 노드가 확인할 때 쓴다 (``review_rationale``).
 __all__ = [
     "ROLE",
     "ReviewInvalid",

@@ -9,8 +9,8 @@ from app.finance.sales_policy import (
     FINANCE_SALES_MVP_POLICY_REF,
     load_finance_sales_mvp_policy,
 )
-from app.sales.proposal import _generate_scenarios
-from app.sales.schemas import SalesProposalInput
+from app.sales.schemas.proposal import SalesProposalInput
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 AS_OF = date(2026, 1, 1)
 DELIVERY = date(2026, 1, 2)
@@ -106,7 +106,7 @@ def _request(
 
 
 def _prices(request):
-    return {scenario.scenario_type: scenario for scenario in _generate_scenarios(request)}
+    return {scenario.scenario_type: scenario for scenario in plan_and_generate_scenarios(request)}
 
 
 def test_market_margin_and_depletion_make_a_b_c_prices_distinct():
@@ -328,7 +328,7 @@ def test_unusable_forecast_is_not_recorded_as_candidate_ml_support(
 
 def test_candidate_price_preserves_exact_ml_forecast_row_reference(monkeypatch):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     reply = run_proposal(_request())
     expected = (

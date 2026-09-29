@@ -58,7 +58,7 @@ from typing import Any
 from uuid import UUID
 
 from app.master import sales_approval
-from app.sales.persistence import sale_id_for
+from app.sales.domain.sale_ledger import sale_id_for
 
 #: 마스터 업무 키. 🔴 **`scheduler.daily_sales_request_id` 가 짓는 모양 그대로다** —
 #: `REQ-DAILY-SALES-{실행}-{날짜}-{품목}`.

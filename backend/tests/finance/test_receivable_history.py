@@ -4,13 +4,25 @@
    것이 계약이라 규칙이 두 곳에 있고, 갈리는 순간 판정이 갈린다.
 """
 
+import ast
 import pathlib
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
 from app.finance import receivable_history as finance_history
-from app.sales import receivable_history as sales_history
+from app.sales.domain import receivable_history as sales_rule
+from app.sales.repository import receivable_history as sales_sql
+
+#: ★ 2026-09-29 BL-013: 판매 쪽은 상태 규칙(`domain/`)과 SQL 조각(`repository/`)으로 나뉘었다.
+#:   두 벌 대조는 그대로 한다 — 판매 쪽 두 파일을 한 벌로 묶어 재무 한 파일과 맞댄다.
+#:   두 벌을 합치는 일은 재무 계층화(BL-014 · 설계 쟁점 6)다.
+sales_history = SimpleNamespace(
+    projected_status=sales_rule.projected_status,
+    history_join=sales_sql.history_join,
+    history_columns=sales_sql.history_columns,
+)
 
 MODULES = pytest.mark.parametrize(
     "history", [finance_history, sales_history], ids=["finance", "sales"]
@@ -187,14 +199,58 @@ def test_finance_and_sales_agree_on_every_status_boundary(original, received):
     )
 
 
+def _definitions(path: pathlib.Path) -> dict[str, str]:
+    """모듈 맨 위 정의마다 **그 원문**(바로 위 `#` 주석 줄 포함)."""
+    source = path.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    found: dict[str, str] = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            name = node.name
+        elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+        else:
+            continue
+        start = node.lineno - 1
+        while start > 0 and lines[start - 1].lstrip().startswith("#"):
+            start -= 1
+        found[name] = "\n".join(lines[start : node.end_lineno])
+    return found
+
+
+#: 규칙 본문을 이루는 정의. 재무 한 파일의 `_ZERO` 아래가 전부 여기 있다.
+_RULE_BODY = (
+    "_ZERO",
+    "_HISTORY_JOIN",
+    "_HISTORY_COLUMNS",
+    "history_join",
+    "history_columns",
+    "projected_status",
+)
+
+
 def test_the_two_modules_stay_byte_identical_in_their_rule_bodies():
     """한쪽만 고치는 날을 빨간불로 만든다.
 
     ⚠️ 머리말(docstring)은 도메인마다 다를 수 있으므로 **규칙 본문만** 대조한다.
+
+    ★ 2026-09-29 BL-013: 판매 쪽이 두 파일이 되어 «표시 줄 아래 꼬리 전체» 대신 **정의마다
+      원문**(주석 포함)을 맞댄다. 재무 쪽 표시 줄 아래에 이 목록 밖의 정의가 생기면 그것도
+      빨간불이다.
     """
     root = pathlib.Path("app")
-    marker = "_ZERO = Decimal(0)"
+    finance = _definitions(root / "finance" / "receivable_history.py")
+    sales = {
+        **_definitions(root / "sales" / "domain" / "receivable_history.py"),
+        **_definitions(root / "sales" / "repository" / "receivable_history.py"),
+    }
     finance_body = (root / "finance" / "receivable_history.py").read_text(encoding="utf-8")
-    sales_body = (root / "sales" / "receivable_history.py").read_text(encoding="utf-8")
+    tail_names = [
+        name
+        for name in finance
+        if finance_body.index(finance[name]) >= finance_body.index("_ZERO = Decimal(0)")
+    ]
 
-    assert finance_body.split(marker, 1)[1] == sales_body.split(marker, 1)[1]
+    assert tail_names == list(_RULE_BODY)
+    for name in _RULE_BODY:
+        assert finance[name] == sales[name], name

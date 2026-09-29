@@ -878,7 +878,7 @@ def _labels_match(scenario: Mapping[str, Any], scenario_label: str) -> bool:
     """후보가 그 라벨의 것인가.
 
     ★ **두 칸을 다 본다.** 매입 응답의 안은 `label` 이고 판매 후보는 `scenario_id` 다
-      (`app/sales/schemas.py` `SalesScenario`). 승인 요청이 실어 보내는 것은 한
+      (`app/sales/schemas/proposal.py` `SalesScenario`). 승인 요청이 실어 보내는 것은 한
       칸(`scenario_label`)뿐이라, 받는 쪽이 두 이름을 다 알아야 한다.
     """
     return scenario_label in {

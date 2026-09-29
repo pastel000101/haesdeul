@@ -184,7 +184,7 @@ def test_영업_모드_어휘가_판매_것과_같다():
 
     ★ 테스트에서는 양쪽을 읽어도 된다 — 런타임 의존이 아니다.
     """
-    from app.sales.schemas import SalesBusinessMode as 판매_어휘
+    from app.sales.schemas.proposal import SalesBusinessMode as 판매_어휘
 
     assert set(get_args(SalesBusinessMode)) == set(get_args(판매_어휘))
 

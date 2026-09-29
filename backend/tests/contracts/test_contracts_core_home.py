@@ -152,7 +152,7 @@ def test_공용_계약은_아무_파트도_import_하지_않는다():
     assert offenders == {}, f"공용 계약이 파트 · 마스터 · 화면 코드를 읽는다: {offenders}"
 
 
-def test_import_세는_도구가_파트를_잡는다(tmp_path):
+def test_import_collector_catches_planted_department_imports(tmp_path):
     """★ 위 검사가 공짜 초록이 되지 않게, 심어 둔 파트 import 를 잡는지 본다."""
     planted = tmp_path / "planted.py"
     planted.write_text(
@@ -189,7 +189,7 @@ _MOVED_CONTRACTS = frozenset(
 )
 
 
-def test_올린_계약은_계약_밖에서_다시_정의하지_않는다():
+def test_moved_contracts_are_not_redefined_outside_contracts():
     """🔴 **같은 모델을 옛 자리와 새 자리에 따로 두면 타입이 둘이 된다.**
 
     `isinstance` · pydantic 검증 · 필드 기본값이 자리마다 갈리고, 한쪽만 고쳐지는 날이

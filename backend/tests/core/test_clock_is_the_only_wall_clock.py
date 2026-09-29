@@ -102,7 +102,7 @@ _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 #: ```text
 #: master/scheduler.py   아무도 as_of 를 안 넘겨 준다. 09:30 에 깨어나는 것이 유일한 입력
 #: master/backfill.py    자동 승인의 실제 오늘 가드 — 걷기가 넘기는 날짜로 재면 풀린다
-#: ml/qa_graph.py        ML 질의응답이 기준일(as_of) 없이 왔을 때 「오늘」로 대체한다
+#: ml/service/qa_graph.py  ML 질의응답이 기준일(as_of) 없이 왔을 때 「오늘」로 대체한다
 #: ```
 #:
 #: 🔴 **깊은 자리는 여기 못 들어온다.** 들어오는 순간 백테스트가 그 지점부터 오늘로
@@ -118,8 +118,12 @@ _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 #: 🔴 **`ml/qa_graph.py` 가 셋째다** (2026-09-29 · 범위를 `app/` 전체로 넓히며 적었다 —
 #: 그 전부터 가져가고 있었고, 마스터만 훑던 검사 밖이었다). 화면(`/ml/qa`)이나 마스터
 #: 봉투(`ml_port`)가 기준일을 실어 보내면 그 날을 쓰고, 없을 때만 서울 오늘로 대체한다
-#: (해석 노드와 `_asked_on`).
-_CLOCK_READER_IMPORTERS = frozenset({"master/scheduler.py", "master/backfill.py", "ml/qa_graph.py"})
+#: (해석 노드와 `_asked_on`). 2026-09-29 재구성 BL-017 에 그래프가 `ml/service/qa_graph.py` 로
+#: 옮겼다 — 판단(`ml/domain/`) · 답 조립(`ml/readmodel/`)은 시계를 가져가지 않고 그래프가
+#: 정한 날을 인자로 받는다.
+_CLOCK_READER_IMPORTERS = frozenset(
+    {"master/scheduler.py", "master/backfill.py", "ml/service/qa_graph.py"}
+)
 
 #: 🟡 **서울 지역 시간대가 아니라 고정 오프셋 UTC+9 를 따로 드는 자리** (2026-09-29 확인).
 #:
@@ -127,10 +131,15 @@ _CLOCK_READER_IMPORTERS = frozenset({"master/scheduler.py", "master/backfill.py"
 #:   *"UTC+9"* 와 *"서울"* 은 다른 말이다. ML 예측 시각을 적재 · 표시하는 두 자리가 쓴다.
 #:   `SEOUL` 로 바꿀지는 ML 쪽을 정리할 때 정한다 — 시계를 옮기면서 시간대의 뜻까지
 #:   바꾸지 않았다.
+#: ★ 2026-09-29 재구성 BL-017 판단: **고정 오프셋 그대로 둔다.** 적재가 채우는 «기준일 06:00
+#:   KST» 와 답에 적는 «… KST» 는 ML 파이프라인의 표기 규약이고, 1988 년 뒤로는 값도 같아
+#:   바꿀 까닭이 없다. 대신 두 벌(`qa_graph.py` · `repository.py`)을 `ml/config.py::KST`
+#:   한 자리로 모았다 — 적재(`ml/domain/forecast_calendar.py`)와 답(`ml/readmodel/qa_answer.py`)
+#:   이 그 값을 가져간다.
 #:
 #: 🔴 **목록이지 면제가 아니다.** 여기 없는 자리가 시간대를 새로 만들면 아래 검사가 운다.
 #:   물류 출고 · 과거 조회가 따로 들던 `ZoneInfo("Asia/Seoul")` 은 같은 날 `SEOUL` 로 옮겼다.
-_FIXED_OFFSET_OWNERS = frozenset({"ml/qa_graph.py", "ml/repository.py"})
+_FIXED_OFFSET_OWNERS = frozenset({"ml/config.py"})
 
 
 def _clock_module_names(tree: ast.AST) -> set[str]:
@@ -381,7 +390,7 @@ def test_clock_말고는_ZoneInfo_로_시간대를_안_만든다():
       `revalidation.py` 가 `_KST` 를 따로 들고 있었고(2026-09-08 정리), 값이 같아서
       아무도 못 봤다 — **같아서 못 본 것이지 안 갈릴 이유가 있던 것이 아니다.**
 
-    🟡 ML 두 자리는 고정 오프셋이라 목록으로 적어 둔다(`_FIXED_OFFSET_OWNERS`). 그 자리가
+    🟡 ML 한 자리는 고정 오프셋이라 목록으로 적어 둔다(`_FIXED_OFFSET_OWNERS`). 그 자리가
       지역명 시간대를 따로 만들기 시작하면 그것도 여기서 운다.
     """
     owners = {

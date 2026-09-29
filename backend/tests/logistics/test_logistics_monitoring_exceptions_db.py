@@ -34,9 +34,9 @@ from typing import Any, NamedTuple
 import psycopg
 import pytest
 
-from app.api.logistics.query import _SEVERITY, _SEVERITY_UNKNOWN, _severity_at
 from app.core import db as core_db
 from app.logistics import historical_repository, turnover
+from app.logistics.domain.console_rules import severity_at
 from app.logistics.monitoring import exceptions as exception_repo
 from app.logistics.monitoring.detect import (
     COMMITTED,
@@ -837,11 +837,11 @@ def test_감지_이력이_날짜별_severity를_복원한다(conn: psycopg.Conne
         (D3, "CRITICAL"),
     }
 
-    assert _severity_at(row, D1) == (_SEVERITY["MEDIUM"], None)
-    assert _severity_at(row, D2) == (_SEVERITY["HIGH"], None)
-    assert _severity_at(row, D3) == (_SEVERITY["CRITICAL"], None)
+    assert severity_at(row, D1) == "MEDIUM"
+    assert severity_at(row, D2) == "HIGH"
+    assert severity_at(row, D3) == "CRITICAL"
     # 🔴 D1 화면에 D3 의 CRITICAL 이 새지 않는다.
-    assert _severity_at(row, D1)[0] != _SEVERITY["CRITICAL"]
+    assert severity_at(row, D1) != "CRITICAL"
 
 
 def test_같은_날_상승은_마지막_감지값이다(conn: psycopg.Connection) -> None:
@@ -852,7 +852,7 @@ def test_같은_날_상승은_마지막_감지값이다(conn: psycopg.Connection
 
     row = _one_live(conn)
     assert [(r.as_of, r.severity) for r in row.detection_history] == [(D1, "HIGH")]
-    assert _severity_at(row, D1) == (_SEVERITY["HIGH"], None)
+    assert severity_at(row, D1) == "HIGH"
 
 
 def test_같은_날_하락은_마지막_감지값이다(conn: psycopg.Connection) -> None:
@@ -863,8 +863,8 @@ def test_같은_날_하락은_마지막_감지값이다(conn: psycopg.Connection
 
     row = _one_live(conn)
     assert [(r.as_of, r.severity) for r in row.detection_history] == [(D1, "MEDIUM")]
-    assert _severity_at(row, D1) == (_SEVERITY["MEDIUM"], None)
-    assert _severity_at(row, D1)[0] != _SEVERITY["HIGH"]
+    assert severity_at(row, D1) == "MEDIUM"
+    assert severity_at(row, D1) != "HIGH"
 
 
 def test_이력_배열_순서와_무관하게_기준일_이하_최대날짜를_고른다(
@@ -883,9 +883,9 @@ def test_이력_배열_순서와_무관하게_기준일_이하_최대날짜를_�
 
     row = _one_live(conn)
     # 🔴 history[-1] (=D2) 가 아니라 날짜 비교로 고른다.
-    assert _severity_at(row, D3) == (_SEVERITY["CRITICAL"], None)
-    assert _severity_at(row, D2) == (_SEVERITY["HIGH"], None)
-    assert _severity_at(row, D1) == (_SEVERITY["LOW"], None)
+    assert severity_at(row, D3) == "CRITICAL"
+    assert severity_at(row, D2) == "HIGH"
+    assert severity_at(row, D1) == "LOW"
 
 
 def test_이력_없는_옛_행은_기존_fallback_을_유지한다() -> None:
@@ -906,12 +906,12 @@ def test_이력_없는_옛_행은_기존_fallback_을_유지한다() -> None:
     )
     assert row.detection_history == ()
     # last_detected(D2) <= 기준일(D3) → 지금 값이 그날 값이다.
-    assert _severity_at(row, D3) == (_SEVERITY["HIGH"], None)
-    # last_detected(D2) > 기준일(D1) → 증명 불가.
-    #  ★ 표 칸이 적는 말은 결과뿐이다 (#812). *왜* 못 적는지는 카드 footer 가 한 번
-    #    말하므로, 여기서 기대하는 것도 `_SEVERITY_UNKNOWN` 한 마디다 — 판정 규칙
-    #    (「last_detected > 기준일이면 증명 불가」)은 그대로고 **문구만** 짧아졌다.
-    assert _severity_at(row, D1) == ("—", _SEVERITY_UNKNOWN)
+    assert severity_at(row, D3) == "HIGH"
+    # last_detected(D2) > 기준일(D1) → 증명 불가 (`None`).
+    #  ★ 표 칸이 적는 말(「—」 · 「우선도 정보 없음」 · #812)은 화면이 정한다 —
+    #    `tests/api/test_logistics_severity_label.py`. 여기서는 판정 규칙
+    #    (「last_detected > 기준일이면 증명 불가」)만 잰다.
+    assert severity_at(row, D1) is None
 
 
 def test_현재_severity_는_최신_감지_이력과_같다(conn: psycopg.Connection) -> None:

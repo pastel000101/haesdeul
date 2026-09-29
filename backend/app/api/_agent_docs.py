@@ -280,7 +280,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 띄우게 되고, 그건 **틀린 줄도 모르는** 오류입니다.
 급하면 ㉰ 로 두고 `Note` 에 «어느 실행을 보고 있는지» 를 적으세요.
 
-**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/api/shown_run.py`.**
+**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/core/settings.py` 의 두 값.**
 화면이 읽는 실행은 `SHOWN_SIM_RUN_ID`, 기준일은 `SHOWN_AS_OF` 한 자리에서만 정합니다.
 재무 · 물류 · 판매 · 대시보드와 매입 라우터(쿼리에 축이 없을 때)가 이 값을 씁니다.
 각 탭 `Source.note` 에 「보고 있는 실행: 실행 이름」 을 적습니다.
@@ -314,6 +314,51 @@ schema = get_db_schema()
 rows = fetch_all(f'SELECT * FROM {{schema}}.{table} WHERE as_of = %s', (as_of,))
 ```
 
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: 판매 DB 안내. `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 판매 계층 구조로 바꾼다.
+SALES_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+판매는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/sales/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/sales/readmodel/` 입니다.
+
+```text
+app/sales/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/sales/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: ML DB 안내 (2026-09-29 BL-017). `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 ML 계층으로.
+ML_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+ML 은 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/ml/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/ml/readmodel/` 입니다. 창고가 둘이라 풀도 둘입니다.
+
+```text
+app/ml/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/ml/readmodel/<자원>.py    창고에 맞는 풀에서 조회 연결을 빌려 repository 를 부른다
+                             (서비스 창고 app.core.db.read_connection() · 원본 창고 ML_SOURCE_POOL)
+```
+
+이 탭이 읽는 원본 창고 조회는 `app/ml/readmodel/forecast_tab.py` 에 있습니다.
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 """
 
@@ -429,6 +474,8 @@ class Part(typing.NamedTuple):
     signature: str
     tables: str
     notes: str
+    #: 판매처럼 `db_module` 의 조회 헬퍼가 없는 부서는 DB 안내를 따로 준다 (2026-09-29 BL-013).
+    db_help: str | None = None
 
 
 PARTS = [
@@ -479,7 +526,7 @@ stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
     Part(
         key="forecast", owner="ML", title="가격 예측",
         route="/api/forecast?as_of=2026-01-06&item=배추", screen="/console/forecast",
-        db_module="app.ml.db", table="ml_price_forecasts",
+        db_module="app.ml.repository", table="ml_price_forecasts", db_help=ML_DB_HELP,
         model=ForecastTab,
         signature="def build(as_of: date, item: str) -> ForecastTab:",
         tables="""\
@@ -488,7 +535,7 @@ stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
 품질 게이트가 거기 들어 있습니다.
 
 ```python
-from app.ml.service import get_forecast
+from app.ml.readmodel.forecasts import get_forecast
 fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 ```
 """,
@@ -528,8 +575,8 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** `app.purchase_agent.db` 에는
-`get_db_schema` 가 **없습니다** — 일부러 뺐고 (그 파일 머리말) 이유는
+🔴 **DB 헬퍼는 `app.finance.db` 입니다.** 매입 에이전트(`app.purchase_agent`)는
+`get_db_schema` 를 **쓰지 않습니다** — 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는
 *"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
 `.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
@@ -738,14 +785,14 @@ with core_db.connection() as conn, core_db.transaction(conn):
     Part(
         key="sales", owner="판매", title="판매",
         route="/api/sales?as_of=2025-12-31", screen="/console/sales",
-        db_module="app.sales.db", table="sales",
+        db_module="app.sales.repository", table="sales", db_help=SALES_DB_HELP,
         model=SalesTab,
         signature="def build(as_of: date) -> SalesTab:",
         tables="""\
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.sales.dashboard import get_sales_dashboard
+from app.sales.readmodel.dashboard import get_sales_dashboard
 dash = get_sales_dashboard(sim_run_id=..., as_of=as_of)
 ```
 
@@ -910,7 +957,7 @@ def render(part: Part) -> str:
         route_line=f"API     GET {part.route}",
         screen_line=f"화면    http://localhost:3000{part.screen}",
         tables=part.tables,
-        db_help=DB_HELP.format(db_module=part.db_module, table=part.table),
+        db_help=part.db_help or DB_HELP.format(db_module=part.db_module, table=part.table),
         contract=contract(part.model, SHARED),
         primitives=PRIMITIVES,
         notes=part.notes,

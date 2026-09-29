@@ -36,7 +36,8 @@ _APP = _BACKEND / "app"
 #: (파일, 클래스, 열려 있어야 하는 필드)
 _OPEN_FIELDS = [
     ("logistics/schemas.py", "InventoryByItem", "item"),
-    ("sales/schemas.py", "LogisticsInventoryByItem", "item"),
+    #  2026-09-29 BL-013: 판매 모델은 `sales/schemas/` 패키지로 나뉘었다.
+    ("sales/schemas/proposal.py", "LogisticsInventoryByItem", "item"),
 ]
 
 

@@ -18,7 +18,9 @@
     ② 못 읽은 행 id 는 None 이다 — 지어내지 않는다
     ③ state 네 갈래가 실제 상태를 가린다 (후보 · 승인됨 · 매입 기록됨)
     ④ approved 가 그대로 있다 — 읽는 자리가 있다 (대시보드 서버 · 09-17 정정)
-    ⑤ 상태 어휘의 주인이 하나다 (`app/api/plan_state.py`) — 대시보드와 같은 것
+    ⑤ 상태 어휘의 주인이 하나다 (`app/master/domain/plan_state.py`) — 대시보드와 같은 것
+       (2026-09-29 재구성 BL-012 전 자리는 `app/api/plan_state.py`. 안 이름을 쪼개는
+       `plan_item` · `recorded_for` 는 이름을 짓는 매입 탭 `query` 에 남았다)
     ⑥ 「승인 대기」는 요청(품목·날) 단위다 — 형제 안이 결정되면 대기가 아니다 (09-17)
     ⑦ 결정은 **최대 회차 하나만** 유효하다 — 되돌린 승인은 「승인됨」이 아니다 (09-17)
 
@@ -33,9 +35,9 @@ from typing import Any
 
 import pytest
 
-from app.api import plan_state
 from app.api.purchase import query as purchase_query
-from app.master.purchase_record_repository import RecordedTotals
+from app.master.domain import plan_state
+from app.master.readmodel.purchase_record import RecordedTotals
 
 AS_OF = date(2026, 4, 13)
 AXIS = "SIM-CHECK-HOLIDAY-0916"
@@ -276,6 +278,10 @@ def test_상태_어휘는_공용_자리에서_온다():
     from app.api.dashboard import query as dashboard_query
 
     assert dashboard_query.PLAN_STATES is plan_state.PLAN_STATES
+    #  ★ 안 이름을 쪼개 기록을 맞추는 규칙도 한 벌이다 — 매입 탭이 이름을 짓고 대시보드가
+    #    같은 함수로 읽는다 (2026-09-29 · 전에는 둘 다 `app/api/plan_state.py` 를 읽었다).
+    assert dashboard_query._plan_item is purchase_query.plan_item
+    assert dashboard_query._recorded is purchase_query.recorded_for
 
 
 def test_매입_탭이_내는_낱말은_그_넷_안이다(tab):

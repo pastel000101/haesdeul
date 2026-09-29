@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.purchase_agent.schemas import EvidenceGrade, RationaleSource
+from app.purchase_agent.schemas.proposal import EvidenceGrade, RationaleSource
 
 #: 🔴 **어휘를 새로 짓지 않는다.** 출력 스키마가 이미 들고 있는 것을 그대로 쓴다 —
 #: 두 곳에서 지으면 한쪽만 바뀌는 날이 온다. (한 번 지어 봤다가 ``MEASURED`` 라는

@@ -4,8 +4,8 @@
 #   누가 쓰나
 #     재무   `app/finance/aging.py`               정본 경로 (이 규칙을 그대로 다시 낸다)
 #            `app/finance/console_receivables.py` AR Aging 화면
-#     판매   `app/sales/console_collections.py`   수금 화면
-#            `app/sales/console_partners.py`      거래처 상세의 채권
+#     판매   `app/sales/readmodel/console_collections.py`   수금 화면
+#            `app/sales/readmodel/console_partners.py`      거래처 상세의 채권
 #
 # 🔴 **왜 재무 파일이 아니라 여기인가.** 규칙의 주인은 재무가 맞다. 그런데 판매가
 #    `app.finance` 를 직접 임포트하면 두 부서가 실행 계층에서 붙고, 마스터가 중개할

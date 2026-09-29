@@ -22,7 +22,8 @@
   `delta = target - current` 로 전이를 만든다. 그래서 여기서는 **합이 아니라
   기준일 이하의 마지막 누적값**을 쓴다.
 
-🔴 **판매에도 같은 규칙이 있다** (`app.sales.receivable_history`). 두 도메인은 서로를
+🔴 **판매에도 같은 규칙이 있다** (`app.sales.domain.receivable_history` · 조각은
+   `app.sales.repository.receivable_history`). 두 도메인은 서로를
    import 하지 않는 것이 계약이라(`test_sales_never_imports_the_finance_agent`) 규칙을
    한 벌로 둘 자리가 지금은 없다. 대신 **두 벌이 갈리는 순간 빨간불이 뜨도록**
    `tests/finance/test_receivable_history.py` 가 두 모듈의 SQL 과 상태 규칙을 대조한다.

@@ -17,7 +17,7 @@ from pydantic import (
 from app.logistics.llm.schemas import LLMResponseFields
 from app.logistics.outbound import AllocationBasis, AllocationStatus, ReservationStatus
 from app.logistics.turnover import TurnoverStatus
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 #: 물류 운영 Policy 의 현재 버전. **문서 세트 버전(v1.4)과 다른 축이다** — 이쪽은
 #: `agent_policy_config` 의 행을 고르는 값이라 DB 와 함께 움직인다.

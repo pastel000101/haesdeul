@@ -25,7 +25,7 @@ SalesBusinessMode = Literal[
     "CONTRACT_PROPOSAL_RENEWAL",
     "SPOT_SALES",
 ]
-"""판매 사이클의 영업 모드. **어휘의 주인은 판매다** (`app/sales/schemas.py`).
+"""판매 사이클의 영업 모드. **어휘의 주인은 판매다** (`app/sales/schemas/proposal.py`).
 
 🔴 **그런데 마스터가 `app.sales.schemas` 를 import 하지 않는다.** `Capability` 때와
   같은 이유다 — 조정자가 부서 스키마에 런타임으로 묶이면 부서가 자기 모델을 고치는 날

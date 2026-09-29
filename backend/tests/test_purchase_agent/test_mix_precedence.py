@@ -19,7 +19,11 @@ from datetime import date
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
+from app.purchase_agent.domain.allocate_sourcing import (
+    apply_mix_precedence,
+    build_mix_candidates,
+    evaluate_mid_grade,
+)
 from app.purchase_agent.llm.mix import MixDecision, shelf_is_tight
 from app.purchase_agent.llm.runtime import needs_llm
 from app.purchase_agent.llm.schemas import (
@@ -27,14 +31,9 @@ from app.purchase_agent.llm.schemas import (
     MixCandidate,
     SanitizedLLMContext,
 )
-from app.purchase_agent.nodes.allocate_sourcing import (
-    apply_mix_precedence,
-    build_mix_candidates,
-    evaluate_mid_grade,
-)
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
 
 #: 부딪히는 날 — 스프레드가 벌어졌고 중품 상한도 걸린 칸. 앵커 15칸 중 둘이 그렇고
 #: (배추·무 ``2026-09-11``) 이것이 그중 하나다. 다른 검사 파일과 같은 이름·같은 날짜다.

@@ -19,20 +19,20 @@ from typing import Any
 
 import pytest
 
+from app.sales.domain.strategy import (
+    StrategySignals,
+    clamp_profiles,
+    derive_signals,
+    template_profiles,
+)
 from app.sales.llm.runtime import (
     LlmStrategyPlanOutput,
     LlmStrategyProfileOutput,
     plan_strategy_profiles,
 )
-from app.sales.proposal import _generate_scenarios
-from app.sales.schemas import SalesProposalInput
-from app.sales.strategy import (
-    StrategySignals,
-    clamp_profiles,
-    derive_signals,
-    plan_strategies,
-    template_profiles,
-)
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.strategy import plan_strategies
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 DELIVERY = date(2026, 9, 18)
 
@@ -148,7 +148,7 @@ def test_정상_재고에서는_공격안이_시장_하단으로_안_간다():
 
 def test_보수안이_공격안보다_비싸다():
     """자세가 실제 단가로 옮겨졌는가 — 자세만 갈리고 숫자가 같으면 소용이 없다."""
-    scenarios = {s.scenario_type: s for s in _generate_scenarios(_request())}
+    scenarios = {s.scenario_type: s for s in plan_and_generate_scenarios(_request())}
 
     assert scenarios["CONSERVATIVE"].unit_price_krw > scenarios["BALANCED"].unit_price_krw
 
@@ -232,7 +232,7 @@ def test_신선도_위험에서_공격안이_실제_소진_전략이_된다():
 
 
 def test_소진_전략이_시장_하단_단가로_옮겨진다():
-    scenarios = {s.scenario_type: s for s in _generate_scenarios(_freshness_request())}
+    scenarios = {s.scenario_type: s for s in plan_and_generate_scenarios(_freshness_request())}
     aggressive = scenarios["AGGRESSIVE"]
 
     assert aggressive.unit_price_krw < scenarios["BALANCED"].unit_price_krw
@@ -244,7 +244,7 @@ def test_소진_전략도_마진_최저선_아래로는_안_간다():
     # 원가를 올려 마진 최저선이 시장 하단보다 높아지게 만든다.
     scenarios = {
         s.scenario_type: s
-        for s in _generate_scenarios(_freshness_request(cost_amount=7_000_000 + 2_000_000))
+        for s in plan_and_generate_scenarios(_freshness_request(cost_amount=7_000_000 + 2_000_000))
     }
 
     assert scenarios["AGGRESSIVE"].unit_price_krw >= Decimal(1350)
@@ -252,7 +252,7 @@ def test_소진_전략도_마진_최저선_아래로는_안_간다():
 
 def test_세_안_모두_소진_전략에서도_단가가_세_가지다():
     """실측에서 A/B/C 단가가 세 가지였던 실행은 0 건이었다."""
-    scenarios = _generate_scenarios(_freshness_request())
+    scenarios = plan_and_generate_scenarios(_freshness_request())
 
     assert len({s.unit_price_krw for s in scenarios}) == 3
 
@@ -269,7 +269,8 @@ def test_마진_최저선_때문에_같아지면_강제로_벌리지_않는다()
     그 사실은 `rationale` 의 가격 전략으로 되짚을 수 있다.
     """
     scenarios = {
-        s.scenario_type: s for s in _generate_scenarios(_freshness_request(cost_amount=11_000_000))
+        s.scenario_type: s
+        for s in plan_and_generate_scenarios(_freshness_request(cost_amount=11_000_000))
     }
     단가 = {t: s.unit_price_krw for t, s in scenarios.items()}
 
@@ -281,7 +282,7 @@ def test_마진_최저선_때문에_같아지면_강제로_벌리지_않는다()
 
 def test_수렴하면_회신이_그_사실과_원인을_말한다():
     """§8 — 숫자를 억지로 벌리지 않는 대신 **무엇이 묶었는지**를 남긴다."""
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     reply = run_proposal(_freshness_request(cost_amount=11_000_000))
 
@@ -291,7 +292,7 @@ def test_수렴하면_회신이_그_사실과_원인을_말한다():
 
 def test_자세가_갈리고_숫자도_갈리면_수렴이_아니다():
     """세 안이 서로 다른 값에 닿았으면 묶인 것이 없다."""
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     reply = run_proposal(_freshness_request())
 
@@ -301,7 +302,7 @@ def test_자세가_갈리고_숫자도_갈리면_수렴이_아니다():
 
 def test_수렴_원인은_세_안을_다_묶은_코드만_적는다():
     """한 안에만 있는 코드는 수렴을 설명하지 못한다."""
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     reply = run_proposal(_freshness_request(cost_amount=11_000_000))
 
@@ -311,7 +312,8 @@ def test_수렴_원인은_세_안을_다_묶은_코드만_적는다():
 def test_수렴해도_자세는_기록에_남는다():
     """숫자가 같아도 **무엇을 하려 했는지**는 다르다."""
     scenarios = {
-        s.scenario_type: s for s in _generate_scenarios(_freshness_request(cost_amount=11_000_000))
+        s.scenario_type: s
+        for s in plan_and_generate_scenarios(_freshness_request(cost_amount=11_000_000))
     }
 
     assert scenarios["AGGRESSIVE"].strategy_profile.price_posture == "DEPLETION"
@@ -431,8 +433,8 @@ def test_재무만_달라도_같은_재고_ML_에서_단가는_안_바뀐다():
         )
     )
 
-    assert [s.unit_price_krw for s in _generate_scenarios(case1)] == [
-        s.unit_price_krw for s in _generate_scenarios(case2)
+    assert [s.unit_price_krw for s in plan_and_generate_scenarios(case1)] == [
+        s.unit_price_krw for s in plan_and_generate_scenarios(case2)
     ]
 
 
@@ -627,8 +629,8 @@ def test_사용자가_말로_남긴_의도가_모델에_간다(모델을_켠다,
 
 def test_raw_text_가_단가와_수량을_바꾸지_않는다():
     """🔴 문장은 자세 입력이지 값 입력이 아니다."""
-    없이 = _generate_scenarios(_request())
-    있이 = _generate_scenarios(_request(raw_text="최대한 비싸게 팔아줘 2000원 이상"))
+    없이 = plan_and_generate_scenarios(_request())
+    있이 = plan_and_generate_scenarios(_request(raw_text="최대한 비싸게 팔아줘 2000원 이상"))
 
     assert [s.unit_price_krw for s in 없이] == [s.unit_price_krw for s in 있이]
     assert [s.quantity_kg for s in 없이] == [s.quantity_kg for s in 있이]
@@ -636,7 +638,7 @@ def test_raw_text_가_단가와_수량을_바꾸지_않는다():
 
 def test_되먹임_사유_코드가_모델에_간다(모델을_켠다, monkeypatch):
     """재계획에서 **무엇이 막았는지**를 모르면 같은 자세를 다시 고른다."""
-    from app.sales.strategy import derive_signals
+    from app.sales.domain.strategy import derive_signals
 
     class _Reply:
         def __init__(self) -> None:
@@ -650,7 +652,7 @@ def test_되먹임_사유_코드가_모델에_간다(모델을_켠다, monkeypat
 
 def test_회신에_전략_출처가_실린다(monkeypatch):
     """장애를 숨기지 않는다 — 화면이 모델이 죽은 날을 알 수 있어야 한다."""
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     reply = run_proposal(_request())
 
@@ -757,7 +759,7 @@ def test_실패_사유가_회신까지_간다(모델을_켠다, monkeypatch):
     """이력에 안 남으면 나중에 읽는 사람이 원인을 못 되짚는다."""
     import urllib.error
 
-    from app.sales.proposal import run_proposal
+    from app.sales.service.proposal import run_proposal
 
     _planner_raises(
         monkeypatch, urllib.error.HTTPError("https://x", 400, "boom", {}, None)

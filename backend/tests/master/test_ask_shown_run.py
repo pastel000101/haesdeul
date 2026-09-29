@@ -21,8 +21,8 @@ from datetime import date
 
 import pytest
 
-from app.api.shown_run import SHOWN_SIM_RUN_ID
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.master import ask_service, wiring
 from app.master.ask_schemas import AskExecuteRequest
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID

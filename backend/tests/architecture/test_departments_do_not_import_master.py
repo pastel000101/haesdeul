@@ -9,13 +9,15 @@ Critic 검사 id 를 가져오려고 `app.master.*` 를 import 했고(22줄), ML
   문자열로 부르는 `importlib.import_module("app.master…")` · `__import__("app.master…")`.
   검색 결과를 0 으로 만들려고 import 를 숨기는 길을 막는다.
 ★ 주석 · docstring · 메시지 문구의 경로 언급은 의존이 아니라 대상이 아니다.
+★ 스캐너는 `import_scan.py` 에 있다 (2026-09-29 BL-012 검사와 함께 쓰려고 뺐다).
 """
 
 from __future__ import annotations
 
-import ast
 from collections.abc import Iterator
 from pathlib import Path
+
+from import_scan import imports_of
 
 import app
 
@@ -24,36 +26,10 @@ _APP = Path(app.__file__).parent
 #: 부서 패키지. 마스터 · 화면(`api`) · 계약 · 기반(`core`)은 대상이 아니다.
 DEPARTMENTS = ("finance", "logistics", "sales", "purchase_agent", "ml")
 
-_MASTER = "app.master"
-_DYNAMIC_IMPORTERS = frozenset({"import_module", "__import__"})
-
-
-def _is_master(module: str) -> bool:
-    return module == _MASTER or module.startswith(_MASTER + ".")
-
 
 def master_imports_in(source: str) -> list[str]:
     """그 원문이 마스터를 들이는 자리. `["12: from app.master.envelope"]` 모양."""
-    hits: list[str] = []
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            takes_master = node.module == "app" and any(a.name == "master" for a in node.names)
-            if _is_master(node.module) or takes_master:
-                hits.append(f"{node.lineno}: from {node.module}")
-        elif isinstance(node, ast.Import):
-            hits.extend(f"{node.lineno}: import {a.name}" for a in node.names if _is_master(a.name))
-        elif isinstance(node, ast.Call) and node.args:
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            first = node.args[0]
-            if (
-                name in _DYNAMIC_IMPORTERS
-                and isinstance(first, ast.Constant)
-                and isinstance(first.value, str)
-                and _is_master(first.value)
-            ):
-                hits.append(f"{node.lineno}: {name}({first.value!r})")
-    return hits
+    return imports_of(source, "app.master")
 
 
 def _department_files() -> Iterator[Path]:
@@ -63,7 +39,7 @@ def _department_files() -> Iterator[Path]:
                 yield path
 
 
-def test_부서는_마스터를_import_하지_않는다():
+def test_departments_do_not_import_master():
     found = {
         path.relative_to(_APP).as_posix(): hits
         for path in _department_files()
@@ -76,7 +52,7 @@ def test_부서는_마스터를_import_하지_않는다():
     )
 
 
-def test_스캐너가_부서_파일을_실제로_읽는다():
+def test_scanner_reads_department_files():
     """★ 0 개를 읽으면 위 검사가 공짜 초록이 된다. 무엇을 읽었는지를 먼저 잰다."""
     files = list(_department_files())
 
@@ -84,7 +60,7 @@ def test_스캐너가_부서_파일을_실제로_읽는다():
     assert len(files) > 100, f"부서 파일을 {len(files)}개밖에 못 읽었다"
 
 
-def test_스캐너가_숨긴_import_모양을_잡는다():
+def test_scanner_catches_hidden_master_import_forms():
     """심어 둔 여섯 모양이 다 잡히고, 계약 import 와 주석 언급은 안 잡힌다."""
     planted = (
         "import app.master.wiring as w\n"

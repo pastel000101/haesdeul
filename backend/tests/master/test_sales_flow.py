@@ -220,7 +220,7 @@ def test_마스터_capability_어휘가_판매_것과_같다():
 
     ★ 테스트에서는 양쪽을 읽어도 된다 — 런타임 의존이 아니다.
     """
-    from app.sales.schemas import SalesCapability
+    from app.sales.schemas.proposal import SalesCapability
 
     assert set(get_args(Capability)) == set(get_args(SalesCapability))
 
@@ -421,7 +421,7 @@ def test_물류_컨텍스트가_판매_칸_이름으로_간다():
       세우는 것이 맞다 — 여기서 재는 것은 *"칸 이름이 맞는가"* 이지
       *"아무거나 받아 주는가"* 가 아니다.
     """
-    from app.sales.schemas import SalesLogisticsContext, SalesProposalInput
+    from app.sales.schemas.proposal import SalesLogisticsContext, SalesProposalInput
 
     보낸것: list[dict] = []
     happy(sales=seller([[scenario("SCN-1")]], capture=보낸것)).run()
@@ -473,7 +473,7 @@ def test_business_mode_는_최상위로_나간다():
     저쪽 `SalesUserRequest` 는 `extra="forbid"` 라 안에 넣으면 요청 전체가 문 앞에서
     거부되고, 안 실으면 `validation_errors=['business_mode']` 로 되돌아온다 (실측).
     """
-    from app.sales.schemas import SalesProposalInput
+    from app.sales.schemas.proposal import SalesProposalInput
 
     보낸것: list[dict] = []
     happy(business_mode="SPOT_SALES", sales=seller([[scenario("SCN-1")]], capture=보낸것)).run()

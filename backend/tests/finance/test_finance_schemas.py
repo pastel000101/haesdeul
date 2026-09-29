@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.finance.schemas import ChannelTerm
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 
 def test_purchase_agent_v04_contract_uses_int_kg_contract(purchase_payload):

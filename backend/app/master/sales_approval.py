@@ -45,17 +45,14 @@ from app.contracts.envelope import Capability
 from app.contracts.sales_logistics import SalesOutboundReservationRequest
 from app.core import db as core_db
 from app.logistics.sales_outbound import reserve_confirmed_sale_available
-from app.sales.logistics_request import outbound_reservation_for_sale
-from app.sales.persistence import (
-    SalesPersistenceConflict,
-    confirm_sale,
-)
-from app.sales.schemas import (
+from app.sales.domain.logistics_request import outbound_reservation_for_sale
+from app.sales.schemas.proposal import SalesExecutionIdentity, SalesScenario
+from app.sales.schemas.sale_ledger import (
     SalesApprovalLine,
     SalesConfirmationInput,
-    SalesExecutionIdentity,
-    SalesScenario,
+    SalesPersistenceConflict,
 )
+from app.sales.service.sale_ledger import confirm_sale
 
 __all__ = [
     "CONTRACT_FULFILLMENT_MODE",
@@ -79,7 +76,7 @@ __all__ = [
 
 #: 🔴 **승인 가능한 후보의 필수조건.** 이 칸이 비어 있으면 사용자가 골라도 판매를
 #: 확정할 수 없다 — `confirm_sale` 이 `sale_date` 와 수금 기일을 여기서 만든다
-#: (`app/sales/persistence.py`: `due_date = sale_date + payment_days`).
+#: (`app/sales/domain/sale_ledger.py`: `due_date = sale_date + payment_days`).
 #:
 #: ★ **주인이 여기 하나다.** `sales_flow.CandidateVerdict` 가 후보를 사용자에게 올릴
 #:   때 같은 목록을 읽는다 — 두 곳에 베껴 두면 *"올려도 되는 안"* 과 *"확정할 수 있는
@@ -517,10 +514,10 @@ def confirm_approved_sale(
         되먹임을 안 받는 안에는 이 길뿐이다. **기본값이 없다**: 안 넘기면 터져야
         한다. 없으면(`None`) 지어내지 않고 `BLOCKED` 다.
     :param sim_run_id: 🔴 **그 실행의 축.** `sales` 행이 어느 장부에 앉는지를 정한다
-        (`app/sales/persistence.py` 의 INSERT). **기본값이 없다** — 안 넘기면
+        (`app/sales/repository/sale_ledger.py` 의 INSERT). **기본값이 없다** — 안 넘기면
         터져야 한다. 부르는 쪽이 재검증에 넘긴 것과 **같은 한 값**이어야 한다:
         `decision_service.record_decision` 이 행에서 한 번 읽어 둘에 흘린다.
-    :param confirm: 확정 함수. 안 주면 `app.sales.persistence.confirm_sale` 이다.
+    :param confirm: 확정 함수. 안 주면 `app.sales.service.sale_ledger.confirm_sale` 이다.
     :param reserve: 확정분 예약 함수. 안 주면
         `app.logistics.sales_outbound.reserve_confirmed_sale_available` 이다.
         🔴 **`reserve_confirmed_sale` 이 아니다** — 저쪽은 전량 아니면 멈추고,
@@ -718,7 +715,7 @@ def _confirmation_input(
         (`tests/master/test_sale_carries_business_key.py`).
 
     🔴 **`sim_run_id` 는 상수가 아니다** (2026-09-11). 전에는 `BURN_IN_SIM_RUN_ID` 를
-      박았는데, 이 값이 `app/sales/persistence.py` 의 `sales` INSERT 에 그대로
+      박았는데, 이 값이 `app/sales/repository/sale_ledger.py` 의 `sales` INSERT 에 그대로
       실린다 — **일어난 적 없는 판매가 번인 장부에 쌓인다.** 번인은 모든 실행이
       `--baseline-run-id` 로 출발점 삼는 장부라 그 오염이 뒤따르는 실행 전부에 번진다.
 

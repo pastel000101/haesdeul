@@ -31,18 +31,17 @@ from pathlib import Path
 import pytest
 
 from app.purchase_agent import adapter
-from app.purchase_agent.allocation import allocation_candidates, split_quantities
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import build_graph
-from app.purchase_agent.nodes.classify_situation import (
+from app.purchase_agent.domain.allocation import allocation_candidates, split_quantities
+from app.purchase_agent.domain.classify_situation import (
     TREND_RISING,
-    classify_situation,
     compute_rise_rate_2w,
     judge_sustained_rise,
 )
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.schemas import TIMING_AXIS
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.schemas.proposal import TIMING_AXIS
+from app.purchase_agent.service.graph import build_graph, build_initial_state
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
 from tests.test_purchase_agent.test_split_allocation_applied import (
     _강제_선택,
     _결정,

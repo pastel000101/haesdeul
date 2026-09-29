@@ -28,8 +28,8 @@ compare_reported_sales_amount(reported, recalculated)   허용 오차 **없음**
 from __future__ import annotations
 
 from app.finance.capabilities.sales import REQUIRED_SALES_INPUT_FIELDS
-from app.sales.adapter import _proposal_payload
-from app.sales.proposal import run_proposal
+from app.sales.domain.proposal_reply import proposal_payload
+from app.sales.service.proposal import run_proposal
 from tests.sales.test_sales_proposal import _request
 
 _전선이름 = "reported_sales_amount_krw"
@@ -44,7 +44,7 @@ def _안하나(payload) -> dict:
 
 def test_봉투에_실릴_때_재무가_읽는_이름으로_나간다() -> None:
     """🔴 **이것이 재무 판정을 막던 자리다.**"""
-    안 = _안하나(_proposal_payload(run_proposal(_request(business_mode="SPOT_SALES"))))
+    안 = _안하나(proposal_payload(run_proposal(_request(business_mode="SPOT_SALES"))))
 
     assert _전선이름 in 안, f"전선에 '{_전선이름}' 이 없다 — 재무가 못 읽는다"
     assert 안[_전선이름] is not None
@@ -72,7 +72,7 @@ def test_전선_이름이_재무가_요구하는_목록에_실제로_있다() ->
 
 def test_재무가_요구하는_다른_칸도_같은_이름으로_나간다() -> None:
     """⚠️ 금액 하나만 맞춰 놓고 나머지가 어긋나면 **한 걸음 더 가서 같은 자리에 선다.**"""
-    안 = _안하나(_proposal_payload(run_proposal(_request(business_mode="SPOT_SALES"))))
+    안 = _안하나(proposal_payload(run_proposal(_request(business_mode="SPOT_SALES"))))
 
     어긋난것 = [
         칸 for 칸 in REQUIRED_SALES_INPUT_FIELDS if 칸 not in 안 and 칸 != "source_ref"

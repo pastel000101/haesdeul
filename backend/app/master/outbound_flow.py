@@ -133,7 +133,7 @@ from app.logistics.outbound import (
 from app.logistics.sales_outbound import reserve_confirmed_sale_available
 from app.master.day_opening_repository import handled_on_first_open_day
 from app.master.sim_time import SimPhase, phase_instant
-from app.sales.persistence import mark_sale_delivered
+from app.sales.service.sale_ledger import mark_sale_delivered
 
 __all__ = [
     "ALLOCATE_PHASE",

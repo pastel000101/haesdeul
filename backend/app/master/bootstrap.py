@@ -51,7 +51,7 @@ from app.master.transition import register_transition
 from app.master.wiring import register as register_agent
 from app.ml.adapter import ml_port
 from app.purchase_agent.adapter import purchase_port
-from app.purchase_agent.quotes import auction_quote_source
+from app.purchase_agent.readmodel.quotes import auction_quote_source
 from app.sales.adapter import sales_port
 
 __all__ = ["wire_registries"]
@@ -96,7 +96,7 @@ def wire_registries() -> None:
     # ⚠️ ~~ML `current_price` 와 매입 물량가중 시리즈가 일치하지 않는 것은 여전히
     #   미결이다 (2026-08-31 실측 · 배추 812 vs 933)~~ — **닫혔다** (ML 회신 2026-09-10).
     #   그 칸은 시세가 아니라 **앵커**(0.4×어제 + 0.6×최근 7 거래일 평균)라 애초에 다른
-    #   값이다. 산식과 재현값은 `purchase_agent/quotes.py` 머리말에 있다.
+    #   값이다. 산식과 재현값은 `purchase_agent/readmodel/quotes.py` 머리말에 있다.
     #
     #   🟡 남은 것은 **두 값을 어떻게 병기해 보여줄지**이고, 매입단가로 무엇을 쓸지는
     #   아니다 — 매입단가는 실제로 살 때 낼 돈이다.

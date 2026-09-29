@@ -26,8 +26,8 @@ from app.purchase_agent.config import (
     ci_width_threshold,
     load_constraints,
 )
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_initial_state
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
 
 MOCK_DIR = Path(mocks.__file__).parent
 MOCK_FILES = sorted(MOCK_DIR.glob("*.json"))

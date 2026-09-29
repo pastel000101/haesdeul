@@ -130,7 +130,7 @@ def 실_DB_연결을_막는다(request: pytest.FixtureRequest, monkeypatch: pyte
        `connection_class.connect()` 를 부르므로(3.3.3 소스) 모듈 이름 `psycopg.connect` 를
        바꿔 끼워도 닿지 않는다. 또 그 문은 **풀의 작업 스레드**에서 열려, 거기서 난 예외는
        검사로 올라오지 않고 대여가 시간 초과까지 기다린다. 그래서 풀을 **여는 자리**에서
-       먼저 멈춘다 — 검사용 가짜 연결 종류(`tests/core/풀_가짜연결.py`)로 여는 풀은 통과한다.
+       먼저 멈춘다 — 검사용 가짜 연결 종류(`tests/core/fake_pg_connection.py`)로 여는 풀은 통과한다.
 
     ★ **`.env` 가 있는 자리를 없는 자리와 같게 만든다.** 없는 자리에서는 환경변수
       확인이 먼저 터져 여기까지 안 온다. 있는 자리에서는 이 가드가 없으면 새는 검사가
@@ -156,22 +156,24 @@ def 실_DB_연결을_막는다(request: pytest.FixtureRequest, monkeypatch: pyte
     monkeypatch.setattr(psycopg, "connect", 막는다)
     monkeypatch.setattr(psycopg.Connection, "connect", classmethod(막는다))
 
-    진짜_open = psycopg_pool.ConnectionPool.open
+    original_pool_open = psycopg_pool.ConnectionPool.open
 
-    def 풀을_막는다(self: psycopg_pool.ConnectionPool, *args: object, **kwargs: object) -> None:
+    def refuse_real_connection_pool_open(
+        self: psycopg_pool.ConnectionPool, *args: object, **kwargs: object
+    ) -> None:
         if isinstance(self.connection_class, type) and issubclass(
             self.connection_class, psycopg.Connection
         ):
             raise 실_DB_연결을_열었다(
                 f"db 마크가 없는 검사가 실 DB 연결 풀을 열었다: {request.node.nodeid}"
             )
-        진짜_open(self, *args, **kwargs)
+        original_pool_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(psycopg_pool.ConnectionPool, "open", 풀을_막는다)
+    monkeypatch.setattr(psycopg_pool.ConnectionPool, "open", refuse_real_connection_pool_open)
 
 
 @pytest.fixture(autouse=True, scope="session")
-def 연결_풀을_닫고_나간다() -> Iterator[None]:
+def close_pools_after_session() -> Iterator[None]:
     """스위트가 끝나면 열린 풀을 닫는다 — `db` 마크 검사가 연 풀의 작업 스레드를 남기지 않는다."""
     yield
     from app.core import db as core_db

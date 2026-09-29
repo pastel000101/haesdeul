@@ -21,13 +21,12 @@ from typing import Any
 import pytest
 
 from app.contracts.core import ITEMS
-from app.purchase_agent import db, mocks, ports, quotes
+from app.core.db import read_connection
+from app.purchase_agent import mocks, ports
 from app.purchase_agent.config import CONSTRAINTS_PATH, load_constraints
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes.draft_plan import draft_plan as _draft_plan
-from app.purchase_agent.nodes.draft_plan import fixed_market_quotes
-from app.purchase_agent.quotes import (
-    auction_quote_source,
+from app.purchase_agent.domain import quotes as quote_rules
+from app.purchase_agent.domain.draft_plan import fixed_market_quotes
+from app.purchase_agent.domain.quotes import (
     krw_per_kg,
     min_trade_volume_kg,
     missing_quote_reason,
@@ -39,6 +38,12 @@ from app.purchase_agent.quotes import (
     staleness_days,
     to_price,
 )
+from app.purchase_agent.readmodel import quotes
+from app.purchase_agent.readmodel.quotes import auction_quote_source
+from app.purchase_agent.repository import quotes as quote_sql
+from app.purchase_agent.repository.quotes import fetch_rows
+from app.purchase_agent.service.graph import run_purchase_agent
+from app.purchase_agent.service.nodes.draft_plan import draft_plan as _draft_plan
 
 INTEGRATION = date(2025, 12, 31)
 ANCHORS = (
@@ -175,14 +180,19 @@ def test_variety_is_never_used_in_the_query(token: str) -> None:
 
 
 def test_variety_is_absent_from_the_whole_module() -> None:
-    """쿼리 한 줄만 보면 다른 함수가 몰래 품종을 거를 수 있다 — 파일 전체를 본다."""
-    source_text = Path(inspect.getfile(quotes)).read_text(encoding="utf-8")
-    code = "\n".join(
-        line for line in source_text.splitlines() if not line.lstrip().startswith("#")
-    )
-    # docstring 안의 설명 문장은 제외해야 하므로, 실제 컬럼 참조 형태만 본다.
-    assert "subclass_code" not in code.split('"""')[-1]
-    assert "subclass_name" not in code.split('"""')[-1]
+    """쿼리 한 줄만 보면 다른 함수가 몰래 품종을 거를 수 있다 — 파일 전체를 본다.
+
+    2026-09-29 재구성 BL-016 뒤에는 시세 코드가 세 파일이다 — SQL(``repository``) · 조회
+    조립(``readmodel``) · 판정(``domain``). 셋 다 본다.
+    """
+    for module in (quote_sql, quotes, quote_rules):
+        source_text = Path(inspect.getfile(module)).read_text(encoding="utf-8")
+        code = "\n".join(
+            line for line in source_text.splitlines() if not line.lstrip().startswith("#")
+        )
+        # docstring 안의 설명 문장은 제외해야 하므로, 실제 컬럼 참조 형태만 본다.
+        assert "subclass_code" not in code.split('"""')[-1], module.__name__
+        assert "subclass_name" not in code.split('"""')[-1], module.__name__
 
 
 def test_grades_outside_the_declared_vocabulary_are_dropped() -> None:
@@ -290,7 +300,7 @@ def test_an_item_declared_null_yields_no_plan_with_the_spec_reason(
       본다. ``monkeypatch`` 라 검사가 끝나면 원래 파일로 돌아간다.
 
       전역 교체를 여기서 쓰는 이유는, 사유가 **포트와 ③ 노드 두 곳**을 지나기 때문이다
-      (``quotes.quote_block_reason`` ← ``nodes/draft_plan``). 모듈 하나만 갈아 끼우면
+      (``quotes.quote_block_reason`` ← ``draft_plan``). 모듈 하나만 갈아 끼우면
       포트는 조회를 안 하는데 사유는 옛 선언으로 만들어져 **둘이 어긋난다** — 실제로
       그 상태를 재현해 확인했다.
 
@@ -339,29 +349,46 @@ def test_every_contract_item_is_declared_and_nothing_else_is() -> None:
 
 
 @pytest.mark.parametrize("name", ["execute", "execute_many", "execute_returning_one", "commit"])
-def test_the_purchase_db_module_has_no_write_helper(name: str) -> None:
+def test_the_purchase_read_path_has_no_write_helper(name: str) -> None:
     """🔴 규칙 2 — 매입은 read-only다. 다른 파트의 ``db.py``를 복사해 오면 쓰기 함수가
-    따라오고, **있기만 해도** 규칙이 "지켜지고 있다"에서 "깨질 수 있다"로 내려간다."""
-    assert not hasattr(db, name)
+    따라오고, **있기만 해도** 규칙이 "지켜지고 있다"에서 "깨질 수 있다"로 내려간다.
+
+    2026-09-29 재구성 BL-016 에 매입 입구 ``db.py`` 를 없앴다 — 읽는 길은 시세 조회
+    (``readmodel/quotes.py``)와 그 SQL(``repository/quotes.py``) 둘이라 둘 다 본다.
+    """
+    assert not hasattr(quotes, name)
+    assert not hasattr(quote_sql, name)
 
 
-def test_the_purchase_db_module_exposes_only_read_helpers() -> None:
-    public = {
-        name
-        for name, value in vars(db).items()
-        # ``value.__module__`` 로 거른다 — 이게 없으면 ``load_dotenv``·``dict_row`` 같은
-        # **import 해온 이름**까지 세어서, 정작 쓰기 함수가 추가돼도 목록 비교가 늘 깨진 채
+def test_the_purchase_read_path_borrows_only_read_connections() -> None:
+    """연결 모듈에서 **조회 대여만** 이름으로 들인다 — 쓰기 대여 · 경계 · 스키마 헬퍼가 없다."""
+    from app.core import db as core_db
+
+    def carried(module) -> set[str]:
+        # ``value.__module__`` 로 거른다 — 이게 없으면 ``Mapping``·``sql`` 같은
+        # **import 해온 이름**까지 세어서, 정작 쓰기 함수가 들어와도 목록 비교가 늘 깨진 채
         # 있느라 아무것도 못 잡는다.
-        if inspect.isfunction(value)
-        and not name.startswith("_")
-        and value.__module__ == db.__name__
-    }
+        return {
+            name
+            for name, value in vars(module).items()
+            if inspect.isfunction(value) and value.__module__ == core_db.__name__
+        }
 
+    assert carried(quotes) == {"read_connection"}
+    assert carried(quote_sql) == set()
     # ``get_db_schema`` 가 없는 것이 계약이다 — 읽을 스키마는 ``market_quotes.source``
     # 가 정한다. 헬퍼가 있으면 다음 사람이 그걸로 배선하고 ``.env`` 가 테이블을 고른다.
-    # ★ `get_connection` 은 2026-09-29 풀 전환으로 없어졌다 — 연결은 공통 풀에서 조회 전용으로
-    #   빌린다(`app.core.db.read_connection`). 매입이 연결 자체를 내주는 입구는 이제 없다.
-    assert public == {"fetch_all", "fetch_one"}
+    assert not hasattr(quotes, "get_db_schema")
+    assert not hasattr(quote_sql, "get_db_schema")
+    # SQL 쪽 공개 함수는 쿼리 짓기 둘과 받은 연결로 실행하기 하나뿐이다.
+    public = {
+        name
+        for name, value in vars(quote_sql).items()
+        if inspect.isfunction(value)
+        and not name.startswith("_")
+        and value.__module__ == quote_sql.__name__
+    }
+    assert public == {"weight_condition", "auction_query", "fetch_rows"}
 
 
 def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -377,7 +404,7 @@ def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatc
       *"백엔드가 먼저 포기한다"* 는 **순서**만 잠근다 (아래 상한).
       ⚠️ 워커가 물리는 것은 그대로다 — 요청이 쌓이면 고갈된다.
 
-    🔴 **선언 상수를 읽지 않고 나간 인자를 본다.** ``db.CONNECT_TIMEOUT_SECONDS`` 와
+    🔴 **선언 상수를 읽지 않고 나간 인자를 본다.** ``core.db.CONNECT_TIMEOUT_SECONDS`` 와
       비교하면 코드가 그 상수를 안 넘겨도 통과한다 — 양쪽이 같은 값을 들고 있을 뿐이다
       (CLAUDE.md 규칙 8과 같은 사고).
 
@@ -398,7 +425,8 @@ def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatc
       🟢 ``#81`` 의 ⓐ(각자)/ⓑ(공통 헬퍼)는 **ⓐ 로 정해졌다** (2026-09-07).
 
     ⚠️ 2026-09-29 풀 전환 뒤 연결은 **공통 풀이 새 연결을 만들 때** 연다. 그래서 풀의 연결
-      종류를 스파이로 갈아 끼우고 매입 조회(``db.fetch_all``)를 한 번 부른다 — 스파이는 받은
+      종류를 스파이로 갈아 끼우고 매입 시세 조회(``auction_quote_source()`` — 2026-09-29
+      BL-016 전에는 ``db.fetch_all``)를 한 번 부른다 — 스파이는 받은
       인자를 적고 접속을 거절하므로 **실제 접속이 일어나지 않는다**(대여는 짧게 잡은 대기
       시간 뒤 ``PoolTimeout`` 으로 끝난다). 환경변수도 주입해 ``.env`` 에 안 기댄다.
     """
@@ -410,7 +438,7 @@ def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatc
 
     captured: dict[str, Any] = {}
 
-    class _스파이:
+    class _ConnectKwargsSpy:
         @classmethod
         def connect(cls, conninfo: str = "", **kwargs: Any) -> object:
             captured.update(kwargs)
@@ -420,12 +448,12 @@ def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatc
         monkeypatch.setenv(key, "x")
     monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "1")
     pool = core_db.DatabasePool(
-        "test-purchase", settings.database_settings, connection_class=_스파이  # type: ignore[arg-type]
+        "test-purchase", settings.database_settings, connection_class=_ConnectKwargsSpy  # type: ignore[arg-type]
     )
     monkeypatch.setattr(core_db, "SERVICE_POOL", pool)
     try:
         with pytest.raises(PoolTimeout):
-            db.fetch_all("SELECT 1")
+            auction_quote_source()("배추", INTEGRATION)
     finally:
         pool.close()
 
@@ -571,15 +599,17 @@ def test_dod_weighted_price_reproduces_the_measured_value() -> None:
     우리 조회 경로는 규격을 고정하지만, 이 테스트는 **식 자체**가 지환님 실측과 같은지를
     본다. 규격 필터를 빼고 같은 집합을 만들어 물량가중과 단순평균을 나란히 잰다.
     """
-    row = db.fetch_one(
-        """
+    with read_connection() as conn:
+        (row,) = fetch_rows(
+            conn,
+            """
         SELECT round(sum(trade_amount_krw) / nullif(sum(trade_volume_kg), 0), 1) AS weighted,
                round(avg(avg_auction_price_krw_per_kg), 1) AS simple_average
           FROM source_raw.auction_prices_daily
          WHERE item_name = '배추' AND market_category = '가락' AND grade_name = '특'
            AND auction_date = DATE '2026-08-03'
-        """
-    )
+            """,
+        )
 
     assert row["weighted"] == DOD_WEIGHTED
     assert row["simple_average"] == DOD_SIMPLE_AVERAGE
@@ -832,7 +862,7 @@ def test_a_declaration_the_code_does_not_implement_stops_the_query(
     """
     constraints = load_constraints()
     constraints["market_quotes"][key] = wrong
-    monkeypatch.setattr("app.purchase_agent.quotes.load_constraints", lambda: constraints)
+    monkeypatch.setattr("app.purchase_agent.readmodel.quotes.load_constraints", lambda: constraints)
 
     with pytest.raises(ValueError, match="좌표 선언이 구현과 다르다"):
         _source(BAECHU_1231_ROWS)("배추", INTEGRATION)
@@ -858,7 +888,7 @@ def test_the_fixed_market_constant_reads_the_declared_coordinate(tmp_path: Path)
     probe = (
         "from app.purchase_agent import config\n"
         f"config.CONSTRAINTS_PATH = __import__('pathlib').Path({str(swapped)!r})\n"
-        "from app.purchase_agent import schemas\n"
+        "from app.purchase_agent.schemas import proposal as schemas\n"
         "print(schemas.FIXED_MARKET)\n"
     )
     result = subprocess.run(
@@ -883,7 +913,7 @@ def test_the_fixed_market_constant_reads_the_declared_coordinate(tmp_path: Path)
         encoding="utf-8",
         errors="replace",
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        cwd=Path(inspect.getfile(quotes)).parents[2],
+        cwd=Path(inspect.getfile(quotes)).parents[3],
     )
 
     assert result.returncode != 0, f"선언을 바꿨는데 그대로 돌았다: {result.stdout!r}"
@@ -1384,7 +1414,7 @@ def test_the_table_read_actually_comes_from_constraints(
     """
     base = load_constraints()
     base["market_quotes"]["source"] = {"schema": schema, "table": table}
-    monkeypatch.setattr("app.purchase_agent.quotes.load_constraints", lambda: base)
+    monkeypatch.setattr("app.purchase_agent.readmodel.quotes.load_constraints", lambda: base)
 
     captured: dict = {}
     _source([], captured)("배추", INTEGRATION)
@@ -1421,7 +1451,7 @@ def test_a_source_declaration_that_is_missing_or_half_written_stops_the_query(
         del base["market_quotes"]["source"]
     else:
         base["market_quotes"]["source"] = broken
-    monkeypatch.setattr("app.purchase_agent.quotes.load_constraints", lambda: base)
+    monkeypatch.setattr("app.purchase_agent.readmodel.quotes.load_constraints", lambda: base)
 
     with pytest.raises(expected):
         _source([], {})("배추", INTEGRATION)
@@ -1573,7 +1603,7 @@ def test_the_declared_floor_reaches_the_query(monkeypatch: pytest.MonkeyPatch) -
         constraints = load_constraints()
         constraints["market_quotes"]["min_trade_volume_kg"] = declared
         monkeypatch.setattr(
-            "app.purchase_agent.quotes.load_constraints", lambda c=constraints: c
+            "app.purchase_agent.readmodel.quotes.load_constraints", lambda c=constraints: c
         )
         captured: dict = {}
         _source(BAECHU_1231_ROWS, captured)("배추", INTEGRATION)
@@ -1629,7 +1659,7 @@ def test_a_missing_or_impossible_floor_stops_the_query(
         del constraints["market_quotes"]["min_trade_volume_kg"]
     else:
         constraints["market_quotes"]["min_trade_volume_kg"] = declared
-    monkeypatch.setattr("app.purchase_agent.quotes.load_constraints", lambda: constraints)
+    monkeypatch.setattr("app.purchase_agent.readmodel.quotes.load_constraints", lambda: constraints)
 
     with pytest.raises(error):
         _source(BAECHU_1231_ROWS)("배추", INTEGRATION)

@@ -181,10 +181,10 @@ def test_역할_지시문이_다섯번과_다르다() -> None:
 
 
 def _노드결과(*, 켬: bool, monkeypatch: pytest.MonkeyPatch, selector=None):
-    from app.purchase_agent.nodes import split_plan as sp
-    from app.purchase_agent.nodes.classify_situation import classify_situation
-    from app.purchase_agent.nodes.draft_plan import draft_plan
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.nodes import split_plan as sp
+    from app.purchase_agent.service.nodes.classify_situation import classify_situation
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
 
     monkeypatch.setattr(sp, "enabled", lambda key, default=False: 켬)
     state = build_initial_state(ITEM, date(2026, 8, 21))

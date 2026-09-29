@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from 풀_가짜연결 import FakePgConnection
+from fake_pg_connection import FakePgConnection
 
 from app.core import db as core_db
 from app.core import settings
@@ -33,7 +33,7 @@ DB_ENV = {
 }
 
 @pytest.fixture(autouse=True)
-def 환경_파일을_읽지_않는다(monkeypatch: pytest.MonkeyPatch) -> None:
+def disable_dotenv_loading(monkeypatch: pytest.MonkeyPatch) -> None:
     import app.logistics.db
 
     monkeypatch.setattr(settings, "load_dotenv", lambda *_a, **_k: False)

@@ -235,7 +235,7 @@ def test_음수_리드타임은_과거_도착을_만들지_않는다():
 def _purchase_item_names() -> frozenset[str]:
     from typing import get_args
 
-    from app.purchase_agent.schemas import ItemName
+    from app.purchase_agent.schemas.proposal import ItemName
 
     return frozenset(get_args(ItemName))
 

@@ -11,8 +11,8 @@ import pytest
 
 from app.api.finance.console_routes import MAX_CASHFLOW_DAYS
 from app.finance import dashboard
-from app.sales import dashboard as sales_dashboard
-from app.sales.console_trend import MAX_TREND_DAYS
+from app.sales.readmodel import dashboard as sales_dashboard
+from app.sales.schemas.console_trend import MAX_TREND_DAYS
 
 
 class _Reader:

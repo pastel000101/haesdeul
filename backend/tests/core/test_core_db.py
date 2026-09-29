@@ -18,11 +18,11 @@ from typing import Any
 
 import psycopg
 import pytest
+from fake_pg_connection import INTRANS, UNKNOWN, FakePgConnection
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from psycopg.rows import dict_row
 from psycopg_pool import PoolTimeout
-from 풀_가짜연결 import INTRANS, UNKNOWN, FakePgConnection
 
 import app
 from app.core import db as core_db

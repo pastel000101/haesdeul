@@ -36,6 +36,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.core import db as core_db
+from app.logistics.domain.console_rules import still_working
 from app.master.answer import agent_label
 
 # ─── 화면 사전과 같은 문구 (frontend/src/lib/procurementLabels.ts) ──────────
@@ -774,10 +775,10 @@ def render_finance_chat_report(*, sim_run_id: str, as_of, start_date, end_date) 
 
 def render_sales_chat_report(*, sim_run_id: str, as_of, start_date, end_date) -> dict[str, Any]:
     """기존 Sales read model만으로 만드는 보고서. LLM/재계산 없음."""
-    from app.sales.console_partners import get_console_partners
-    from app.sales.console_proposals import get_console_sales_proposals
-    from app.sales.console_trend import get_console_sales_trend
-    from app.sales.dashboard import get_sales_dashboard
+    from app.sales.readmodel.console_partners import get_console_partners
+    from app.sales.readmodel.console_proposals import get_console_sales_proposals
+    from app.sales.readmodel.console_trend import get_console_sales_trend
+    from app.sales.readmodel.dashboard import get_sales_dashboard
 
     dashboard = get_sales_dashboard(sim_run_id=sim_run_id, as_of=as_of)
     proposals = get_console_sales_proposals(sim_run_id=sim_run_id, as_of=as_of)
@@ -1102,9 +1103,6 @@ def render_logistics_chat_report(
     from datetime import timedelta
     from decimal import Decimal
 
-    # 🔴 **«아직 일이 남은 예약» 판정을 여기서 다시 적지 않는다.** 그 규칙의 주인은
-    #    화면이고(#675 §10), 두 벌로 적으면 한쪽만 고쳐지는 날이 온다.
-    from app.api.logistics.query import _still_working
     from app.contracts.core import ITEMS
     from app.logistics.console_service import (
         get_inbound_console,
@@ -1158,12 +1156,14 @@ def render_logistics_chat_report(
     ]
 
     # 🔴 **예약은 «그날 아직 일이 남은 것» 만 본문에 싣는다.** 모집단 정의의 주인은
-    #    화면(`api/logistics/query._still_working`)이고 여기서 새로 적지 않는다 —
-    #    전량 출고가 끝난 과거 예약과 SHIPPED 할당 이력을 수개월치 늘어놓지 않는다.
+    #    물류 domain(`logistics/domain/console_rules.still_working` · #675 §10)이고 화면과
+    #    같은 함수를 부른다. 여기서 새로 적지 않는다 — 두 벌로 적으면 한쪽만 고쳐지는 날이
+    #    온다. 전량 출고가 끝난 과거 예약과 SHIPPED 할당 이력을 수개월치 늘어놓지 않는다.
+    #    (2026-09-29 재구성 BL-012 전에는 화면 모듈의 비공개 `_still_working` 을 빌려 썼다.)
     scoped_reservations = [
         row for row in outbound.reservations if _logistics_in_scope(row.item_name, ITEMS)
     ]
-    working = [row for row in scoped_reservations if _still_working(row)]
+    working = [row for row in scoped_reservations if still_working(row)]
     # ★ 납기일 빠른 순. 납기일이 없는 예약은 뒤로 둔다 (지시 §27).
     working.sort(key=lambda row: (row.due_date is None, row.due_date, row.reservation_id))
     settled_count = len(scoped_reservations) - len(working)

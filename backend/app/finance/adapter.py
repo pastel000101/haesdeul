@@ -66,7 +66,7 @@ from app.finance.tools import (
     project_cashflow,
     summarize_partner_receivables,
 )
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 # 재무 1차 Tool Set — T-FIN-01~06 (2026-08-27 확정). 그날 실제로 부른 것만 남긴다.
 _T_POSITION = "assess_finance_position"

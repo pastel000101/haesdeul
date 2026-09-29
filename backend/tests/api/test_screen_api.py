@@ -34,7 +34,7 @@ from app.finance.schemas import (
     FinanceReceivableSummary,
     FinanceStateView,
 )
-from app.sales.schemas import (
+from app.sales.schemas.dashboard import (
     SalesCollectionStatusSummary,
     SalesDashboardMeta,
     SalesDashboardResponse,

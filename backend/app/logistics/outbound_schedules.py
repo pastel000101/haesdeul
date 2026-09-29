@@ -32,7 +32,7 @@ WP-3~   미래 확정 출고   sales · sale_items                        ← �
    그 모양이었다 — `tools.build_inventory_by_item` 참조).
 
 ⚠️ **판매가 읽기 함수를 제공하지 않아 직접 조회한다.** `app/sales/**` 는 쓰기
-   (`persistence.py`)와 봉투(`contracts/sales_logistics.py`)만 내고 «확정 미래
+   (`service/sale_ledger.py`)와 봉투(`contracts/sales_logistics.py`)만 내고 «확정 미래
    판매» 를 읽어 주는 계약이 없다. 판매 소유 영역을 고칠 수 없어(파트 경계) 물류가
    최소 조회를 갖는다 — **어휘는 위 두 줄 그대로 빌려 쓴다.**
 

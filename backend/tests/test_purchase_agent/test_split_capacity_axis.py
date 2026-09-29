@@ -23,29 +23,24 @@
 import copy
 from datetime import date, timedelta
 
-from app.purchase_agent.allocation import assign_axes, round_offsets
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import (
-    PAYMENT_CONFLICT_NOTE,
-    package_scenarios,
-)
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.allocation import assign_axes, round_offsets
+from app.purchase_agent.domain.package_scenarios import PAYMENT_CONFLICT_NOTE
+from app.purchase_agent.domain.self_check import (
     check_arrival_capacity,
     check_cash_ceiling,
     check_payment_schedule,
     check_warehouse_capacity,
-    self_check,
 )
-from app.purchase_agent.nodes.split_plan import (
-    evaluate_split_entry,
-    safe_allocation_candidates,
-    split_plan,
-)
-from app.purchase_agent.schemas import TIMING_AXIS
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain.split_plan import evaluate_split_entry, safe_allocation_candidates
+from app.purchase_agent.schemas.proposal import TIMING_AXIS
+from app.purchase_agent.service.graph import build_initial_state
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 ITEM = "배추"
 AS_OF = date(2026, 8, 21)
@@ -560,7 +555,7 @@ def _지급_일관성(scenario: dict, state: dict, n5: int) -> None:
     assert sum(row["amount_krw"] for row in schedule) == scenario["total_amount_krw"]
     assert sum(leg["amount_krw"] for leg in legs) == scenario["total_amount_krw"]
     assert sum(row["qty_kg"] for row in schedule) == scenario["total_qty_kg"]
-    assert check_payment_schedule(scenario, state) is None
+    assert check_payment_schedule(scenario, state, load_constraints()) is None
     assert check_cash_ceiling(scenario, state, load_constraints()) is None
     # 받은 N5 로 만들었으면 「미확정이라 보류」 문장이 남으면 안 된다 — 문면과 일정이 갈린다.
     assert not [r for r in scenario["risks"] if "지급 소요일이 미확정" in r]
@@ -608,7 +603,7 @@ def test_지급_분할_실패_뒤_일괄로_복귀() -> None:
     공격 = _공격(final)
     assert len(공격["split_plan"]) == 1 and 공격["strategy_type"] != TIMING_AXIS
     assert "payment_schedule" not in 공격
-    assert check_payment_schedule(공격, state) is None
+    assert check_payment_schedule(공격, state, load_constraints()) is None
     assert check_cash_ceiling(공격, state, load_constraints()) is None
     assert 공격["split_plan"][0]["amount_krw"] == 공격["total_amount_krw"]
     assert (
@@ -657,5 +652,5 @@ def test_N5_미확정이면_지급_일정을_만들지_않고_보류를_알린�
     공격 = _공격(final)
     assert len(공격["split_plan"]) == 2
     assert "payment_schedule" not in 공격
-    assert check_payment_schedule(공격, state) is None
+    assert check_payment_schedule(공격, state, load_constraints()) is None
     assert any("지급 소요일이 미확정" in r for r in 공격["risks"])

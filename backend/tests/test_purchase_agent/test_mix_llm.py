@@ -19,7 +19,7 @@ from datetime import date
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
+from app.purchase_agent.domain.allocate_sourcing import build_mix_candidates, evaluate_mid_grade
 from app.purchase_agent.llm.mix import MixDecision, build_mix_context, make_mix_selector
 from app.purchase_agent.llm.runtime import (
     PROVIDERS,
@@ -32,17 +32,13 @@ from app.purchase_agent.llm.runtime import (
     validate_interpretation,
 )
 from app.purchase_agent.llm.schemas import MixCandidate, SanitizedLLMContext
-from app.purchase_agent.nodes.allocate_sourcing import (
-    allocate_sourcing,
-    build_mix_candidates,
-    evaluate_mid_grade,
-)
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import package_scenarios
-from app.purchase_agent.nodes.self_check import self_check
-from app.purchase_agent.nodes.split_plan import split_plan
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 RISING = date(2026, 8, 21)
 FALLING = date(2026, 8, 28)
@@ -427,7 +423,7 @@ def 우열표를_끈다(monkeypatch: pytest.MonkeyPatch) -> None:
         "mix_precedence": {**사본["grade"]["mix_precedence"], "status": "PROVISIONAL"},
     }
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.allocate_sourcing.load_constraints", lambda: 사본
+        "app.purchase_agent.service.nodes.allocate_sourcing.load_constraints", lambda: 사본
     )
 
 
@@ -906,7 +902,7 @@ def test_unknown_fraction_still_produces_a_candidate() -> None:
     이름 표를 단일 소스처럼 쓰면 ``0.25``를 넣었을 때 그 후보가 아무 말 없이 사라진다 —
     규칙 7("임계는 YAML 단일 소스")이 막으려는 형태다.
     """
-    from app.purchase_agent.nodes.allocate_sourcing import candidate_label
+    from app.purchase_agent.domain.allocate_sourcing import candidate_label
 
     state = _staged(ITEM, SPREAD_WIDE)
     constraints = load_constraints()

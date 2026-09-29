@@ -192,7 +192,7 @@ def test_키가_없어도_그래프_조립은_선다(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv(f"{rt.ENV_PREFIX}GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv(f"{rt.ENV_PREFIX}LLM_PROVIDER", "gemini")
-    from app.purchase_agent.graph import build_graph
+    from app.purchase_agent.service.graph import build_graph
 
     assert build_graph() is not None
     assert isinstance(rt.build_provider(rt.get_llm_settings()), rt.GeminiProvider)

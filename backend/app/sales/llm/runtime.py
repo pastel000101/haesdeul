@@ -15,7 +15,8 @@ from typing import Any, Literal
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.sales.schemas import SalesCandidate, SalesRecommendation
+from app.sales.schemas.proposal import SalesCandidate, SalesRecommendation
+from app.sales.schemas.strategy import StrategyProfile
 
 _NUMBER = re.compile(r"\d")
 _GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -47,7 +48,7 @@ class StrategyPlanningInput(BaseModel):
       출력   닫힌 어휘의 자세뿐 — 숫자가 섞이면 계획을 통째로 버린다
       ```
 
-      모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `proposal.py` 의
+      모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `domain/proposal.py` 의
       결정론 계산이 **자세만 읽고** 만들고, 모델 출력에는 숫자를 담을 칸이 없다.
 
     🔴 **판정 라벨을 주지 않는다.** `finance_verdict` 같은 값은 여기 없다 — 후보가
@@ -251,8 +252,6 @@ def _validated_profiles(output: LlmStrategyPlanOutput, template: list[Any]) -> l
     🔴 **사유에 숫자가 있으면 버린다.** 자세는 라벨이고, 라벨에 숫자가 섞이는 순간
       모델이 값을 말하기 시작한 것이다.
     """
-    from app.sales.strategy import StrategyProfile
-
     names = [item.strategy for item in output.strategies]
     if sorted(names) != ["AGGRESSIVE", "BALANCED", "CONSERVATIVE"]:
         raise ValueError("strategy set is not A/B/C exactly once")

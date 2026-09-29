@@ -324,7 +324,7 @@ def _check_recordable_values(approval: CurrentApproval, legs: Sequence[RecordedL
     ```
 
     ★ **왜 매입일을 승인일에 묶는가.** 기록값 재검증은 안 사본을 매입안 계약
-      (`purchase_agent.schemas.PurchaseProposal.validate_proposal_rules`)으로 다시 읽는데,
+      (`purchase_agent.schemas.proposal.PurchaseProposal.validate_proposal_rules`)으로 다시 읽는데,
       그 계약이 `split_plan[0].date == meta.as_of` 를 요구한다. 사본의 `meta.as_of` 는
       **승인 실행의 as_of** 라(`decision_service.revalidate_recorded`), 사람이 첫 회차
       매입일을 승인일과 다른 날로 적으면 계약이 그 자리에서 떨어진다. 그때 사람이

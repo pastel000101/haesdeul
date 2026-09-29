@@ -41,7 +41,7 @@ import { formatKoreanDate } from "@/lib/procurementLabels";
  *   그 설정이 잘못 켜진 날 제출물 위에서 하루가 돈다.
  *
  * ★ **발표 뒤 지울 자리** — 이 목록과 아래 가드를 같이 지운다. #833 이 주석으로 남긴
- *   되돌릴 자리(`lib/run_context.ts` · `backend/app/api/shown_run.py` ·
+ *   되돌릴 자리(`lib/run_context.ts` · `backend/app/core/settings.py` 의 `SHOWN_*` ·
  *   `frontend/Dockerfile`) 와 같은 때 손본다.
  */
 const DAY_ADVANCE_RUNS: readonly string[] = ["SIM-MENTOR-0918", "SIM-SHOOT-0918"];

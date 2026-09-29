@@ -22,7 +22,7 @@ from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.quotes import observed_at
+from app.purchase_agent.domain.quotes import observed_at
 
 # 통합 시연 앵커 — 재무·물류 mock 이 이 날에만 다 서 있다 (`#73`).
 INTEGRATION = date(2025, 12, 31)

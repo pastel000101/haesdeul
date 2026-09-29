@@ -8,9 +8,9 @@ from decimal import Decimal
 
 from app.api.primitives import Card, Chart, Column, Note, Series, Source, Stat, Table
 from app.api.sales.schema import SalesTab
-from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
-from app.sales.dashboard import get_sales_dashboard
+from app.sales.readmodel.dashboard import get_sales_dashboard
 
 _ORDER_STATUS_LABELS = {
     "CONFIRMED": "판매 확정",

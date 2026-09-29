@@ -24,7 +24,8 @@ from app.master.flow import ProcurementFlow
 from app.master.ports import AgentRegistry
 from app.master.runner import MasterRunner
 from app.purchase_agent import ports
-from app.purchase_agent.adapter import build_state, purchase_port
+from app.purchase_agent.adapter import purchase_port
+from app.purchase_agent.service.scenarios import build_state
 
 AS_OF = date(2026, 9, 11)  # stable 앵커 — 3안이 다 서는 날이라 risks 를 안별로 볼 수 있다
 ITEM = "양파"
@@ -214,7 +215,7 @@ def test_mock_path_does_not_carry_the_slots() -> None:
     재무 수신값 넷과 같은 선례다 — 어댑터를 안 거치는 949건이 그대로 도는 근거이고,
     ``.get()`` 이 None 을 돌려주면 노드가 종전 경로로 간다.
     """
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
 
     state = build_initial_state(item=ITEM, as_of=AS_OF)
     assert state.get("adjustments") is None
@@ -391,7 +392,7 @@ def test_an_amount_in_kilograms_is_not_taken_as_won() -> None:
     으로 클립하므로 **그 안의 수량이 0** 이 된다. 예외도 경고도 없다.
     """
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import split_adjustments
+    from app.purchase_agent.domain.draft_plan import split_adjustments
 
     usable, unusable = split_adjustments([WRONG_UNIT], load_constraints())
 
@@ -407,7 +408,7 @@ def test_an_adjustment_without_a_target_scenario_is_not_applied() -> None:
     모르는 채로 전 안을 조이면 **근거 없이 조이는 것**이다 (규칙 3).
     """
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import split_adjustments
+    from app.purchase_agent.domain.draft_plan import split_adjustments
 
     usable, unusable = split_adjustments(
         [{**FINANCE_AMOUNT, "scenario_labels": []}], load_constraints()
@@ -419,7 +420,7 @@ def test_an_adjustment_without_a_target_scenario_is_not_applied() -> None:
 def test_a_matching_adjustment_survives_the_filter() -> None:
     """거르는 층이 **다 거르면** 거르는 게 아니라 막는 것이다 — 통과하는 길을 잠근다."""
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import split_adjustments
+    from app.purchase_agent.domain.draft_plan import split_adjustments
 
     usable, unusable = split_adjustments([FINANCE_AMOUNT], load_constraints())
     assert usable == [FINANCE_AMOUNT]
@@ -436,7 +437,7 @@ def test_the_declaration_decides_which_unit_is_right() -> None:
     from copy import deepcopy
 
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import split_adjustments
+    from app.purchase_agent.domain.draft_plan import split_adjustments
 
     flipped = deepcopy(load_constraints())
     flipped["feedback"]["applicable_axis_units"] = [{"axis": "amount", "unit": "kg"}]
@@ -572,7 +573,7 @@ def test_applied_count_is_not_the_received_count() -> None:
 def test_the_lowest_cap_wins_when_several_target_one_scenario() -> None:
     """상한이 여럿이면 **전부 지켜야 한다** — 그건 min 이다."""
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import adjustment_cap_kg, split_adjustments
+    from app.purchase_agent.domain.draft_plan import adjustment_cap_kg, split_adjustments
 
     low = {**FINANCE_AMOUNT, "target_value": 1_000_000.0}
     usable, _ = split_adjustments([FINANCE_AMOUNT, low], load_constraints())

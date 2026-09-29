@@ -483,7 +483,7 @@ def _sales_forecast_note(forecast: SourcedInput) -> str:
 def _sales_user_request(request: SalesRunRequest) -> dict[str, Any] | None:
     """판매에 실어 보낼 사용자 요청. **묶기만 하고 해석하지 않는다** (§3.2.2).
 
-    ★ **칸 이름은 판매 것이다** (`app/sales/schemas.py` `SalesUserRequest`) —
+    ★ **칸 이름은 판매 것이다** (`app/sales/schemas/proposal.py` `SalesUserRequest`) —
       `raw_text` · `item` · `partner_id`. 받는 쪽 낱말에 맞춘다.
 
     ★ **없는 칸은 안 만든다.** 빈 값을 실으면 받는 쪽이 *"사용자가 말 안 했다"* 와

@@ -45,8 +45,9 @@
 
 import pytest
 
-from app.purchase_agent import db
+from app.core.db import read_connection
 from app.purchase_agent.config import load_constraints
+from app.purchase_agent.repository.quotes import fetch_rows
 
 #: 한 주. 달력 상수이지 설정값이 아니라 여기 적는다 — ``constraints.yaml`` 에서 읽어 오면
 #: 검사와 대상이 같은 선언을 보게 되고, 그것이 규칙 8 이 막는 자리다.
@@ -188,15 +189,19 @@ def test_a_copied_judgment_day_is_always_a_holiday() -> None:
       그 offset 을 조회한다 (규칙 8).
     """
     day = _judgment_day()
-    rows = db.fetch_all(
-        "SELECT f.base_dt, f.item_nm, f.target_dt, f.is_filled, "
-        "       c.holiday_nm, c.is_open "
-        "FROM haetdeul.ml_price_forecasts f "
-        "LEFT JOIN haetdeul.ml_calendar_days c ON c.dt = f.target_dt "
-        "WHERE f.target_kind = %(kind)s AND f.offset_days = %(day)s "
-        "ORDER BY f.base_dt, f.item_nm",
-        {"kind": JUDGMENT_TARGET_KIND, "day": day},
-    )
+    # 매입 조회 경로 그대로 — 조회 연결 하나를 빌려 받은 연결로 실행한다 (2026-09-29 BL-016
+    #   전에는 매입 입구 `db.fetch_all`).
+    with read_connection() as conn:
+        rows = fetch_rows(
+            conn,
+            "SELECT f.base_dt, f.item_nm, f.target_dt, f.is_filled, "
+            "       c.holiday_nm, c.is_open "
+            "FROM haetdeul.ml_price_forecasts f "
+            "LEFT JOIN haetdeul.ml_calendar_days c ON c.dt = f.target_dt "
+            "WHERE f.target_kind = %(kind)s AND f.offset_days = %(day)s "
+            "ORDER BY f.base_dt, f.item_nm",
+            {"kind": JUDGMENT_TARGET_KIND, "day": day},
+        )
     assert rows, (
         f"offset_days={day} · target_kind={JUDGMENT_TARGET_KIND} 행이 0건이다 — "
         "조회가 빗나갔거나 예측이 안 들어왔다. 빈 결과를 통과로 읽지 않는다"
@@ -224,14 +229,18 @@ def test_the_weekly_cycle_is_what_makes_it_safe() -> None:
     ⚠️ 특정 건수를 단언하지 않는다 — 배치가 쌓이면 숫자가 변한다. 잠그는 것은
       **"주기 밖에는 복사값이 존재한다"** 는 성질이다.
     """
-    rows = db.fetch_all(
-        "SELECT offset_days, "
-        "       sum(CASE WHEN is_filled THEN 1 ELSE 0 END) AS copied, "
-        "       count(*) AS total "
-        "FROM haetdeul.ml_price_forecasts "
-        "WHERE target_kind = %(kind)s GROUP BY 1 ORDER BY 1",
-        {"kind": JUDGMENT_TARGET_KIND},
-    )
+    # 매입 조회 경로 그대로 — 조회 연결 하나를 빌려 받은 연결로 실행한다 (2026-09-29 BL-016
+    #   전에는 매입 입구 `db.fetch_all`).
+    with read_connection() as conn:
+        rows = fetch_rows(
+            conn,
+            "SELECT offset_days, "
+            "       sum(CASE WHEN is_filled THEN 1 ELSE 0 END) AS copied, "
+            "       count(*) AS total "
+            "FROM haetdeul.ml_price_forecasts "
+            "WHERE target_kind = %(kind)s GROUP BY 1 ORDER BY 1",
+            {"kind": JUDGMENT_TARGET_KIND},
+        )
     assert rows, "예측 행이 0건이다 — 조회가 빗나갔다"
 
     on_cycle = {r["offset_days"]: r for r in rows if r["offset_days"] % DAYS_IN_WEEK == 0}
@@ -273,12 +282,12 @@ def _risks_with_filled_judgment_day(filled: bool) -> list[str]:
     os.environ["PURCHASE_LLM_ENABLED"] = "false"
     from datetime import date
 
-    from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-    from app.purchase_agent.nodes.classify_situation import classify_situation
-    from app.purchase_agent.nodes.draft_plan import draft_plan
-    from app.purchase_agent.nodes.package_scenarios import package_scenarios
-    from app.purchase_agent.nodes.split_plan import split_plan
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+    from app.purchase_agent.service.nodes.classify_situation import classify_situation
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
+    from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+    from app.purchase_agent.service.nodes.split_plan import split_plan
 
     state = build_initial_state("배추", date(2026, 8, 21))
     row = state["forecast"]["daily"][_judgment_day() - 1]

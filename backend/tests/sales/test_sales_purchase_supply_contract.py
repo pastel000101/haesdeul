@@ -13,8 +13,9 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.sales.proposal import run_proposal, self_check_scenarios
-from app.sales.schemas import PurchaseAdditionalSupplyResult, SalesProposalInput
+from app.sales.domain.proposal import self_check_scenarios
+from app.sales.schemas.proposal import PurchaseAdditionalSupplyResult, SalesProposalInput
+from app.sales.service.proposal import run_proposal
 
 
 @pytest.fixture(autouse=True)
@@ -467,7 +468,7 @@ def test_replies_do_not_bleed_between_scenarios():
 
 def test_purchase_reply_on_a_scenario_that_did_not_ask_is_a_leak():
     """추가조달을 묻지 않은 안에 그 검증 결과가 붙으면 self-check 가 잡는다."""
-    from app.sales.schemas import SalesDomainReply, SalesScenario, ScenarioSupply
+    from app.sales.schemas.proposal import SalesDomainReply, SalesScenario, ScenarioSupply
 
     scenario = SalesScenario(
         scenario_id="SALES-001-A",

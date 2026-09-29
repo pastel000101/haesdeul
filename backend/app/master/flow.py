@@ -934,7 +934,7 @@ class ProcurementFlow:
         🔴 **매입이 채우는데 마스터가 안 읽고 있었다.**
 
         ```text
-        app/purchase_agent/nodes/self_check.py:722
+        app/purchase_agent/service/nodes/self_check.py  (_assemble)
             "received_adjustments": len(state.get("adjustments") or [])
         ```
 

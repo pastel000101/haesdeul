@@ -50,7 +50,7 @@ class SalesOutboundReservationRequest:
       sales.sale_date    '판매/납품 기준일.'        ← 납품 기준일이 여기다
     ```
 
-    그리고 수금일이 그것에서 파생된다 — `app/sales/persistence.py` 가
+    그리고 수금일이 그것에서 파생된다 — `app/sales/domain/sale_ledger.py` 가
     `request.sale_date + timedelta(days=payment_days)` 로 만든다.
     **납품일이 뿌리이고 수금일이 가지다.** 그래서 물류가 자기 날짜를 지어내지
     않고 판매가 준 것을 받는다.

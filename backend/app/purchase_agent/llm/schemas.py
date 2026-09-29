@@ -64,7 +64,7 @@ class GradeMixInterpretation(BaseModel):
 
 #: 우열표가 ⑤ 의 후보를 하나로 좁힌 날의 신호 (E3-12).
 #:
-#: 🔴 **여기 두는 이유는 import 방향이다.** 값을 세우는 곳은 ``nodes/allocate_sourcing``
+#: 🔴 **여기 두는 이유는 import 방향이다.** 값을 세우는 곳은 ``service/nodes/allocate_sourcing``
 #: 이고 읽는 곳은 ``llm/runtime.needs_llm`` 인데, ``runtime`` 은 노드를 못 가져온다
 #: (노드가 ``runtime`` 을 가져온다). 둘 다 가져오는 가장 아래가 이 파일이다.
 #:

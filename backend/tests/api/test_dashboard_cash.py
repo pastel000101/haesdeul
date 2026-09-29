@@ -24,7 +24,7 @@ import pytest
 
 from app.api.calendar import build_axis
 from app.api.finance import query as finance_query
-from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.finance.schemas import FinanceCashflowResponse, FinanceClosingItem, FinanceDashboardMeta
 
 _FINANCE_QUERY = Path(__file__).resolve().parents[2] / "app" / "api" / "finance" / "query.py"

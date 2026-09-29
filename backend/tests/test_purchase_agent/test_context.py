@@ -18,34 +18,33 @@ from _injection import force_situation, forced_proposals
 
 from app.purchase_agent import ports
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import build_graph, run_purchase_agent
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.collect_context import (
+from app.purchase_agent.domain.collect_context import (
     TRUNCATION_MARK,
-    collect_context,
     is_enough,
     leading_excerpt,
     select_doc_types,
 )
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import (
+from app.purchase_agent.domain.package_scenarios import (
     _UNREAD_ALL,
     _UNREAD_REST,
-    _context_rationale,
-    _context_risks,
-    package_scenarios,
+    context_rationale,
+    context_risks,
 )
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.self_check import (
     _CONTEXT_NOTE,
-    _with_context_note,
     check_document_publication,
     check_document_refs,
     check_excerpt_fidelity,
-    self_check,
+    with_context_note,
 )
-from app.purchase_agent.nodes.split_plan import split_plan
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_graph, build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.collect_context import collect_context
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 RISING = date(2026, 8, 21)
 FALLING = date(2026, 8, 28)
@@ -177,7 +176,7 @@ def test_loop_stops_at_loop_max_even_with_a_longer_priority_list(monkeypatch) ->
 
     monkeypatch.setattr(ports, "get_context_docs", counted)
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.collect_context.select_doc_types",
+        "app.purchase_agent.service.nodes.collect_context.select_doc_types",
         lambda _c: ["관측월보", "기상", "작년동기", "없는유형"],
     )
     result = collect_context(_classified())
@@ -192,7 +191,7 @@ def test_loop_stops_when_the_list_runs_out_before_loop_max(monkeypatch) -> None:
     이게 없으면 위 테스트가 "항상 3회 돈다"만 잠그게 되고, 소진 탈출이 지워져도 통과한다.
     """
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.collect_context.select_doc_types", lambda _c: ["관측월보"]
+        "app.purchase_agent.service.nodes.collect_context.select_doc_types", lambda _c: ["관측월보"]
     )
     result = collect_context(_classified())
     assert result["context_loop_count"] == 1
@@ -219,7 +218,7 @@ def test_loop_max_is_a_cumulative_budget_across_re_entry() -> None:
 def test_empty_priority_list_never_calls_the_port(monkeypatch) -> None:
     """``doc_types=[]``는 포트가 ``ValueError``다 — 루프 진입 전에 막아야 한다."""
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.collect_context.select_doc_types", lambda _c: []
+        "app.purchase_agent.service.nodes.collect_context.select_doc_types", lambda _c: []
     )
 
     def explode(*_args, **_kwargs):
@@ -245,7 +244,7 @@ def test_repeated_doc_type_does_not_duplicate_documents(monkeypatch) -> None:
     Critic 입장에서는 근거가 두 배로 부풀어 보인다.
     """
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.collect_context.select_doc_types",
+        "app.purchase_agent.service.nodes.collect_context.select_doc_types",
         lambda _c: ["관측월보", "관측월보", "기상"],
     )
     collected = collect_context(_classified())["context_docs"]
@@ -401,9 +400,9 @@ def test_no_documents_found_is_a_different_fact_from_never_looking() -> None:
     물으면 ②의 실행 여부를 그래프 배선을 통해 간접 추론하게 된다.
     """
     aged = [{"doc_id": 3, "published_at": "2026-08-05"}] * 3
-    assert _context_risks(0, [], "2026-09-04") == []  # ② 미실행
-    assert "0건" in _context_risks(3, [], "2026-09-04")[0]  # 찾았는데 없음
-    assert "3건 참조" in _context_risks(3, aged, "2026-09-04")[0]  # 찾아서 있음
+    assert context_risks(0, [], "2026-09-04") == []  # ② 미실행
+    assert "0건" in context_risks(3, [], "2026-09-04")[0]  # 찾았는데 없음
+    assert "3건 참조" in context_risks(3, aged, "2026-09-04")[0]  # 찾아서 있음
 
 
 def test_risk_note_does_not_claim_more_than_the_rule_does() -> None:
@@ -412,7 +411,7 @@ def test_risk_note_does_not_claim_more_than_the_rule_does() -> None:
     발췌는 문장 경계 파서가 아니라 서두 잘라내기다 — "첫 문장"이라 쓰면 소비자가 발췌 범위를
     잘못 믿는다. 내부 단계 이름도 쓰지 않는다 (H1 화면·Critic이 읽는다).
     """
-    note = _context_risks(3, [{"doc_id": 3, "published_at": "2026-08-05"}], "2026-09-04")[0]
+    note = context_risks(3, [{"doc_id": 3, "published_at": "2026-08-05"}], "2026-09-04")[0]
     assert "첫 문장" not in note
     assert "서두" in note
     assert "rule_only" not in note
@@ -467,8 +466,8 @@ def test_the_age_of_the_newest_document_is_stated() -> None:
       판단은 읽는 쪽에 남긴다 (``is_enough`` 가 충분성을 판정하지 않는 것과 같은 자리).
     """
     docs = [{"doc_id": 3, "published_at": "2026-08-05"}]
-    near = _context_risks(1, docs, "2026-08-06")[0]
-    far = _context_risks(1, docs, "2027-06-01")[0]
+    near = context_risks(1, docs, "2026-08-06")[0]
+    far = context_risks(1, docs, "2027-06-01")[0]
 
     assert "2026-08-05 발행(1일 전)" in near
     assert "2026-08-05 발행(300일 전)" in far
@@ -483,7 +482,7 @@ def test_the_age_uses_the_newest_document_not_the_first() -> None:
         {"doc_id": 3, "published_at": "2026-08-05"},
         {"doc_id": 4, "published_at": "2026-08-10"},
     ]
-    assert "2026-08-10 발행" in _context_risks(3, docs, "2026-08-20")[0]
+    assert "2026-08-10 발행" in context_risks(3, docs, "2026-08-20")[0]
 
 
 def test_zero_documents_says_nothing_about_age() -> None:
@@ -492,7 +491,7 @@ def test_zero_documents_says_nothing_about_age() -> None:
     두 사유가 서로 다른 사실을 말한다 — "참조할 것이 없다" 와 "참조한 것이 오래됐다" 는
     같이 설 수 없다. ⑦ 5갈래가 *"행동은 같고 왜가 다르다"* 로 갈린 것과 같은 형태다.
     """
-    note = _context_risks(3, [], "2027-06-01")[0]
+    note = context_risks(3, [], "2027-06-01")[0]
     assert "0건" in note
     assert "발행" not in note and "일 전" not in note
 
@@ -515,7 +514,7 @@ def test_citing_an_unloaded_document_is_cut() -> None:
 
 
 def _cited(ref_id: str, excerpt: str) -> dict:
-    """문서 근거 한 줄. ⑥ ``_context_rationale``이 만드는 형태와 같다."""
+    """문서 근거 한 줄. ⑥ ``context_rationale``이 만드는 형태와 같다."""
     return {
         "source": "문서ID",
         "ref_id": ref_id,
@@ -806,7 +805,7 @@ def test_rule_stage_never_declares_the_context_sufficient() -> None:
 
 def test_document_rationale_is_empty_without_documents() -> None:
     """안 읽었으면 아무것도 안 붙는다 — 없는 근거를 적지 않는다."""
-    assert _context_rationale([]) == []
+    assert context_rationale([]) == []
 
 
 def test_rationale_grade_comes_from_the_document_not_the_code() -> None:
@@ -825,7 +824,7 @@ def test_rationale_grade_comes_from_the_document_not_the_code() -> None:
         "excerpt": "고랭지 배추 정식면적은",
         "evidence_grade": "OFFICIAL",
     }
-    assert _context_rationale([doc])[0]["evidence_grade"] == "OFFICIAL"
+    assert context_rationale([doc])[0]["evidence_grade"] == "OFFICIAL"
 
 
 def test_a_document_without_a_grade_is_not_quietly_graded() -> None:
@@ -839,7 +838,7 @@ def test_a_document_without_a_grade_is_not_quietly_graded() -> None:
         "excerpt": "고랭지 배추 정식면적은",
     }
     with pytest.raises(KeyError, match="evidence_grade"):
-        _context_rationale([doc])
+        context_rationale([doc])
 
 
 # ── 문서 없으면 없이 진행 (2026-09-04 · 마스터 결정) ────────────────────────
@@ -867,13 +866,13 @@ def test_문서를_못_읽으면_없이_진행하고_사유만_남긴다(monkeyp
 
 
 def test_문서_고지는_컷이_아니라_risks_에_붙는다() -> None:
-    """`_with_context_note` — 문서를 못 읽으면 각 안의 risks 에 한 줄, 안은 그대로."""
+    """`with_context_note` — 문서를 못 읽으면 각 안의 risks 에 한 줄, 안은 그대로."""
     scenarios = [
         {"label": "보수", "risks": ["기존 위험"]},
         {"label": "기본", "risks": []},
     ]
 
-    noted = _with_context_note(scenarios, "mock 막힘")
+    noted = with_context_note(scenarios, "mock 막힘")
 
     assert len(noted) == 2, "안을 지우지 않는다"
     assert all(_CONTEXT_NOTE in s["risks"] for s in noted), "고지가 안 붙었다"
@@ -884,7 +883,7 @@ def test_문서를_읽었으면_고지가_안_붙는다() -> None:
     """`context_unavailable` 이 없으면 risks 는 그대로 — 없는 위험을 만들지 않는다."""
     scenarios = [{"label": "보수", "risks": ["기존 위험"]}]
 
-    same = _with_context_note(scenarios, None)
+    same = with_context_note(scenarios, None)
 
     assert same == scenarios
     assert _CONTEXT_NOTE not in same[0]["risks"]
@@ -903,8 +902,8 @@ def test_unread_documents_are_not_reported_as_zero_publications() -> None:
     둘째와 셋째는 ``context_docs`` 가 똑같이 비어 있다. 갈라 주는 것은
     ``context_unavailable`` 뿐이고, 그 값이 없으면 ⑥은 두 상태를 구분할 수단이 없다.
     """
-    none_found = _context_risks(3, [], "2026-09-04")[0]
-    unread = _context_risks(3, [], "2026-09-04", "실 소스 없음")[0]
+    none_found = context_risks(3, [], "2026-09-04")[0]
+    unread = context_risks(3, [], "2026-09-04", "실 소스 없음")[0]
 
     assert none_found != unread, "두 상태가 같은 문장을 낸다"
     assert "참조 가능한 발간물 0건" not in unread, (
@@ -915,8 +914,8 @@ def test_unread_documents_are_not_reported_as_zero_publications() -> None:
 
 def test_unread_note_names_how_many_kinds_were_asked_for() -> None:
     """몇 종을 요청했는지가 남아야 *"한 번도 안 찾아봤다"* 와 구분된다."""
-    assert "1종" in _context_risks(1, [], "2026-09-04", "실 소스 없음")[0]
-    assert "3종" in _context_risks(3, [], "2026-09-04", "실 소스 없음")[0]
+    assert "1종" in context_risks(1, [], "2026-09-04", "실 소스 없음")[0]
+    assert "3종" in context_risks(3, [], "2026-09-04", "실 소스 없음")[0]
 
 
 def test_partial_read_says_the_rest_was_unread() -> None:
@@ -926,7 +925,7 @@ def test_partial_read_says_the_rest_was_unread() -> None:
       열리는 가지라 미리 잠근다.
     """
     docs = [{"doc_id": 3, "published_at": "2026-08-05"}]
-    notes = _context_risks(3, docs, "2026-09-04", "실 소스 없음")
+    notes = context_risks(3, docs, "2026-09-04", "실 소스 없음")
 
     assert len(notes) == 2, "읽은 것과 못 읽은 것을 둘 다 말해야 한다"
     assert "1건 참조" in notes[0]
@@ -936,7 +935,7 @@ def test_partial_read_says_the_rest_was_unread() -> None:
 def test_reading_everything_adds_no_unread_note() -> None:
     """다 읽은 날 못 읽었다고 적지 않는다 — 없는 위험을 만들지 않는다."""
     docs = [{"doc_id": 3, "published_at": "2026-08-05"}]
-    notes = _context_risks(3, docs, "2026-09-04")
+    notes = context_risks(3, docs, "2026-09-04")
 
     assert len(notes) == 1
     assert _UNREAD_REST not in notes[0]
@@ -945,7 +944,7 @@ def test_reading_everything_adds_no_unread_note() -> None:
 def test_unavailable_reaches_the_scenario_risks_through_the_node(monkeypatch) -> None:
     """🔴 **배선 검사다.** 함수만 갈라 놓고 ⑥이 안 넘기면 화면은 그대로다.
 
-    ``_context_risks`` 단위 검사가 전부 초록불이어도, 조립부가
+    ``context_risks`` 단위 검사가 전부 초록불이어도, 조립부가
     ``context_unavailable`` 을 안 읽으면 운영 문면이 안 바뀐다 — E3-8 에서 *"자리는
     있는데 일이 없다"* 를 잰 것의 반대 방향이다.
     """

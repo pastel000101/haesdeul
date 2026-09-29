@@ -27,7 +27,7 @@ from app.finance.schemas import (
     FinanceDebtPolicy,
     FinancePolicy,
 )
-from app.purchase_agent.schemas import SourcingPlanItem as PurchaseSourcingPlanItem
+from app.purchase_agent.schemas.proposal import SourcingPlanItem as PurchaseSourcingPlanItem
 
 KRW_QUANTUM = Decimal("0.000001")
 

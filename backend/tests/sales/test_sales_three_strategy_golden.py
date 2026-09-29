@@ -4,8 +4,10 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from app.finance.sales_policy import FINANCE_SALES_MVP_POLICY_REF
-from app.sales.proposal import _generate_scenarios, run_proposal, self_check_scenarios
-from app.sales.schemas import SalesProposalInput
+from app.sales.domain.proposal import self_check_scenarios
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.proposal import run_proposal
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 DELIVERY = date(2026, 9, 18)
 ML_ROW_REF = (
@@ -144,7 +146,7 @@ def _request() -> SalesProposalInput:
 def test_sales_three_strategy_golden_contract(monkeypatch):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
     request = _request()
-    scenarios = _generate_scenarios(request)
+    scenarios = plan_and_generate_scenarios(request)
     reply = run_proposal(request)
     by_type = {scenario.scenario_type: scenario for scenario in scenarios}
 
@@ -185,7 +187,7 @@ def test_sales_three_strategy_golden_contract(monkeypatch):
 def test_sales_three_strategy_evidence_lineage(monkeypatch):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
     request = _request()
-    scenarios = _generate_scenarios(request)
+    scenarios = plan_and_generate_scenarios(request)
     reply = run_proposal(request)
     by_type = {scenario.scenario_type: scenario for scenario in scenarios}
     conservative = by_type["CONSERVATIVE"]

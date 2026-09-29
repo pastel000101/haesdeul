@@ -317,7 +317,7 @@ def test_판매안을_여러_번_만들어도_실판매는_안_생긴다(적재�
     """
     확정 = []
     monkeypatch.setattr(
-        "app.sales.persistence.confirm_sale",
+        "app.sales.service.sale_ledger.confirm_sale",
         lambda *a, **kw: 확정.append((a, kw)),
     )
     _wire()

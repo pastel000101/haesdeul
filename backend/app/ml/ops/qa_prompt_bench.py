@@ -50,7 +50,7 @@ from pathlib import Path
 #   app/ml/ops/ 에서 backend/ 까지 세 칸 올라간다 (2026-09-15 · ops/ 에서 옮김).
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from app.ml import qa_llm
+from app.ml.llm import qa as qa_llm
 
 BASE = date(2026, 9, 14)
 

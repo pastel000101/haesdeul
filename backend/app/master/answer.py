@@ -317,7 +317,7 @@ def _status_gaps(outcome: StatusOutcome) -> tuple[str, ...]:
             f"{agent_label(agent)} 호출이 실패했습니다 ({reason}) — 다시 시도해 볼 수 있습니다"
         )
     for agent, missing in outcome.missing_data.items():
-        # 어휘 출처: 매입 `purchase_agent/adapter.py` 의 `_unusable_forecast_names` 가
+        # 어휘 출처: 매입 `purchase_agent/domain/payload.py` 의 `_unusable_forecast_names` 가
         # 쓴 *"쓸 수 없는 입력"* 을 그대로 가져온다 (`master/flow.py` 의 `detail` 과
         # 같은 말이어야 한다 - 같은 사실이 두 경로로 화면에 나간다).
         #

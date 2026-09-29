@@ -24,7 +24,7 @@ import pytest
 
 from app.contracts import envelope as E
 from app.ml import adapter
-from app.ml.qa_schemas import QaAnswer, QaMeta
+from app.ml.schemas.qa import QaAnswer, QaMeta
 
 BASE = date(2026, 9, 15)
 
@@ -224,12 +224,12 @@ def _batch_seen(*, read: str = "ok", report_read: str = "ok") -> dict:
 
 
 def _perf_seen() -> list[dict]:
-    from app.ml import qa_tools
+    from app.ml import config
 
     return [
         {"item": item, "kind": kind, "avg_price": cell["avg"],
          "avg_error": cell["err"], "pct": float(cell["pct"])}
-        for (kind, item), cell in qa_tools.SEALED_ACCURACY.items()
+        for (kind, item), cell in config.SEALED_ACCURACY.items()
     ]
 
 
@@ -271,7 +271,7 @@ def test_배치_근거는_배치_기록을_가리킨다(monkeypatch):
 
 def test_성능_갈래는_아홉_칸마다_근거를_달고_조건을_같이_적는다(monkeypatch):
     """🔴 조건 없는 수치는 안 남긴다 — 「19.7%」만 떨어져 나가면 아무도 못 읽는다."""
-    from app.ml import qa_tools
+    from app.ml import config
 
     _qa(monkeypatch, _route_answer(["perf"], performance_for_evidence=_perf_seen()))
     request = req(payload={"question": "모델 성능 어때?"})
@@ -283,7 +283,7 @@ def test_성능_갈래는_아홉_칸마다_근거를_달고_조건을_같이_적
     by_claim = {evidence.claim: evidence for evidence in reply.evidences}
     assert by_claim["performance[0].pct"].value == 19.7
     #   ★ 값과 조건이 **늘 같이 간다** — 근거에 언제·무엇으로 잰 값인지가 붙는다
-    assert by_claim["performance[0].pct"].evidence_detail == qa_tools.SEALED_SOURCE
+    assert by_claim["performance[0].pct"].evidence_detail == config.SEALED_SOURCE
     assert E.validate_reply(request, reply, meta) == ()
 
 
@@ -294,9 +294,9 @@ def test_업데이트_버튼이_실려도_봉투가_깨끗하고_글자가_안_�
       ① 봉투 검증이 그 링크를 트집 잡지 않는가 (`validate_reply` 가 비는가)
       ② 링크가 **글자 그대로** 남는가 — 한 글자만 깎여도 화면이 버튼으로 못 그린다
     """
-    from app.ml import qa_graph
+    from app.ml.readmodel import qa_answer
 
-    버튼 = f"[모델 업데이트 — 소매가]({qa_graph.UPDATE_ACTION.format(kind='rtl')})"
+    버튼 = f"[모델 업데이트 — 소매가]({qa_answer.UPDATE_ACTION.format(kind='rtl')})"
     줄 = [
         "**현재 모델**",
         "",
@@ -415,7 +415,7 @@ def test_질문이_없으면_되묻지_않고_보유_상태를_답한다(monkeyp
 
     여기서 되물으면 **조회할 때마다** «ML 이 답하지 못했다» 가 뜬다.
     """
-    monkeypatch.setattr(adapter.qa_tools, "latest_base_date", lambda as_of=None: BASE)
+    monkeypatch.setattr(adapter.qa_reads, "latest_base_date", lambda as_of=None: BASE)
     reply, _ = adapter.ml_port(req())
     assert reply.runtime_status == "READY"
     assert reply.payload["forecast_available"] is True
@@ -424,7 +424,7 @@ def test_질문이_없으면_되묻지_않고_보유_상태를_답한다(monkeyp
 
 
 def test_예측이_아직_없으면_없다고_말한다(monkeypatch):
-    monkeypatch.setattr(adapter.qa_tools, "latest_base_date", lambda as_of=None: None)
+    monkeypatch.setattr(adapter.qa_reads, "latest_base_date", lambda as_of=None: None)
     reply, _ = adapter.ml_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert "ml_price_forecasts" in reply.missing_data
@@ -436,7 +436,7 @@ def test_창고를_못_읽으면_ERROR_다(monkeypatch):
     def _boom(as_of=None):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(adapter.qa_tools, "latest_base_date", _boom)
+    monkeypatch.setattr(adapter.qa_reads, "latest_base_date", _boom)
     reply, _ = adapter.ml_port(req())
     assert reply.runtime_status == "ERROR"
     assert reply.worth_retry is True
@@ -456,7 +456,7 @@ def test_안_받는_모드는_거절한다():
 def test_LLM_을_껐으면_DISABLED_로_적는다(monkeypatch):
     """«안 켰다» 와 «켰는데 이번엔 안 썼다» 를 한 값으로 적으면 없는 문제를 찾는다."""
     monkeypatch.setenv("ML_LLM_ENABLED", "0")
-    monkeypatch.setattr(adapter.qa_tools, "latest_base_date", lambda as_of=None: BASE)
+    monkeypatch.setattr(adapter.qa_reads, "latest_base_date", lambda as_of=None: BASE)
     _, meta = adapter.ml_port(req())
     assert meta.llm_status == "DISABLED"
     assert meta.llm_model == ""

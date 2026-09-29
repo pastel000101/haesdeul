@@ -29,7 +29,7 @@ from uuid import UUID
 
 import pytest
 
-from app.sales.runs import _json_safe, _payload
+from app.sales.repository.runs import _json_safe, _payload
 
 
 def _싣는다(값: object) -> str:

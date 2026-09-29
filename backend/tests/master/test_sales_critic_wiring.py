@@ -133,7 +133,8 @@ def _로트없는_공급() -> dict:
     return {**_공급, "sellable_supply": supply}
 
 
-#: 판매 후보 — 채널 배분이 실린 모양 (`app/sales/schemas.py` `SalesCandidate.allocation`).
+#: 판매 후보 — 채널 배분이 실린 모양
+#: (`app/sales/schemas/proposal.py` `SalesCandidate.allocation`).
 _배분_있는_후보 = {
     "scenario_id": "ALLOC-1",
     "item": 품목,

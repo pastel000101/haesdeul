@@ -505,7 +505,7 @@ export function MasterConsole({ session }: { session: Session }) {
    *    않은 채 보내면 서버가 고르게 되는데, 그건 사람이 확인한 것과 다를 수 있다.
    *
    * ★ 기준일은 화면 머리에 적힌 그 날이고(`asOf`), 실행 축은 `GET /api/purchase` 가
-   *   다른 네 탭과 같은 자리에서 정한다 (`app/api/shown_run.py`). **화면이 축을
+   *   다른 네 탭과 같은 자리에서 정한다 (`app/core/settings.py`). **화면이 축을
    *   새로 지어내지 않는다.**
    */
   async function standingRun(intent: Intent) {

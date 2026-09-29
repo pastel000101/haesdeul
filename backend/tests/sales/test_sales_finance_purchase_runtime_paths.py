@@ -13,8 +13,8 @@ from app.finance.schemas import (
     FinanceRuntimeContext,
     FinanceSnapshot,
 )
-from app.sales.proposal import run_proposal
-from app.sales.schemas import SalesProposalInput
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.proposal import run_proposal
 
 
 def _sales_request(**overrides):

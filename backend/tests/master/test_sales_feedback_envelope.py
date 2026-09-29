@@ -56,7 +56,7 @@ from app.master.budget import CallBudget
 from app.master.ports import AgentRegistry
 from app.master.runner import MasterRunner
 from app.master.sales_flow import MAX_FEEDBACK_ATTEMPTS, SalesFlow
-from app.sales.schemas import SalesFeedback, SalesProposalInput, SalesProposalReply
+from app.sales.schemas.proposal import SalesFeedback, SalesProposalInput, SalesProposalReply
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 오늘 = date(2026, 9, 10)
@@ -164,9 +164,9 @@ def _돌린다(요구: tuple[str, ...] = ("FINANCIAL_VALIDATION",), **포트) ->
 def test_회차는_최상위에_실린다():
     """🔴 **이 한 줄이 되먹임이 도는지를 가른다.**
 
-    어댑터는 `request.payload["feedback_attempt"]` 를 **최상위에서** 읽는다
-    (`app/sales/adapter.py` `_proposal_input`). 중첩된 자리에 넣으면 되먹임 회차에도
-    `0` 이 나가고 `is_refeed` 가 영원히 `False` 다.
+    판매는 `request.payload["feedback_attempt"]` 를 **최상위에서** 읽는다
+    (`app/sales/domain/proposal_input.py` `proposal_input_data`). 중첩된 자리에 넣으면
+    되먹임 회차에도 `0` 이 나가고 `is_refeed` 가 영원히 `False` 다.
     """
     보낸것 = _돌린다()
 
@@ -423,18 +423,20 @@ def 판매가_받은_것(
       (C-1) 회차가 오르는 것을 볼 수 없다. 조정안까지 같이 내야 마스터가 *"다시
       물어도 같다"* 로 접지 않는다 (C-2).
     """
-    from app.sales import adapter as sales_adapter
+    #  ★ 2026-09-29 BL-013: 판매 후보 생성의 실행과 이력 저장은 어댑터가 아니라
+    #    `service/proposal_generation.py` 다 — 감시자와 이력 막기를 그 자리에 건다.
+    from app.sales.service import proposal_generation
 
     받은것: list[tuple[SalesProposalInput, SalesProposalReply]] = []
-    진짜 = sales_adapter.run_proposal
+    진짜 = proposal_generation.run_proposal
 
     def 감시(proposal_input: SalesProposalInput):
         답 = 진짜(proposal_input)
         받은것.append((proposal_input, 답))
         return 답
 
-    monkeypatch.setattr(sales_adapter, "run_proposal", 감시)
-    monkeypatch.setattr(sales_adapter, "save_sales_agent_run", lambda **kw: None)
+    monkeypatch.setattr(proposal_generation, "run_proposal", 감시)
+    monkeypatch.setattr(proposal_generation, "_record_run", lambda *a, **kw: None)
     wiring.register("inventory", _대역(PRE_SALES_PAYLOAD))
     wiring.register(
         "finance",

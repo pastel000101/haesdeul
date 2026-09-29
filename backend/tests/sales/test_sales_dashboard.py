@@ -1,21 +1,29 @@
 from datetime import date
 from decimal import Decimal
 
-from app.sales import dashboard
+from app.sales.readmodel import dashboard
+from app.sales.repository import dashboard as dashboard_sql
+from tests.sales.sales_fake_connection import FakeConnection, lend
 
 AS_OF = date(2025, 12, 31)
 
 
 def test_sales_dashboard_aggregates_db_facts(monkeypatch):
+    #  ★ 2026-09-29 BL-013: 일곱 조회가 **조회 연결 하나**로 돈다 (repository 에 연결을 넘긴다).
+    lent = lend(monkeypatch)
     monkeypatch.setattr(
         dashboard,
         "load_sales_dashboard_meta",
-        lambda **_: {"sim_run_id": "SIM-BURNIN-202512", "as_of": AS_OF, "data_type": "SIMULATION"},
+        lambda _conn, **_: {
+            "sim_run_id": "SIM-BURNIN-202512",
+            "as_of": AS_OF,
+            "data_type": "SIMULATION",
+        },
     )
     monkeypatch.setattr(
         dashboard,
         "load_sales_summary",
-        lambda **_: {
+        lambda _conn, **_: {
             "sales_count": 15,
             "customer_count": 1,
             "total_sales_quantity_kg": Decimal(26580),
@@ -28,7 +36,7 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_collection_summary",
-        lambda **_: [
+        lambda _conn, **_: [
             {"collection_status": "COLLECTED", "count": 6, "sales_amount_krw": Decimal(100)},
             {"collection_status": "PARTIAL", "count": 2, "sales_amount_krw": Decimal(200)},
             {"collection_status": "OPEN", "count": 7, "sales_amount_krw": Decimal(300)},
@@ -37,7 +45,7 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_item_summaries",
-        lambda **_: [
+        lambda _conn, **_: [
             _item("ITEM-BAECHU", "배추", 10, "10000000"),
             _item("ITEM-MU", "무", 3, "20000000"),
             _item("ITEM-YANGPA", "양파", 2, "13881332"),
@@ -46,7 +54,7 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_recent_sales",
-        lambda **_: [
+        lambda _conn, **_: [
             _sale("SALE-002", date(2025, 12, 31)),
             _sale("SALE-001", date(2025, 12, 30)),
         ],
@@ -54,12 +62,12 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
     monkeypatch.setattr(
         dashboard,
         "load_today_confirmed_sales",
-        lambda **_: [_confirmed_sale("SALE-002", AS_OF, date(2026, 1, 3))],
+        lambda _conn, **_: [_confirmed_sale("SALE-002", AS_OF, date(2026, 1, 3))],
     )
     monkeypatch.setattr(
         dashboard,
         "load_sales_receivables",
-        lambda **_: [
+        lambda _conn, **_: [
             _receivable("AR-1", date(2025, 12, 20), Decimal(10), "OPEN"),
             _receivable("AR-2", date(2026, 1, 2), Decimal(0), "COLLECTED"),
             _receivable("AR-3", date(2026, 1, 3), Decimal(10), "PARTIAL"),
@@ -70,6 +78,8 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
         sim_run_id="SIM-BURNIN-202512", as_of=AS_OF
     )
 
+    assert lent.borrows == ["read"]
+    assert lent.events == ["returned:read"]
     assert response.meta.data_type == "SIMULATION"
     assert response.summary.sales_count == 15
     assert response.summary.total_sales_quantity_kg == Decimal(26580)
@@ -94,13 +104,14 @@ def test_sales_dashboard_aggregates_db_facts(monkeypatch):
 
 
 def test_sales_dashboard_empty_unknown_sim_run(monkeypatch):
-    monkeypatch.setattr(dashboard, "load_sales_dashboard_meta", lambda **_: None)
-    monkeypatch.setattr(dashboard, "load_sales_summary", lambda **_: None)
-    monkeypatch.setattr(dashboard, "load_collection_summary", lambda **_: [])
-    monkeypatch.setattr(dashboard, "load_item_summaries", lambda **_: [])
-    monkeypatch.setattr(dashboard, "load_recent_sales", lambda **_: [])
-    monkeypatch.setattr(dashboard, "load_today_confirmed_sales", lambda **_: [])
-    monkeypatch.setattr(dashboard, "load_sales_receivables", lambda **_: [])
+    lend(monkeypatch)
+    monkeypatch.setattr(dashboard, "load_sales_dashboard_meta", lambda _conn, **_: None)
+    monkeypatch.setattr(dashboard, "load_sales_summary", lambda _conn, **_: None)
+    monkeypatch.setattr(dashboard, "load_collection_summary", lambda _conn, **_: [])
+    monkeypatch.setattr(dashboard, "load_item_summaries", lambda _conn, **_: [])
+    monkeypatch.setattr(dashboard, "load_recent_sales", lambda _conn, **_: [])
+    monkeypatch.setattr(dashboard, "load_today_confirmed_sales", lambda _conn, **_: [])
+    monkeypatch.setattr(dashboard, "load_sales_receivables", lambda _conn, **_: [])
 
     response = dashboard.get_sales_dashboard(sim_run_id="NO-SUCH-RUN", as_of=AS_OF)
 
@@ -113,16 +124,17 @@ def test_sales_dashboard_empty_unknown_sim_run(monkeypatch):
 def test_today_confirmed_sales_uses_confirmation_date_not_delivery_date(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_fetch_all(query, params):
+    def answer(query, params):
         captured["query"] = str(query)
         captured["params"] = params
         return []
 
-    monkeypatch.setattr(dashboard, "fetch_all", fake_fetch_all)
+    #  ★ 2026-09-29 BL-013: SQL 은 `repository/dashboard.py` 가 넘겨받은 연결로 실행한다.
+    monkeypatch.setattr(dashboard_sql, "get_db_schema", lambda: "haetdeul")
 
     assert (
-        dashboard.load_today_confirmed_sales(
-            sim_run_id="SIM-20260914", as_of=date(2026, 9, 14)
+        dashboard_sql.load_today_confirmed_sales(
+            FakeConnection(answer), sim_run_id="SIM-20260914", as_of=date(2026, 9, 14)
         )
         == []
     )

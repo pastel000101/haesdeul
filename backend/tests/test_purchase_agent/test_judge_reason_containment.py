@@ -26,7 +26,6 @@ from typing import Any
 import pytest
 
 from app.purchase_agent.adapter import _llm_calls
-from app.purchase_agent.graph import build_graph
 from app.purchase_agent.llm.mix import MixDecision
 from app.purchase_agent.llm.review_schemas import FindingOut, ReviewOutput
 from app.purchase_agent.llm.self_review import ReviewContext, ReviewResult
@@ -34,8 +33,8 @@ from app.purchase_agent.llm.split_schemas import (
     SplitAllocationChoice,
     SplitAllocationResult,
 )
-from app.purchase_agent.nodes import review_rationale as rr
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_graph, build_initial_state
+from app.purchase_agent.service.nodes import review_rationale as rr
 
 ITEMS = ("배추", "무", "양파")
 ANCHORS = (
@@ -279,7 +278,7 @@ def test_네번_사유도_실제로_지정_칸에만_실린다(monkeypatch: pyte
     선언 = copy.deepcopy(load_constraints())
     선언["split"]["allocation_weights"] = _승인된_선언
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.split_plan.load_constraints", lambda: 선언
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", lambda: 선언
     )
 
     def 여유를_깐다(state: dict) -> None:

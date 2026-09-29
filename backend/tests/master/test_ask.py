@@ -518,7 +518,7 @@ def test_채팅_매입_실행은_화면_실행으로_판단한다(client, rerun)
     2026-09-15 실측: 화면은 다른 실행을 보는데 채팅 매입이 번인 실행에 판단 22행을 쌓았다.
     매입 실행 · 조건부 재요청 두 경로 모두 화면이 보는 실행을 싣는다.
     """
-    from app.api.shown_run import SHOWN_SIM_RUN_ID
+    from app.core.settings import SHOWN_SIM_RUN_ID
     from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 
     body = {
@@ -1259,7 +1259,7 @@ def test_logistics_report_empty_period_is_a_normal_answer(logistics_report_stubs
 
 
 def test_logistics_report_shows_only_reservations_still_working(logistics_report_stubs):
-    """🔴 전량 출고가 끝난 과거 예약을 본문에 늘어놓지 않는다 (`_still_working` 기준)."""
+    """🔴 전량 출고가 끝난 과거 예약을 본문에 늘어놓지 않는다 (물류 domain `still_working` 기준)."""
     facts = _logistics_facts()
     outbound = facts["outbound"]
 
@@ -1477,7 +1477,12 @@ def test_sales_report_facts_include_actual_confirmed_sales_only(monkeypatch):
     from types import SimpleNamespace
 
     from app.master.report import render_sales_chat_report
-    from app.sales import console_partners, console_proposals, console_trend, dashboard
+    from app.sales.readmodel import (
+        console_partners,
+        console_proposals,
+        console_trend,
+        dashboard,
+    )
 
     dump = lambda **kwargs: SimpleNamespace(model_dump=lambda **_kwargs: kwargs, **kwargs)
     confirmed, presentable = (

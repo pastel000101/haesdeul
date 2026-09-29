@@ -151,7 +151,7 @@ def test_칸_이름은_판매_것이다():
     매입은 같은 값을 `forecast` 로 받는다. 마스터 쪽 이름을 그대로 보내면 판매 문 앞
     (`extra="forbid"`)에서 **통째로 거부된다.**
     """
-    from app.sales.schemas import SalesProposalInput
+    from app.sales.schemas.proposal import SalesProposalInput
 
     assert "ml_context" in SalesProposalInput.model_fields
 

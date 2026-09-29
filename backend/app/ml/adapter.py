@@ -73,6 +73,14 @@ answer_markdown   사람에게 그대로 보여줄 글. 마스터가 통째로 �
   그대로 붙여 달라"* 를 적었고, 그때까지도 **나머지 칸만으로 답이 성립**하도록
   값을 같이 싣는다.
 
+## 계층 (2026-09-29 · 재구성 BL-017)
+
+이 파일은 **번역만** 한다 — 모드 분기, 질문 뽑기, Q&A 결과 → payload · 근거 · 실행 흔적.
+질의응답 실행은 `service/qa_graph.py::answer`(화면 `/ml/qa` 도 같은 함수), 질문 없는 상태
+조회가 읽는 최신 기준일은 `readmodel/qa_reads.py`, 봉인 개봉 조건 문구는 `config.py`,
+LLM 설정은 `llm/qa.py` 에 있다. 이 파일을 import 하는 곳은 마스터 등록소 조립
+(`master/bootstrap.py`) 하나다.
+
 ## Evidence 등급을 ASSUMED 로 두는 이유
 
 `contracts/core.py` 의 `HARD_ALLOWED_GRADES` 는 `OFFICIAL · VENDOR · SIM_FIXED` 다.
@@ -92,9 +100,11 @@ from app.contracts.envelope import (
     AgentRequest,
     ExecutionMetadata,
 )
-from app.ml import qa_llm, qa_tools
-from app.ml.qa_graph import answer as qa_answer
-from app.ml.qa_schemas import QaRequest
+from app.ml import config
+from app.ml.llm import qa as qa_llm
+from app.ml.readmodel import qa_reads
+from app.ml.schemas.qa import QaRequest
+from app.ml.service.qa_graph import answer as qa_answer
 
 #: 마스터가 우리를 부르는 이름. **저쪽 `AgentName` 에 같은 값이 있어야 한다.**
 AGENT_NAME = "ml"
@@ -103,6 +113,10 @@ AGENT_NAME = "ml"
 SUPPORTED_MODES: tuple[str, ...] = ("STATUS_QUERY",)
 
 #: 쓴 도구 이름. 실제로 부른 것만 적는다 — 안 부른 것을 적으면 실행 계획이 거짓이 된다.
+#:
+#: ★ **이름은 실행 이력에 저장되는 어휘다** (`ExecutionMetadata.used_tools` → 마스터 이력).
+#:   2026-09-29 재구성 BL-017 에 함수가 `service/qa_graph.py` · `readmodel/qa_reads.py` 로 옮겨
+#:   갔지만 글자는 그대로 둔다 — 바꾸면 옛 이력과 새 이력의 같은 도구가 다른 이름이 된다.
 _T_QA = "ml.qa_graph.answer"
 _T_LATEST = "ml.qa_tools.latest_base_date"
 _T_ROWS = "ml.qa_tools.forecast_rows"
@@ -169,7 +183,7 @@ def _metadata(
         used_tools=tools,
         tool_order=tuple(range(1, len(tools) + 1)),
         llm_status=llm_status,  # type: ignore[arg-type]
-        llm_model=qa_llm._model() if llm_called else "",
+        llm_model=qa_llm.model() if llm_called else "",
         elapsed_ms=elapsed_ms,
     )
 
@@ -322,7 +336,7 @@ def performance_evidences(rows: list[dict[str, Any]]) -> tuple[Evidence, ...]:
             value=float(row["pct"]),
             unit="%",
             evidence_grade="ASSUMED",
-            evidence_detail=qa_tools.SEALED_SOURCE,
+            evidence_detail=config.SEALED_SOURCE,
         )
         for index, row in enumerate(rows)
     )
@@ -491,7 +505,7 @@ def _no_question(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
     started = time.perf_counter()
     tools = (_T_LATEST,)
     try:
-        base_dt = qa_tools.latest_base_date(request.context.as_of)
+        base_dt = qa_reads.latest_base_date(request.context.as_of)
     except Exception:                                        # noqa: BLE001  DB 미연결
         return _error(request, tools, started, "예측표를 읽지 못했다")
     if base_dt is None:

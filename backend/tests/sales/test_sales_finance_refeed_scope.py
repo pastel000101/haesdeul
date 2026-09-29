@@ -16,8 +16,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.sales.proposal import run_proposal
-from app.sales.schemas import SalesProposalInput
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.proposal import run_proposal
 
 
 @pytest.fixture(autouse=True)

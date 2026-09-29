@@ -692,7 +692,7 @@ class AgentFailure:
         """
         parts = [self.reasoning.strip() or self.runtime_status]
         if self.missing_data:
-            # 어휘 출처: 매입 `purchase_agent/adapter.py` 의 `_unusable_forecast_names`
+            # 어휘 출처: 매입 `purchase_agent/domain/payload.py` 의 `_unusable_forecast_names`
             # 가 쓴 *"쓸 수 없는 입력"* 을 그대로 가져온다. 마스터가 말을 새로 만들면
             # 같은 사실에 부서마다 다른 낱말이 붙는다.
             #

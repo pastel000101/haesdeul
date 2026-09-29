@@ -49,8 +49,8 @@ from collections.abc import Mapping
 from datetime import date
 
 from app.purchase_agent import mocks
-from app.purchase_agent.quotes import QuoteSource
-from app.purchase_agent.schemas import FIXED_MARKET
+from app.purchase_agent.readmodel.quotes import QuoteSource
+from app.purchase_agent.schemas.proposal import FIXED_MARKET
 
 
 class MockNotAllowed(RuntimeError):
@@ -156,7 +156,7 @@ def _checked_quotes(quotes: list[dict], item: str) -> list[dict]:
     ``check_prices_exist`` 는 이걸 못 잡는다 — **주입 원본과 대조**하기 때문에 원본이
     틀리면 같이 틀린 채 통과한다. 그래서 경계가 여기여야 한다.
 
-    등급 어휘는 **보지 않는다.** 어느 등급을 쓸지는 #69 소관이고, ``schemas.py`` 도
+    등급 어휘는 **보지 않는다.** 어느 등급을 쓸지는 #69 소관이고, ``schemas/proposal.py`` 도
     "DB 담당과 표준화 진행 중이라 Literal로 굳히지 않는다"고 열어둔 자리다.
     """
     for index, quote in enumerate(quotes):
@@ -247,7 +247,7 @@ def get_context_docs(item: str, as_of: date, doc_types: list[str]) -> list[dict]
 
     ⚠️ **T0가 아니라 ② collect_context의 런타임 호출이다 — 이 포트만의 예외**
     (정의서 §3.1.1 · 팀 확인 2026-08-25 · IO명세 §0). 나머지 ①~⑤는 T0 only이고
-    ``state.build_initial_state``가 한 번씩 부른다. 오케스트레이터 스냅샷에 문서는 없다.
+    ``graph.build_initial_state``가 한 번씩 부른다. 오케스트레이터 스냅샷에 문서는 없다.
 
     예외가 안전한 이유:
 

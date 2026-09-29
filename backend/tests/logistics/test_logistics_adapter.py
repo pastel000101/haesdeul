@@ -585,7 +585,7 @@ def test_봉투의_inbound_lead_days_는_int_다(wired):
     나갔다 — 물류 내부(`schemas.py`)도 IO Contract §3 도 `int` 인데 봉투만 달랐다.
 
     받는 쪽 셋이 전부 방어를 만들어 뒀다(`critic_bridge.py` `_int_of` ·
-    `commitment.py` · `purchase_agent/adapter.py` 의 `lead != int(lead)`).
+    `commitment.py` · `purchase_agent/domain/payload.py` 의 `lead != int(lead)`).
     생산자가 맞게 보내면 그 방어들이 무해해진다.
 
     ⚠️ `2.0 == 2` 가 참이라 값 비교로는 안 잡힌다. **타입을 직접 잰다.**
@@ -2468,7 +2468,7 @@ def test_payload_가_판매_계약으로_그대로_읽힌다(wired_sales):
     """
     from pydantic import ValidationError
 
-    from app.sales.schemas import (
+    from app.sales.schemas.proposal import (
         LogisticsDeliveryFeasibility,
         LogisticsSellableSupply,
         SalesLogisticsContext,
@@ -2634,7 +2634,7 @@ def test_보관한계_부재_Lot_이_판매_계약으로도_읽힌다(monkeypatc
     `LogisticsLotConstraint` 는 두 칸을 `int | None` 으로 열어 두었다 — 그 계약이
     좁아지는 날 물류가 낼 수 있는 사실이 경계에서 막힌다.
     """
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _with_read(
         monkeypatch,
@@ -4063,7 +4063,7 @@ def test_단가를_못_읽은_Lot_을_헐어야_하면_원가가_서지_않는�
 
 def test_재고원가는_판매_DTO_를_그대로_통과한다(monkeypatch):
     """물류가 낸 모양을 판매가 **손대지 않고** 받는지 — 경계 한 번을 실제로 건넌다."""
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _with_read(monkeypatch, _costed_sales_snapshot())
     _, reply, _ = _pre_sales_reply(

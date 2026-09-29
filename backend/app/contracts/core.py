@@ -193,7 +193,7 @@ RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]
 #   ```text
 #   자원 축     clipped_by[].constraint     창고 · 현금 · 신선도
 #   근거 출처 축 RationaleSource            예측 · 시세관측 · 재고 · 주문 · 현금 · 문서ID
-#                (app/purchase_agent/schemas.py:91)
+#                (app/purchase_agent/schemas/proposal.py `RationaleSource`)
 #   ```
 #
 #   **같은 문자열인데 뜻이 다르다.** 표시 문구를 값으로 쓰면 축이 섞인다.

@@ -33,8 +33,7 @@ from datetime import date
 
 import pytest
 
-from app.purchase_agent.graph import build_graph
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_graph, build_initial_state
 
 ANCHORS = (date(2025, 12, 31), date(2026, 8, 21), date(2026, 8, 28), date(2026, 9, 4))
 ITEMS = ("배추", "무", "양파")

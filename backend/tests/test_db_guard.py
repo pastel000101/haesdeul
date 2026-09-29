@@ -19,17 +19,17 @@ import pytest
 from app.core import db as core_db
 from app.core import settings
 
-가드_문장 = "db 마크가 없는 검사가 실 DB 연결"
+GUARD_MESSAGE = "db 마크가 없는 검사가 실 DB 연결"
 
 
 def test_the_old_door_psycopg_connect_is_blocked() -> None:
-    with pytest.raises(AssertionError, match=가드_문장):
+    with pytest.raises(AssertionError, match=GUARD_MESSAGE):
         psycopg.connect(host="127.0.0.1", port=9, dbname="guard", connect_timeout=1)
 
 
 def test_the_door_the_pool_uses_is_blocked() -> None:
     """psycopg_pool 이 새 연결을 만들 때 부르는 문."""
-    with pytest.raises(AssertionError, match=가드_문장):
+    with pytest.raises(AssertionError, match=GUARD_MESSAGE):
         psycopg.Connection.connect("host=127.0.0.1 port=9 dbname=guard connect_timeout=1")
 
 
@@ -37,7 +37,7 @@ def test_a_pool_of_real_connections_cannot_open() -> None:
     pool: psycopg_pool.ConnectionPool = psycopg_pool.ConnectionPool(
         "host=127.0.0.1 port=9 dbname=guard", open=False
     )
-    with pytest.raises(AssertionError, match=가드_문장):
+    with pytest.raises(AssertionError, match=GUARD_MESSAGE):
         pool.open()
 
 
@@ -58,7 +58,7 @@ def test_the_app_pool_stops_at_the_first_borrow_without_waiting(
     pool = core_db.DatabasePool("guard", settings.database_settings)
 
     started = time.monotonic()
-    with pytest.raises(AssertionError, match=가드_문장), pool.connection():
+    with pytest.raises(AssertionError, match=GUARD_MESSAGE), pool.connection():
         pass
 
     assert time.monotonic() - started < 5

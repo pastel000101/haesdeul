@@ -15,14 +15,9 @@
 
 from datetime import date, timedelta
 
-from app.purchase_agent.nodes.package_scenarios import (
-    arrival_dates,
-    materialize_split,
-    round_offsets,
-    shifted_rounds_note,
-    split_offsets,
-)
-from app.purchase_agent.nodes.self_check import market_open_days
+from app.purchase_agent.domain.allocation import arrival_dates, round_offsets, split_offsets
+from app.purchase_agent.domain.package_scenarios import materialize_split, shifted_rounds_note
+from app.purchase_agent.domain.self_check import market_open_days
 
 #: 2026-01-05(월). 그 주 토·일이 01-10·01-11 이다.
 AS_OF = "2026-01-05"
@@ -202,12 +197,12 @@ def _rising_aggressive(calendar: dict | None) -> dict:
     ⚠️ ``purchase_port`` 관통으로는 이 배선을 못 잡는다 — 실 봉투에서는 회차가 전부
     하나이고 1회차는 안 밀기 때문이다. 그래서 mock 상태에 달력을 직접 얹는다.
     """
-    from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-    from app.purchase_agent.nodes.classify_situation import classify_situation
-    from app.purchase_agent.nodes.draft_plan import draft_plan
-    from app.purchase_agent.nodes.package_scenarios import package_scenarios
-    from app.purchase_agent.nodes.split_plan import split_plan
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+    from app.purchase_agent.service.nodes.classify_situation import classify_situation
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
+    from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+    from app.purchase_agent.service.nodes.split_plan import split_plan
 
     state = build_initial_state("배추", date(2026, 8, 21))
     for node in (classify_situation, draft_plan, split_plan, allocate_sourcing):

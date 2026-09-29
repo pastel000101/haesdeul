@@ -1,33 +1,33 @@
-"""영업 Agent API Router."""
+"""영업 Agent API Router.
+
+★ 2026-09-29 BL-013: **HTTP 만 남겼다** — 요청 모델 → service · readmodel → 응답, 업무 예외 →
+  상태 코드. 거래처 쓰기는 `service/partners.py`(마스터 ask 도 같은 함수), 판매 후보 생성은
+  `service/proposal_generation.py`(마스터 어댑터도 같은 함수), 판매 제안은
+  `service/proposal.py`, 조회는 `readmodel/` 이다. 라우트를 `api/sales/` 로 옮기는 것은
+  BL-019 다(URL 그대로).
+"""
 
 from datetime import date
 from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext
-from app.sales.adapter import sales_port
-from app.sales.partner_profile import (
-    FOREIGN_FIELDS,
+from app.sales.readmodel.partners import get_partner_profile
+from app.sales.readmodel.runs import get_sales_run, list_sales_runs
+from app.sales.schemas.partners import (
     PartnerAlreadyExists,
+    PartnerInputRejected,
+    PartnerNotFound,
     PartnerProfile,
-    PartnerProfileCreate,
-    PartnerProfileUpdate,
-    create_partner_profile,
-    get_partner_profile,
-    update_partner_profile,
 )
-from app.sales.proposal import run_proposal
-from app.sales.runs import get_sales_run, list_sales_runs
-from app.sales.schemas import (
-    RuntimeStatus,
-    SalesAgentRunResponse,
-    SalesCycle,
-    SalesProposalInput,
-    SalesProposalReply,
-)
+from app.sales.schemas.proposal import SalesProposalInput, SalesProposalReply
+from app.sales.schemas.runs import RuntimeStatus, SalesAgentRunResponse, SalesCycle
+from app.sales.service.partners import create_partner, update_partner
+from app.sales.service.proposal import run_proposal
+from app.sales.service.proposal_generation import generate_sales_proposal
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -43,6 +43,10 @@ class ConsoleSalesProposalRequest(BaseModel):
 @router.post("/console-proposal", summary="운영 콘솔 판매 후보 생성")
 def create_console_sales_proposal(body: ConsoleSalesProposalRequest) -> AgentReply:
     """후보를 이력에 저장하지만 판매 원장을 생성하거나 승인하지 않는다."""
+    #  ★ 마스터와 **같은 판매 후보 생성**(`service/proposal_generation.py`)을 부른다 — 화면
+    #    요청을 같은 봉투 모양으로 적어 넘기고, 회신 봉투를 응답으로 그대로 돌려준다. 전에는
+    #    여기서 마스터 어댑터(`sales_port`)를 직접 불렀다 (2026-09-29 BL-013). docstring 은
+    #    OpenAPI 설명이라 그대로 둔다.
     request = AgentRequest(
         context=ExecutionContext(
             request_id=f"CONSOLE-SALES-{uuid4()}",
@@ -55,8 +59,7 @@ def create_console_sales_proposal(body: ConsoleSalesProposalRequest) -> AgentRep
         mode="GENERATE_SALES_PROPOSAL",
         payload=body.proposal.model_dump(mode="json", exclude={"execution_identity"}),
     )
-    reply, _metadata = sales_port(request)
-    return reply
+    return generate_sales_proposal(request).reply
 
 
 @router.post(
@@ -122,49 +125,16 @@ def add_partner_profile(body: dict[str, object]) -> PartnerProfile:
     🔴 **여신 한도는 여기서 만들지 않는다.** 정본은 재무의 `partner_credit_limits`
        이고, 같은 이름의 칸을 거래처 행에 두면 두 곳이 다른 한도를 말하는 날이 온다.
     """
-    foreign = sorted(name for name in body if name in FOREIGN_FIELDS)
-    if foreign:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=" ".join(FOREIGN_FIELDS[name] for name in foreign),
-        )
     try:
-        create = PartnerProfileCreate.model_validate(body)
-    except ValidationError as error:
+        return create_partner(body)
+    except PartnerInputRejected as error:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=_readable(error)
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
-    try:
-        return create_partner_profile(create=create)
     except PartnerAlreadyExists as error:
         #  🔴 409 다. 400 으로 내면 화면이 «입력이 틀렸다» 로 읽어 칸을 빨갛게 만든다 —
         #     틀린 것은 칸이 아니라 이미 그 코드가 쓰이고 있다는 사실이다.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"이미 등록된 거래처 코드입니다: {create.partner_id}",
-        ) from error
-
-
-#: 칸 이름을 사용자가 읽는 말로 바꾼다. **값은 바꾸지 않는다.**
-_FIELD_LABELS = {
-    "partner_id": "내부 거래처 코드",
-    "partner_name": "거래처명",
-    "partner_type": "거래처 유형",
-    "sales_collection_days": "결제일수",
-}
-
-
-def _readable(error: ValidationError) -> str:
-    """Pydantic 오류를 사용자 문장으로 옮긴다. **원인을 숨기지 않는다.**
-
-    ⚠️ `str(error)` 를 그대로 내면 `1 validation error for PartnerProfileCreate` 같은
-      내부 모델 이름이 화면에 뜬다. 어느 칸이 왜 막혔는지는 그대로 나른다.
-    """
-    lines = []
-    for item in error.errors():
-        field = ".".join(str(part) for part in item["loc"]) or "입력"
-        lines.append(f"{_FIELD_LABELS.get(field, field)}: {item['msg']}")
-    return " / ".join(lines)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=error.message) from error
 
 
 @router.get(
@@ -195,21 +165,11 @@ def edit_partner_profile(
     🔴 **남의 도메인 값은 조용히 무시하지 않고 거절한다.** 무시하면 사용자는 고쳐진
        줄 알고 화면을 닫는다 — 여신 한도가 특히 그렇다.
     """
-    foreign = sorted(name for name in body if name in FOREIGN_FIELDS)
-    if foreign:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=" ".join(FOREIGN_FIELDS[name] for name in foreign),
-        )
     try:
-        update = PartnerProfileUpdate.model_validate(body)
-    except ValidationError as error:
+        return update_partner(partner_id, body)
+    except PartnerInputRejected as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)
         ) from error
-    profile = update_partner_profile(partner_id=partner_id, update=update)
-    if profile is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="거래처를 찾지 못했습니다."
-        )
-    return profile
+    except PartnerNotFound as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=error.message) from error

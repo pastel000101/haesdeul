@@ -8,7 +8,7 @@ from app.finance.tools import (
     compare_reported_amount,
     rank_collection_preferences,
 )
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 
 def test_purchase_total_recalculation_matches_kg_contract_fixture(purchase_payload):

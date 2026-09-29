@@ -89,7 +89,7 @@ from app.logistics.tools import (
     fefo_inventory_cost_basis,
     supply_capacity_by_date,
 )
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 logger = logging.getLogger(__name__)
 
@@ -1357,7 +1357,7 @@ def _pre_sales(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
       `build_lot_constraints` · `evaluate_sales_business_signals` 셋은 승인 매입 없이
       돌고, 세 함수가 PRE_SALES 가 답할 수 있는 것의 전부다.
 
-    ★ **payload 는 판매 계약(`app.sales.schemas.SalesLogisticsContext`)의 낱말을 쓴다.**
+    ★ **payload 는 판매 계약(`app.sales.schemas.proposal.SalesLogisticsContext`)의 낱말을 쓴다.**
       🔴 **그 모듈을 import 하지 않는다** — 조정자를 건너뛰고 두 부서를 실행 계층에서
       붙이면 판매가 자기 파일을 고치는 날 물류가 같이 깨진다 (마스터가 판매 어휘를
       베껴 두고 테스트로만 대조하는 것과 같은 판단, `contracts/envelope.Capability`).

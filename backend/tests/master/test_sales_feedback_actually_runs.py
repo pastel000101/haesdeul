@@ -158,8 +158,8 @@ def test_되먹임_회차에_재무_회신_원본이_실린다():
 
 def test_되먹임_회차의_전략_계획도_회신을_본다():
     """재계획에서 자세를 다시 고를 때 부서 회신이 실제로 손에 있어야 한다."""
-    from app.sales.proposal import _all_feedback_replies
-    from app.sales.schemas import SalesProposalInput
+    from app.sales.domain.proposal import all_feedback_replies as _all_feedback_replies
+    from app.sales.schemas.proposal import SalesProposalInput
 
     _outcome, 보낸것 = _run()
     재계획 = SalesProposalInput.model_validate(

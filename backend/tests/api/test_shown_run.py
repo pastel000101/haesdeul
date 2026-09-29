@@ -1,4 +1,8 @@
-"""화면이 읽는 실행은 `app/api/shown_run.py` 한 자리다.
+"""화면이 읽는 실행은 `app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` · `SHOWN_AS_OF` 한 자리다.
+
+🟢 2026-09-29 (재구성 BL-012) 전에는 그 두 값이 `app/api/shown_run.py` 한 파일에 있었다.
+   마스터(`ask_service`)도 같은 값을 읽어 `master → api` 의존이 생겼으므로 공용 설정으로
+   옮겼다. 값 · 뜻 · 쓰는 곳은 그대로라 아래 ②~⑤ 는 같은 것을 잰다.
 
 🔴 **실 DB 에 닿지 않는다.** 서비스 함수와 커넥션을 대역으로 바꿔 «무엇을 넘기는가» 만 본다.
 
@@ -8,6 +12,7 @@
 ③ 대시보드가 매입 build 에 sim_run_id=SHOWN_SIM_RUN_ID 를 넘긴다
 ④ 매입 라우터: 쿼리 없음 → SHOWN · 쿼리 있음 → 준 값
 ⑤ 프론트 기준일 코드값 == SHOWN_AS_OF
+⑥ 두 값은 글자 그대로 적은 상수다 — 환경변수 등 두 번째 주인이 없다
 ```
 """
 
@@ -25,13 +30,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import shown_run
 from app.api.dashboard import query as dashboard_query
 from app.api.finance import query as finance_query
 from app.api.logistics import query as logistics_query
 from app.api.purchase import routes as purchase_routes
 from app.api.sales import query as sales_query
-from app.api.shown_run import SHOWN_AS_OF, SHOWN_SIM_RUN_ID
+from app.core import settings
+from app.core.settings import SHOWN_AS_OF, SHOWN_SIM_RUN_ID
 
 _BACKEND = Path(__file__).resolve().parents[2]
 _API_DIR = _BACKEND / "app" / "api"
@@ -232,8 +237,88 @@ def test_프론트_기준일이_SHOWN_AS_OF_와_같다():
     )
 
 
-def test_설정_파일은_두_값만_둔다():
-    """🔴 환경변수 덮어쓰기 같은 두 번째 주인을 만들지 않는다."""
-    public = {name for name in vars(shown_run) if name.isupper()}
-    assert public == {"SHOWN_SIM_RUN_ID", "SHOWN_AS_OF"}
-    assert "environ" not in Path(shown_run.__file__).read_text(encoding="utf-8")
+# ── ⑥ 두 번째 주인 없음 ──────────────────────────────────────────────
+
+
+def _shown_problems(source: str) -> list[str]:
+    """`SHOWN_*` 대입이 «모듈 맨 위에서 한 번 · 글자 그대로» 가 아닌 자리.
+
+    ```text
+    SHOWN_SIM_RUN_ID   문자열 하나 ("SIM-…")
+    SHOWN_AS_OF        date(연, 월, 일) — 인자 셋이 모두 정수 글자
+    ```
+    """
+    tree = ast.parse(source)
+    problems: list[str] = []
+    seen: dict[str, ast.expr] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            if not (isinstance(target, ast.Name) and target.id.startswith("SHOWN_")):
+                continue
+            if target.id in seen or node not in tree.body or node.value is None:
+                problems.append(f"{node.lineno}: {target.id} 를 다시 · 안쪽에서 정한다")
+            seen[target.id] = node.value
+    if set(seen) != {"SHOWN_SIM_RUN_ID", "SHOWN_AS_OF"}:
+        problems.append(f"SHOWN_* 이름이 둘이 아니다: {sorted(seen)}")
+    run = seen.get("SHOWN_SIM_RUN_ID")
+    if not (isinstance(run, ast.Constant) and isinstance(run.value, str)):
+        problems.append("SHOWN_SIM_RUN_ID 가 글자 그대로의 문자열이 아니다")
+    as_of = seen.get("SHOWN_AS_OF")
+    if not (
+        isinstance(as_of, ast.Call)
+        and isinstance(as_of.func, ast.Name)
+        and as_of.func.id == "date"
+        and not as_of.keywords
+        and len(as_of.args) == 3
+        and all(isinstance(a, ast.Constant) and isinstance(a.value, int) for a in as_of.args)
+    ):
+        problems.append("SHOWN_AS_OF 가 date(연, 월, 일) 글자 그대로가 아니다")
+    return problems
+
+
+def test_shown_run_is_two_literal_constants():
+    """🔴 환경변수 덮어쓰기 같은 두 번째 주인을 만들지 않는다.
+
+    ★ 2026-09-29 까지는 `shown_run.py` 파일에 두 이름만 있고 «environ» 이라는 글자가
+      없는지를 봤다. 두 값이 환경변수를 읽는 `app/core/settings.py` 로 옮겨 오면서 그
+      파일 전체 대신 **두 값의 대입문**을 본다 (`_shown_problems`).
+    """
+    assert {name for name in vars(settings) if name.startswith("SHOWN_")} == {
+        "SHOWN_SIM_RUN_ID",
+        "SHOWN_AS_OF",
+    }
+    assert _shown_problems(Path(settings.__file__).read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [
+        (
+            'SHOWN_SIM_RUN_ID = os.getenv("SHOWN_SIM_RUN_ID", "SIM-X")\n'
+            "SHOWN_AS_OF = date(2026, 9, 17)\n"
+        ),
+        (
+            'SHOWN_SIM_RUN_ID = "SIM-X"\n'
+            'SHOWN_AS_OF = date.fromisoformat(os.environ["SHOWN_AS_OF"])\n'
+        ),
+        (
+            'SHOWN_SIM_RUN_ID = "SIM-X"\n'
+            "SHOWN_AS_OF = date(2026, 9, 17)\n"
+            "def _override():\n"
+            "    global SHOWN_SIM_RUN_ID\n"
+            '    SHOWN_SIM_RUN_ID = "SIM-Y"\n'
+        ),
+        (
+            'SHOWN_SIM_RUN_ID = "SIM-X"\n'
+            "SHOWN_AS_OF = date(2026, 9, 17)\n"
+            'SHOWN_EXTRA = "SIM-Z"\n'
+        ),
+    ],
+    ids=["환경변수_실행", "환경변수_기준일", "함수_안_재대입", "세_번째_이름"],
+)
+def test_shown_run_check_catches_planted_second_owners(planted):
+    """★ 위 검사가 공짜 초록이 아닌지 — 두 번째 주인을 심으면 문제가 하나 이상 나온다."""
+    assert _shown_problems(planted)

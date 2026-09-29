@@ -9,8 +9,8 @@
 
 import pytest
 
-from app.purchase_agent import review_gate as gate
-from app.purchase_agent import review_templates as tpl
+from app.purchase_agent.domain import review_gate as gate
+from app.purchase_agent.domain import review_templates as tpl
 from app.purchase_agent.llm.text_guard import (
     PLACEHOLDERS,
     contains_number,

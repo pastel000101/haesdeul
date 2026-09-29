@@ -3,7 +3,8 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from app.sales.console_lifecycle import get_console_sale_lifecycle
+from app.sales.readmodel.console_lifecycle import get_console_sale_lifecycle
+from tests.sales.sales_fake_connection import lend
 
 AS_OF = date(2026, 1, 30)
 RUN_A = "SIM-CONSOLE-A"
@@ -81,8 +82,8 @@ def _move_row() -> dict:
 
 
 def _patch(monkeypatch, stub) -> None:
-    monkeypatch.setattr("app.sales.console_lifecycle.fetch_all", stub)
-    monkeypatch.setattr("app.sales.console_lifecycle.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, stub)
+    monkeypatch.setattr("app.sales.repository.console_lifecycle.get_db_schema", lambda: "haetdeul")
 
 
 def _stage(lifecycle, name):

@@ -37,7 +37,7 @@ def test_계약_품목은_전부_ML_예측이_있다():
     실측처럼 보이는 결과가 나오지만 재료가 가짜다 — 2026-08-31·09-03 에
     마스터가 피마늘로 두 번 실측해 두 번 다 잘못된 결론을 냈다.
     """
-    from app.ml.schemas import ITEMS as ML_ITEMS
+    from app.ml.schemas.forecast import ITEMS as ML_ITEMS
 
     missing = set(ITEMS) - set(ML_ITEMS)
     assert not missing, f"예측이 없는 품목이 계약에 있다: {sorted(missing)}"

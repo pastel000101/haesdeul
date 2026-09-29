@@ -18,7 +18,9 @@ from pathlib import Path
 
 import pytest
 
-from app.purchase_agent.adapter import build_state, validate_payload
+from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain.payload import validate_payload
+from app.purchase_agent.service.scenarios import build_state
 
 # ★ **봉투를 다시 짓지 않는다.** ``test_adapter.py`` 가 이미 mock 포트로 정상 payload 를
 #   만든다 — 여기서 또 지으면 필수 키 목록이 두 곳이 되고, 어댑터가 요구 사항을 늘리는
@@ -46,7 +48,17 @@ COMMITMENT = {
     ],
 }
 
-_NODES = Path(__file__).resolve().parents[2] / "app" / "purchase_agent" / "nodes"
+_PACKAGE = Path(__file__).resolve().parents[2] / "app" / "purchase_agent"
+#: 노드 층 — 2026-09-29 재구성 BL-016 뒤 노드 함수는 ``service/nodes/``, 그 판정 · 계산은
+#: 같은 이름의 ``domain/`` 파일이다. 한 노드가 두 파일로 나뉘었으니 둘 다 본다.
+_NODE_FILES = [
+    *sorted((_PACKAGE / "service" / "nodes").glob("*.py")),
+    *(
+        _PACKAGE / "domain" / path.name
+        for path in sorted((_PACKAGE / "service" / "nodes").glob("*.py"))
+        if (_PACKAGE / "domain" / path.name).exists()
+    ),
+]
 
 #: 이 검사가 쓰는 앵커. mock 포트가 이 날짜로 3품목을 다 낸다.
 AS_OF = date(2026, 8, 21)
@@ -108,7 +120,7 @@ def test_없어도_missing_data_에_안_들어간다() -> None:
     필수로 걸면 **어제가 없는 첫날**이 통째로 ``RUNTIME_NOT_READY`` 가 된다. 없으면
     근거 문장 하나가 안 넓어질 뿐이라, 안은 그대로 만들어져야 한다.
     """
-    missing = validate_payload(_payload("배추", AS_OF), AS_OF)
+    missing = validate_payload(_payload("배추", AS_OF), AS_OF, load_constraints())
 
     assert not [name for name in missing if "approved_commitments" in name], missing
 
@@ -134,14 +146,14 @@ def test_이_값을_읽는_노드가_어디인지_잠근다() -> None:
       다시 물어야 한다. 근거 문장에 적는 것과 수량을 바꾸는 것은 다른 일이다.
     """
     readers = {
-        path.name
-        for path in sorted(_NODES.glob("*.py"))
+        path.relative_to(_PACKAGE).as_posix()
+        for path in _NODE_FILES
         if references(path, "approved_commitments")
     }
 
-    assert readers == {"package_scenarios.py"}, (
+    assert readers == {"domain/package_scenarios.py"}, (
         f"승인 이력을 읽는 노드가 바뀌었다: {sorted(readers)}. "
-        "판정에 쓰기 시작한 것인지 확인하고 이 검사와 state.py 주석을 같이 고칠 것"
+        "판정에 쓰기 시작한 것인지 확인하고 이 검사와 schemas/state.py 주석을 같이 고칠 것"
     )
 
 
@@ -156,7 +168,8 @@ def test_받는_줄이_adjustments_옆에_있다() -> None:
       적어 놓고 ``ast.Constant`` 를 전부 세고 있었으니, 어댑터 docstring 에 두 이름이
       적혀 있기만 해도 통과했을 것이다 — `_ast_helpers` 가 그 자리를 막는다.
     """
-    keys = set(code_string_literals(_NODES.parent / "adapter.py"))
+    # 봉투 payload → State 는 2026-09-29 재구성 BL-016 에 어댑터에서 `service/scenarios.py` 로 갔다.
+    keys = set(code_string_literals(_PACKAGE / "service" / "scenarios.py"))
 
     assert "approved_commitments" in keys
     assert "adjustments" in keys

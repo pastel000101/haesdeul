@@ -41,9 +41,9 @@ from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
-from app.api.shown_run import SHOWN_SIM_RUN_ID
 from app.contracts.envelope import ExecutionContext
 from app.core import db as core_db
+from app.core.settings import SHOWN_SIM_RUN_ID
 
 # DOMAIN_ACTION은 기존 Domain read/write를 호출만 한다. Master에 SQL/재계산을 두지 않는다.
 from app.finance.console_credit import get_console_credit
@@ -98,9 +98,14 @@ from app.master.runner import MasterRunner
 from app.master.schemas import ProcurementRunRequest, ProcurementRunResponse, SalesRunRequest
 from app.master.service import get_run_history, make_request_id, run_procurement, run_sales
 from app.master.status_flow import StatusFlow, StatusOutcome
-from app.sales.console_partners import get_console_partner_detail, get_console_partners
-from app.sales.console_proposals import get_console_sales_proposals
-from app.sales.router import add_partner_profile, edit_partner_profile
+from app.sales.readmodel.console_partners import get_console_partner_detail, get_console_partners
+from app.sales.readmodel.console_proposals import get_console_sales_proposals
+from app.sales.schemas.partners import (
+    PartnerAlreadyExists,
+    PartnerInputRejected,
+    PartnerNotFound,
+)
+from app.sales.service.partners import create_partner, update_partner
 
 #: 확인 없이 바로 도는 종류. 조회뿐이다.
 _AUTO_RUN = frozenset({"STATUS_QUERY"})
@@ -939,7 +944,15 @@ def _domain_write(
                 body[key] = value
         if slots.sales_collection_days is not None:
             body["sales_collection_days"] = _integer(slots.sales_collection_days, field="결제일수")
-        result = add_partner_profile(body)
+        #  ★ 판매 라우터와 **같은 service** 를 부르고, 같은 문장 · 같은 상태 코드로 거절한다
+        #    (409 · 422 — `master/router.py` 가 `DecisionRejected` 를 접는다). 2026-09-29
+        #    BL-013 전에는 판매 라우터 핸들러를 함수로 불러 그 `HTTPException` 이 그대로 나갔다.
+        try:
+            result = create_partner(body)
+        except PartnerInputRejected as error:
+            raise DecisionRejected(str(error)) from error
+        except PartnerAlreadyExists as error:
+            raise DecisionRejected(error.message, conflict=True) from error
         return DomainActionAnswer(
             domain="partner",
             action=action,
@@ -966,7 +979,14 @@ def _domain_write(
                 body[key] = value
         if slots.sales_collection_days is not None:
             body["sales_collection_days"] = _integer(slots.sales_collection_days, field="결제일수")
-        result = edit_partner_profile(partner_id, body)
+        #  ★ 거래처 등록과 같은 규율이다 — 없는 거래처는 404(`LookupError`), 받을 수 없는
+        #    입력은 422 로, 판매 라우터와 같은 문장이다.
+        try:
+            result = update_partner(partner_id, body)
+        except PartnerInputRejected as error:
+            raise DecisionRejected(str(error)) from error
+        except PartnerNotFound as error:
+            raise LookupError(error.message) from error
         return DomainActionAnswer(
             domain="partner",
             action=action,
@@ -1303,7 +1323,8 @@ def _run_status(
         policy_version=policy_version,
         # ★ **조회는 화면이 보는 실행을 읽는다** (2026-09-14). 전에는 번인 상수라
         #   2025-12 한 달치 장부를 읽었고, 2026 날짜는 기준일을 바꿔도 늘 같은 물려받은
-        #   상태가 나왔다. 화면 탭과 같은 한 자리(`app/api/shown_run.py`)를 가리킨다.
+        #   상태가 나왔다. 화면 탭과 같은 한 자리(`app/core/settings.py` · 2026-09-29 전에는
+        #   `app/api/shown_run.py`)를 가리킨다.
         sim_run_id=SHOWN_SIM_RUN_ID,
     )
     asked = tuple(intent.agents)

@@ -17,13 +17,13 @@
 import pathlib
 import re
 
-from app.sales.schemas import (
+from app.sales.schemas.proposal import (
     LogisticsQueryScope,
     SalesContractContext,
-    SalesCycle,
     SalesProposalInput,
     SalesProposalReply,
 )
+from app.sales.schemas.runs import SalesCycle
 
 _DDL = pathlib.Path(__file__).resolve().parents[3] / "database" / "sales_agent_runs.sql"
 
@@ -42,15 +42,24 @@ def _ddl() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _core_source() -> str:
+    """제안 Core 의 원문. ★ 2026-09-29 BL-013 에 계산(`domain/proposal.py`)과 그래프
+    (`service/proposal.py`) 두 파일이 됐다 — 규율은 둘 다에 건다."""
+    import app.sales.domain.proposal as core
+    import app.sales.service.proposal as graph
+
+    return "\n".join(
+        pathlib.Path(module.__file__).read_text(encoding="utf-8") for module in (core, graph)
+    )
+
+
 def test_proposal_core_does_not_invent_an_execution_date():
     """오늘 날짜·기준일 상수로 실행 시점을 만들지 않는다.
 
     같은 제안이 돌린 날에 따라 다른 이력을 남기면 그 이력은 재현에 쓸 수 없다.
     이 규율은 실행 기준일 계약이 생긴 뒤에도 그대로다.
     """
-    import app.sales.proposal as module
-
-    source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
+    source = _core_source()
 
     for invented in ("date.today()", "datetime.now(", "utcnow(", "sim_start_date"):
         assert invented not in source, invented
@@ -65,9 +74,7 @@ def test_proposal_core_does_not_borrow_another_domains_date_as_its_own():
 
     셋 다 "이 제안을 언제 세웠나" 가 아니다. 승격하면 이력이 거짓이 된다.
     """
-    import app.sales.proposal as module
-
-    source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
+    source = _core_source()
 
     # 승격 흔적: 다른 도메인 날짜를 실행 기준일 이름으로 옮겨 담는 코드
     for promotion in ("as_of =", "as_of=", "run_as_of"):
@@ -76,9 +83,7 @@ def test_proposal_core_does_not_borrow_another_domains_date_as_its_own():
 
 def test_proposal_core_saves_nothing_without_an_execution_identity():
     """identity 가 없는 채로 저장을 흉내내지 않는다 — 못 하는 것을 한 척하지 않는다."""
-    import app.sales.proposal as module
-
-    source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
+    source = _core_source()
 
     assert "save_sales_agent_run" not in source
     assert "snapshot_id" not in source

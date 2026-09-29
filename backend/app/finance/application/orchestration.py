@@ -277,7 +277,7 @@ def _branch_scenario_labels(state: FinanceAgentState) -> list[str]:
     """이 분기가 판정한 안의 **권위 있는 라벨**.
 
     ★ 라벨 어휘를 재무가 갖지 않는다. `보수·기본·공격` 은 매입의 계약이라
-      (`purchase_agent.schemas.ScenarioLabel`), 여기에 복제하면 매입이 라벨을 바꿀 때
+      (`purchase_agent.schemas.proposal.ScenarioLabel`), 여기에 복제하면 매입이 라벨을 바꿀 때
       조용히 어긋난다. 그래서 **들어온 시나리오가 말한 label 을 그대로** 되돌린다 —
       마스터도 같은 방식으로 응답에서 읽는다(`master.decision.scenario_labels_of`).
 

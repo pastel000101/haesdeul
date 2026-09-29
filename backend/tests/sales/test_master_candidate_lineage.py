@@ -9,8 +9,9 @@ from app.master import decision_service, persistence, wiring
 from app.master.day_gate import DayGate
 from app.master.schemas import SalesRunRequest
 from app.master.service import run_sales
-from app.sales.console_proposals import get_console_sales_proposals
+from app.sales.readmodel.console_proposals import get_console_sales_proposals
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
+from tests.sales.sales_fake_connection import lend
 
 AS_OF = date(2026, 9, 16)
 SIM_RUN = "SIM-USER-SALES-LINEAGE"
@@ -112,8 +113,8 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
             }
         ]
 
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", read_proposals)
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, read_proposals)
     today = get_console_sales_proposals(sim_run_id=SIM_RUN, as_of=AS_OF)
     selected = today.rows[0]
 

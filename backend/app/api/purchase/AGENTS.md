@@ -64,8 +64,8 @@ def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** `app.purchase_agent.db` 에는
-`get_db_schema` 가 **없습니다** — 일부러 뺐고 (그 파일 머리말) 이유는
+🔴 **DB 헬퍼는 `app.finance.db` 입니다.** 매입 에이전트(`app.purchase_agent`)는
+`get_db_schema` 를 **쓰지 않습니다** — 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는
 *"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
 `.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
@@ -92,7 +92,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 띄우게 되고, 그건 **틀린 줄도 모르는** 오류입니다.
 급하면 ㉰ 로 두고 `Note` 에 «어느 실행을 보고 있는지» 를 적으세요.
 
-**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/api/shown_run.py`.**
+**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/core/settings.py` 의 두 값.**
 화면이 읽는 실행은 `SHOWN_SIM_RUN_ID`, 기준일은 `SHOWN_AS_OF` 한 자리에서만 정합니다.
 재무 · 물류 · 판매 · 대시보드와 매입 라우터(쿼리에 축이 없을 때)가 이 값을 씁니다.
 각 탭 `Source.note` 에 「보고 있는 실행: 실행 이름」 을 적습니다.
@@ -168,7 +168,7 @@ rows = fetch_all(f'SELECT * FROM {schema}.purchases WHERE as_of = %s', (as_of,))
 | `risks` | `list[str]` | 필수 | 걸리는 것. 비어 있으면 안 적는다 |
 | `pending` | `bool` | 필수 | 이 안의 요청(품목·날)에 아직 결정이 없나. 형제 안이 결정되면 거짓이다 |
 | `approved` | `bool` | 선택 | 이미 승인된 안인가 |
-| `state` | `str` | 선택 | 이 안이 실제로 어느 상태인가 — 후보 · 승인됨 · 매입 기록됨 · 반려. 🔴 낱말과 가르는 규칙의 주인은 `app/api/plan_state.py` 하나다 (대시보드도 같은 것을 쓴다). 화면이 이 넷 밖의 말을 만들지 않는다. |
+| `state` | `str` | 선택 | 이 안이 실제로 어느 상태인가 — 후보 · 승인됨 · 매입 기록됨 · 반려. 🔴 낱말과 가르는 규칙의 주인은 `app/master/domain/plan_state.py` 하나다 (대시보드도 같은 것을 쓴다). 화면이 이 넷 밖의 말을 만들지 않는다. |
 | `request_id` | `str &#124; None` | 선택 | 이 안을 낸 실행의 업무 키. 못 읽으면 None 이고 지어내지 않는다 |
 | `history_run_id` | `str &#124; None` | 선택 | 이 안을 낸 실행 이력 행 id(master_agent_runs.run_id). 못 읽으면 None |
 | `sim_run_id` | `str &#124; None` | 선택 | 어느 걷기의 실행인가. None 이면 걷기 밖(손 실행·축이 생기기 전)이다 |

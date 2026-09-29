@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from app.api.finance.schema import FinanceTab, FlowCell, StateOption
 from app.api.primitives import CalendarAxis, Card, Chart, Column, Note, Series, Source, Stat, Table
-from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
 from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
 from app.finance.schemas import FinanceClosingItem, FinanceDashboardResponse, FinanceStateView

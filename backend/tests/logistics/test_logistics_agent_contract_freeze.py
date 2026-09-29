@@ -525,30 +525,32 @@ def test_PRE_PURCHASE_cap_by_date_는_리드타임부터_18일_창이고_보장�
 def test_PRE_PURCHASE_payload_는_매입이_문_앞에서_거는_검사를_그대로_통과한다():
     """매입 어댑터가 `constraints.inventory` 에 거는 모양 검사 셋과 흡수 함수를 **그대로** 돌린다.
 
+    (2026-09-29 재구성 BL-016 뒤 그 검사 · 흡수는 매입 `domain/payload.py` 에 있고 어댑터가 부른다.)
+
     ★ 소비자 코드를 검사에서 읽는 것은 허용이고 고치는 것은 금지다 — 여기서 재는 것은
       *"물류가 낸 것을 매입이 지금 그대로 읽을 수 있는가"* 하나다.
     """
-    from app.purchase_agent import adapter as purchase_adapter
-    from app.purchase_agent.nodes.draft_plan import free_stock_for
+    from app.purchase_agent.domain import payload as purchase_payload
+    from app.purchase_agent.domain.draft_plan import free_stock_for
 
     _, reply, _ = _call("PRE_PURCHASE")
     payload = dict(reply.payload)
 
-    assert purchase_adapter._capacity_input_problems(payload) == []
-    assert purchase_adapter._arrival_input_problems(payload) == []
-    assert purchase_adapter._lot_shape_problems(payload["lots"]) == []
+    assert purchase_payload._capacity_input_problems(payload) == []
+    assert purchase_payload._arrival_input_problems(payload) == []
+    assert purchase_payload._lot_shape_problems(payload["lots"]) == []
 
     # 🔴 **흡수한 품목으로 묻는다.** `build_state` 가 `absorb_inventory(inventory, item)` 와
     #   `state["item"]` 에 **같은 값**을 넣으므로, 매입은 흡수한 품목만 되묻는다. 배추로
     #   거른 봉투에 무를 물으면 그 품목 로트가 이미 빠져 있어 «집계가 로트 합보다 크다» 가
     #   울고, 그것은 물류 계약이 아니라 이 검사가 만든 조합이다.
-    absorbed_cabbage = purchase_adapter.absorb_inventory(payload, "배추")
+    absorbed_cabbage = purchase_payload.absorb_inventory(payload, "배추")
     assert {row["lot_id"] for row in absorbed_cabbage["lots"]} == {
         "LOT-ACTIVE",
         "LOT-EXPIRED",
         "LOT-HOLD",
     }
-    absorbed_radish = purchase_adapter.absorb_inventory(payload, "무")
+    absorbed_radish = purchase_payload.absorb_inventory(payload, "무")
     assert {row["lot_id"] for row in absorbed_radish["lots"]} == {"LOT-MU"}
     # 매입이 수요에서 빼는 가용재고는 `inventory_by_item` 에서 온다 — Lot 합이 아니다
     assert free_stock_for(absorbed_cabbage, "배추").kg == 500.0
@@ -632,7 +634,7 @@ def test_PRE_SALES_최상위_7키와_중첩_키가_정확히_고정이다():
 def test_PRE_SALES_payload_는_판매_모델이_그대로_파싱한다():
     """마스터 `sales_flow._proposal_input` 이 payload 를 벗겨 `logistics_context` 로 싣고,
     판매가 `SalesLogisticsContext.model_validate` 로 읽는다. 재조립은 없다."""
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _, reply, _ = _call("PRE_SALES")
     context = SalesLogisticsContext.model_validate(wire_payload(dict(reply.payload)))
@@ -654,7 +656,7 @@ def test_PRE_SALES_에_키를_하나라도_더하면_판매가_거부한다(wher
     판매 모델 다섯 겹이 전부 `extra="forbid"` 다 — 어느 겹에 넣어도 판매 회신이 통째로
     선다. 설계 §15 가 그 경로를 **기각** 한 근거가 이 검사다.
     """
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _, reply, _ = _call("PRE_SALES")
     payload = json.loads(json.dumps(wire_payload(dict(reply.payload))))

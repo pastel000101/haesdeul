@@ -34,8 +34,9 @@ import app.master
 from app.contracts.core import BINDING_CONSTRAINT_LABELS, BindingConstraint
 
 _BACKEND = Path(app.master.__file__).parent.parent.parent
-_DRAFT_PLAN = _BACKEND / "app" / "purchase_agent" / "nodes" / "draft_plan.py"
-_PURCHASE_SCHEMAS = _BACKEND / "app" / "purchase_agent" / "schemas.py"
+#: 2026-09-29 재구성 BL-016: ③ 노드 함수는 ``service/nodes/``, 출력 계약은 ``schemas/proposal.py``.
+_DRAFT_PLAN = _BACKEND / "app" / "purchase_agent" / "service" / "nodes" / "draft_plan.py"
+_PURCHASE_SCHEMAS = _BACKEND / "app" / "purchase_agent" / "schemas" / "proposal.py"
 
 
 def _purchase_cap_keys() -> tuple[str, ...]:

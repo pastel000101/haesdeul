@@ -36,7 +36,7 @@ from app.api.dashboard import query as dashboard_query
 from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
 from app.contracts.core import ITEMS
-from app.master.purchase_record_repository import RecordedTotals
+from app.master.readmodel.purchase_record import RecordedTotals
 
 AS_OF = date(2026, 4, 13)
 

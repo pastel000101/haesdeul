@@ -24,41 +24,39 @@ from datetime import date, timedelta
 import pytest
 
 from app.purchase_agent import adapter, features
-from app.purchase_agent.allocation import (
+from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain.allocation import (
     APPROVED,
     PROVISIONAL,
     allocation_candidates,
     split_quantities,
 )
-from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain.self_check import (
+    check_arrival_capacity,
+    check_payment_schedule,
+    check_warehouse_capacity,
+)
+from app.purchase_agent.domain.split_outcome import (
+    AS_CHOSEN,
+    ROLLED_BACK,
+    ROUNDS_CHANGED,
+    settle_split,
+)
+from app.purchase_agent.domain.split_plan import EXCLUDED_OVER_CAPACITY
 from app.purchase_agent.llm.runtime import get_llm_settings
 from app.purchase_agent.llm.split_allocation import (
     SplitAllocationService,
     make_split_selector,
 )
 from app.purchase_agent.llm.split_schemas import SplitAllocationChoice, SplitAllocationResult
-from app.purchase_agent.nodes._split_outcome import (
-    AS_CHOSEN,
-    ROLLED_BACK,
-    ROUNDS_CHANGED,
-    settle_split,
-)
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import package_scenarios
-from app.purchase_agent.nodes.self_check import (
-    check_arrival_capacity,
-    check_payment_schedule,
-    check_warehouse_capacity,
-    self_check,
-)
-from app.purchase_agent.nodes.split_plan import (
-    EXCLUDED_OVER_CAPACITY,
-    split_plan,
-)
-from app.purchase_agent.schemas import TIMING_AXIS
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.schemas.proposal import TIMING_AXIS
+from app.purchase_agent.service.graph import build_initial_state
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 ITEM = "배추"
 AS_OF = date(2026, 8, 21)
@@ -146,7 +144,9 @@ def _승인된_선언() -> dict:
 @pytest.fixture
 def 승인_켜짐(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(FLAG, "true")
-    monkeypatch.setattr("app.purchase_agent.nodes.split_plan.load_constraints", _승인된_선언)
+    monkeypatch.setattr(
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", _승인된_선언
+    )
 
 
 class 세는_프로바이더:
@@ -203,7 +203,7 @@ def _일곱번이_통과시킨다(state: dict, final: dict) -> None:
         ]
         assert check_arrival_capacity(scenario, state) is None
         assert check_warehouse_capacity(scenario, state["inventory"], state, constraints) is None
-        assert check_payment_schedule(scenario, state) is None
+        assert check_payment_schedule(scenario, state, load_constraints()) is None
         for rationale in scenario["rationale"]:
             assert rationale["ref_id"]
 
@@ -264,7 +264,9 @@ def _미승인_선언() -> dict:
 def test_승인_전이면_판단자를_부르지_않는다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 **플래그만 켜도 안 불린다** — 승인 전 선언이면 후보가 균등 하나다."""
     monkeypatch.setenv(FLAG, "true")
-    monkeypatch.setattr("app.purchase_agent.nodes.split_plan.load_constraints", _미승인_선언)
+    monkeypatch.setattr(
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", _미승인_선언
+    )
     provider = 세는_프로바이더("FRONT_LOADED")
     state, final = _펴고_검사(_state("넉넉_상승"), _선택자(provider))
     assert provider.calls == 0
@@ -360,7 +362,9 @@ def test_남기는_후보는_여섯번이_그대로_적용하는_후보와_같�
     ④ 가 남긴 후보는 ⑥ 이 **회차 · 비율 · 물량 그대로** 적용하고, ④ 가 뺀 후보는 ⑥ 이
     회차를 바꾸거나 · 접거나 · 물량을 옮긴다. 둘이 갈리면 판단자가 고른 것이 버려진다.
     """
-    monkeypatch.setattr("app.purchase_agent.nodes.split_plan.load_constraints", _승인된_선언)
+    monkeypatch.setattr(
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", _승인된_선언
+    )
     base = _state(name)
     after_split = dict(base)
     after_split.update(split_plan(after_split))

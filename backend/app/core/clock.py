@@ -32,7 +32,7 @@ master/revalidation.py                 "서버 타임존에 답이 끌려가면 
 
   (시계 함수를 가져가는 자리는 셋이다 — 스케줄러 깨어남(`master/scheduler.py`), 자동
   승인의 실제 오늘 가드(`master/backfill.py`), ML 질의응답이 기준일을 못 받았을 때의
-  대체(`ml/qa_graph.py`). 목록과 이유는 `tests/core/test_clock_is_the_only_wall_clock.py`
+  대체(`ml/service/qa_graph.py`). 목록과 이유는 `tests/core/test_clock_is_the_only_wall_clock.py`
   가 들고 지킨다.)
 
 🔴 **시간대를 반드시 명시한다** — `ZoneInfo("Asia/Seoul")`.

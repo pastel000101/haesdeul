@@ -21,45 +21,43 @@ import pytest
 from _injection import drop_holdings, inject_arrival_cap, inject_arrival_window
 
 from app.purchase_agent import mocks
-from app.purchase_agent.allocation import equal_ratios
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import (
+from app.purchase_agent.domain.allocation import (
+    arrival_dates,
+    equal_ratios,
+    split_infeasible_reason,
+    split_offsets,
+)
+from app.purchase_agent.domain.classify_situation import (
     SplitEntryCap,
-    classify_situation,
     coverage_by_label,
     estimate_daily_demand,
     volume_gate_holds,
 )
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import (
-    arrival_dates,
-    cap_constrained_quantities,
-    materialize_split,
-    package_scenarios,
-    split_infeasible_reason,
-    split_offsets,
-    with_round_amounts,
-)
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.package_scenarios import materialize_split, with_round_amounts
+from app.purchase_agent.domain.self_check import (
     check_axis_diversity,
     check_payment_schedule,
     check_quadruple_match,
     check_split_amounts,
     check_split_dates,
-    self_check,
 )
-from app.purchase_agent.nodes.split_plan import (
+from app.purchase_agent.domain.split_outcome import cap_constrained_quantities
+from app.purchase_agent.domain.split_plan import (
     choose_rounds,
     effective_allowed_axes,
     evaluate_split_entry,
     largest_total_kg,
     split_decision,
-    split_plan,
 )
-from app.purchase_agent.schemas import TIMING_AXIS, PurchaseProposal
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.schemas.proposal import TIMING_AXIS, PurchaseProposal
+from app.purchase_agent.service.graph import build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 from tests.test_purchase_agent._ast_helpers import references
 
 RISING = date(2026, 8, 21)
@@ -72,7 +70,9 @@ ITEM = "배추"
 
 #: ㉣ 검사가 훑는 자리 — 옛 고정 임계가 코드로 되돌아오면 운다.
 _PACKAGE = Path(mocks.__file__).resolve().parent.parent
-_NODES = _PACKAGE / "nodes"
+#: 2026-09-29 재구성 BL-016 뒤 노드는 두 파일이다 —
+#: 노드 함수(``service/nodes``)와 판정 · 계산(``domain``).
+_NODE_DIRS = (_PACKAGE / "service" / "nodes", _PACKAGE / "domain")
 
 
 def _staged(item: str = ITEM, as_of: date = RISING) -> dict:
@@ -637,8 +637,12 @@ def test_the_old_fixed_threshold_is_gone_from_both_the_declaration_and_the_code(
     """
     assert "split_entry_qty_kg" not in load_constraints()["triggers"]
     for name in ("classify_situation.py", "split_plan.py", "draft_plan.py", "package_scenarios.py"):
-        assert not references(_NODES / name, "split_entry_qty_kg"), name
-    assert not references(_PACKAGE / "adapter.py", "split_entry_qty_kg")
+        for folder in _NODE_DIRS:
+            assert not references(folder / name, "split_entry_qty_kg"), f"{folder.name}/{name}"
+    # 어댑터에서 옮긴 수신 검사 · 근거 문장도 본다 (2026-09-29 BL-016).
+    for path in (_PACKAGE / "adapter.py", _PACKAGE / "domain" / "payload.py",
+                 _PACKAGE / "domain" / "evidence.py"):
+        assert not references(path, "split_entry_qty_kg"), path.name
 
 
 def test_the_withdrawn_axis_does_not_make_self_check_reject_the_whole_day() -> None:
@@ -1117,7 +1121,7 @@ def test_the_payment_schedule_reads_the_round_amounts() -> None:
     state = {"purchase_payment_days": 0}
 
     assert check_split_amounts(scenario) is None
-    assert check_payment_schedule(scenario, state) is None
+    assert check_payment_schedule(scenario, state, load_constraints()) is None
 
 
 # ── 변이 — 검사가 실제로 무는가 (규칙 8) ──────────────────────────────────
@@ -1204,12 +1208,12 @@ def test_a_round_amount_that_diverges_from_the_payment_schedule_is_caught() -> N
         ],
     }
     state = {"purchase_payment_days": 0}
-    assert check_payment_schedule(scenario, state) is None
+    assert check_payment_schedule(scenario, state, load_constraints()) is None
 
     diverged = deepcopy(scenario)
     diverged["payment_schedule"][0]["amount_krw"] = 399_999
     diverged["payment_schedule"][1]["amount_krw"] = 600_001  # 합은 그대로 둔다
 
     assert check_split_amounts(diverged) is None, "합은 안 깨졌다 — 그래서 이 대조가 필요하다"
-    reason = check_payment_schedule(diverged, state)
+    reason = check_payment_schedule(diverged, state, load_constraints())
     assert reason is not None and "금액이 분할과 다르다" in reason

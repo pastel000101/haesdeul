@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import date, timedelta
 
 from app.api.forecast.schema import (
@@ -43,6 +44,7 @@ from app.api.primitives import (
     Source,
     Table,
 )
+from app.ml.readmodel import forecast_tab
 
 log = logging.getLogger(__name__)
 
@@ -98,59 +100,19 @@ _DEMO = {
     "양파": {"p": 785, "lo": 755, "hi": 815},
 }
 
-_SQL_BASE_DATES = """
-    SELECT base_dt, COUNT(*) AS n, COUNT(actual_prc) AS scored,
-           MIN(created_at) AS made_at
-      FROM prediction_log
-     WHERE model_ver = ANY(%s)
-     GROUP BY base_dt
-     ORDER BY base_dt DESC
-     LIMIT %s
-"""
 
-_SQL_ROWS = """
-    SELECT lead_biz_d, target_dt, anchor_prc, pred_prc, pred_lo, pred_hi,
-           actual_prc, abs_pct_err, gated, gate_reason
-      FROM prediction_log
-     WHERE model_ver = ANY(%s) AND base_dt = %s AND target_kind = %s AND item_nm = %s
-     ORDER BY lead_biz_d
-"""
-
-#: 세 품목의 **기준일 그날 값** (리드 0).
-#:
-#: ★ 전에는 «게이트를 지난 첫 리드» 를 썼습니다. 게이트가 리드 1~2 를
-#:   어제값으로 덮던 때라 그게 첫 모델값이었습니다. 게이트를 끄고 리드 0 을
-#:   만든 지금은 **기준일 그날**이 맞습니다 — 오늘 9월 9일인데 카드에
-#:   9월 14일 값이 뜨고 있었습니다.
-#:
-#: ★ 그날 값이 없으면 가장 가까운 리드로 떨어집니다 (`ORDER BY lead_biz_d`).
-_SQL_CARDS = """
-    SELECT DISTINCT ON (item_nm)
-           item_nm, lead_biz_d, target_dt, pred_prc, pred_lo, pred_hi, gated
-      FROM prediction_log
-     WHERE model_ver = ANY(%s) AND base_dt = %s AND target_kind = %s
-       AND item_nm = ANY(%s) AND lead_biz_d >= %s
-     ORDER BY item_nm, lead_biz_d
-"""
-
-_SQL_QUALITY = """
-    SELECT target_kind, item_nm, use_recommended, note
-      FROM ref_prediction_quality
-     ORDER BY target_kind, item_nm
-"""
-
-
-def _fetch(sql: str, params: tuple):
+def _fetch(read: Callable[..., list[dict]], *args: object) -> list[dict] | None:
     """원본 창고 조회. 못 읽으면 None — 부르는 쪽이 예시값으로 떨어진다.
+
+    ★ 조회 자체(SQL · 원본 창고 연결)는 ML 조회 `app/ml/readmodel/forecast_tab.py` 가 한다
+      (2026-09-29 재구성 BL-017 — 전에는 이 파일이 SQL 네 개를 들고 `app/ml/db.py` 로 실행했다).
 
     ★ 통째로 잡는 것이 맞습니다. 여기서 무슨 일이 나든 **화면은 떠야** 하고,
       대신 「예시값」 딱지가 붙습니다. 예외를 골라 잡으면 안 골라낸 하나
       때문에 화면이 통째로 죽습니다.
     """
     try:
-        from app.ml.db import fetch_all
-
-        return fetch_all(sql, params, source=True)
+        return read(*args)
     except Exception as error:  # noqa: BLE001  DB 미연결 · 표 없음 둘 다 여기로
         log.info("원본 창고를 못 읽어 예시값을 씁니다: %s", error)
         return None
@@ -241,7 +203,7 @@ def _accuracy_table() -> Table:
 def _quality_table(live: bool) -> Table:
     rows: list[dict] | None = None
     if live:
-        got = _fetch(_SQL_QUALITY, ())
+        got = _fetch(forecast_tab.quality_rows)
         if got:
             rows = [
                 {
@@ -286,7 +248,7 @@ def _caveat() -> Note:
 
 
 def base_dates(kind: str) -> tuple[list[BaseDateOption], bool]:
-    got = _fetch(_SQL_BASE_DATES, (list(OPS), BASE_DATE_LIMIT))
+    got = _fetch(forecast_tab.base_dates, list(OPS), BASE_DATE_LIMIT)
     if not got:
         return [], False
     out = [
@@ -316,8 +278,10 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
     #  ★ `prediction_log.target_kind` 는 **소문자**다 (`auc` · `whsl` · `rtl`).
     #    서비스 창고(`ml_price_forecasts`)는 대문자라 헷갈리기 쉽다 —
     #    대문자로 물으면 오류 없이 **0행**이 와서 조용히 예시값으로 떨어진다.
-    rows = _fetch(_SQL_ROWS, (list(OPS), chosen_dt, kind, item))
-    card_rows = _fetch(_SQL_CARDS, (list(OPS), chosen_dt, kind, list(ITEMS), TODAY_LEAD))
+    rows = _fetch(forecast_tab.forecast_rows, list(OPS), chosen_dt, kind, item)
+    card_rows = _fetch(
+        forecast_tab.card_rows, list(OPS), chosen_dt, kind, list(ITEMS), TODAY_LEAD
+    )
     if not rows or not card_rows:
         return _demo_tab(as_of, kind, item)
 

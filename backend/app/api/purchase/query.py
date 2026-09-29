@@ -12,10 +12,11 @@
   돌면 안 됩니다 (CLAUDE.md 규칙 2 — read-only).
 
 🔴 **DB 헬퍼를 ``app.finance.db`` 에서 가져오는 이유.**
-  ``app.purchase_agent.db`` 에는 ``get_db_schema`` 가 **없습니다.** 일부러 뺐고
-  (그 파일 머리말 참조) 이유는 *"``.env`` 가 어느 시세 테이블을 읽을지 정하면
-  안 된다"* 입니다. 그 이유는 **에이전트 경로**의 것이고, 여기는 화면 층이라
-  ``haetdeul`` 도메인 표를 읽습니다 — 스키마를 ``.env`` 가 정하는 것이 맞습니다.
+  매입 에이전트(``app.purchase_agent``)는 ``get_db_schema`` 를 **쓰지 않습니다.** 일부러
+  뺐고 (``readmodel/quotes.py`` 머리말 «읽기 전용» — 2026-09-29 전에는 ``db.py`` 머리말)
+  이유는 *"``.env`` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그 이유는
+  **에이전트 경로**의 것이고, 여기는 화면 층이라 ``haetdeul`` 도메인 표를 읽습니다 —
+  스키마를 ``.env`` 가 정하는 것이 맞습니다.
   마스터 ``ledger_repository.py`` 가 같은 이유로 같은 선택을 했습니다.
   ⚠️ 쓰기 헬퍼(``execute_returning_one``)는 **가져오지 않습니다.**
 
@@ -30,11 +31,11 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
-from app.api import plan_state
 from app.api.primitives import Column, Note, Source, Stat, Table
 from app.api.purchase.schema import Plan, PurchaseTab, Reason
 from app.contracts.core import ITEMS
-from app.master.purchase_record_repository import RecordedTotals, recorded_totals_by_plan
+from app.master.domain import plan_state
+from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
 
 log = logging.getLogger(__name__)
 
@@ -383,7 +384,7 @@ def _current_decisions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     같은 요청에 안을 바꿔 여러 번 승인한 경우도 **전부** 「승인됨」이었다.
 
     ★ 되돌린 요청은 안 이름 붙은 유효 결정이 없으므로 「후보」 · 대기로 돌아간다 —
-      낱말은 `plan_state.py` 가 정하고 여기서 새로 만들지 않는다.
+      낱말은 `master/domain/plan_state.py` 가 정하고 여기서 새로 만들지 않는다.
 
     ⚠️ 검사 대역은 `decision_seq` 를 안 넣기도 한다 — 그때는 **목록 순서**를 회차로 읽는다
       (뒤에 온 행이 새것). 실 조회는 늘 그 칸을 싣는다.
@@ -515,12 +516,52 @@ def _payments(scenario: dict[str, Any]) -> Table:
     )
 
 
+#  ── 안 이름 「품목 · 안 이름」 읽기 ─────────────────────────────────────────
+#
+#  🟢 **자리 (2026-09-29 · 재구성 BL-012).** 전에는 `app/api/plan_state.py` 에 상태 판정과
+#     함께 있었다. 판정(`state_of`)과 낱말은 마스터 domain(`app/master/domain/
+#     plan_state.py`)으로 갔고, 이 셋은 **이 파일의 `_plan` 이 짓는 이름**을 거꾸로 쪼개
+#     읽는 일이라 이름을 짓는 자리 옆에 남겼다. 대시보드도 여기 것을 부른다.
+
+
+def plan_item(key: str) -> str | None:
+    """안의 품목. 🔴 매입 `Plan` 스키마에 품목 칸이 없다 (2026-09-14 확인).
+
+    매입 `_plan()` 이 `key=f"{item} · {label}"` 로 품목을 이름 앞에 넣는다. 그 앞자리를
+    **계약 품목(`ITEMS`)과 맞춰** 읽는다 — 이름을 코드에 박지 않고, 계약 밖이면 공란.
+    매입 스키마에 품목 칸이 서는 날 이 함수를 그 칸 읽기로 바꾼다.
+    """
+    return next((item for item in ITEMS if key.startswith(f"{item} · ")), None)
+
+
+def plan_label(key: str) -> tuple[str, str] | None:
+    """안 이름을 `(품목, 안 이름)` 으로 가른다 — 실매입 기록을 맞출 열쇠다.
+
+    ★ `plan_item` 과 **같은 규칙**을 쓴다 (`key=f"{item} · {label}"`). 계약 밖 품목이면
+      `None` 이고, 그러면 기록도 안 맞춘다 — 지금 사는 품목이 아니다.
+    """
+    item = plan_item(key)
+    return None if item is None else (item, key[len(item) + len(" · ") :])
+
+
+def recorded_for(
+    records: dict[tuple[str, str], RecordedTotals], key: str
+) -> RecordedTotals | None:
+    """이 안에 적힌 실매입. 🔴 **열쇠가 `(품목, 안 이름)` 둘 다**여야 한다.
+
+    품목만 맞추면 같은 품목의 다른 안(보수 · 기본 · 공격)에 **엉뚱한 기록**이 붙는다.
+    """
+    pair = plan_label(key)
+    return None if pair is None else records.get(pair)
+
+
 def _records(as_of: date, sim_run_id: str | None) -> dict[tuple[str, str], RecordedTotals]:
     """그날 · 그 축의 **실매입 기록 합계.** 열쇠는 `(품목, 안 이름)`.
 
-    🔴 **여기서 숫자를 만들지 않는다.** 표를 읽는 자리는 마스터 한 곳이고
-       (`master/purchase_record_repository.recorded_totals_by_plan`) 이 함수는 그것을
-       부르기만 한다 — 대시보드(`api/dashboard/query._records`)와 **같은 함수**다.
+    🔴 **여기서 숫자를 만들지 않는다.** 표를 읽고 합계를 엮는 자리는 마스터 한 곳이고
+       (`master/readmodel/purchase_record.recorded_totals_by_plan` — SQL 은 그 아래
+       repository) 이 함수는 그것을 부르기만 한다 — 대시보드(`api/dashboard/query.
+       _records`)와 **같은 함수**다.
 
     🔴 **축이 없으면 안 맞춘다.** 그 조회는 `sim_run_id` 가 필수다 (PK 에 축이 있다).
        아무 축이나 넣어 맞추면 **다른 걷기에서 산 값**이 이 안에 붙는다 — 틀린 줄도
@@ -580,16 +621,16 @@ def _plan(item: str, scenario: dict[str, Any], decided: dict[tuple[str, str], st
         #     전에는 `decision is None` — (요청, 안 이름) 한 쌍으로만 봐서, 같은 요청에서
         #     보수안이 승인되면 **고르지 않은 기본안이 「승인 대기」로 남았다.** 매입 탭 통계와
         #     대시보드 배지가 그 수를 셌다 (REH-0914 08-31 · 3건인데 기다리는 것은 양파 1건).
-        #  ★ 낱말(`state` 「후보」)은 안 바꾼다 — 주인은 `plan_state.py` 다. 형제 안은
+        #  ★ 낱말(`state` 「후보」)은 안 바꾼다 — 주인은 `master/domain/plan_state.py` 다. 형제 안은
         #    「후보」 그대로이고, **기다리는 수에서만** 빠진다.
         pending=request_id not in decided_requests,
         approved=decision == "APPROVE",
         #  🔴 **`approved` 하나로는 못 가른다** — 승인만 된 안과 실매입까지 적은 안이
-        #     둘 다 참이다. 낱말과 판정의 주인은 `app/api/plan_state.py` 하나이고
+        #     둘 다 참이다. 낱말과 판정의 주인은 `app/master/domain/plan_state.py` 하나이고
         #     (대시보드도 같은 것을 쓴다) 여기서는 부르기만 한다.
         state=plan_state.state_of(
             approved=decision == "APPROVE",
-            recorded=plan_state.recorded_for(records or {}, key),
+            recorded=recorded_for(records or {}, key) is not None,
         ),
         #  🔴 말로 한 승인이 이 둘을 짚어 `/master/ask/execute` 에 싣는다.
         #     **못 읽으면 None 이다** — 지어내면 엉뚱한 실행이 승인된다.
@@ -699,7 +740,7 @@ _DEMO_REASONS = [
 ]
 
 #: 🔴 **문서 줄은 ⑥이 만드는 문장을 베낀 것이다** — 두 자리가 갈리면 예시값이 실물과
-#:   다른 말을 한다. 원본은 ``package_scenarios._context_risks`` 이고, 문면을 고칠 때
+#:   다른 말을 한다. 원본은 ``package_scenarios.context_risks`` 이고, 문면을 고칠 때
 #:   **여기를 같이 본다** (2026-09-09 · E3-5).
 #:
 #:   전에는 *"참조 가능한 발간물 0건"* 이었는데 **그건 다른 상태의 문장**이다. 운영은

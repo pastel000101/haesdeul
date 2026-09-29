@@ -142,7 +142,10 @@ def 부른_부서(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
        같은 이유로 여기서 판매 쪽을 막는다.
     """
     부른_것: list[tuple[str, str]] = []
-    monkeypatch.setattr("app.sales.adapter.save_sales_agent_run", lambda **kw: None)
+    #  ★ 2026-09-29 BL-013: 이력 적재는 `service/proposal_generation.py` 가 연결을 빌려 한다.
+    monkeypatch.setattr(
+        "app.sales.service.proposal_generation._record_run", lambda *a, **kw: None
+    )
     wiring.register("inventory", _대역(PRE_SALES_PAYLOAD, 부른_것))
     wiring.register("finance", _대역({"verdict": "ok"}, 부른_것))
     return 부른_것
@@ -211,9 +214,10 @@ def test_물류와_판매를_실제로_부른다(client: TestClient, 부른_부�
 def test_판매_회신이_실_어댑터에서_왔다(client: TestClient, 부른_부서) -> None:
     """🔴 **대역이면 이 자리가 조용하다.** 회신의 출처를 회신 자체로 확인한다.
 
-    ★ 대역은 `run_id` 를 `"SALES-2"` 처럼 만들고 실 어댑터는 `uuid4()` 를 쓴다
-      (`app/sales/adapter.py` `_run_id`). 값을 비교하지 않고 **모양이 갈리는 것**만
-      본다 — 값을 박으면 판매가 id 규칙을 바꾸는 날 마스터 검사가 깨진다.
+    ★ 대역은 `run_id` 를 `"SALES-2"` 처럼 만들고 실 판매는 `uuid4()` 를 쓴다
+      (`app/sales/service/proposal_generation.py` `_new_run_id`). 값을 비교하지 않고
+      **모양이 갈리는 것**만 본다 — 값을 박으면 판매가 id 규칙을 바꾸는 날 마스터 검사가
+      깨진다.
     """
     본문 = _본문(client)
 
@@ -327,7 +331,7 @@ def test_수량을_실으면_재무_최종검증까지_간다(client: TestClient
         # 🔴 **상업조건 둘도 실어야 제시까지 간다** (2026-09-08 계약).
         #    후보 판정이 `delivery_date` · `payment_days` 를 필수로 잡았고,
         #    판매는 그 둘을 `preferred_*` 에서만 만든다
-        #    (`app/sales/proposal.py` `_baseline`). 안 실으면 후보가 전부
+        #    (`app/sales/domain/proposal.py` `_baseline`). 안 실으면 후보가 전부
         #    *"납품일이 없다"* 로 떨어져 `SL3_ALL_REJECTED` 가 된다.
         preferred_delivery_date="2026-09-17",
         preferred_payment_days=30,

@@ -468,7 +468,7 @@ def _cap_by_date(raw: Any) -> dict[str, float]:
 #    같은 사실이라 낱말을 하나로 둔다.
 # ---------------------------------------------------------------------------
 
-#: 판매 후보가 채널 배분을 싣는 칸. 판매 소유 이름이다 (`app/sales/schemas.py`
+#: 판매 후보가 채널 배분을 싣는 칸. 판매 소유 이름이다 (`app/sales/schemas/proposal.py`
 #: `SalesCandidate.allocation`). 마스터가 여기서 다시 정하지 않는다.
 _ALLOCATION = "allocation"
 

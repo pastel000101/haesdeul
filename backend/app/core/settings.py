@@ -1,4 +1,5 @@
-"""프로세스 설정 — `.env` 위치, DB 접속 정보, 연결 풀 크기, SQL 이 쓸 스키마 이름.
+"""프로세스 설정 — `.env` 위치, DB 접속 정보(서비스 DB · ML 원본 창고), 연결 풀 크기,
+SQL 이 쓸 스키마 이름, 화면이 보는 실행과 기준일(발표용 고정값 · 맨 아래).
 
 2026-09-28 부서별 `db.py` 다섯 벌에 복제돼 있던 부분을 여기로 모았다.
 
@@ -21,7 +22,8 @@
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -147,3 +149,78 @@ def pool_settings(*, load: Load = load_env_file) -> PoolSettings:
 def get_db_schema(*, load: Load = load_env_file) -> str:
     """SQL 이 쓸 PostgreSQL 스키마 이름(`DB_SCHEMA`). 연결이 아니라 SQL 문에 들어간다."""
     return required_database_environment(("DB_SCHEMA",), load=load)["DB_SCHEMA"]
+
+
+# ── ML 원본 창고 접속 정보 ─────────────────────────────────────────────────────
+#
+# 🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/db.py::source_database_settings`
+#    였다. 원본 창고 풀을 연결 모듈(`app/core/db.py::ML_SOURCE_POOL`)이 서비스 풀과 나란히
+#    준비하게 되어, 그 풀이 열 때 읽는 접속 정보도 이리로 옮겼다. 읽는 환경변수 · 물려받는
+#    기본값 · 오류 종류와 문구는 그대로다.
+
+
+def ml_source_database_settings() -> DatabaseSettings:
+    """원본 창고 접속 정보. 원자료와 학습 테이블이 있는 곳이다.
+
+    ``ML_SOURCE_DB_*`` 가 있으면 그것을, 없으면 기본 ``DB_*`` 를 쓰되
+    데이터베이스 이름만 ``ML_SOURCE_DB_NAME`` 으로 바꾼다.
+    같은 서버의 다른 데이터베이스이므로 접속 정보를 두 벌 관리할 이유가 없다.
+    """
+    load_env_file()
+    base = database_settings()
+    name = os.getenv("ML_SOURCE_DB_NAME", "").strip()
+    if not name:
+        raise RuntimeError(
+            "ML_SOURCE_DB_NAME 이 필요합니다. 원본 데이터가 있는 데이터베이스 이름입니다."
+        )
+    return replace(
+        base,
+        host=os.getenv("ML_SOURCE_DB_HOST", base.host),
+        port=os.getenv("ML_SOURCE_DB_PORT", base.port),
+        name=name,
+        user=os.getenv("ML_SOURCE_DB_USER", base.user),
+        password=os.getenv("ML_SOURCE_DB_PASSWORD", base.password),
+    )
+
+
+# ── 화면이 읽는 실행과 기준일 — **발표용 임시 설정이다** ─────────────────────────
+#
+# 🟢 **자리 (2026-09-29 · 재구성 BL-012).** 전에는 `app/api/shown_run.py` 한 파일이었다.
+#    화면 API 와 마스터(`app/master/ask_service.py`)가 함께 읽는 값이라, 마스터가 화면
+#    모듈을 import 하지 않도록 공용 설정 자리로 옮겼다. **값 · 뜻 · 쓰는 곳은 그대로다.**
+#    발표용 고정을 없앨지(주소 파라미터 방식)는 옮긴 것과 별개로 아직 정하지 않았다.
+#
+# `app/api/dashboard/AGENTS.md` 의 「아직 안 정한 것 — `sim_run_id`」 에서 ㉰ (설정값으로
+# 하나 못 박는다) 를 골랐다. 화면 API 가 읽는 실행은 이 두 줄 한 자리에서만 정한다.
+#
+#     멘토링 시연(9/15)   SIM-CHAIN-REH-0914   2026-08-31   리허설(정본 아님) · 지금 값
+#     9/18 제출 숫자      SIM-CHAIN-V13        2026-01-26   1~3월 중간 정본
+#     최종 실행 뒤        SIM-CHAIN-FINAL      2026-09-20   2026-01-01~09-20 한 줄기
+#
+# ★ **지금 값은 멘토링 시연(2026-09-15 17시) 전용이다.** 리허설 실행 SIM-CHAIN-REH-0914
+#   (01-01~09-14 · dev@434f8e7 로 걸음)의 2026-08-31, 매입이 마지막으로 정상 승인된 날로 연다.
+#   V13 은 1~3월만 있어 9월 흐름을 못 보여 준다.
+#   **발표 전 V13 또는 FINAL 로 되돌린다.** 9/18 제출 숫자는 V13, 9/21 발표 화면은
+#   FINAL 검증 시 FINAL · 09-20, 아니면 V13 · 01-26 이다.
+#
+# ★ **최종 실행 SIM-CHAIN-FINAL 이 끝나면 아래 두 줄만 바꾼다.**
+#
+#     SHOWN_SIM_RUN_ID = "SIM-CHAIN-FINAL"
+#     SHOWN_AS_OF = date(2026, 9, 20)
+#
+#   그 전까지는 1~3월 중간 정본 V13 을 본다.
+#
+# ★ 프론트 기준일 `frontend/src/lib/demo_as_of.ts` 의 코드 기본값은 `SHOWN_AS_OF` 와 같은
+#   값이어야 한다 (`tests/api/test_shown_run.py` 가 잡는다).
+#
+# ★ 발표 뒤에는 주소 파라미터 방식(㉮)으로 올린다. 그때 이 두 값과 이 절은 지운다.
+#
+# 🔴 **화면에서 번인 상수(`ledger_repository.BURN_IN_SIM_RUN_ID`)를 다시 쓰지 않는다.**
+#    번인은 2025-12 한 달치라 발표 숫자와 다른 장부를 보여 준다.
+#
+# 🔴 **환경변수로 덮어쓰지 않는다.** 이 파일의 다른 설정과 달리 `os.getenv` 로 읽지 않는
+#    상수다. 덮어쓸 길을 두면 값의 주인이 둘이 되어 화면과 검사가 서로 다른 실행을 보게
+#    된다.
+
+SHOWN_SIM_RUN_ID = "SIM-MENTOR-0918"
+SHOWN_AS_OF = date(2026, 9, 17)
