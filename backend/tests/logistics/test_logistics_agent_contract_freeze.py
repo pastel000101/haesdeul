@@ -69,8 +69,8 @@ from app.contracts.envelope import (
     wire_payload,
 )
 from app.logistics import adapter
-from app.logistics.repository import LogisticsRead
-from app.logistics.schemas import (
+from app.logistics.schemas.current import LogisticsRead
+from app.logistics.schemas.snapshot import (
     InventoryLogisticsSnapshot,
     InventoryLotSnapshot,
     ItemStoragePolicyFact,
@@ -78,6 +78,7 @@ from app.logistics.schemas import (
     OutboundCommitment,
     ScheduledQuantity,
 )
+from tests.logistics.mode_modules import swap_in_modes
 
 # ---------------------------------------------------------------------------
 # 재료 — 뜻(F)이 갈리도록 고른 수
@@ -300,7 +301,7 @@ def _wired(monkeypatch):
     """읽기 seam 하나만 갈아 끼운다. Tool · Rule · Scenario Engine 은 진짜다."""
     monkeypatch.setenv("LOGISTICS_MASTER_LLM_ENABLED", "false")
     read = LogisticsRead(snapshot=_snapshot(), policy=_policy(), delivery_route="LOGI-BASE-5PL")
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: read)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: read)
 
 
 def _call(mode: str, payload: dict | None = None):
@@ -926,7 +927,7 @@ def test_출고_귀속_불명이면_가용재고를_지어내지_않는다(monke
         policy=_policy(),
         delivery_route="LOGI-BASE-5PL",
     )
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: read)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: read)
 
     _, purchase_reply, _ = _call("PRE_PURCHASE")
     assert purchase_reply.runtime_status == "READY"

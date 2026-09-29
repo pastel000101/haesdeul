@@ -34,10 +34,10 @@ DB_ENV = {
 
 @pytest.fixture(autouse=True)
 def disable_dotenv_loading(monkeypatch: pytest.MonkeyPatch) -> None:
-    import app.logistics.db
-
+    # ★ 2026-09-30 재구성 BL-015: 물류의 한 번 적재(`settings.load_env_file_once`)도 이제 같은
+    #   `settings.load_dotenv` 를 부른다 — 종전 `logistics/db.py` 의 따로 된 적재기를 막던 줄은
+    #   없앴다.
     monkeypatch.setattr(settings, "load_dotenv", lambda *_a, **_k: False)
-    monkeypatch.setattr(app.logistics.db, "load_dotenv", lambda *_a, **_k: False)
 
 
 @pytest.fixture

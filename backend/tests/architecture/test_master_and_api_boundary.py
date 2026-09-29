@@ -36,8 +36,13 @@ API_MAY_TAKE_FROM_MASTER = ("app.master.readmodel", "app.master.domain")
 DOMAIN_DIRS = ("logistics/domain", "master/domain")
 
 #: domain 이 들여도 되는 앱 모듈 — 설계서 §계층 책임 표 `domain` 행(schemas · contracts ·
-#: core.text). 부서의 `schemas` 모듈은 아래 검사가 이름으로 받는다.
+#: core.text). 부서의 `schemas`(모듈이든 패키지든)와 같은 `domain` 계층은 아래 검사가 이름
+#: 조각으로 받는다 — 2026-09-30 재구성 BL-015 부터 물류 `schemas` 는 패키지이고 물류 domain
+#: 파일끼리 순수 함수를 서로 부른다.
 _DOMAIN_MAY_TAKE = ("app.contracts", "app.core.text")
+#: 모듈 전체가 아니라 이름 하나만 들여도 되는 자리 — 시간대 상수는 시계 함수가 아니다
+#: (물류 domain 의 날짜 경계 계산 · 2026-09-30 재구성 BL-015).
+_DOMAIN_MAY_TAKE_NAMES = {"app.core.clock": frozenset({"SEOUL"})}
 #: 표준 라이브러리 중 부작용(네트워크 · 파일 DB · 프로세스)을 여는 것.
 _SIDE_EFFECT_STDLIB = ("urllib", "http", "socket", "sqlite3", "subprocess", "smtplib")
 
@@ -153,7 +158,15 @@ def _domain_violations(source: str) -> list[str]:
         top = names[0].split(".")[0]
         if top == "app":
             module = names[0]
-            ok = module.startswith(_DOMAIN_MAY_TAKE) or module.split(".")[-1] == "schemas"
+            parts = module.split(".")
+            taken = {name.rsplit(".", 1)[-1] for name in names[1:]}
+            ok = (
+                module.startswith(_DOMAIN_MAY_TAKE)
+                or "schemas" in parts
+                or "domain" in parts
+                or (shape.startswith("from ") and bool(taken)
+                    and taken <= _DOMAIN_MAY_TAKE_NAMES.get(module, frozenset()))
+            )
         else:
             ok = top in sys.stdlib_module_names and top not in _SIDE_EFFECT_STDLIB
         if not ok:
@@ -186,11 +199,25 @@ def test_domain_check_catches_planted_side_effect_imports():
     )
 
     assert len(_domain_violations(planted)) == 7, _domain_violations(planted)
+    # ★ 2026-09-30 재구성 BL-015: 계층 폴더로 갈린 뒤에도 부작용 계층은 그대로 잡는다.
+    planted_layers = (
+        "from app.logistics.repository.ledger import select_lot\n"
+        "from app.logistics.readmodel.console import read_console_page\n"
+        "from app.logistics.service.outbound import reserve_stock\n"
+        "from app.logistics.repository import rows\n"
+        "from app.core.clock import seoul_now\n"
+        "from app.core.clock import SEOUL, seoul_now\n"
+        "import app.core.clock\n"
+    )
+    assert len(_domain_violations(planted_layers)) == 7, _domain_violations(planted_layers)
     assert _domain_violations(
         "from __future__ import annotations\nfrom datetime import date\n"
         "from app.logistics.schemas import ConsoleReservation\n"
         "from app.logistics.monitoring.schemas import ExceptionRow\n"
         "from app.contracts.core import ITEMS\n"
+        "from app.logistics.schemas.snapshot import InventoryLotSnapshot\n"
+        "from app.logistics.domain.tools import build_lot_constraints\n"
+        "from app.core.clock import SEOUL\n"
     ) == []
 
 

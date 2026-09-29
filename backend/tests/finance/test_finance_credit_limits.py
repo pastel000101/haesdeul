@@ -260,7 +260,7 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
         is_current=False,
     )
     cursor = _Cursor(history_rows=[newer, older])
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -268,6 +268,8 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
     )
 
     assert response.status_code == 200
+    # 조회도 종전 핸들러처럼 받은 연결에 트랜잭션 블록 하나 — 정상이면 commit 한 번.
+    assert (connection.commits, connection.rollbacks) == (1, 0)
     body = response.json()
     assert [row["partner_credit_limit_id"] for row in body] == ["CREDIT-NEW", "CREDIT-OLD"]
     assert body[0]["credit_limit_krw"] == "0"
@@ -283,7 +285,7 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
 
 def test_existing_partner_without_history_returns_empty_list(monkeypatch):
     cursor = _Cursor(history_rows=[])
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -292,11 +294,12 @@ def test_existing_partner_without_history_returns_empty_list(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == []
+    assert (connection.commits, connection.rollbacks) == (1, 0)
 
 
 def test_unknown_partner_history_is_404(monkeypatch):
     cursor = _Cursor(partner_exists=False)
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -304,3 +307,6 @@ def test_unknown_partner_history_is_404(monkeypatch):
     )
 
     assert response.status_code == 404
+    # 없는 거래처는 블록 안의 예외 — 종전처럼 rollback 하고 commit 하지 않는다.
+    assert (connection.commits, connection.rollbacks) == (0, 1)
+    assert not any("AS is_current" in statement for statement, _ in cursor.calls)

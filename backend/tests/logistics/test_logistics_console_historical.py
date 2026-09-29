@@ -20,19 +20,19 @@ from decimal import Decimal
 
 _KST = timezone(timedelta(hours=9))
 
-from app.logistics.console_service import (
+from app.logistics.domain.tools import build_inventory_by_item
+from app.logistics.readmodel.console import (
     _historical_availability_snapshot,
     _historical_commitments,
     _reservation_totals_from_history,
 )
-from app.logistics.historical_repository import (
+from app.logistics.schemas.historical import (
     HistoricalAllocation,
     HistoricalLot,
     HistoricalReservation,
 )
-from app.logistics.schemas import InventoryLogisticsSnapshot
-from app.logistics.tools import build_inventory_by_item
-from app.logistics.turnover import LotTurnover
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
+from app.logistics.schemas.turnover import LotTurnover
 
 AS_OF = date(2026, 1, 10)
 BAECHU = "ITEM-BAECHU"

@@ -65,10 +65,8 @@ from datetime import date, datetime
 from typing import Literal
 
 from app.core import db as core_db
-from app.logistics.auto_maintenance import (
-    AutoMaintenanceResult,
-    run_logistics_auto_maintenance,
-)
+from app.logistics.schemas.maintenance import AutoMaintenanceResult
+from app.logistics.service.maintenance import run_logistics_auto_maintenance
 
 __all__ = [
     "AUTO_MAINTENANCE",

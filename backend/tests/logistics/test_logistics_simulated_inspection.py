@@ -22,15 +22,18 @@ from typing import Any, Self
 
 import pytest
 
-from app.logistics import inbound_execution, simulated_inspection
-from app.logistics.arrival import DueInbound
-from app.logistics.inbound_execution import InspectionFact, LogisticsInboundExecution
-from app.logistics.inbound_stock import InboundStockResult
-from app.logistics.inspections import InspectionWriteResult, validate_outcome
-from app.logistics.purchase_detail import PurchaseDetail
-from app.logistics.receipts import ReceiptExistence, ReceiptWriteResult
-from app.logistics.schemas import InTransitItem
-from app.logistics.simulated_inspection import ScenarioSimulatedInspectionProvider
+from app.logistics.adapter import LogisticsInboundExecution
+from app.logistics.domain import simulated_inspection
+from app.logistics.domain.arrival import DueInbound
+from app.logistics.domain.inbound_execution import InspectionFact
+from app.logistics.domain.inspections import validate_outcome
+from app.logistics.domain.simulated_inspection import ScenarioSimulatedInspectionProvider
+from app.logistics.schemas.inbound_stock import InboundStockResult
+from app.logistics.schemas.inspections import InspectionWriteResult
+from app.logistics.schemas.purchase_detail import PurchaseDetail
+from app.logistics.schemas.receipts import ReceiptExistence, ReceiptWriteResult
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.service import inbound_execution
 
 SIM_RUN_ID = "SIM-BURNIN-202512"
 AS_OF = date(2026, 1, 7)

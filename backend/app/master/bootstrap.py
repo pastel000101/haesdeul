@@ -33,12 +33,14 @@ from app.finance.adapter import (
     FinanceTransitionAdapter,
     finance_port,
 )
-from app.logistics.adapter import logistics_port
-from app.logistics.cancellation import LogisticsCancellationAdapter
-from app.logistics.day_open import LogisticsDayOpening
-from app.logistics.inbound_execution import LogisticsInboundExecution
-from app.logistics.simulated_inspection import ScenarioSimulatedInspectionProvider
-from app.logistics.transition import LogisticsTransitionAdapter
+from app.logistics.adapter import (
+    LogisticsCancellationAdapter,
+    LogisticsDayOpening,
+    LogisticsInboundExecution,
+    LogisticsTransitionAdapter,
+    logistics_port,
+)
+from app.logistics.domain.simulated_inspection import ScenarioSimulatedInspectionProvider
 from app.master.cancellation import register_cancellation
 from app.master.closing import register_closing
 from app.master.collection import register_collection

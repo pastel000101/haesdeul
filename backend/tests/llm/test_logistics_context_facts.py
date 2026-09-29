@@ -6,8 +6,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.logistics import interpretation
-from app.logistics.interpretation import (
+from app.logistics.llm import interpretation
+from app.logistics.llm.interpretation import (
     MASTER_LLM_ENV,
     _assemble_facts,
     _build_signal_facts,
@@ -35,7 +35,7 @@ from app.logistics.llm.runtime import (
     validate_interpretation,
 )
 from app.logistics.llm.schemas import ContextFact, SanitizedLLMContext
-from app.logistics.schemas import (
+from app.logistics.schemas.agent import (
     InboundConstraints,
     LogisticsBand,
     LogisticsProcurementResponse,
@@ -158,7 +158,7 @@ def test_fact_overflow_returns_empty_and_flag(monkeypatch):
             ContextFact(fact_id=f"{signal}_right", label="검증용", display_value="3개"),
         ]
 
-    monkeypatch.setattr("app.logistics.interpretation._build_signal_facts", two_facts)
+    monkeypatch.setattr("app.logistics.llm.interpretation._build_signal_facts", two_facts)
     signals = [f"SIGNAL_{name}" for name in ["A", "B", "C", "D", "E"]]
     facts, overflow = _assemble_facts(signals, {})
 

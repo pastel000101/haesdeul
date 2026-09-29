@@ -4,7 +4,7 @@
 #
 #   누가 쓰나
 #     판매   `app/sales/outbound.py`      확정 판매를 봉투로 만든다 (보내는 쪽)
-#     물류   `app/logistics/sales_outbound.py`  봉투를 받아 예약 코어를 부른다 (받는 쪽)
+#     물류   `app/logistics/service/outbound.py`  봉투를 받아 예약 코어를 부른다 (받는 쪽)
 #
 #   🔴 **납품일 칸을 두지 않는다** (2026-09-08 · 물류·판매 합의).
 #      `sales.sale_date` 가 납품일의 **정본**이고, DDL 주석이 그렇게 정의한다

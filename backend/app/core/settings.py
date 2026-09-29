@@ -12,8 +12,9 @@ SQL 이 쓸 스키마 이름, 화면이 보는 실행과 기준일(발표용 고
 ```
 
 ★ **읽는 시점은 부서가 고른다.** 물류는 `.env` 를 프로세스에서 한 번만 읽는다
-  (`app/logistics/db.py` · 대시보드 한 요청에 550회 불리던 비용). 그래서 적재 함수를
-  `load` 인자로 받는다 — 한 벌로 합치면 어느 한쪽 동작이 바뀐다.
+  (`load_env_file_once` · 물류 스키마 이름 `app/logistics/repository/rows.py` — 대시보드 한 요청에
+  550회 불리던 비용. 2026-09-30 재구성 BL-015 전에는 `app/logistics/db.py` 에 있었다). 그래서 적재
+  함수를 `load` 인자로 받는다 — 한 벌로 합치면 어느 한쪽 동작이 바뀐다.
 
 ★ **접속 정보는 풀을 열 때 한 번 읽는다** (2026-09-29 · 풀 전환). 연결마다 새로 읽지 않으므로
   실행 중에 `DB_*` 를 바꿔도 이미 열린 풀에는 반영되지 않는다. 스키마 이름(`DB_SCHEMA`)은
@@ -40,6 +41,25 @@ Load = Callable[[], None]
 def load_env_file() -> None:
     """`backend/.env` 를 환경변수로 적재한다. 이미 있는 값은 덮지 않는다(`override=False`)."""
     load_dotenv(ENV_FILE)
+
+
+#: `load_env_file_once` 가 이미 적재했나. 검사는 이 값을 `False` 로 되돌려 처음 상태를 만든다.
+_env_file_loaded_once = False
+
+
+def load_env_file_once() -> None:
+    """`backend/.env` 를 프로세스에서 **한 번만** 적재한다 — 물류 스키마 이름이 쓴다.
+
+    🔴 대시보드 한 요청에 물류 스키마 이름이 550번 읽히며 매번 파일을 다시 파싱해 7.8초를 썼다.
+       값은 적재 뒤 `os.getenv` 로 매번 읽으므로 검사가 환경변수를 바꿔도 그대로 따라간다.
+
+    ★ 2026-09-30 재구성 BL-015: `app/logistics/db.py::_load_env_file_once` 를 옮겼다(동작 그대로).
+    """
+    global _env_file_loaded_once
+    if _env_file_loaded_once:
+        return
+    load_dotenv(ENV_FILE)
+    _env_file_loaded_once = True
 
 
 class MissingDatabaseEnvironment(RuntimeError):

@@ -26,7 +26,7 @@ def _json_safe(value: Any) -> str:
        `SIM-WALK-2026-FULL` 206일에서 **123건**). `asdict(request)` 는 `date` 를
        그대로 두는데 `Jsonb` 는 그것을 못 싣는다.
 
-    ★ 저장소 관례가 이미 `model_dump(mode="json")` 이다 (`app/logistics/service.py` ·
+    ★ 저장소 관례가 이미 `model_dump(mode="json")` 이다 (`app/logistics/service/cycle.py` ·
       `app/master/cycle_persistence.py`). 둘 다 날짜를 ISO 문자열로 편다. 여기만
       `dataclasses.asdict` 라 안 펴졌다 — **같은 결로 맞춘다.**
 

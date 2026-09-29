@@ -21,24 +21,24 @@ from typing import Any, Self
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.logistics import transition
-from app.logistics.inbound_schedules import (
+from app.logistics import adapter as adapter_module
+from app.logistics.adapter import LogisticsTransitionAdapter
+from app.logistics.domain import transition as transition_domain
+from app.logistics.domain.tools import find_in_transit_schedule_gap
+from app.logistics.domain.transition import build_next_inventory
+from app.logistics.repository import transition as transition_repository
+from app.logistics.schemas import transition as transition_schemas
+from app.logistics.schemas import vocabulary
+from app.logistics.schemas.inbound_schedules import (
     InboundScheduleView,
     ScheduleAlreadyCancelled,
     ScheduleConflict,
     ScheduleReferenceMissing,
 )
-from app.logistics.schemas import (
-    InTransitItem,
-)
-from app.logistics.tools import find_in_transit_schedule_gap
-from app.logistics.transition import (
-    InventoryTransition,
-    LogisticsFixtureMissing,
-    LogisticsTransitionAdapter,
-    build_next_inventory,
-    persist_inventory,
-)
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.schemas.transition import InventoryTransition, LogisticsFixtureMissing
+from app.logistics.service import transition
+from app.logistics.service.transition import persist_inventory
 
 AS_OF = date(2025, 12, 31)
 SIM_RUN_ID = "LOG-RUNTIME-SIM-BURNIN-202512-DAY30"
@@ -376,6 +376,28 @@ def test_build_quantity_is_decimal_without_binary_drift():
     assert str(quantity) == "0.1"
 
 
+def _transition_원문들() -> list[str]:
+    """종전 `transition.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 service · domain · repository ·
+    schemas 네 파일과 등록소 표면(`adapter.LogisticsTransitionAdapter` 클래스)으로 갈렸다."""
+    adapter_source = Path(adapter_module.__file__).read_text(encoding="utf-8")
+    surface = next(
+        ast.get_source_segment(adapter_source, node)
+        for node in ast.parse(adapter_source).body
+        if isinstance(node, ast.ClassDef) and node.name == "LogisticsTransitionAdapter"
+    )
+    return [
+        *(
+            Path(module.__file__).read_text(encoding="utf-8")
+            for module in (transition, transition_domain, transition_repository, transition_schemas)
+        ),
+        surface,
+    ]
+
+
+def _transition_원문() -> str:
+    return chr(10).join(_transition_원문들())
+
+
 def _코드만(source: str) -> str:
     """docstring 과 `#` 주석을 걷어낸 **실제로 실행되는 코드**.
 
@@ -450,7 +472,7 @@ def test_build_stops_when_a_supplied_mapping_misses_this_leg():
     ★ `purchase_ids=None`(계약이 안 켜졌다)과 **다른 사실**이다. 여기서 `None` 을
       넣고 넘어가면 둘이 같은 값으로 뭉개져, 나중에 도착 처리가 구별하지 못한다.
     """
-    with pytest.raises(transition.PurchaseReferenceMissing) as 오류:
+    with pytest.raises(transition_schemas.PurchaseReferenceMissing) as 오류:
         build_next_inventory(_두회차(), purchase_ids={1: "PUR-REQ-1-D1-S1"})
 
     assert "seq=2" in str(오류.value)
@@ -475,13 +497,13 @@ def test_build_does_not_borrow_another_legs_purchase_id():
         total_qty_kg=200.0,
     )
 
-    with pytest.raises(transition.PurchaseReferenceMissing):
+    with pytest.raises(transition_schemas.PurchaseReferenceMissing):
         build_next_inventory(seq2만_있는_약정, purchase_ids={1: "PUR-REQ-1-D1-S1"})
 
 
 def test_build_rejects_an_empty_purchase_reference():
     """★ 빈 문자열도 참조가 아니다 — 있는 척하는 값을 통과시키지 않는다."""
-    with pytest.raises(transition.PurchaseReferenceMissing):
+    with pytest.raises(transition_schemas.PurchaseReferenceMissing):
         build_next_inventory(_한회차(), purchase_ids={1: ""})
 
 
@@ -510,8 +532,9 @@ def test_build_does_not_call_the_master_id_factory():
     ⚠️ 주석·docstring 은 걷어내고 본다 — *"부르지 않는다"* 고 **설명하는 문장**이
        호출로 잡히면 안 된다.
     """
-    원문 = Path(transition.__file__).read_text(encoding="utf-8")
-    코드 = _코드만(원문)
+    원문 = _transition_원문()
+    # ★ 파일마다 걷어낸다 — 이어 붙인 뒤 걷으면 둘째 파일부터 모듈 docstring 이 남는다.
+    코드 = chr(10).join(_코드만(조각) for 조각 in _transition_원문들())
 
     # 🔴 **호출 형태로 잰다 — 이름 언급이 아니다.** W3-2 가 `ScheduleReferenceMissing`
     #    의 오류 문구에 *"이 값은 마스터가 만든다 (… purchase_id_for)"* 를 적었는데,
@@ -544,7 +567,7 @@ def test_persist_does_not_commit():
 
 def test_persist_does_not_open_its_own_connection():
     """원문에 `get_connection` 이 없다 — 마스터가 쥔 트랜잭션 밖에서 쓰면 안 된다."""
-    source = Path(transition.__file__).read_text(encoding="utf-8")
+    source = _transition_원문()
 
     assert "get_connection" not in source
     # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
@@ -740,8 +763,8 @@ def test_persist_reads_before_writing_on_the_given_connection():
     assert not _is_write(읽기)
     assert _is_write(쓰기) and "SELECT" not in 쓰기
     # ★ 읽은 행과 쓴 행이 갈리면 남의 목록에 이번 승인분을 얹는다.
-    assert conn.커서.params[0] == (SIM_RUN_ID, AS_OF, transition.USAGE_SCOPE)
-    assert _update_params(conn)[-3:] == (SIM_RUN_ID, AS_OF, transition.USAGE_SCOPE)
+    assert conn.커서.params[0] == (SIM_RUN_ID, AS_OF, vocabulary.USAGE_SCOPE)
+    assert _update_params(conn)[-3:] == (SIM_RUN_ID, AS_OF, vocabulary.USAGE_SCOPE)
 
 
 def test_persist_locks_the_fixture_row_before_merging():
@@ -776,7 +799,7 @@ def test_persist_does_not_create_an_advisory_lock():
     `ledger.py` 가 전역 advisory lock 을 쓰는 이유는 거기가 여러 행·여러 표를
     오가기 때문이라 사정이 다르다.
     """
-    source = Path(transition.__file__).read_text(encoding="utf-8")
+    source = _transition_원문()
 
     assert "pg_advisory" not in source
 
@@ -804,12 +827,13 @@ def test_transition_module_does_not_write_inventory_lots():
       가지 장벽과 함께 적고 있어 표 이름이 거기 나온다 — 설명하는 문장과 그 표에
       쓰는 코드는 다른 것이고, 잠가야 할 것은 후자다.
     """
-    source = Path(transition.__file__).read_text(encoding="utf-8")
-    module_docstring = ast.get_docstring(ast.parse(source), clean=False)
-    assert module_docstring is not None, "모듈 docstring 이 없다 — 왜 이 표인지가 안 적혀 있다."
-    code = source.replace(module_docstring, "", 1)
-
-    assert "inventory_lots" not in code
+    *파일들, 표면 = _transition_원문들()
+    for source in 파일들:
+        module_docstring = ast.get_docstring(ast.parse(source), clean=False)
+        assert module_docstring is not None, "모듈 docstring 이 없다 — 왜 이 표인지가 안 적혀 있다."
+        code = source.replace(module_docstring, "", 1)
+        assert "inventory_lots" not in code
+    assert "inventory_lots" not in 표면
 
 
 # ── LogisticsTransitionAdapter ──────────────────────────────────────────
@@ -1192,7 +1216,7 @@ def test_adapter_build_forwards_purchase_ids_untouched():
 
 def test_adapter_build_passes_the_missing_reference_error_through():
     """★ 어댑터가 삼키지 않는다 — 마스터가 `FAILED` 로 사유를 남긴다."""
-    with pytest.raises(transition.PurchaseReferenceMissing):
+    with pytest.raises(transition_schemas.PurchaseReferenceMissing):
         _adapter().build(
             _두회차(), target_state_date=TARGET_STATE_DATE, purchase_ids={1: "PUR-REQ-1-D1-S1"}
         )

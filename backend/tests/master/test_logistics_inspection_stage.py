@@ -22,7 +22,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.logistics.monitoring.schemas import DetectOut
+from app.logistics.schemas.monitoring import DetectOut
 from app.master.inspection import (
     AFTER_INBOUND,
     AFTER_OUTBOUND,

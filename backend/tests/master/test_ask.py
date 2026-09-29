@@ -808,7 +808,7 @@ def test_logistics_report_is_a_read_action_not_a_write():
 def _logistics_item(item_id, name, *, on_hand, available, reserved, unallocated=0):
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInventoryItem
+    from app.logistics.schemas.console import ConsoleInventoryItem
 
     return ConsoleInventoryItem(
         item_id=item_id,
@@ -840,7 +840,7 @@ def _logistics_receipt(
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInboundReceipt
+    from app.logistics.schemas.console import ConsoleInboundReceipt
 
     return ConsoleInboundReceipt(
         inbound_id=f"INB-{receipt_id}",
@@ -868,7 +868,7 @@ def _logistics_reservation(reservation_id, item, *, status, unallocated, due=Non
     from datetime import UTC, date, datetime
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleAllocation, ConsoleReservation
+    from app.logistics.schemas.console import ConsoleAllocation, ConsoleReservation
 
     allocations = ()
     if shipped:
@@ -904,7 +904,7 @@ def _logistics_lot(lot_id, item, received, *, fresh, sell_priority=False, dispos
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInventoryLot
+    from app.logistics.schemas.console import ConsoleInventoryLot
 
     return ConsoleInventoryLot(
         lot_id=lot_id,
@@ -930,8 +930,9 @@ def logistics_report_stubs(monkeypatch):
     from decimal import Decimal
 
     from app.core import db as core_db
-    from app.logistics import console_service, historical_repository
-    from app.logistics.schemas import (
+    from app.logistics.readmodel import console as console_readmodel
+    from app.logistics.readmodel import historical as historical_readmodel
+    from app.logistics.schemas.console import (
         ConsoleArrivalSummary,
         ConsoleCapacity,
         ConsoleInboundResponse,
@@ -963,10 +964,10 @@ def logistics_report_stubs(monkeypatch):
         return ()
 
     monkeypatch.setattr(core_db, "connection", _connect)
-    monkeypatch.setattr(historical_repository, "reservation_state_at", _reservations)
-    monkeypatch.setattr(console_service, "load_console_runtime", lambda **_kwargs: None)
+    monkeypatch.setattr(historical_readmodel, "reservation_state_at", _reservations)
+    monkeypatch.setattr(console_readmodel, "load_console_runtime", lambda **_kwargs: None)
     monkeypatch.setattr(
-        console_service,
+        console_readmodel,
         "get_inventory_console",
         lambda **_kwargs: ConsoleInventoryResponse(
             sim_run_id="SIM-1",
@@ -994,7 +995,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        console_service,
+        console_readmodel,
         "get_inbound_console",
         lambda **_kwargs: ConsoleInboundResponse(
             sim_run_id="SIM-1",
@@ -1022,7 +1023,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        console_service,
+        console_readmodel,
         "get_outbound_console",
         lambda **_kwargs: ConsoleOutboundResponse(
             sim_run_id="SIM-1",
@@ -1047,7 +1048,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        historical_repository,
+        historical_readmodel,
         "onhand_total_by_day",
         lambda _conn, **_kwargs: {
             date(2026, 9, 1): Decimal(30),
@@ -1057,7 +1058,7 @@ def logistics_report_stubs(monkeypatch):
     )
     # 9/2 는 이 실행이 **열지 않은 날**이다 — 원장 누계 0 을 재고 0kg 으로 그리면 안 된다.
     monkeypatch.setattr(
-        historical_repository,
+        historical_readmodel,
         "snapshot_days_between",
         lambda _conn, **_kwargs: frozenset({date(2026, 9, 1), date(2026, 9, 3)}),
     )
@@ -1185,9 +1186,9 @@ def test_logistics_report_available_range_is_none_when_no_day_is_open(
     logistics_report_stubs, monkeypatch
 ):
     """추이가 전부 `null` 이면 범위는 `None` 이다 — 0 일짜리 범위를 지어내지 않는다."""
-    from app.logistics import historical_repository
+    from app.logistics.readmodel import historical as historical_readmodel
 
-    monkeypatch.setattr(historical_repository, "snapshot_days_between", lambda *a, **k: set())
+    monkeypatch.setattr(historical_readmodel, "snapshot_days_between", lambda *a, **k: set())
 
     facts = _logistics_facts()
     assert all(row["on_hand_qty_kg"] is None for row in facts["trend"])
@@ -1316,8 +1317,8 @@ def test_logistics_report_marks_pending_arrivals_for_display(logistics_report_st
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics import console_service
-    from app.logistics.schemas import (
+    from app.logistics.readmodel import console as console_readmodel
+    from app.logistics.schemas.console import (
         ConsoleArrivalSummary,
         ConsoleInboundResponse,
         ConsoleInTransitItem,
@@ -1333,7 +1334,7 @@ def test_logistics_report_marks_pending_arrivals_for_display(logistics_report_st
         )
 
     monkeypatch.setattr(
-        console_service,
+        console_readmodel,
         "get_inbound_console",
         lambda **_kwargs: ConsoleInboundResponse(
             sim_run_id="SIM-1",

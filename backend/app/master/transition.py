@@ -493,7 +493,7 @@ def _arrival_blocked(commitment: ApprovedCommitment, target_state_date: date) ->
 
     🔴 **이것은 버그를 고치는 가드가 아니라 미정 상태를 드러내는 가드다.**
 
-       리드타임 0 은 **계약상 허용되는 값**이다 (`app/logistics/schemas.py:283` 의
+       리드타임 0 은 **계약상 허용되는 값**이다 (`app/logistics/schemas/snapshot.py` 의
        `inbound_lead_days: int = Field(ge=0)`). 그런데 리드타임이 0 이면
        `arrival_date == commitment.as_of` 이고 목표 상태일은 그 **다음 날**이라
        `_still_incoming_on` 이 `None` 을 돌려준다 — 물류 `build` 를 한 번도 안 부르고
@@ -531,7 +531,7 @@ def _arrival_blocked(commitment: ApprovedCommitment, target_state_date: date) ->
         f"목표 상태일 {target_state_date.isoformat()} 에 앞으로 올 도착분이 없다:"
         f" 회차 도착일 {도착일들} (승인일 {commitment.as_of.isoformat()},"
         f" 리드타임 {commitment.inbound_lead_days}). 리드타임 0 은 계약상 허용되는데"
-        " (app/logistics/schemas.py:283 inbound_lead_days ge=0)"
+        " (app/logistics/schemas/snapshot.py inbound_lead_days ge=0)"
         " 그때 이 경로가 무엇을 해야 하는지가 정해진 적이 없다 — 물류·매입과 정할 자리다."
     )
 

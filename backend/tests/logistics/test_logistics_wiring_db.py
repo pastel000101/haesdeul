@@ -37,15 +37,31 @@ import psycopg
 import pytest
 
 from app.core import db as core_db
-from app.logistics import disposal, ledger, outbound, repository, transport, turnover, warehouse
-from app.logistics.schemas import (
-    ConsoleAllocation,
-    ConsoleInventoryLot,
-    ConsoleReservation,
-    InventoryLogisticsSnapshot,
-    OutboundCommitment,
-)
-from app.logistics.tools import build_inventory_by_item
+from app.logistics.domain import snapshot as snapshot_domain
+from app.logistics.domain.tools import build_inventory_by_item
+from app.logistics.readmodel import console as console_readmodel
+from app.logistics.readmodel import current as current_readmodel
+from app.logistics.readmodel import turnover as turnover_readmodel
+from app.logistics.readmodel import warehouse as warehouse_readmodel
+from app.logistics.readmodel.turnover import load_lot_turnover
+from app.logistics.repository import current as current_repository
+from app.logistics.repository import disposal as disposal_repository
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import locks
+from app.logistics.repository import outbound as outbound_repository
+from app.logistics.repository import transport as transport_repository
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository import warehouse as warehouse_repository
+from app.logistics.schemas import outbound as outbound_schemas
+from app.logistics.schemas import turnover as turnover_schemas
+from app.logistics.schemas import vocabulary
+from app.logistics.schemas.console import ConsoleAllocation, ConsoleInventoryLot, ConsoleReservation
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot, OutboundCommitment
+from app.logistics.service import disposal as disposal_service
+from app.logistics.service import ledger as ledger_service
+from app.logistics.service import outbound as outbound_service
+from app.logistics.service import transport as transport_service
+from app.logistics.service import warehouse as warehouse_service
 
 pytestmark = pytest.mark.db
 
@@ -79,6 +95,10 @@ CREATE TABLE {TMP_SCHEMA}.sales (sale_id text PRIMARY KEY);
 CREATE TABLE {TMP_SCHEMA}.sale_items (sale_item_id text PRIMARY KEY);
 CREATE TABLE {TMP_SCHEMA}.company_personas (persona_id text PRIMARY KEY);
 """
+
+
+#: 종전 `repository.py` 의 현재 축 읽기 — 2026-09-30 재구성 BL-015 부터 세 파일이다.
+_현재_읽기_모듈 = (current_repository, current_readmodel, snapshot_domain)
 
 
 def _코드만(source: str) -> str:
@@ -125,17 +145,21 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                 nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
                 cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
                 _씨앗(cur)
-            for module in (repository, turnover, outbound, ledger, disposal, warehouse, transport):
+            # ★ 2026-09-30 재구성 BL-015: 일곱 기능의 SQL 은 repository 파일에 있다.
+            for module in (
+                current_repository,
+                turnover_repository,
+                outbound_repository,
+                ledger_repository,
+                disposal_repository,
+                warehouse_repository,
+                transport_repository,
+            ):
                 monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA, raising=False)
 
-            # 🔴 Repository 는 자기 connection 을 연다 — 이 트랜잭션 안에서 재우려고
-            #    `fetch_all` 을 이 커넥션으로 갈아끼운다. 커밋은 여전히 없다.
-            def _fetch_all(query: object, params: object = None) -> list[dict]:
-                with connection.cursor() as cur:
-                    cur.execute(query, params)  # type: ignore[arg-type]
-                    return [dict(행) for 행 in cur.fetchall()]
-
-            monkeypatch.setattr(repository, "fetch_all", _fetch_all)
+            # ★ 종전에는 Repository 가 자기 connection 을 열어(`fetch_all`) 그것을 이 커넥션으로
+            #   갈아끼웠다. 2026-09-30 재구성 BL-015 부터 repository 는 받은 연결로만 읽으므로
+            #   갈아끼울 것이 없다 — 이 트랜잭션의 연결을 직접 넘긴다. 커밋은 여전히 없다.
             yield connection
         finally:
             connection.rollback()
@@ -265,7 +289,10 @@ def _스냅샷(conn: psycopg.Connection, *, as_of: date = AS_OF) -> InventoryLog
                 ORDER BY l.lot_id""",
             (SIM_RUN_ID, as_of),
         )
-        lots = [repository._inventory_lot_from_row(dict(행), as_of=as_of) for 행 in cur.fetchall()]
+        lots = [
+            snapshot_domain.inventory_lot_from_row(dict(행), as_of=as_of)
+            for 행 in cur.fetchall()
+        ]
     return InventoryLogisticsSnapshot(
         snapshot_id=None,
         as_of=as_of,
@@ -274,7 +301,9 @@ def _스냅샷(conn: psycopg.Connection, *, as_of: date = AS_OF) -> InventoryLog
         in_transit=[],
         confirmed_inbound_schedule=[],
         confirmed_outbound_schedule=[],
-        outbound_commitments=repository.get_outbound_commitments(sim_run_id=SIM_RUN_ID),
+        outbound_commitments=current_repository.get_outbound_commitments(
+            conn, sim_run_id=SIM_RUN_ID
+        ),
         used_capacity_kg=sum((lot.available_qty_kg for lot in lots), start=Decimal(0)),
         guaranteed_capacity_by_zone_kg=None,
         evidence_refs=["TEST"],
@@ -283,12 +312,12 @@ def _스냅샷(conn: psycopg.Connection, *, as_of: date = AS_OF) -> InventoryLog
 
 def _가용(conn: psycopg.Connection, *, as_of: date = AS_OF) -> Decimal:
     """`outbound` 가 보는 예약 가능량."""
-    from psycopg import sql
 
-    with conn.cursor() as cur:
-        outbound.lock_outbound_writes(cur)
-    return outbound.item_free_stock_qty(
-        conn, sql.Identifier(TMP_SCHEMA), sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=as_of
+    # ★ 2026-09-30 재구성 BL-015: 잠금은 연결을 받고(`repository/locks`), 스키마 이름은
+    #   repository 가 안에서 읽는다(위 픽스처가 임시 스키마로 돌려 둔다).
+    locks.lock_outbound_writes(conn)
+    return outbound_service.item_free_stock_qty(
+        conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=as_of
     )
 
 
@@ -299,7 +328,7 @@ def _품목가용(snapshot: InventoryLogisticsSnapshot) -> Decimal:
 
 
 def _예약(conn: psycopg.Connection, rid: str, qty: str) -> None:
-    outbound.reserve_stock(
+    outbound_service.reserve_stock(
         conn,
         reservation_id=rid,
         sim_run_id=SIM_RUN_ID,
@@ -311,10 +340,10 @@ def _예약(conn: psycopg.Connection, rid: str, qty: str) -> None:
 
 
 def _할당(conn: psycopg.Connection, rid: str, lot_id: str, qty: str) -> None:
-    outbound.allocate_stock(
+    outbound_service.allocate_stock(
         conn,
         reservation_id=rid,
-        requests=[outbound.AllocationRequest(lot_id=lot_id, quantity_kg=Decimal(qty))],
+        requests=[outbound_schemas.AllocationRequest(lot_id=lot_id, quantity_kg=Decimal(qty))],
         decided_by=BY,
         decided_at=DECIDED_AT,
         allocation_basis="HUMAN_OVERRIDE",
@@ -369,7 +398,7 @@ def test_05_출고하면_두_축이_함께_줄어든다(conn: psycopg.Connection
     _lot(conn, qty="700")
     _예약(conn, "RSV-1", "300")
     _할당(conn, "RSV-1", "LOT-A", "300")
-    outbound.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
+    outbound_service.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
 
     assert _품목가용(_스냅샷(conn)) == Decimal(400) == _가용(conn)
 
@@ -379,7 +408,7 @@ def test_06_놓아준_예약은_품목_가용으로_돌아온다(conn: psycopg.C
     _예약(conn, "RSV-1", "300")
     assert _품목가용(_스냅샷(conn)) == Decimal(400)
 
-    outbound.release_reservation(conn, reservation_id="RSV-1", released_as_of=AS_OF)
+    outbound_service.release_reservation(conn, reservation_id="RSV-1", released_as_of=AS_OF)
 
     assert _품목가용(_스냅샷(conn)) == Decimal(700) == _가용(conn)
 
@@ -423,7 +452,7 @@ def test_10_미할당_예약은_lot_id_가_None_이다(conn: psycopg.Connection)
     _예약(conn, "RSV-1", "300")
     _할당(conn, "RSV-1", "LOT-A", "100")
 
-    잡힌것 = repository.get_outbound_commitments(sim_run_id=SIM_RUN_ID)
+    잡힌것 = current_repository.get_outbound_commitments(conn, sim_run_id=SIM_RUN_ID)
 
     assert sorted((c.lot_id or "", c.quantity_kg) for c in 잡힌것) == [
         ("", Decimal(200)),
@@ -434,14 +463,17 @@ def test_10_미할당_예약은_lot_id_가_None_이다(conn: psycopg.Connection)
 
 def test_11_어휘를_outbound_와_한_곳에서_가져온다() -> None:
     """🔴 글자가 갈리면 두 축이 조용히 다른 답을 낸다."""
-    본문 = _코드만(Path(repository.__file__).read_text(encoding="utf-8"))
+    # ★ 2026-09-30 재구성 BL-015: 어휘는 `schemas/vocabulary` 한 벌이고, 두 축의 SQL
+    #   (`repository/current` · `repository/outbound`)이 그것을 들여온다.
+    본문 = _코드만(Path(current_repository.__file__).read_text(encoding="utf-8"))
 
-    assert "_HOLDING_ALLOCATION" in 본문
-    assert "_ASSIGNED_ALLOCATION" in 본문
-    assert "_HOLDING_RESERVATION" in 본문
+    assert "HOLDING_ALLOCATION" in 본문
+    assert "ASSIGNED_ALLOCATION" in 본문
+    assert "HOLDING_RESERVATION" in 본문
     # ★ 같은 객체여야 한다 — 복사본이면 한쪽만 고쳐지는 날이 온다.
-    assert repository._HOLDING_ALLOCATION is outbound._HOLDING_ALLOCATION
-    assert repository._ASSIGNED_ALLOCATION is outbound._ASSIGNED_ALLOCATION
+    for 이름 in ("HOLDING_ALLOCATION", "ASSIGNED_ALLOCATION", "HOLDING_RESERVATION"):
+        assert getattr(current_repository, 이름) is getattr(vocabulary, 이름)
+        assert getattr(outbound_repository, 이름) is getattr(vocabulary, 이름)
 
 
 # ── 3. 읽기 요청은 쓰기를 만들지 않는다 ─────────────────────────────────
@@ -471,17 +503,19 @@ def test_12_조회_경로가_쓰기를_만들지_않는다(conn: psycopg.Connect
 
     스냅 = _스냅샷(conn)
     build_inventory_by_item(스냅)
-    repository.get_outbound_commitments(sim_run_id=SIM_RUN_ID)
-    turnover.load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)
-    outbound.recommend_fefo_candidates(conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF)
-    warehouse.get_zone_capacity(conn, zone_id=COLD_ZONE)
-    warehouse.get_lot_position(conn, sim_run_id=SIM_RUN_ID, lot_id="LOT-A")
-    transport.plan_fixed_route_transport(conn, shipment_qty_kg=Decimal(500))
+    current_repository.get_outbound_commitments(conn, sim_run_id=SIM_RUN_ID)
+    load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)
+    outbound_service.recommend_fefo_candidates(
+        conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF
+    )
+    warehouse_readmodel.get_zone_capacity(conn, zone_id=COLD_ZONE)
+    warehouse_readmodel.get_lot_position(conn, sim_run_id=SIM_RUN_ID, lot_id="LOT-A")
+    transport_service.plan_fixed_route_transport(conn, shipment_qty_kg=Decimal(500))
 
     assert _쓰기흔적(conn) == 이전
 
 
-def _화면_Lot(t: turnover.LotTurnover) -> ConsoleInventoryLot:
+def _화면_Lot(t: turnover_schemas.LotTurnover) -> ConsoleInventoryLot:
     """그날 축 Lot 한 줄. 파생값은 전부 `turnover` 가 만든 것을 그대로 옮긴다."""
     return ConsoleInventoryLot(
         lot_id=t.lot_id,
@@ -516,9 +550,12 @@ def test_12b_빌린_커넥션으로_읽어도_쓰기를_만들지_않는다(conn
     _할당(conn, "RSV-1", "LOT-A", "100")
     이전 = _쓰기흔적(conn)
 
-    빌린것 = repository.get_outbound_commitments(sim_run_id=SIM_RUN_ID, conn=conn)
-    자기것 = repository.get_outbound_commitments(sim_run_id=SIM_RUN_ID)
-    assert 빌린것 == 자기것
+    # ★ 2026-09-30 재구성 BL-015: 종전에는 연결을 안 받는 경로(`fetch_all` 로 자기 연결)가 따로
+    #   있어 둘의 답을 견줬다. 이제 repository 는 받은 연결로만 읽어 경로가 하나다 — 같은
+    #   연결로 두 번 읽어 답이 같은지(읽기가 상태를 안 바꾸는지) 본다.
+    빌린것 = current_repository.get_outbound_commitments(conn, sim_run_id=SIM_RUN_ID)
+    다시 = current_repository.get_outbound_commitments(conn, sim_run_id=SIM_RUN_ID)
+    assert 빌린것 == 다시
 
     assert _쓰기흔적(conn) == 이전
 
@@ -535,8 +572,6 @@ def test_12d_화면_FEFO_와_자동할당_FEFO_는_같은_Lot_을_같은_순서�
     ★ 이 픽스처는 원장 이동이 없어 그날 잔량 = `remaining_qty_kg` 다 — 두 축이 같은
       사실을 보는 자리를 골라, *"길이 다르면 답도 다른가"* 만 남긴다.
     """
-    from app.logistics import console_service
-
     _lot(conn, "LOT-B", qty="500", 받은날=AS_OF - timedelta(days=3))
     _lot(conn, "LOT-A", qty="700")
     _예약(conn, "RSV-1", "300")
@@ -545,7 +580,7 @@ def test_12d_화면_FEFO_와_자동할당_FEFO_는_같은_Lot_을_같은_순서�
 
     lots = [
         _화면_Lot(t)
-        for t in turnover.load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)
+        for t in load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)
     ]
     예약 = ConsoleReservation(
         reservation_id="RSV-1",
@@ -573,10 +608,10 @@ def test_12d_화면_FEFO_와_자동할당_FEFO_는_같은_Lot_을_같은_순서�
         ],
     )
 
-    화면 = console_service.get_fefo_candidates_by_item(
+    화면 = console_readmodel.get_fefo_candidates_by_item(
         lots=lots, reservations=[예약], item_ids=[ITEM_ID, ITEM_ID]
     )
-    자동 = outbound.recommend_fefo_candidates(
+    자동 = outbound_service.recommend_fefo_candidates(
         conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF
     )
 
@@ -606,8 +641,8 @@ def test_12c_운송계약_읽기_실패가_빌린_커넥션을_오염시키지_�
             cur.execute(f"SELECT 1 FROM {TMP_SCHEMA}.없는_표")
         raise AssertionError("여기 오면 안 된다")
 
-    monkeypatch.setattr(repository, "resolve_fixed_route", 깨진_읽기)
-    assert repository._delivery_route(conn=conn) == (None, True)
+    monkeypatch.setattr(current_readmodel, "resolve_fixed_route", 깨진_읽기)
+    assert current_readmodel._delivery_route(conn) == (None, True)
     with conn.cursor() as cur:
         cur.execute("SELECT 1 AS n")
         assert cur.fetchall()[0]["n"] == 1
@@ -615,15 +650,17 @@ def test_12c_운송계약_읽기_실패가_빌린_커넥션을_오염시키지_�
 
 def test_13_읽기_함수에_쓰기_SQL_이_없다() -> None:
     """★ 실행 경로뿐 아니라 **소스**로도 못박는다."""
-    본문 = _코드만(Path(repository.__file__).read_text(encoding="utf-8"))
-
-    for 금지 in ("INSERT INTO", "UPDATE ", "DELETE FROM", ".commit()", ".rollback()"):
-        assert 금지 not in 본문, f"Repository 가 쓰기를 한다: {금지}"
+    # ★ 2026-09-30 재구성 BL-015: 종전 `repository.py` 가 SQL(`repository/current`) · 조립
+    #   (`readmodel/current`) · 행 읽기(`domain/snapshot`)로 갈렸다 — 파일마다 본다.
+    for 모듈 in _현재_읽기_모듈:
+        본문 = _코드만(Path(모듈.__file__).read_text(encoding="utf-8"))
+        for 금지 in ("INSERT INTO", "UPDATE ", "DELETE FROM", ".commit()", ".rollback()"):
+            assert 금지 not in 본문, f"{모듈.__name__} 가 쓰기를 한다: {금지}"
 
 
 def test_14_자동_폐기_자동_Pallet_경로가_없다() -> None:
     """🔴 `freshness <= 0` 이나 회전초과가 **스스로** 폐기·배치를 부르지 않는다."""
-    for 모듈 in (repository, turnover):
+    for 모듈 in (*_현재_읽기_모듈, turnover_readmodel, turnover_repository):
         본문 = _코드만(Path(모듈.__file__).read_text(encoding="utf-8"))
         for 금지 in ("confirm_disposal", "place_lot_on_pallet", "empty_pallet", "move_pallet"):
             assert 금지 not in 본문, f"{Path(모듈.__file__).name} 이 자동으로 부른다: {금지}"
@@ -634,16 +671,23 @@ def test_14_자동_폐기_자동_Pallet_경로가_없다() -> None:
 
 def test_15_시계를_몰래_읽지_않는다() -> None:
     """🔴 내부에서 오늘을 읽으면 같은 `as_of` 인데 답이 달라진다."""
-    for 이름 in (
-        "repository.py",
-        "tools.py",
-        "turnover.py",
-        "outbound.py",
-        "disposal.py",
-        "warehouse.py",
-        "transport.py",
-    ):
-        본문 = _코드만((Path(repository.__file__).parent / 이름).read_text(encoding="utf-8"))
+    # ★ 2026-09-30 재구성 BL-015: 종전 일곱 파일이 계층 폴더로 갈렸다 — 같은 기능의 계층
+    #   파일을 모두 본다(`repository.py` → current · snapshot, `tools.py` → tools · status_tools).
+    물류 = Path(current_repository.__file__).parents[1]
+    기능 = (
+        "current", "snapshot", "tools", "status_tools", "turnover", "outbound", "disposal",
+        "warehouse", "transport",
+    )
+    파일들 = sorted(
+        경로
+        for 계층 in ("service", "repository", "domain", "readmodel", "schemas")
+        for 경로 in (물류 / 계층).glob("*.py")
+        if 경로.stem in 기능
+    )
+    assert len(파일들) >= 7, 파일들
+    for 경로 in 파일들:
+        이름 = 경로.relative_to(물류).as_posix()
+        본문 = _코드만(경로.read_text(encoding="utf-8"))
         for 금지 in ("date.today()", "datetime.now(", "utcnow()", "CURRENT_DATE"):
             assert 금지 not in 본문, f"{이름} 이 시계를 읽는다: {금지}"
 
@@ -661,11 +705,11 @@ def test_17_as_of_가_다르면_신선도_판정이_다르다(conn: psycopg.Conn
     후보날 = AS_OF + timedelta(days=LIMIT_DAYS)
 
     assert (
-        turnover.load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)[0].disposal_candidate
+        load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=AS_OF)[0].disposal_candidate
         is False
     )
     assert (
-        turnover.load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=후보날)[0].disposal_candidate
+        load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=후보날)[0].disposal_candidate
         is True
     )
 
@@ -686,7 +730,7 @@ def test_18_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> No
     assert _품목가용(_스냅샷(conn)) == Decimal(700)
 
     # ② Pallet 을 자리에 앉힌다 — 재고는 안 움직인다.
-    warehouse.place_lot_on_pallet(
+    warehouse_service.place_lot_on_pallet(
         conn,
         pallet_id="PLT-1",
         sim_run_id=SIM_RUN_ID,
@@ -696,12 +740,12 @@ def test_18_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> No
         recorded_by=BY,
     )
     assert _품목가용(_스냅샷(conn)) == Decimal(700), "배치는 수량이 아니다"
-    assert warehouse.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1
+    assert warehouse_readmodel.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1
 
     # ③ 예약 → FEFO 추천 → 할당.
     _예약(conn, "RSV-1", "300")
     assert _품목가용(_스냅샷(conn)) == Decimal(400)
-    후보 = outbound.recommend_fefo_candidates(
+    후보 = outbound_service.recommend_fefo_candidates(
         conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF
     )
     assert [c.lot_id for c in 후보] == ["LOT-A"]
@@ -709,26 +753,26 @@ def test_18_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> No
     assert _품목가용(_스냅샷(conn)) == Decimal(400) == _가용(conn)
 
     # ④ 실출고 — 여기서 처음 잔량이 준다.
-    출고 = outbound.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
+    출고 = outbound_service.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
     assert 출고.shipped_qty_kg == Decimal(300)
     assert _품목가용(_스냅샷(conn)) == Decimal(400)
 
     # ⑤ 운송 견적 — 재고를 안 건드린다.
     이전 = _쓰기흔적(conn)
-    계획 = transport.plan_fixed_route_transport(conn, shipment_qty_kg=Decimal(300))
+    계획 = transport_service.plan_fixed_route_transport(conn, shipment_qty_kg=Decimal(300))
     assert (계획.vehicle_class, 계획.trip_count) == ("1t", 1)
     assert 계획.standard_minutes is None
     assert _쓰기흔적(conn) == 이전
 
     # ⑥ 시간이 흘러 폐기대기가 된다 — 자동으로 아무 일도 안 일어난다.
     후보날 = AS_OF + timedelta(days=LIMIT_DAYS)
-    회전 = turnover.load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=후보날, lot_id="LOT-A")[0]
+    회전 = load_lot_turnover(conn, sim_run_id=SIM_RUN_ID, as_of=후보날, lot_id="LOT-A")[0]
     assert (회전.turnover_status, 회전.disposal_candidate) == ("STORAGE_TARGET_EXCEEDED", True)
     assert _품목가용(_스냅샷(conn, as_of=후보날)) == Decimal(0), "판매 가용에서만 빠진다"
-    assert warehouse.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1
+    assert warehouse_readmodel.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1
 
     # ⑦ 사람이 폐기를 확정해야 재고가 준다.
-    disposal.confirm_disposal(
+    disposal_service.confirm_disposal(
         conn,
         disposal_id="DSP-1",
         sim_run_id=SIM_RUN_ID,
@@ -738,19 +782,19 @@ def test_18_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> No
         reason_code="QUALITY_UNSELLABLE",
         as_of=후보날,
     )
-    assert warehouse.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1, (
+    assert warehouse_readmodel.get_zone_capacity(conn, zone_id=COLD_ZONE).occupied_positions == 1, (
         "폐기가 Pallet 을 자동으로 치우지 않는다"
     )
 
     # ⑧ 사람이 Pallet 을 치워야 자리가 돌아온다.
-    warehouse.empty_pallet(conn, pallet_id="PLT-1", occurred_at=DECIDED_AT, recorded_by=BY)
-    assert warehouse.get_zone_capacity(conn, zone_id=COLD_ZONE).free_positions == 2
+    warehouse_service.empty_pallet(conn, pallet_id="PLT-1", occurred_at=DECIDED_AT, recorded_by=BY)
+    assert warehouse_readmodel.get_zone_capacity(conn, zone_id=COLD_ZONE).free_positions == 2
 
 
 def test_19_Snapshot_이_원장_사실을_그대로_읽는다(conn: psycopg.Connection) -> None:
     """★ Snapshot 이 fixture 목록이 아니라 **살아 있는 Lot 표**를 본다."""
     _lot(conn, qty="700")
-    ledger.record_inventory_move(
+    ledger_service.record_inventory_move(
         conn,
         move_id="MOVE-OUT-1",
         sim_run_id=SIM_RUN_ID,

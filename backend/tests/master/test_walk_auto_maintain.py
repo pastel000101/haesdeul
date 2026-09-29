@@ -44,11 +44,8 @@ from typing import Any
 import pytest
 
 from app.core.clock import SEOUL
-from app.logistics.auto_maintenance import (
-    AutoMaintenanceResult,
-    LotMaintenanceOutcome,
-    run_logistics_auto_maintenance,
-)
+from app.logistics.schemas.maintenance import AutoMaintenanceResult, LotMaintenanceOutcome
+from app.logistics.service.maintenance import run_logistics_auto_maintenance
 from app.master import backtest_runner, maintenance, scheduler
 from app.master.backtest_runner import WalkResult, format_summary, walk
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate

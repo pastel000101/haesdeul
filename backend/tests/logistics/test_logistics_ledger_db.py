@@ -8,7 +8,7 @@
 
 ```text
 ① 임시 스키마를 만들고 그 안에 저장소 DDL 로 표를 세운다
-② ledger.get_db_schema 를 그 임시 스키마로 돌려 놓는다
+② repository/ledger 의 get_db_schema 를 그 임시 스키마로 돌려 놓는다
 ③ 검사한다
 ④ ROLLBACK — 임시 스키마도 시험 데이터도 남지 않는다
 ```
@@ -32,14 +32,16 @@ import psycopg
 import pytest
 
 from app.core import db as core_db
-from app.logistics import ledger
-from app.logistics.ledger import (
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import locks
+from app.logistics.schemas.ledger import (
     MoveIdConflict,
     MoveLine,
     OriginalQuantityExceeded,
     RemainingQuantityInsufficient,
-    record_inventory_move,
 )
+from app.logistics.service import ledger as ledger_service
+from app.logistics.service.ledger import record_inventory_move
 
 pytestmark = pytest.mark.db
 
@@ -98,7 +100,7 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                 cur.execute(
                     f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s)", (PURCHASE_ITEM_ID,)
                 )
-            monkeypatch.setattr(ledger, "get_db_schema", lambda: TMP_SCHEMA)
+            monkeypatch.setattr(ledger_repository, "get_db_schema", lambda: TMP_SCHEMA)
             yield connection
         finally:
             # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
@@ -257,7 +259,8 @@ def test_계산이_뚫려도_DB_CHECK_가_막고_부분결과가_안_남는다(
       SAVEPOINT 로 감싸 호출자가 되돌리면 **부분 결과가 남지 않아야 한다.**
     """
     _lot(conn, original="100", remaining="40")
-    monkeypatch.setattr(ledger, "_next_remaining", lambda **_: 다음잔량)
+    # ★ 2026-09-30 재구성 BL-015: 계산은 domain 으로 갔고, 부르는 자리(service)에서 바꾼다.
+    monkeypatch.setattr(ledger_service, "next_remaining_qty", lambda **_: 다음잔량)
 
     with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
         _기록(conn, quantity_kg=Decimal(10))
@@ -504,7 +507,7 @@ def test_기존_Move_가_다른_존재하는_Lot_을_가리켜도_Conflict_다(c
 def _try_ledger_lock(cursor: Any) -> bool:
     cursor.execute(
         "SELECT pg_try_advisory_xact_lock(%s, %s)",
-        (ledger._LEDGER_LOCK_CLASSID, ledger._LEDGER_LOCK_OBJID),
+        (locks.LEDGER_LOCK_CLASSID, locks.LEDGER_LOCK_OBJID),
     )
     row = cursor.fetchone()
     assert row is not None

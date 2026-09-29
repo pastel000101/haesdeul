@@ -296,7 +296,7 @@ def test_the_window_matches_what_logistics_built() -> None:
     """
     from datetime import timedelta
 
-    from app.logistics.tools import build_cap_window
+    from app.logistics.domain.tools import build_cap_window
 
     state = _state({}, lead=LEAD, window=WINDOW)
     ours = cap_window(state)  # type: ignore[arg-type]

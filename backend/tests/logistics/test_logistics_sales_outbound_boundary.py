@@ -4,11 +4,8 @@ from datetime import date
 from decimal import Decimal
 
 from app.contracts.sales_logistics import SalesOutboundReservationRequest
-from app.logistics.outbound import ReservationResult
-from app.logistics.sales_outbound import (
-    reserve_confirmed_sale,
-    reserve_confirmed_sale_available,
-)
+from app.logistics.schemas.outbound import ReservationResult
+from app.logistics.service.outbound import reserve_confirmed_sale, reserve_confirmed_sale_available
 
 
 def test_sales_reservation_request_calls_existing_reserve_stock(monkeypatch):
@@ -26,7 +23,7 @@ def test_sales_reservation_request_calls_existing_reserve_stock(monkeypatch):
             reserved_qty_kg=kwargs["required_qty_kg"],
         )
 
-    monkeypatch.setattr("app.logistics.sales_outbound.reserve_stock", fake_reserve_stock)
+    monkeypatch.setattr("app.logistics.service.outbound.reserve_stock", fake_reserve_stock)
     conn = object()
     request = SalesOutboundReservationRequest(
         reservation_id="RSV-SI-SALE-1-1",
@@ -69,7 +66,7 @@ def test_sales_partial_reservation_request_calls_reserve_available_stock(monkeyp
         )
 
     monkeypatch.setattr(
-        "app.logistics.sales_outbound.reserve_available_stock", fake_reserve_available_stock
+        "app.logistics.service.outbound.reserve_available_stock", fake_reserve_available_stock
     )
     conn = object()
     request = SalesOutboundReservationRequest(
@@ -101,11 +98,11 @@ def test_full_reservation_boundary_does_not_use_partial_core(monkeypatch):
     """🔴 두 문이 섞이면 fail-closed 를 믿는 호출자가 조용히 부분 확보를 받는다."""
     called = []
     monkeypatch.setattr(
-        "app.logistics.sales_outbound.reserve_available_stock",
+        "app.logistics.service.outbound.reserve_available_stock",
         lambda *a, **k: called.append("partial"),
     )
     monkeypatch.setattr(
-        "app.logistics.sales_outbound.reserve_stock",
+        "app.logistics.service.outbound.reserve_stock",
         lambda conn, **k: ReservationResult(
             applied=True,
             reservation_id=k["reservation_id"],

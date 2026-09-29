@@ -37,6 +37,7 @@ from app.api.purchase import routes as purchase_routes
 from app.api.sales import query as sales_query
 from app.core import settings
 from app.core.settings import SHOWN_AS_OF, SHOWN_SIM_RUN_ID
+from app.logistics.readmodel import console as console_readmodel
 
 _BACKEND = Path(__file__).resolve().parents[2]
 _API_DIR = _BACKEND / "app" / "api"
@@ -126,24 +127,24 @@ def _물류_대역(monkeypatch) -> list[tuple[str, str]]:
         return 대역
 
     열림 = SimpleNamespace(has_snapshot=True, first_as_of=AS_OF, last_as_of=AS_OF)
-    monkeypatch.setattr(logistics_query.core_db, "connection", _가짜_커넥션)
-    monkeypatch.setattr(logistics_query, "runtime_coverage_at", 기록("coverage", 열림))
-    monkeypatch.setattr(logistics_query, "onhand_total_by_day", 기록("onhand", {}))
-    monkeypatch.setattr(logistics_query, "snapshot_days_between", 기록("days", set()))
+    monkeypatch.setattr(console_readmodel.core_db, "connection", _가짜_커넥션)
+    monkeypatch.setattr(console_readmodel, "runtime_coverage_at", 기록("coverage", 열림))
+    monkeypatch.setattr(console_readmodel, "onhand_total_by_day", 기록("onhand", {}))
+    monkeypatch.setattr(console_readmodel, "snapshot_days_between", 기록("days", set()))
     #  ★ Runtime 읽기는 **한 판에 한 번** 이고 두 콘솔이 나눠 쓴다 (2026-09-15).
-    monkeypatch.setattr(logistics_query, "load_console_runtime", 기록("runtime", None))
+    monkeypatch.setattr(console_readmodel, "load_console_runtime", 기록("runtime", None))
     #  ★ 그날 예약(Historical)도 한 판에 한 번 — 재고·출고 콘솔이 나눠 쓴다 (#760).
-    monkeypatch.setattr(logistics_query, "reservation_state_at", 기록("reservations", ()))
+    monkeypatch.setattr(console_readmodel, "reservation_state_at", 기록("reservations", ()))
     monkeypatch.setattr(
-        logistics_query, "get_inbound_console", 기록("inbound", SimpleNamespace(in_transit=[]))
+        console_readmodel, "get_inbound_console", 기록("inbound", SimpleNamespace(in_transit=[]))
     )
-    monkeypatch.setattr(logistics_query, "get_inventory_console", 기록("inventory", None))
-    monkeypatch.setattr(logistics_query, "get_outbound_console", 기록("outbound", None))
+    monkeypatch.setattr(console_readmodel, "get_inventory_console", 기록("inventory", None))
+    monkeypatch.setattr(console_readmodel, "get_outbound_console", 기록("outbound", None))
     #  ★ **Exception 두 조회도 같은 축에 선다** (#675). 창고 배치(`warehouse`) 는
     #    발표 화면에서 빠져 부르지 않는다.
-    monkeypatch.setattr(logistics_query, "live_exceptions_at", 기록("live_exceptions", None))
+    monkeypatch.setattr(console_readmodel, "live_exceptions_at", 기록("live_exceptions", None))
     monkeypatch.setattr(
-        logistics_query, "resolved_exceptions_on", 기록("resolved_exceptions", ())
+        console_readmodel, "resolved_exceptions_on", 기록("resolved_exceptions", ())
     )
     return 잡은
 

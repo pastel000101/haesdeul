@@ -34,26 +34,33 @@ import psycopg
 import pytest
 
 from app.core import db as core_db
-from app.logistics import inbound_schedules, inbound_stock, inspections, receipts
-from app.logistics.arrival import DueInbound
-from app.logistics.inbound_schedules import (
+from app.logistics.domain import inbound_stock as inbound_stock_domain
+from app.logistics.domain.arrival import DueInbound
+from app.logistics.domain.inbound_stock import lot_id_for, move_id_for
+from app.logistics.readmodel.inbound_schedules import (
     in_transit_at,
     load_schedule_views,
     pending_inbound_at,
     receivable_at,
 )
-from app.logistics.inbound_stock import (
+from app.logistics.repository import inbound_stock as inbound_stock_repository
+from app.logistics.repository import inspections as inspections_repository
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import receipts as receipts_repository
+from app.logistics.repository import rows
+from app.logistics.schemas import inbound_stock as inbound_stock_schemas
+from app.logistics.schemas.inbound_stock import (
     LotConflict,
     LotIntegrityError,
     ScheduleIntegrityError,
-    lot_id_for,
-    materialize_inspected_inbound,
-    move_id_for,
 )
-from app.logistics.inspections import InspectionOutcome, record_inspection
-from app.logistics.purchase_detail import PurchaseDetail
-from app.logistics.receipts import create_arrived_receipt
-from app.logistics.schemas import InTransitItem
+from app.logistics.schemas.inspections import InspectionOutcome
+from app.logistics.schemas.purchase_detail import PurchaseDetail
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.service import inbound_stock
+from app.logistics.service.inbound_stock import materialize_inspected_inbound
+from app.logistics.service.inspections import record_inspection
+from app.logistics.service.receipts import create_arrived_receipt
 
 pytestmark = pytest.mark.db
 
@@ -152,11 +159,16 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                     (ITEM_ID, ZONE, "PROVISIONAL"),
                 )
             # ★ `inbound_schedules` 도 돌린다 — 안 돌리면 Reader 가 공유 `haetdeul` 을 읽는다.
-            for module in (receipts, inspections, inbound_stock, inbound_schedules):
+            #   2026-09-30 재구성 BL-015 부터 일정 SQL 은 `rows.schema_identifier` 로 스키마를
+            #   읽으므로 `rows` 를 돌린다. 나머지는 각 기능의 repository 다.
+            for module in (
+                receipts_repository,
+                inspections_repository,
+                inbound_stock_repository,
+                rows,
+                ledger_repository,
+            ):
                 monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-            from app.logistics import ledger
-
-            monkeypatch.setattr(ledger, "get_db_schema", lambda: TMP_SCHEMA)
             yield connection
         finally:
             # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
@@ -784,7 +796,16 @@ def test_26_28_재고실사도_ADJUST_도_DISPOSE_도_없다(conn: psycopg.Conne
 
     종류 = {m["move_type"] for m in _moves(conn)}
     assert 종류 == {"IN"}, "보류 물량을 폐기나 조정으로 바꾸지 않는다"
-    코드 = _코드만(Path(inbound_stock.__file__).read_text(encoding="utf-8"))
+    # ★ 2026-09-30 재구성 BL-015: 종전 `inbound_stock.py` 한 파일이 네 파일로 갈렸다.
+    코드 = chr(10).join(
+        _코드만(Path(module.__file__).read_text(encoding="utf-8"))
+        for module in (
+            inbound_stock,
+            inbound_stock_repository,
+            inbound_stock_domain,
+            inbound_stock_schemas,
+        )
+    )
     for 금지 in ("inventory_count", "ADJUST", "DISPOSE"):
         assert 금지 not in 코드, f"{금지} — 이 단계 범위가 아니다"
 

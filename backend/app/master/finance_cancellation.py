@@ -16,7 +16,7 @@ finance_cancellation.py — 마스터 `ApprovalCancellation` 을 재무 취소 �
     아니다. **배선은 조율자 몫**이고, 재무 모듈이 마스터를 알기 시작하면 화살표가
     양방향이 된다.
 
-  ⚠️ 물류 쪽(`app/logistics/cancellation.py`)은 다른 자리에 둔 이유가 있다 — 그쪽은
+  ⚠️ 물류 쪽(`app/logistics/service/cancellation.py`)은 다른 자리에 둔 이유가 있다 — 그쪽은
     *"어떻게 걷는가"* 라는 **물류 도메인 규칙**을 담는다(마스터가 대신 썼을 뿐이다).
     여기는 **이름 하나를 옮기는 것**이 전부다.
 

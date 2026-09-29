@@ -516,7 +516,7 @@ def test_회차_금액이_비면_총액을_지어내지_않는다() -> None:
 # 7. 🔴 **리드타임 0 은 미정 상태다 — 조용히 지나가지 않는다**
 #
 #    `inbound_lead_days` 는 계약상 `ge=0` 이라 **0 이 허용되는 값**이다
-#    (`app/logistics/schemas.py:283`). 그런데 0 이면 `arrival_date == as_of` 이고
+#    (`app/logistics/schemas/snapshot.py`). 그런데 0 이면 `arrival_date == as_of` 이고
 #    목표 상태일은 그 **다음 날**이라 `_still_incoming_on` 이 `None` 을 돌려준다 —
 #    물류 `build` 를 한 번도 안 부르고 `persist(conn, ())` 로 아무것도 안 쓴다.
 #

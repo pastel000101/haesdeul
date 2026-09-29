@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import inspect
 
-from app.logistics import console_service, historical_repository
+from app.logistics.readmodel import console as console_readmodel
+from app.logistics.readmodel import historical as historical_readmodel
+from app.logistics.repository import historical as historical_repository
+from app.logistics.schemas import historical as historical_schemas
 
 
 def _코드만(func: object) -> str:
@@ -29,7 +32,9 @@ def _코드만(func: object) -> str:
 
 def test_존재_조건이_order_date_다() -> None:
     """🔴 잠금. `sale_date` 로 되돌리면 확정일 예약이 하루 늦게 나타난다."""
-    코드 = _코드만(historical_repository.reservation_state_at)
+    # ★ 2026-09-30 재구성 BL-015: 존재 조건 SQL 은 `repository/historical` 의 예약 행 조회에 있다
+    #   (`readmodel/historical.reservation_state_at` 이 부른다).
+    코드 = _코드만(historical_repository.select_reservation_rows_at)
 
     assert "s.order_date <= %(as_of)s" in 코드, "존재 조건이 order_date 가 아니다"
     assert "s.sale_date <= %(as_of)s" not in 코드, "sale_date 로 존재를 자르는 줄이 남아 있다"
@@ -38,9 +43,9 @@ def test_존재_조건이_order_date_다() -> None:
 def test_문서가_같은_말을_한다() -> None:
     """★ 코드와 설명이 갈리면 다음 사람이 옛 전제로 되돌린다 — 세 자리를 같이 잠근다."""
     for doc in (
-        inspect.getdoc(historical_repository.reservation_state_at),
-        inspect.getdoc(historical_repository.HistoricalReservation),
-        inspect.getdoc(console_service.get_outbound_console),
+        inspect.getdoc(historical_readmodel.reservation_state_at),
+        inspect.getdoc(historical_schemas.HistoricalReservation),
+        inspect.getdoc(console_readmodel.get_outbound_console),
     ):
         assert doc is not None
         존재_줄 = [줄 for 줄 in doc.splitlines() if "존재" in 줄 and "<= as_of" in 줄]
@@ -56,6 +61,6 @@ def test_미래_확정_출고는_그대로_납품일_축이다() -> None:
 
     존재일을 옮기면서 이쪽까지 따라 바꾸면 확정일에 그 판매가 «미래 출고» 에서 사라진다.
     """
-    doc = inspect.getdoc(historical_repository.outbound_schedule_at) or ""
+    doc = inspect.getdoc(historical_readmodel.outbound_schedule_at) or ""
 
     assert "sale_date > as_of" in doc

@@ -26,11 +26,9 @@ from typing import Any
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.logistics.cancellation import (
-    LogisticsCancellationAdapter,
-    inbound_ids_of,
-    withdraw_inventory,
-)
+from app.logistics.adapter import LogisticsCancellationAdapter
+from app.logistics.domain.transition import inbound_ids_of
+from app.logistics.service.cancellation import withdraw_inventory
 from app.master.finance_cancellation import FinanceCancellationAdapter
 
 APPROVED_ON = date(2026, 1, 5)
@@ -71,7 +69,7 @@ def test_걷는_id_가_넣는_id_와_같다():
     ★ 넣는 쪽(`transition.build_next_inventory`)과 빼는 쪽(`inbound_ids_of`)을 여기서
       직접 대조한다 — 두 규칙이 갈리는 날 이 검사가 운다.
     """
-    from app.logistics.transition import build_next_inventory
+    from app.logistics.domain.transition import build_next_inventory
 
     commitment = _commitment(legs=2)
     넣은것 = [item.inbound_id for item in build_next_inventory(commitment)]

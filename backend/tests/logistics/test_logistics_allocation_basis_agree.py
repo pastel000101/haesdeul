@@ -29,7 +29,7 @@ from typing import get_args
 import pytest
 
 import app.logistics
-from app.logistics.outbound import AllocationBasis
+from app.logistics.schemas.outbound import AllocationBasis
 
 _REPO = Path(app.logistics.__file__).parent.parent.parent.parent
 _DB = _REPO / "database"

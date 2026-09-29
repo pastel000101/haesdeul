@@ -32,8 +32,8 @@ from typing import get_args
 
 import pytest
 
-from app.logistics.outbound import AllocationBasis, HumanAllocationBasis
-from app.logistics.schemas import ConsoleAllocation
+from app.logistics.schemas.console import ConsoleAllocation
+from app.logistics.schemas.outbound import AllocationBasis, HumanAllocationBasis
 
 _HUMAN = ("FEFO_TOOL_CONFIRMED", "HUMAN_OVERRIDE")
 _AUTO = "FEFO_AUTO_SELECTED"
@@ -73,7 +73,7 @@ def test_어휘_둘의_관계가_고정돼_있다() -> None:
 
 def test_코어는_좁히지_않는다() -> None:
     """🔴 `allocate_stock` 은 사람 경로와 자동 경로가 함께 쓴다 — 셋을 다 받아야 한다."""
-    from app.logistics import outbound
+    from app.logistics.service import outbound
 
     힌트 = inspect.signature(outbound.allocate_stock).parameters
 

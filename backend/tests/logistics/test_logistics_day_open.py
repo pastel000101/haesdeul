@@ -32,12 +32,18 @@ from typing import Any, Self
 import pytest
 
 import app.main  # ⑩ 의 `실제_배선` fixture 가 이 모듈을 다시 실행한다
-from app.logistics import day_open
-from app.logistics.day_open import LogisticsDayOpening, LogisticsRunAmbiguous
-from app.logistics.repository import get_active_logistics_runtime_fixture
-from app.logistics.schemas import InTransitItem, ScheduledQuantity
-from app.logistics.tools import find_in_transit_schedule_gap
-from app.logistics.transition import USAGE_SCOPE, LogisticsFixtureMissing
+from app.logistics import adapter as adapter_module
+from app.logistics.adapter import LogisticsDayOpening
+from app.logistics.domain import day_open as day_open_domain
+from app.logistics.domain.tools import find_in_transit_schedule_gap
+from app.logistics.readmodel.current import get_active_logistics_runtime_fixture
+from app.logistics.repository import day_open as day_open_repository
+from app.logistics.schemas import day_open as day_open_schemas
+from app.logistics.schemas.day_open import LogisticsRunAmbiguous
+from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
+from app.logistics.schemas.transition import LogisticsFixtureMissing
+from app.logistics.schemas.vocabulary import USAGE_SCOPE
+from app.logistics.service import day_open
 from app.master import cancellation as master_cancellation
 from app.master import day_open as master_day_open
 from app.master import transition as master_transition
@@ -191,7 +197,27 @@ def _insert_파라미터(conn: 가짜커넥션) -> dict[str, Any]:
 # ── INSERT 문을 표로 만든다 ─────────────────────────────────────────────
 
 
-_원문 = Path(day_open.__file__).read_text(encoding="utf-8")
+def _클래스_원문(module: object, name: str) -> str:
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    return next(
+        ast.get_source_segment(source, node)
+        for node in ast.parse(source).body
+        if isinstance(node, ast.ClassDef) and node.name == name
+    )
+
+
+#: 종전 `day_open.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 repository(SQL) · service(순서) ·
+#: domain(판정) · schemas(타입)와 등록소 표면(`adapter.LogisticsDayOpening`)으로 갈렸다.
+#: INSERT 문을 표로 읽으므로 SQL 파일을 앞에 둔다.
+_원문 = chr(10).join(
+    [
+        *(
+            Path(module.__file__).read_text(encoding="utf-8")
+            for module in (day_open_repository, day_open, day_open_domain, day_open_schemas)
+        ),
+        _클래스_원문(adapter_module, "LogisticsDayOpening"),
+    ]
+)
 
 
 def _최상위_쉼표로_나눈다(구절: str) -> list[str]:

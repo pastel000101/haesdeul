@@ -6,7 +6,11 @@
 사람이 읽는 말(우선도 이름 · «우선도 정보 없음»)은 화면에 남겼다.
 
 ★ **입력 값만 본다.** DB · HTTP · 시계 · 화면 문구를 쓰지 않는다. 타입은 주석에만 쓴다 —
-  `app.logistics.schemas` 를 실행 중에 불러오면 출고 · DB 모듈까지 따라 올라온다.
+  종전 `app.logistics.schemas` 는 실행 중에 불러오면 출고 · DB 모듈까지 따라 올라왔다.
+
+★ 2026-09-30 재구성 BL-015: 타입의 자리가 `schemas/console.py` · `schemas/monitoring.py` 로
+  옮겨 주석용 import 경로를 고쳤다. 이제 `schemas/` 는 다른 물류 계층을 들이지 않아 위
+  문제는 없지만, 판정이 타입을 실행 중에 쓰지 않으므로 주석 전용은 그대로 둔다.
 """
 
 from __future__ import annotations
@@ -15,8 +19,8 @@ from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.logistics.monitoring.schemas import DetectionRecord, ExceptionRow
-    from app.logistics.schemas import ConsoleReservation
+    from app.logistics.schemas.console import ConsoleReservation
+    from app.logistics.schemas.monitoring import DetectionRecord, ExceptionRow
 
 __all__ = ["severity_at", "still_working"]
 

@@ -15,9 +15,13 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
-from app.logistics.query import llm as sqllm
-from app.logistics.query import status_query as sq
-from app.logistics.query.llm import AssistantTurn, StatusQueryLLMError, ToolCall
+from app.logistics.llm import status_chat as sqllm
+from app.logistics.llm.status_chat import AssistantTurn, StatusQueryLLMError, ToolCall
+from app.logistics.llm.status_query import TOOL_SCHEMAS
+from app.logistics.repository import status_question as status_question_repository
+from app.logistics.schemas.status_question import ResolvedItems, StatusQueryAnswer
+from app.logistics.service import agent_status
+from app.logistics.service import status_question as sq
 
 AS_OF = date(2026, 1, 1)
 
@@ -94,10 +98,10 @@ class _FakeConn:
 def _allow_baechu(conn, names):
     n = names[0]
     if n == "배추":
-        return sq.ResolvedItems(allowed={"배추": "ITEM-BAECHU"}, excluded={}, not_found=())
+        return ResolvedItems(allowed={"배추": "ITEM-BAECHU"}, excluded={}, not_found=())
     if n == "피마늘":
-        return sq.ResolvedItems(allowed={}, excluded={"피마늘": "ITEM-PIMANUL"}, not_found=())
-    return sq.ResolvedItems(allowed={}, excluded={}, not_found=(n,))
+        return ResolvedItems(allowed={}, excluded={"피마늘": "ITEM-PIMANUL"}, not_found=())
+    return ResolvedItems(allowed={}, excluded={}, not_found=(n,))
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +227,7 @@ def test_llm_sends_item_name_wrapper_resolves_item_id(monkeypatch):
 
 def test_llm_never_emits_item_id_only_item_name():
     # tool schema 에 item_id 속성이 없다 — LLM 이 낼 수 없다.
-    item_tools = {t["name"]: t for t in sq.TOOL_SCHEMAS}
+    item_tools = {t["name"]: t for t in TOOL_SCHEMAS}
     for name in ("get_item_lots", "get_sales_commitments"):
         props = item_tools[name]["parameters"]["properties"]
         assert "item_name" in props
@@ -346,7 +350,7 @@ def test_loop_without_final_answer_raises(monkeypatch):
 
 
 def test_resolver_partitions(monkeypatch):
-    monkeypatch.setattr(sq, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(status_question_repository, "get_db_schema", lambda: "haetdeul")
     rows = [
         {"item_id": "ITEM-BAECHU", "item_name": "배추"},
         {"item_id": "ITEM-PIMANUL", "item_name": "피마늘"},
@@ -359,9 +363,11 @@ def test_resolver_partitions(monkeypatch):
 
 @pytest.mark.db
 def test_resolver_real_db_mapping():
-    from app.logistics.db import get_connection
+    # ★ 2026-09-30 재구성 BL-015: 입구 `logistics/db.py` 가 없어졌다(그 `get_connection` 은
+    #   2026-09-29 풀 전환 때 이미 빠져 있었다). 조회는 공통 풀의 조회 연결로 한다.
+    from app.core import db as core_db
 
-    with get_connection() as conn:
+    with core_db.read_connection() as conn:
         resolved = sq.resolve_item_names(
             conn, ["배추", "무", "양파", "피마늘", "건고추", "감자없음"]
         )
@@ -393,7 +399,7 @@ def test_ollama_chat_sends_tools_and_parses_tool_calls(monkeypatch):
 
     monkeypatch.setattr(sqllm, "_post", fake_post)
     turn = sqllm._ollama_chat(
-        _fake_settings(), [{"role": "user", "content": "배추 재고"}], list(sq.TOOL_SCHEMAS)
+        _fake_settings(), [{"role": "user", "content": "배추 재고"}], list(TOOL_SCHEMAS)
     )
     # 🔴 tool schema 를 provider 에 전달했다.
     assert "tools" in captured["body"]
@@ -425,7 +431,7 @@ def test_gemini_chat_parses_function_call(monkeypatch):
 
     monkeypatch.setattr(sqllm, "_post", fake_post)
     turn = sqllm._gemini_chat(
-        _fake_settings("gemini"), [{"role": "user", "content": "창고 여유"}], list(sq.TOOL_SCHEMAS)
+        _fake_settings("gemini"), [{"role": "user", "content": "창고 여유"}], list(TOOL_SCHEMAS)
     )
     assert "tools" in captured["body"]
     assert turn.tool_calls[0].name == "get_capacity_context"
@@ -451,7 +457,7 @@ def test_build_chat_routes_provider_and_parses(monkeypatch):
         lambda url, *, body, headers, timeout: {"message": {"content": "ok"}},
     )
     chat = sqllm.build_chat()
-    turn = chat([{"role": "user", "content": "x"}], list(sq.TOOL_SCHEMAS))
+    turn = chat([{"role": "user", "content": "x"}], list(TOOL_SCHEMAS))
     assert turn.text == "ok"
 
 
@@ -473,12 +479,12 @@ def test_adapter_routes_question(monkeypatch):
 
     def fake_answer(*, question, sim_run_id, as_of):
         captured.update(question=question, sim_run_id=sim_run_id, as_of=as_of)
-        return sq.StatusQueryAnswer(
+        return StatusQueryAnswer(
             payload={"status_query": {"answer": "ok", "tool_trace": []}},
             missing_data=(), reasoning="r",
         )
 
-    monkeypatch.setattr(adapter, "answer_status_question", fake_answer)
+    monkeypatch.setattr(agent_status, "answer_status_question", fake_answer)
     request = _req({"question": "배추 재고 얼마야?"})
     reply, meta = adapter.logistics_port(request)
     assert reply.runtime_status == "READY"
@@ -491,8 +497,8 @@ def test_adapter_empty_payload_is_overview(monkeypatch):
     def fail(**kwargs):
         raise AssertionError("빈 질문은 Overview 로 가야 한다")
 
-    monkeypatch.setattr(adapter, "answer_status_question", fail)
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: None)
+    monkeypatch.setattr(agent_status, "answer_status_question", fail)
+    monkeypatch.setattr(agent_status, "load_read", lambda *, as_of, sim_run_id: None)
     reply, _ = adapter.logistics_port(_req({}))
     assert reply.runtime_status == "RUNTIME_NOT_READY"
 
@@ -501,7 +507,7 @@ def test_adapter_llm_failure_is_error(monkeypatch):
     def boom(**kwargs):
         raise StatusQueryLLMError("provider down")
 
-    monkeypatch.setattr(adapter, "answer_status_question", boom)
+    monkeypatch.setattr(agent_status, "answer_status_question", boom)
     reply, _ = adapter.logistics_port(_req({"question": "배추 재고"}))
     assert reply.runtime_status == "ERROR"
     assert reply.business_status == "skipped"
@@ -522,7 +528,7 @@ def test_gemini_tool_call_keeps_the_raw_part(monkeypatch):
     turn = sqllm._gemini_chat(
         types.SimpleNamespace(model="m", timeout_seconds=5),
         [{"role": "user", "content": "배추 재고"}],
-        list(sq.TOOL_SCHEMAS),
+        list(TOOL_SCHEMAS),
     )
     assert turn.tool_calls[0].raw["thoughtSignature"] == "SIG-XYZ"
 

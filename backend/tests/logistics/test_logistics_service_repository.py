@@ -1,24 +1,49 @@
+import os
+import re
+from contextlib import contextmanager, nullcontext
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
+from typing import Self
+from unittest.mock import MagicMock, patch
 
 import pytest
 from psycopg import OperationalError
 from pydantic import ValidationError
 
-from app.logistics.repository import (
-    get_active_logistics_policy,
+from app.core import db as core_db
+from app.logistics.domain.rules import evaluate_procurement_rules
+from app.logistics.readmodel.current import (
     get_active_logistics_runtime_fixture,
     get_current_inventory_logistics_snapshot,
+    read_active_logistics_policy,
 )
-from app.logistics.rules import evaluate_procurement_rules
-from app.logistics.schemas import (
-    InTransitItem,
-    LogisticsSalesRequest,
-    PurchaseAgentOutput,
-    ScheduledQuantity,
-)
-from app.logistics.service import run_logistics_procurement, run_logistics_sales
+from app.logistics.schemas.agent import LogisticsSalesRequest, PurchaseAgentOutput
+from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
+from app.logistics.service.cycle import run_logistics_procurement, run_logistics_sales
+
+
+@contextmanager
+def _읽기(**kwargs: object):
+    """종전 `repository.fetch_all` 가짜 자리 — 같은 두 인자(query, params)를 받는 가짜를 낸다.
+
+    ★ 2026-09-30 재구성 BL-015: 종전 `fetch_all` 은 SELECT 하나마다 조회 연결을 빌려 실행했다.
+      그 일이 지금은 둘로 나뉘어 있다 — 빌리는 것은 `readmodel/current._read_on`
+      (`core_db.read_connection`), 실행은 `repository/current` 의 `dict_rows(conn, query, params)`.
+      그 두 자리를 함께 바꿔 끼운다. 빌린 연결로는 아무것도 읽지 않으므로 빈 객체를 준다.
+
+    🔴 **일정 목록 · 운송 계약은 바꿔 끼우지 않는다.** 종전 검사도 그 조회는 따로 빌리는 연결
+       (`core_db.connection()`)로 갔다 — 대역이 없으면 종전처럼 그 자리에서 접속 정보를 찾는다.
+    """
+    fetch = MagicMock(**kwargs)
+
+    def dict_rows(conn: object, query: object, params: object = None) -> object:
+        return fetch(query, params)
+
+    with (
+        patch("app.logistics.repository.current.dict_rows", side_effect=dict_rows),
+        patch.object(core_db, "read_connection", lambda: nullcontext(object())),
+    ):
+        yield fetch
 
 
 def _policy_rows() -> list[dict[str, object]]:
@@ -48,10 +73,10 @@ def _policy_rows() -> list[dict[str, object]]:
 
 def _load_policy(rows: list[dict[str, object]]):
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=rows) as fetch,
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=rows) as fetch,
     ):
-        policy = get_active_logistics_policy()
+        policy = read_active_logistics_policy()
     assert fetch.call_args.args[1] == [
         "logistics",
         "v1.3-PROVISIONAL",
@@ -253,10 +278,10 @@ def test_independent_sla_capacity_never_falls_back_to_legacy_6_4_ton():
 
 def test_runtime_fixture_loads_confirmed_zero_schedules():
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=[_fixture_row()]) as fetch,
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=[_fixture_row()]) as fetch,
     ):
-        fixture = get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31))
+        fixture = get_active_logistics_runtime_fixture(None, as_of=date(2025, 12, 31))
 
     assert fixture.fixture_id == "LOG-RUNTIME-SIM-BURNIN-202512-DAY30"
     assert fixture.sim_run_id == "SIM-BURNIN-202512"
@@ -278,11 +303,11 @@ def test_runtime_fixture_loads_confirmed_zero_schedules():
 )
 def test_runtime_fixture_separates_absence_from_duplication(rows, expected_error, match):
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=rows),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=rows),
         pytest.raises(expected_error, match=match),
     ):
-        get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31))
+        get_active_logistics_runtime_fixture(None, as_of=date(2025, 12, 31))
 
 
 # ── runtime fixture 조회의 실행 축 ──────────────────────────────────────
@@ -295,7 +320,7 @@ _OTHER_RUN = "SIM-WHATIF-20260906"
 
 
 def _가짜표(*rows: dict[str, object]):
-    """`fetch_all` 을 대신한다 — 보낸 조건대로 걸러 준다.
+    """repository 조회(`_읽기`)를 대신한다 — 보낸 조건대로 걸러 준다.
 
     ★ `repository` 가 만드는 파라미터 순서(`usage_scope, as_of[, sim_run_id]`)를 그대로
       읽는다. 순서가 바뀌면 이 가짜가 먼저 깨져 눈에 띈다.
@@ -338,10 +363,12 @@ def test_runtime_fixture_reads_only_the_requested_run(실행):
     """🔴 같은 날에 실행 둘이 서 있어도 **물어본 실행의 행만** 나온다."""
     a, b = _두_실행의_같은_날()
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", side_effect=_가짜표(a, b)),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(side_effect=_가짜표(a, b)),
     ):
-        fixture = get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31), sim_run_id=실행)
+        fixture = get_active_logistics_runtime_fixture(
+            None, as_of=date(2025, 12, 31), sim_run_id=실행
+        )
 
     assert fixture.sim_run_id == 실행
 
@@ -355,11 +382,13 @@ def test_runtime_fixture_absent_for_this_run_is_absence_not_another_runs_row():
     """
     (a, _) = _두_실행의_같은_날()
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", side_effect=_가짜표(a)),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(side_effect=_가짜표(a)),
         pytest.raises(LookupError, match=_OTHER_RUN),
     ):
-        get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31), sim_run_id=_OTHER_RUN)
+        get_active_logistics_runtime_fixture(
+            None, as_of=date(2025, 12, 31), sim_run_id=_OTHER_RUN
+        )
 
 
 def test_runtime_fixture_without_a_run_still_refuses_to_pick_one_of_two():
@@ -370,11 +399,11 @@ def test_runtime_fixture_without_a_run_still_refuses_to_pick_one_of_two():
     """
     a, b = _두_실행의_같은_날()
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", side_effect=_가짜표(a, b)),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(side_effect=_가짜표(a, b)),
         pytest.raises(ValueError, match="found 2"),
     ):
-        get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31))
+        get_active_logistics_runtime_fixture(None, as_of=date(2025, 12, 31))
 
 
 def test_runtime_fixture_rejects_a_row_from_a_run_it_did_not_ask_for():
@@ -384,12 +413,14 @@ def test_runtime_fixture_rejects_a_row_from_a_run_it_did_not_ask_for():
        조용히 빠지는 날 이 검사가 그 순간을 잡는다.
     """
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
         # ★ 조건을 무시하고 남의 행을 돌려주는 표 — WHERE 가 빠진 상황 그 자체다.
-        patch("app.logistics.repository.fetch_all", return_value=[_fixture_row()]),
+        _읽기(return_value=[_fixture_row()]),
         pytest.raises(ValueError, match="sim_run_id mismatch"),
     ):
-        get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31), sim_run_id=_OTHER_RUN)
+        get_active_logistics_runtime_fixture(
+            None, as_of=date(2025, 12, 31), sim_run_id=_OTHER_RUN
+        )
 
 
 @pytest.mark.parametrize(
@@ -410,12 +441,13 @@ def test_invalid_runtime_fixture_fails_closed(updates, message):
     행이 맞나"* 셋이다.
     """
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=[_fixture_row(**updates)]),
-        patch("app.logistics.repository._schedule_lists", return_value=([], [], [], ())),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=[_fixture_row(**updates)]),
+        patch("app.logistics.readmodel.current._schedule_lists", return_value=([], [], [], ())),
         pytest.raises((ValueError, ValidationError), match=message),
     ):
         get_active_logistics_runtime_fixture(
+            None,
             as_of=date(2025, 12, 31), sim_run_id="SIM-BURNIN-202512"
         )
 
@@ -423,10 +455,10 @@ def test_invalid_runtime_fixture_fails_closed(updates, message):
 def test_unresolved_runtime_source_preserves_none():
     row = _fixture_row(in_transit_status="UNRESOLVED", in_transit_json=None)
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=[row]),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=[row]),
     ):
-        fixture = get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31))
+        fixture = get_active_logistics_runtime_fixture(None, as_of=date(2025, 12, 31))
 
     assert fixture.in_transit is None
 
@@ -454,14 +486,14 @@ def test_runtime_fixture_carries_inbound_id_for_b1_validation():
         date=date(2026, 1, 2),
     )
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch("app.logistics.repository.fetch_all", return_value=[_fixture_row()]),
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(return_value=[_fixture_row()]),
         patch(
-            "app.logistics.repository._schedule_lists",
+            "app.logistics.readmodel.current._schedule_lists",
             return_value=([운송중], [미래점유], [], ()),
         ),
     ):
-        fixture = get_active_logistics_runtime_fixture(as_of=date(2025, 12, 31))
+        fixture = get_active_logistics_runtime_fixture(None, as_of=date(2025, 12, 31))
 
     assert fixture.in_transit is not None
     assert fixture.in_transit[0].inbound_id == "INB-001"
@@ -478,13 +510,12 @@ def test_runtime_read_carries_fixture_and_schedule_views():
     화면(`console_service.load_console_runtime`)이 이 두 칸을 꺼내 써서 같은
     `logistics_runtime_fixture` · `inbound_schedules` 질의를 한 판에 두 번 안 보낸다.
     """
-    from app.logistics.repository import get_current_logistics_read
+    from app.logistics.readmodel.current import get_current_logistics_read
 
     views = ("VIEW-1", "VIEW-2")  # 여기서는 «같은 객체가 그대로 실리나» 만 본다
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -493,10 +524,10 @@ def test_runtime_read_carries_fixture_and_schedule_views():
                 *_COMMITMENT_ROWS,
             ],
         ),
-        patch("app.logistics.repository._schedule_lists", return_value=([], [], [], views)),
-        patch("app.logistics.repository._delivery_route", return_value=(None, False)),
+        patch("app.logistics.readmodel.current._schedule_lists", return_value=([], [], [], views)),
+        patch("app.logistics.readmodel.current._delivery_route", return_value=(None, False)),
     ):
-        read = get_current_logistics_read(as_of=date(2025, 12, 31))
+        read = get_current_logistics_read(None, as_of=date(2025, 12, 31))
 
     assert read.fixture is not None
     assert read.fixture.as_of == date(2025, 12, 31)
@@ -504,11 +535,136 @@ def test_runtime_read_carries_fixture_and_schedule_views():
     assert read.inbound_schedule_views is views
 
 
+# ── 연결 없이 읽는 현재 스냅샷의 연결 경계 (2026-09-30 재구성 BL-015) ─────────────────────
+#
+# 종전 `repository.get_current_logistics_read(conn=None)` 의 대여를 그대로 잠근다 — SELECT 여섯은
+# 조회 연결을 하나씩, 일정 목록 둘은 `connection()` + `transaction` 블록 하나, 운송 계약도 블록
+# 하나. BL-015 에서 한때 조회 연결 하나로 모았다가 같은 날 되돌렸다. 이 검사만 두 대여 자리를
+# 모두 바꿔 끼워 기록한다(위 검사들은 종전처럼 일정 · 운송 대여를 바꿔 끼우지 않는다).
+
+
+def _표_이름(query: object) -> str:
+    """SQL 의 첫 `FROM` 표 이름 — 기록을 읽기 쉽게 하려는 표시다."""
+    text = query.as_string(None) if hasattr(query, "as_string") else str(query)
+    found = re.search(r'FROM\s+"?\w+"?\.(\w+)', text)
+    return found.group(1) if found else "?"
+
+
+class _기록하는_커서:
+    def __init__(self, 기록: list[str], 계약: list[dict[str, object]]) -> None:
+        self._기록 = 기록
+        self._계약 = 계약
+        self._행: list[dict[str, object]] = []
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def execute(self, query: object, params: object = None) -> None:
+        표 = _표_이름(query)
+        self._기록.append(f"SQL {표}")
+        self._행 = list(self._계약) if 표 == "logistics_contracts" else []
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return self._행
+
+    def fetchone(self) -> dict[str, object] | None:
+        return self._행[0] if self._행 else None
+
+
+class _기록하는_연결:
+    """빌림 · SQL · commit · rollback · 돌려줌을 한 줄에 적는다. `core_db.transaction` 은 진짜다."""
+
+    def __init__(self, 기록: list[str], 종류: str, 계약: list[dict[str, object]]) -> None:
+        self._기록 = 기록
+        self._종류 = 종류
+        self._계약 = 계약
+
+    def __enter__(self) -> Self:
+        self._기록.append(f"빌림 {self._종류}")
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        self._기록.append(f"돌려줌 {self._종류}")
+        return False
+
+    def cursor(self, *args: object, **kwargs: object) -> _기록하는_커서:
+        return _기록하는_커서(self._기록, self._계약)
+
+    def commit(self) -> None:
+        self._기록.append("commit")
+
+    def rollback(self) -> None:
+        self._기록.append("rollback")
+
+
+_계약_하나 = {
+    "logistics_contract_id": "LC-TEST",
+    "delivery_distance_km": Decimal(12),
+    "vehicle_class": "1T",
+    "transport_cost_per_delivery_krw": Decimal(50000),
+    "contract_status": "ACTIVE",
+    "provisional": False,
+}
+
+
+def _조회_블록(표: str) -> list[str]:
+    return ["빌림 조회", f"SQL {표}", "돌려줌 조회"]
+
+
+@pytest.mark.parametrize(
+    ("계약", "운송_끝", "노선"),
+    [([], "rollback", None), ([_계약_하나], "commit", "LC-TEST")],
+    ids=["계약_없음", "계약_하나"],
+)
+def test_current_read_without_a_connection_keeps_the_old_borrowing(
+    계약: list[dict[str, object]], 운송_끝: str, 노선: str | None
+) -> None:
+    """🔴 대여 여덟 — 조회 연결 여섯 + 일정 목록 블록(commit) + 운송 계약 블록.
+
+    운송 계약이 0건이면 `RouteNotFound` 로 그 블록만 rollback 하고 `(None, False)` 로 답한다
+    (종전과 같다). 1건이면 commit 한다. SQL 순서는 종전 `repository.py` 경로와 같다.
+    """
+    from app.logistics.readmodel.current import read_current_logistics
+
+    기록: list[str] = []
+    차례 = iter(
+        [[_fixture_row()], _policy_rows(), _inventory_rows(), _storage_policy_rows(),
+         *_COMMITMENT_ROWS]
+    )
+
+    def dict_rows(conn: object, query: object, params: object = None) -> object:
+        기록.append(f"SQL {_표_이름(query)}")
+        return next(차례)
+
+    with (
+        patch("app.logistics.repository.current.dict_rows", side_effect=dict_rows),
+        patch.object(core_db, "read_connection", lambda: _기록하는_연결(기록, "조회", [])),
+        patch.object(core_db, "connection", lambda: _기록하는_연결(기록, "연결", 계약)),
+        patch.dict(os.environ, {"DB_SCHEMA": "configured_schema"}),
+    ):
+        read = read_current_logistics(as_of=date(2025, 12, 31))
+
+    assert 기록 == [
+        *_조회_블록("logistics_runtime_fixture"),
+        #  일정 목록 둘 — 입고 예정(첫 FROM 이 하위 질의의 `inbound_receipts`) · 확정 판매
+        "빌림 연결", "SQL inbound_receipts", "SQL sales", "commit", "돌려줌 연결",
+        *_조회_블록("agent_policy_config"),
+        *_조회_블록("inventory_lots"),
+        *_조회_블록("item_storage_policies"),
+        *_조회_블록("inventory_allocations"),
+        *_조회_블록("inventory_reservations"),
+        "빌림 연결", "SQL logistics_contracts", 운송_끝, "돌려줌 연결",
+    ]
+    assert (read.delivery_route, read.delivery_route_error) == (노선, False)
+
+
 def test_runtime_snapshot_combines_fixture_direct_lots_and_policy():
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -553,9 +709,8 @@ def test_runtime_snapshot_combines_fixture_direct_lots_and_policy():
 def test_lot_grade_in_purchase_vocabulary_passes_through():
     """DB raw가 이미 특/상/중/하 어휘면 변환이 아니므로 그대로 싣는다."""
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -581,9 +736,8 @@ def test_lot_grade_without_normalization_evidence_is_none():
     for row in rows:
         row["grade"] = "상품"
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -611,9 +765,8 @@ def test_medium_grade_lot_applies_medium_grade_factor():
     rows = _inventory_rows()
     rows[0]["grade"] = "중"
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -636,9 +789,8 @@ def test_non_active_lot_occupies_capacity_when_physically_present():
     rows = _inventory_rows()
     rows[0]["status"] = "QUARANTINED"
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -672,9 +824,8 @@ def test_item_storage_policy_is_separate_from_lot_freshness():
         }
     ]
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[[_fixture_row()], _policy_rows(), rows, storage_rows, *_COMMITMENT_ROWS],
         ),
     ):
@@ -694,9 +845,8 @@ def test_item_storage_policy_covers_items_without_lots():
     """재고가 0kg인 품목도 정책은 나온다 — Lot 목록에서 역산하지 않는다."""
     rows = [row for row in _inventory_rows() if row["item_name"] == "배추"]
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -726,9 +876,8 @@ def test_item_storage_policy_preserves_missing_values():
         {"item_name": "무", "operational_limit_days": None, "medium_grade_factor": None}
     ]
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -748,11 +897,10 @@ def test_item_storage_policy_preserves_missing_values():
 
 
 def _snapshot_with_rows(rows: list[dict[str, object]]):
-    """`fetch_all` 을 가짜로 세우고 스냅샷 하나를 만든다. **DB 를 안 읽는다.**"""
+    """repository 조회(`_읽기`)를 가짜로 세우고 스냅샷 하나를 만든다. **DB 를 안 읽는다.**"""
     with (
-        patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
-        patch(
-            "app.logistics.repository.fetch_all",
+        patch("app.logistics.repository.current.get_db_schema", return_value="configured_schema"),
+        _읽기(
             side_effect=[
                 [_fixture_row()],
                 _policy_rows(),
@@ -881,10 +1029,10 @@ def test_logistics_a_ready_response_and_persistence(
     request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=complete_logistics_snapshot,
         ),
-        patch("app.logistics.service.save_logistics_agent_run") as save_run,
+        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
     ):
         response = run_logistics_procurement(request)
 
@@ -917,10 +1065,10 @@ def test_logistics_a_unresolved_response_is_saved(
     request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=unresolved_logistics_snapshot,
         ),
-        patch("app.logistics.service.save_logistics_agent_run") as save_run,
+        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
     ):
         response = run_logistics_procurement(request)
 
@@ -942,10 +1090,10 @@ def test_logistics_b_keeps_h1_out_of_on_hand_and_saves_run(
     request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=complete_logistics_snapshot,
         ),
-        patch("app.logistics.service.save_logistics_agent_run") as save_run,
+        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
     ):
         response = run_logistics_sales(request)
 
@@ -967,10 +1115,10 @@ def test_logistics_b_unresolved_n17_is_saved(
     request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=unresolved_logistics_snapshot,
         ),
-        patch("app.logistics.service.save_logistics_agent_run") as save_run,
+        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
     ):
         response = run_logistics_sales(request)
 
@@ -990,10 +1138,10 @@ def test_logistics_b_ready_blocking_constraint_persists_fail(
     request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=snapshot,
         ),
-        patch("app.logistics.service.save_logistics_agent_run") as save_run,
+        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
     ):
         response = run_logistics_sales(request)
 
@@ -1009,11 +1157,11 @@ def test_logistics_persistence_failure_is_not_runtime_warning(
     request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
     with (
         patch(
-            "app.logistics.service.get_current_inventory_logistics_snapshot",
+            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
             return_value=complete_logistics_snapshot,
         ),
         patch(
-            "app.logistics.service.save_logistics_agent_run",
+            "app.logistics.service.cycle.save_logistics_agent_run",
             side_effect=OperationalError("persistence unavailable"),
         ),
         pytest.raises(OperationalError, match="persistence unavailable"),
@@ -1061,9 +1209,10 @@ def test_missing_storage_limit_does_not_promote_to_runtime_error():
             payload={},
         )
         with (
-            patch("app.logistics.repository.get_db_schema", return_value="configured_schema"),
             patch(
-                "app.logistics.repository.fetch_all",
+                "app.logistics.repository.current.get_db_schema", return_value="configured_schema"
+            ),
+            _읽기(
                 side_effect=[
                     [_fixture_row()],
                     _policy_rows(),

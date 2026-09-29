@@ -74,8 +74,8 @@ finance_state_id · sim_run_id · state_date · state_type   **새로 정한다*
 
 ★★ 재무 시작 상태만 놓고 물류를 안 놓으면, 새 실행에 물류 행이 **한 행도 없다.**
   물류는 자기 개장 여부를 `logistics_runtime_fixture` 에서 읽으므로
-  (`app/logistics/day_open.py` `is_open`), 마스터가 상한만큼 거슬러도 anchor 를
-  못 찾고 **행을 만들지 않고 거절**한다.
+  (`app/logistics/service/day_open.py` `is_logistics_day_open`), 마스터가 상한만큼 거슬러도
+  anchor 를 못 찾고 **행을 만들지 않고 거절**한다.
 
 ```text
 source 를 찾는 열쇠   (baseline_run_id, as_of, usage_scope)

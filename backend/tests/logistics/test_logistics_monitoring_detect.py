@@ -22,28 +22,28 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.logistics.historical_repository import LedgerLotState
-from app.logistics.monitoring.detect import (
+from app.logistics.domain.monitoring import (
     CAPACITY_HIGH_RATIO,
     COMMITTED,
     ESCALATED_FRESHNESS_EXPIRED,
     LOT_EMPTY,
     REDETECT,
-    _resolution,
     detect_capacity_pressure,
     detect_freshness_pressure,
 )
-from app.logistics.monitoring.observe import (
-    CAPACITY_WINDOW_USAGE_UNRESOLVED,
-    LEDGER_MOVE_UNRESOLVED,
-    OBSERVATION_INCONSISTENT,
-    _quantity_observed_as_of,
-    _status_observed_as_of,
+from app.logistics.domain.observation import quantity_observed_as_of, status_observed_as_of
+from app.logistics.domain.rules import (
+    CAPACITY_TIGHT_POLICY_UNRESOLVED,
+    FRESHNESS_PRESSURE_POLICY_UNRESOLVED,
 )
-from app.logistics.monitoring.schemas import (
+from app.logistics.schemas.historical import LedgerLotState
+from app.logistics.schemas.monitoring import (
     CAPACITY_PRESSURE,
+    CAPACITY_WINDOW_USAGE_UNRESOLVED,
     COMMITMENT_OBSERVED_AS_OF,
     FRESHNESS_PRESSURE,
+    LEDGER_MOVE_UNRESOLVED,
+    OBSERVATION_INCONSISTENT,
     POLICY_OBSERVED_AS_OF,
     WAREHOUSE_SUBJECT_ID,
     ExceptionEvidence,
@@ -55,11 +55,8 @@ from app.logistics.monitoring.schemas import (
     derive_observed_as_of,
     snapshot_observed_as_of,
 )
-from app.logistics.rules import (
-    CAPACITY_TIGHT_POLICY_UNRESOLVED,
-    FRESHNESS_PRESSURE_POLICY_UNRESOLVED,
-)
-from app.logistics.schemas import InventoryLotSnapshot
+from app.logistics.schemas.snapshot import InventoryLotSnapshot
+from app.logistics.service.monitoring import _resolution
 
 AS_OF = date(2026, 1, 20)
 SIM = "SIM-DETECT-TEST"
@@ -459,7 +456,7 @@ def test_가변_잔량의_관측일은_마지막_이동일이지_입고일이_�
     D1, D8 = date(2026, 1, 1), date(2026, 1, 8)
     원장 = {"LOT-1": LedgerLotState(balance_kg=Decimal(500), last_moved_at=D8)}
 
-    잰날, 사유 = _quantity_observed_as_of(원장, lot=_원장Lot())
+    잰날, 사유 = quantity_observed_as_of(원장, lot=_원장Lot())
 
     assert 잰날 == D8
     assert 잰날 != D1
@@ -468,7 +465,7 @@ def test_가변_잔량의_관측일은_마지막_이동일이지_입고일이_�
 
 def test_원장에_이동이_없는_Lot_은_잔량_관측일이_None_이다():
     """production 경로면 날 수 없는 일이다 — 그래도 **지어내지 않고 사실로 적는다.**"""
-    잰날, 사유 = _quantity_observed_as_of({}, lot=_원장Lot())
+    잰날, 사유 = quantity_observed_as_of({}, lot=_원장Lot())
 
     assert 잰날 is None
     assert 사유 == [f"{LEDGER_MOVE_UNRESOLVED}:LOT-1"]
@@ -479,7 +476,7 @@ def test_캐시와_원장이_갈리면_잔량_관측일을_비운다():
     이 날부터 알고 있었다"* 가 된다."""
     원장 = {"LOT-1": LedgerLotState(balance_kg=Decimal(480), last_moved_at=date(2026, 1, 8))}
 
-    잰날, 사유 = _quantity_observed_as_of(원장, lot=_원장Lot(qty="500"))
+    잰날, 사유 = quantity_observed_as_of(원장, lot=_원장Lot(qty="500"))
 
     assert 잰날 is None
     assert 사유 == [f"{OBSERVATION_INCONSISTENT}:LOT-1"]
@@ -487,7 +484,7 @@ def test_캐시와_원장이_갈리면_잔량_관측일을_비운다():
 
 def test_원장_자체를_못_읽은_날은_모든_잔량_관측일이_None_이다():
     """`ADJUST` 가 섞인 날이다 — 대조도 날짜도 같은 원장에서 나온다."""
-    잰날, 사유 = _quantity_observed_as_of(None, lot=_원장Lot())
+    잰날, 사유 = quantity_observed_as_of(None, lot=_원장Lot())
 
     assert 잰날 is None
     assert 사유 == []
@@ -506,7 +503,7 @@ def test_원장_자체를_못_읽은_날은_모든_잔량_관측일이_None_이�
     ],
 )
 def test_상태의_관측일은_어휘마다_근거가_다르다(status, 기대):
-    잰날 = _status_observed_as_of(
+    잰날 = status_observed_as_of(
         status, received_at=date(2026, 1, 1), last_moved_at=date(2026, 1, 8)
     )
 
@@ -571,12 +568,24 @@ def test_관측일에_as_of_도_오늘도_안_들어간다():
 #:
 #: ★ `adapter.py` 가 들어 있는 것이 중요하다 — 마스터에게 나가는
 #:   `AgentReply.observed_at` 이 서는 자리가 거기 넷이다.
+#: ★ 2026-09-30 재구성 BL-015: 종전 `monitoring/` 네 파일 · `adapter.py` 가 계층 파일로 갈렸다 —
+#:   그 몸통을 받은 파일을 모두 본다.
 _관측일_모듈 = (
-    "monitoring/schemas.py",
-    "monitoring/observe.py",
-    "monitoring/detect.py",
-    "monitoring/exceptions.py",
+    "schemas/monitoring.py",
+    "domain/monitoring.py",
+    "service/monitoring.py",
+    "domain/observation.py",
+    "readmodel/observation.py",
+    "repository/exceptions.py",
     "adapter.py",
+    "service/agent_status.py",
+    "service/pre_purchase.py",
+    "service/pre_sales.py",
+    "service/scenario_validation.py",
+    "service/agent_read.py",
+    "domain/agent_replies.py",
+    "domain/agent_evidence.py",
+    "domain/pre_sales.py",
 )
 
 #: 🔴 `observed_*` 칸에 **대입하면 안 되는 것들** (§18 금지 목록).

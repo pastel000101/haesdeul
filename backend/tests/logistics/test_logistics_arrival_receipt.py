@@ -23,20 +23,22 @@ from typing import Any, Self
 
 import pytest
 
-from app.logistics import receipts
-from app.logistics.arrival import DueInbound
-from app.logistics.purchase_detail import PurchaseDetail
-from app.logistics.receipts import (
+from app.logistics.domain import receipts as receipts_domain
+from app.logistics.domain.arrival import DueInbound
+from app.logistics.domain.receipts import receipt_id_for
+from app.logistics.repository import receipts as receipts_repository
+from app.logistics.schemas import receipts as receipts_schemas
+from app.logistics.schemas.purchase_detail import PurchaseDetail
+from app.logistics.schemas.receipts import (
     InvalidInboundIdentity,
     ReceiptExistence,
     ReceiptFactsMissing,
     ReceiptIntegrityError,
     ReceiptRowUnreadable,
-    check_receipt_state,
-    create_arrived_receipt,
-    receipt_id_for,
 )
-from app.logistics.schemas import InTransitItem
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.service import receipts
+from app.logistics.service.receipts import check_receipt_state, create_arrived_receipt
 
 SIM_RUN_ID = "SIM-BURNIN-202512"
 INBOUND_ID = "INB-H1-THRU-20260105-BAECHU-1-1"
@@ -67,7 +69,7 @@ def 스키마이름을_고정한다(monkeypatch: pytest.MonkeyPatch) -> None:
     🔴 환경변수에 기대면 `pytest tests/logistics` 단독 실행에서 깨진다
        (`test_logistics_ledger.py` 가 같은 함정을 피하는 방식 그대로다).
     """
-    monkeypatch.setattr(receipts, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(receipts_repository, "get_db_schema", lambda: "haetdeul")
 
 
 class 가짜커서:
@@ -193,7 +195,22 @@ def _코드만(source: str) -> str:
 
 
 def _원문() -> str:
-    return Path(receipts.__file__).read_text(encoding="utf-8")
+    """종전 `receipts.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 service · repository · domain ·
+    schemas 네 파일이다(잠금은 `repository/locks.py` 로 모였다)."""
+    return chr(10).join(_원문들())
+
+
+def _원문들() -> list[str]:
+    return [
+        Path(module.__file__).read_text(encoding="utf-8")
+        for module in (receipts, receipts_repository, receipts_domain, receipts_schemas)
+    ]
+
+
+def _코드() -> str:
+    """네 파일 각각에서 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일부터
+    모듈 docstring 이 docstring 으로 안 잡힌다)."""
+    return chr(10).join(_코드만(원문) for 원문 in _원문들())
 
 
 # ── 1~4. 0 · 1 · 2+ 를 가른다 ───────────────────────────────────────────
@@ -369,7 +386,7 @@ def test_F6_상태로_진행_여부를_판단하지_않는다():
     🔴 지금 이 모듈이 그 분기를 들고 있으면, 스키마가 증명 못 하는 규칙이
        코드에 먼저 굳는다 (3-B4-D 감사 K 항목).
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("INSPECTING", "INSPECTED", "PUTAWAY_DONE", "CLOSED"):
         assert 코드.count(금지) <= 1, f"{금지} 가 어휘 선언 밖에서 쓰이고 있다"
@@ -480,8 +497,8 @@ def test_8b_도착_후보_선택과_같은_눈으로_본다():
     """
     from datetime import date
 
-    from app.logistics.arrival import select_due_inbound
-    from app.logistics.schemas import InTransitItem
+    from app.logistics.domain.arrival import select_due_inbound
+    from app.logistics.schemas.snapshot import InTransitItem
 
     선택 = select_due_inbound(
         [
@@ -509,7 +526,7 @@ def test_9_10_11_쓰기는_ARRIVED_INSERT_하나뿐이다():
     ★ 기존 Receipt 를 고치는 경로를 만들지 않는다 — 상태 진행도 보강도 이 단계의
       일이 아니고, 그 경로가 생기면 *"언제 무엇이 바뀌었나"* 를 아무도 못 본다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("UPDATE", "DELETE", "TRUNCATE", "MERGE"):
         assert 금지 not in 코드, f"{금지} 가 있다 — 이 단계는 고치거나 지우지 않는다"
@@ -531,7 +548,7 @@ def test_9b_조회_함수는_여전히_아무것도_안_쓴다():
 
 def test_12_13_커밋도_롤백도_하지_않는다():
     """🔴 커밋은 나중에 **한 바깥 트랜잭션**이 한 번 한다 (`ledger.py` 와 같은 규율)."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
     assert "commit" not in 코드
     assert "rollback" not in 코드
 
@@ -548,7 +565,7 @@ def test_14_자기_커넥션을_열지_않는다():
 
     ★ 그래서 `repository.fetch_all` 도 쓰지 않는다 — 그쪽이 자기 커넥션을 연다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "get_connection" not in 코드
     # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
@@ -572,7 +589,7 @@ def test_15b_UniqueViolation_을_흐름으로_쓰지_않는다():
     """🔴 DB 무결성 예외는 트랜잭션을 aborted 로 만든다 — *"이미 있으니 넘어간다"* 를
     그것으로 표현하면 멀쩡한 재실행이 장애가 된다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "UniqueViolation" not in 코드
     assert "psycopg.errors" not in 코드, "DB 예외 종류를 흐름 분기로 쓰지 않는다"
@@ -604,10 +621,17 @@ def test_16_다른_파트를_임포트하지_않는다():
         "dataclasses",
         "typing",
         "psycopg",
-        "app.logistics.db",
+        # ★ 2026-09-30 재구성 BL-015: 예정일을 값으로 받는다(`insert_arrived_receipt`).
+        "datetime",
+        # ★ 같은 기능의 계층 파일과 물류 공용 도우미(스키마 이름 · 잠금)다.
+        "app.logistics.domain.receipts",
+        "app.logistics.repository.receipts",
+        "app.logistics.schemas.receipts",
+        "app.logistics.repository.rows",
+        "app.logistics.repository.locks",
         # ★ 물류 형제 모듈이다 — 앞 단계가 검증한 사실을 **타입으로** 받는다.
-        "app.logistics.arrival",
-        "app.logistics.purchase_detail",
+        "app.logistics.domain.arrival",
+        "app.logistics.schemas.purchase_detail",
     }, 모듈
 
 
@@ -616,7 +640,7 @@ def test_16b_매입_상세를_조회하지_않는다():
 
     이 함수가 답하는 질문은 하나다 — *"이 입고 건에 Receipt 가 이미 있나"*.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("purchase_items", "inventory_lots", "inventory_moves", "unit_price", "grade"):
         assert 금지 not in 코드, f"{금지} 를 건드리고 있다"
@@ -632,7 +656,7 @@ def test_일정을_건드리지_않는다():
     🔴 `in_transit` · `confirmed_inbound` 정리는 뒤 단계이고, 여기서 미리 손대면
        Receipt 만 쓰고 일정이 사라진 반쪽 상태가 생긴다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "FOR UPDATE" not in 코드, "일정 행을 잠글 이유가 아직 없다"
     assert "logistics_runtime_fixture" not in 코드
@@ -837,7 +861,7 @@ def test_G11_연체분도_원래_예정일을_지킨다():
 
 def test_G11b_시계를_읽지_않는다():
     """★ 날짜의 출처는 **인자로 받은 예정일 하나뿐**이다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("today(", "now(", "utcnow", "CURRENT_DATE", "as_of"):
         assert 금지 not in 코드, "도착일을 지어내고 있다: " + 금지
@@ -1051,7 +1075,7 @@ def test_G24d_입고별_잠금을_쓰지_않는다():
 
 def test_G26_UniqueViolation_을_흐름으로_쓰지_않는다():
     """🔴 잠금이 있는데도 그물이 터지면 그것은 **버그**다 — 삼키지 않고 올린다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "UniqueViolation" not in 코드
     assert "psycopg.errors" not in 코드
@@ -1082,7 +1106,7 @@ def test_G29_33_받은_커넥션만_쓰고_닫지_않는다():
 
 def test_G30_다른_파트를_임포트하지_않는다():
     """★ 매입·마스터 코드를 끌어오지 않는다 — 앞 단계가 검증한 **타입만** 받는다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("app.master", "app.purchase_agent", "app.finance", "app.sales"):
         assert 금지 not in 코드, "끌어오고 있다: " + 금지
@@ -1090,7 +1114,7 @@ def test_G30_다른_파트를_임포트하지_않는다():
 
 def test_G31_매입_계산을_하지_않는다():
     """★ 단가·금액·품목 번역은 전부 앞 단계가 이미 했다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("unit_price", "line_amount", "item_name", "purchase_id_for"):
         assert 금지 not in 코드, "남의 계산을 복제하고 있다: " + 금지

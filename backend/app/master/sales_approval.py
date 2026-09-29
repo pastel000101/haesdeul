@@ -44,7 +44,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.contracts.envelope import Capability
 from app.contracts.sales_logistics import SalesOutboundReservationRequest
 from app.core import db as core_db
-from app.logistics.sales_outbound import reserve_confirmed_sale_available
+from app.logistics.service.outbound import reserve_confirmed_sale_available
 from app.sales.domain.logistics_request import outbound_reservation_for_sale
 from app.sales.schemas.proposal import SalesExecutionIdentity, SalesScenario
 from app.sales.schemas.sale_ledger import (
@@ -519,7 +519,7 @@ def confirm_approved_sale(
         `decision_service.record_decision` 이 행에서 한 번 읽어 둘에 흘린다.
     :param confirm: 확정 함수. 안 주면 `app.sales.service.sale_ledger.confirm_sale` 이다.
     :param reserve: 확정분 예약 함수. 안 주면
-        `app.logistics.sales_outbound.reserve_confirmed_sale_available` 이다.
+        `app.logistics.service.outbound.reserve_confirmed_sale_available` 이다.
         🔴 **`reserve_confirmed_sale` 이 아니다** — 저쪽은 전량 아니면 멈추고,
         여기서 멈추면 이미 선 확정이 예외로 되돌아간다.
     :param borrow: 연결을 빌려 주는 함수. 안 주면 `app.core.db.connection`(공통 풀)이다.

@@ -35,8 +35,8 @@ from typing import Any
 import pytest
 
 import app.main  # noqa: F401  — import 시점에 입고 실행을 등록한다. 이 검사의 전제다
-from app.logistics.inbound_execution import LogisticsInboundExecution
-from app.logistics.simulated_inspection import ScenarioSimulatedInspectionProvider
+from app.logistics.adapter import LogisticsInboundExecution
+from app.logistics.domain.simulated_inspection import ScenarioSimulatedInspectionProvider
 from app.master import inbound
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 from app.master.sim_run_binding import bind_sim_run

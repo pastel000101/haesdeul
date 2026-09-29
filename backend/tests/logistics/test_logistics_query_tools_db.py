@@ -28,23 +28,10 @@ import psycopg
 import pytest
 
 from app.core import db as core_db
-from app.logistics import historical_repository, inbound_schedules, turnover
-from app.logistics import tools as calc
-from app.logistics.monitoring import exceptions as exception_repo
-from app.logistics.monitoring.exceptions import (
-    live_exceptions_at,
-    open_exception,
-    resolve_exception,
-    touch_exception,
-)
-from app.logistics.monitoring.schemas import (
-    COMMITMENT_OBSERVED_AS_OF,
-    FRESHNESS_PRESSURE,
-    ExceptionEvidence,
-    ExceptionRow,
-)
-from app.logistics.query import tools as agent_tools
-from app.logistics.query.tools import (
+from app.logistics.domain import tools as calc
+from app.logistics.domain.tools import commitment_axes, sellable_lot_contributions
+from app.logistics.readmodel import status_tools as agent_tools
+from app.logistics.readmodel.status_tools import (
     EXCEPTION_DETAIL_UNRESOLVED,
     ITEM_NOT_FOUND,
     LOT_NOT_FOUND,
@@ -56,14 +43,27 @@ from app.logistics.query.tools import (
     get_policy,
     get_sales_commitments,
 )
-from app.logistics.schemas import (
+from app.logistics.repository import rows
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository.exceptions import (
+    live_exceptions_at,
+    open_exception,
+    resolve_exception,
+    touch_exception,
+)
+from app.logistics.schemas.monitoring import (
+    COMMITMENT_OBSERVED_AS_OF,
+    FRESHNESS_PRESSURE,
+    ExceptionEvidence,
+    ExceptionRow,
+)
+from app.logistics.schemas.snapshot import (
     POLICY_VERSION,
     InventoryLogisticsSnapshot,
     LogisticsPolicy,
     OutboundCommitment,
     ScheduledQuantity,
 )
-from app.logistics.tools import _commitment_axes, _sellable_lot_contributions
 
 pytestmark = pytest.mark.db
 
@@ -158,7 +158,9 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                     " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
                     (BAECHU, PRIORITY_DAYS),
                 )
-            for module in (turnover, historical_repository, exception_repo, inbound_schedules):
+            # ★ 2026-09-30 재구성 BL-015: 회전 SQL 은 `repository/turnover` 가, 이력 · 문제 장부 ·
+            #   일정 SQL 은 `rows.schema_identifier` 로 스키마를 읽는다.
+            for module in (turnover_repository, rows):
                 monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
             yield connection
         finally:
@@ -930,9 +932,9 @@ def test_uncommitted_matches_the_existing_sellable_calculation(
             ]
         }
     )
-    axes = _commitment_axes(snapshot)
+    axes = commitment_axes(snapshot)
     assert axes is not None
-    existing = {lot.lot_id: share for lot, share in _sellable_lot_contributions(snapshot, axes[0])}
+    existing = {lot.lot_id: share for lot, share in sellable_lot_contributions(snapshot, axes[0])}
 
     assert result.lot.committed_kg == Decimal(400)
     assert result.lot.uncommitted_kg == existing["LOT-BAECHU"] == Decimal(100)

@@ -35,31 +35,27 @@ import psycopg
 import pytest
 
 from app.core import db as core_db
-from app.logistics import historical_repository, turnover
 from app.logistics.domain.console_rules import severity_at
-from app.logistics.monitoring import exceptions as exception_repo
-from app.logistics.monitoring.detect import (
-    COMMITTED,
-    ESCALATED_FRESHNESS_EXPIRED,
-    REDETECT,
-    detect_logistics_exceptions,
-)
-from app.logistics.monitoring.exceptions import (
-    EmptyEvidence,
+from app.logistics.domain.monitoring import COMMITTED, ESCALATED_FRESHNESS_EXPIRED, REDETECT
+from app.logistics.readmodel.observation import observe
+from app.logistics.repository import rows
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository.exceptions import (
     live_exceptions,
     open_exception,
     resolve_exception,
     touch_exception,
 )
-from app.logistics.monitoring.observe import observe
-from app.logistics.monitoring.schemas import (
+from app.logistics.schemas.monitoring import (
     CAPACITY_PRESSURE,
     FRESHNESS_PRESSURE,
     WAREHOUSE_SUBJECT_ID,
+    EmptyEvidence,
     ExceptionEvidence,
     ExceptionRow,
 )
-from app.logistics.schemas import InventoryLogisticsSnapshot
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
+from app.logistics.service.monitoring import detect_logistics_exceptions
 
 pytestmark = pytest.mark.db
 
@@ -147,7 +143,9 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                     " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
                     (BAECHU, PRIORITY_DAYS),
                 )
-            for module in (turnover, historical_repository, exception_repo):
+            # ★ 2026-09-30 재구성 BL-015: 회전 SQL 은 `repository/turnover` 가, 이력 · 문제 장부 ·
+            #   일정 SQL 은 `rows.schema_identifier` 로 스키마를 읽는다.
+            for module in (turnover_repository, rows):
                 monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
             yield connection
         finally:

@@ -48,8 +48,8 @@ from datetime import date
 from typing import Literal, get_args
 
 from app.core import db as core_db
-from app.logistics.monitoring.detect import detect_logistics_exceptions
-from app.logistics.monitoring.schemas import DetectOut, DetectPhase
+from app.logistics.schemas.monitoring import DetectOut, DetectPhase
+from app.logistics.service.monitoring import detect_logistics_exceptions
 
 __all__ = [
     "AFTER_INBOUND",

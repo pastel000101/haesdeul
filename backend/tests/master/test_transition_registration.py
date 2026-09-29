@@ -25,8 +25,7 @@ from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.finance import adapter as finance_adapter
 from app.finance.adapter import FinanceDayOpening
 from app.finance.service import transition as finance_transition
-from app.logistics.day_open import LogisticsDayOpening
-from app.logistics.transition import LogisticsTransitionAdapter
+from app.logistics.adapter import LogisticsDayOpening, LogisticsTransitionAdapter
 from app.master import day_open, transition
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 from app.master.sim_run_binding import bind_sim_run

@@ -16,12 +16,12 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from app.logistics.inbound_schedules import (
-    InboundScheduleView,
+from app.logistics.domain.inbound_schedules import (
     in_transit_from,
     pending_inbound_from,
     receivable_from,
 )
+from app.logistics.schemas.inbound_schedules import InboundScheduleView
 
 _AS_OF = date(2026, 1, 20)
 

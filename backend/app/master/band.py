@@ -492,7 +492,7 @@ class OccupancyResult:
 def _window_end(as_of: date, lead: float | None, window_days: int | None) -> date | None:
     """`cap_by_date` 창의 마지막 날. 두 조각이 다 있어야 만든다 (#183).
 
-    🔴 **`build_cap_window` 와 같은 산술이어야 한다** (`app/logistics/tools.py`).
+    🔴 **`build_cap_window` 와 같은 산술이어야 한다** (`app/logistics/domain/tools.py`).
 
     ```python
     start = as_of + timedelta(days=lead)
@@ -542,7 +542,7 @@ def check_occupancy_detailed(
       센다** — 한 번은 cap 에서 빠지고 한 번은 점유에 더해진다.
 
       ```python
-      # app/logistics/tools.py:270  — 이 값을 만드는 유일한 곳
+      # app/logistics/domain/tools.py  — 이 값을 만드는 유일한 곳
       max(0, guaranteed_capacity_kg - projected_occupancy)
       ```
 

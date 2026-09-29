@@ -4,7 +4,7 @@
 ║  ★ 물류 파트가 채우는 파일입니다. `build()` 안쪽만 바꾸면 됩니다.          ║
 ║                                                                          ║
 ║  이제 **실제 DB 값**을 읽습니다 (`Source.filled = True`).                 ║
-║  읽는 길은 `app/logistics/console_service.py` 하나뿐입니다 —              ║
+║  읽는 길은 `app/logistics/readmodel/console.py` 하나뿐입니다 —            ║
 ║  **SQL 을 여기서 새로 쓰지 않습니다** (#415). 같은 쿼리를 두 벌 두면       ║
 ║  언젠가 값이 갈라집니다.                                                  ║
 ║                                                                          ║
@@ -69,33 +69,24 @@ from app.api.primitives import (
     Table,
 )
 from app.contracts.core import ITEMS
-from app.core import db as core_db
 from app.core.settings import SHOWN_SIM_RUN_ID
-from app.logistics.console_service import (
-    get_fefo_candidates_by_item,
-    get_inbound_console,
-    get_inventory_console,
-    get_outbound_console,
-    load_console_runtime,
-)
 from app.logistics.domain.console_rules import severity_at, still_working
-from app.logistics.historical_repository import (
-    onhand_total_by_day,
-    reservation_state_at,
-    runtime_coverage_at,
-    snapshot_days_between,
+from app.logistics.readmodel.console import (
+    get_fefo_candidates_by_item,
+    read_console_page,
+    read_stock_chart,
 )
-from app.logistics.inbound_schedules import (  # noqa: F401  아래 주석대로 밖에 여는 이름이다
+from app.logistics.readmodel.inbound_schedules import (  # noqa: F401  아래 주석대로 밖에 여는 이름이다
     schedule_view_scope as read_scope,
 )
-from app.logistics.monitoring.exceptions import live_exceptions_at, resolved_exceptions_on
-from app.logistics.monitoring.schemas import ExceptionRow
-from app.logistics.schemas import (
+from app.logistics.schemas.console import (
     ConsoleInboundResponse,
     ConsoleInventoryResponse,
     ConsoleOutboundResponse,
     ConsoleReservation,
 )
+from app.logistics.schemas.historical import RuntimeSnapshotCoverage
+from app.logistics.schemas.monitoring import ExceptionRow
 
 log = logging.getLogger(__name__)
 
@@ -620,7 +611,7 @@ def _summary_pane(
                 source_ref="inventory_lots · inventory_reservations",
                 #  🔴 종전 문구는 «판매가능량 · 예약량은 지금 기준» 이라고 적었는데
                 #     #760 이후로는 **넷 다 기준일 축**이다 (`_MIXED_AXIS_NOTE` 와
-                #     `console_service` 머리말이 정본). 같은 화면에서 두 설명이
+                #     `readmodel/console` 머리말이 정본). 같은 화면에서 두 설명이
                 #     서로 어긋나 있었다.
                 #  🔴 **안내문을 통째로 뺐다** (#812). 종전 두 문장은 각각
                 #     «기준일 시점 값입니다»(화면 맨 위가 이미 말한다)와 «창고 사용량은
@@ -1183,7 +1174,7 @@ def _outbound_pane(ob: ConsoleOutboundResponse, inv: ConsoleInventoryResponse) -
     #     `allocate_reserved_stock_fefo` 도 아무것도 안 하므로 후보를 구할 이유가 없다.
     #     예약 164건에 164번 묻던 것이 대시보드 8.6초의 태반이었다 (마스터 실측 2026-09-15).
     #  🔴 **묻는 것은 품목마다 한 번이다** (2026-09-15). 후보는 예약과 무관한 값이라
-    #     (`console_service.get_fefo_candidates_by_item`) 같은 품목 예약 여덟 건이 같은 답을
+    #     (`readmodel/console.get_fefo_candidates_by_item`) 같은 품목 예약 여덟 건이 같은 답을
     #     여덟 번 받던 자리다. 예약이 없으면 **묻지도 않는다.**
     #  🔴 **넘기는 예약은 «그린 것» 이 아니라 그날 **전부** 다** (#812). 남의 예약이
     #     잡아 둔 몫도 그 Lot 에서 빠져야 가용량이 부풀지 않는다.
@@ -1427,59 +1418,39 @@ def build_result(as_of: date, pane: str) -> LogisticsTabResult:
     run = SHOWN_SIM_RUN_ID
     try:
         #  🔴 **커넥션은 한 판에 하나다** (2026-09-15). 종전에는 조회마다 · FEFO 예약마다
-        #     새로 열어 한 판에 23개 · 388 ms 였다 (원격 DB · 연결당 14~22 ms). 2026-09-29
-        #     부터 그 하나를 공통 풀에서 빌린다. 읽기만 하므로 블록 끝의 commit 은 아무것도
-        #     안 바꾼다.
-        with core_db.connection() as conn, core_db.transaction(conn):
-            coverage = runtime_coverage_at(conn, sim_run_id=run, as_of=as_of)
-            if not coverage.has_snapshot:
-                return LogisticsTabResult(
-                    tab=_empty_tab(
-                        status="NO_DATA",
-                        note=Note(
-                            tone="warn",
-                            text=(f"**{as_of} 은 이 실행이 연 날이 아닙니다** — 그날 "
-                                  "Runtime Snapshot 이 없습니다. 0 이 아니라 "
-                                  "**아직 모르는 날**입니다. "
-                                  f"이 실행이 연 날: {coverage.first_as_of} ~ "
-                                  f"{coverage.last_as_of}."),
-                        ),
-                        source_note=(
-                            f"logistics_runtime_fixture 없음 · 보고 있는 실행: {run}"
-                            f" · 기준일: {as_of}"
-                            f" (열린 구간 {coverage.first_as_of}~{coverage.last_as_of})"
-                        ),
+        #     새로 열어 한 판에 23개 · 388 ms 였다 (원격 DB · 연결당 14~22 ms). 2026-09-30
+        #     재구성 BL-015 부터 그 하나를 `readmodel/console.read_console_page` 가 조회 연결로
+        #     빌리고, 이 화면은 연결을 쥐지 않는다. 조회 순서 · Runtime 한 번 · 예약 한 번(#760)
+        #     · 문제 장부 두 반쪽의 이유는 저 함수 본문 주석에 있다.
+        page = read_console_page(sim_run_id=run, as_of=as_of)
+        if isinstance(page, RuntimeSnapshotCoverage):
+            coverage = page
+            return LogisticsTabResult(
+                tab=_empty_tab(
+                    status="NO_DATA",
+                    note=Note(
+                        tone="warn",
+                        text=(f"**{as_of} 은 이 실행이 연 날이 아닙니다** — 그날 "
+                              "Runtime Snapshot 이 없습니다. 0 이 아니라 "
+                              "**아직 모르는 날**입니다. "
+                              f"이 실행이 연 날: {coverage.first_as_of} ~ "
+                              f"{coverage.last_as_of}."),
                     ),
-                    http_status=HTTPStatus.OK,
-                )
-            #  ★ Runtime 읽기(Current 축)는 **한 판에 한 번**이다 — 재고 콘솔(판매가능량)과
-            #    입고 콘솔(운송 중 · 도착 처리 대상)이 같은 한 벌을 나눠 쓴다. 따로 읽으면
-            #    같은 fixture · 일정 질의가 두 번씩 나간다 (실측 2026-09-15 · 일정 5번 421 ms).
-            runtime = load_console_runtime(conn=conn, sim_run_id=run, as_of=as_of)
-            #  ★ 그날 예약(Historical)도 **한 판에 한 번** 읽는다 (#760). 재고 콘솔의
-            #    예약 3칸·판매가능량과 출고 콘솔의 예약 목록이 같은 한 벌을 나눠 쓴다 —
-            #    종전에는 출고 콘솔만 `reservation_state_at` 을 부르고 재고 3칸은
-            #    «지금 status» 를 세어 한 화면에 두 시간축이 섞였다.
-            reservations = reservation_state_at(conn, sim_run_id=run, as_of=as_of)
-            inv = get_inventory_console(
-                conn=conn, sim_run_id=run, as_of=as_of, runtime=runtime, reservations=reservations
+                    source_note=(
+                        f"logistics_runtime_fixture 없음 · 보고 있는 실행: {run}"
+                        f" · 기준일: {as_of}"
+                        f" (열린 구간 {coverage.first_as_of}~{coverage.last_as_of})"
+                    ),
+                ),
+                http_status=HTTPStatus.OK,
             )
-            inb = get_inbound_console(conn=conn, sim_run_id=run, as_of=as_of, runtime=runtime)
-            ob = get_outbound_console(
-                conn=conn, sim_run_id=run, as_of=as_of, reservations=reservations
-            )
-            #  🔴 **문제 장부도 같은 `(sim_run_id, as_of)` 축이다.** 다른 실행의 문제를
-            #     섞지 않고 그날 뒤에 열린 문제도 싣지 않는다 — 그 두 규칙의 주인은
-            #     `live_exceptions_at` 하나다. 그날 닫힌 행은 저 함수가 안 내므로
-            #     `resolved_exceptions_on` 이 나머지 반쪽을 가져온다.
-            live = live_exceptions_at(conn, sim_run_id=run, as_of=as_of)
-            resolved = resolved_exceptions_on(conn, sim_run_id=run, as_of=as_of)
-            panes = [
-                _summary_pane(inv, inb, ob, live.rows, resolved, live.uncertainties, as_of),
-                _stock_pane(inv, inb, ob),
-                _inbound_pane(inb, as_of),
-                _outbound_pane(ob, inv),
-            ]
+        inv, inb, ob, live = page.inventory, page.inbound, page.outbound, page.live
+        panes = [
+            _summary_pane(inv, inb, ob, live.rows, page.resolved, live.uncertainties, as_of),
+            _stock_pane(inv, inb, ob),
+            _inbound_pane(inb, as_of),
+            _outbound_pane(ob, inv),
+        ]
     except Exception as error:  #  DB 미연결 · 표 없음 · 원장/계보 무결성 다 잡는다
         log.exception("물류 값을 못 읽었습니다")
         http_status = _http_status_for_error(error)
@@ -1540,7 +1511,9 @@ def _ceiling(value: float) -> float:
     return 10 * base
 
 
-def _onhand_series(as_of: date, n: int, at: int) -> list[float | None]:
+def _onhand_series(
+    as_of: date, n: int, at: int, series: dict[date, Decimal], open_days: frozenset[date]
+) -> list[float | None]:
     """날짜축 칸마다의 창고 보유량. **원장 누계이고, 안 연 날은 공란이다.**
 
     ```text
@@ -1569,17 +1542,13 @@ def _onhand_series(as_of: date, n: int, at: int) -> list[float | None]:
     ★ **앞날은 그리지 않는다** — `as_of` 뒤 칸은 `None` 이다. 확정된 도착만
       `markers` 로 얹는다.
 
-    ⚠️ `ADJUST` 는 `historical_repository` 가 예외로 막는다. 방향을 모르는 이동을
-       0 이나 `IN` 으로 넘겨짚어 그린 선은 틀렸다는 것조차 알려 주지 않는다.
+    ⚠️ `ADJUST` 는 `readmodel/historical.onhand_total_by_day` 가 예외로 막는다. 방향을 모르는
+       이동을 0 이나 `IN` 으로 넘겨짚어 그린 선은 틀렸다는 것조차 알려 주지 않는다.
+
+    ★ 2026-09-30 재구성 BL-015: 누계(`series`)와 열린 날(`open_days`)은 부르는 쪽이
+      `read_stock_chart` 로 읽어 넘긴다. 이 함수는 칸에 옮겨 적기만 한다.
     """
     start = as_of - timedelta(days=at)
-    with core_db.connection() as conn, core_db.transaction(conn):
-        series = onhand_total_by_day(
-            conn, sim_run_id=SHOWN_SIM_RUN_ID, start=start, end=as_of
-        )
-        open_days = snapshot_days_between(
-            conn, sim_run_id=SHOWN_SIM_RUN_ID, start=start, end=as_of
-        )
     data: list[float | None] = [None] * n
     for index in range(at + 1):
         day = start + timedelta(days=index)
@@ -1603,11 +1572,13 @@ def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
        안 연 날들이 0kg 으로 그려집니다 (`_onhand_series` 참조).
     """
     try:
-        with core_db.connection() as conn, core_db.transaction(conn):
-            coverage = runtime_coverage_at(
-                conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of
-            )
-        if not coverage.has_snapshot:
+        #  ★ 2026-09-30 재구성 BL-015: 판정 · 누계 · 도착 표시를 `read_stock_chart` 가 조회 연결
+        #    하나로 읽는다(종전에는 이 함수가 연결을 세 번 빌렸다 — 질의와 순서는 같다).
+        facts = read_stock_chart(
+            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, start=as_of - timedelta(days=at)
+        )
+        if isinstance(facts, RuntimeSnapshotCoverage):
+            coverage = facts
             return _empty_stock_chart(
                 n,
                 Note(
@@ -1616,12 +1587,8 @@ def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
                           f"(열린 구간 {coverage.first_as_of} ~ {coverage.last_as_of})."),
                 ),
             )
-        data = _onhand_series(as_of, n, at)
-        with core_db.connection() as conn, core_db.transaction(conn):
-            runtime = load_console_runtime(conn=conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
-            inb = get_inbound_console(
-                conn=conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, runtime=runtime
-            )
+        data = _onhand_series(as_of, n, at, facts.onhand_by_day, facts.open_days)
+        inb = facts.inbound
     except Exception as error:  #  DB 미연결 · 표 없음 · 원장 이상 다 잡는다
         log.exception("재고 그래프를 못 읽었습니다")
         return _empty_stock_chart(

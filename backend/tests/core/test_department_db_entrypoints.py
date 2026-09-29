@@ -1,7 +1,7 @@
 """부서 `db.py` 입구 — 풀 전환 뒤에도 **부서마다 다른 동작**이 그대로인지 (실 DB 연결 없음).
 
 ```text
-마스터·물류     조회는 서비스 풀의 조회 연결 · RETURNING 쓰기는 한 호출 = 한 트랜잭션
+마스터         조회는 서비스 풀의 조회 연결 · RETURNING 쓰기는 한 호출 = 한 트랜잭션
                (마스터 입구 `master/db.py` 는 2026-09-29 재구성 BL-014 전에 `finance/db.py` 였다)
 재무           입구 `finance/db.py` 가 없다 (2026-09-29 재구성 BL-014) — 조회는 readmodel 이
                조회 연결을, 실행이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
@@ -14,7 +14,10 @@ ML             입구 `ml/db.py` 가 없다 (2026-09-29 BL-017) — 원본 창�
                (아래 ML 절)
 매입           입구 `purchase_agent/db.py` 가 없다 (2026-09-29 BL-016) — 시세 조회가 조회 연결만
                빌리고 SQL 은 repository 가 받은 연결로 실행한다. 쓰기 대여 없음 (아래 매입 절)
-물류           스키마 이름을 읽을 때 .env 를 프로세스에서 한 번만 적재
+물류           입구 `logistics/db.py` 가 없다 (2026-09-30 재구성 BL-015) — 조회는 readmodel 이
+               조회 연결을, 실행이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
+               repository 에 넘긴다. 스키마 이름을 읽을 때 .env 는 프로세스에서 한 번만 적재
+               (아래 물류 절)
 ```
 
 ★ 연결은 `service_pool` fixture 가 바꿔 끼운 **진짜 psycopg_pool 풀 + 가짜 연결 종류**다
@@ -33,13 +36,13 @@ import pytest
 from fake_pg_connection import FakeCursor, FakePgConnection
 from psycopg.rows import dict_row
 
-import app.logistics.db as logistics_db
 import app.master.db as master_db
 from app.core import db as core_db
 from app.core import settings
+from app.logistics.repository import rows as logistics_rows
 
-READ_MODULES = [master_db, logistics_db]
-WRITE_MODULES = [master_db, logistics_db]
+READ_MODULES = [master_db]
+WRITE_MODULES = [master_db]
 
 
 @pytest.mark.parametrize("module", READ_MODULES, ids=lambda m: m.__name__)
@@ -126,6 +129,7 @@ def test_every_department_shares_the_one_service_pool(
     for module in READ_MODULES:
         module.fetch_all("Q")
     _read_quotes()  # 매입 시세 조회 (2026-09-29 BL-016 전에는 `purchase_agent/db.py` 입구)
+    _read_logistics_runs()  # 물류 실행이력 조회 (2026-09-30 BL-015 전에는 `logistics/db.py` 입구)
 
     assert len(fake_pg.connects) == 1
 
@@ -150,26 +154,32 @@ def test_missing_env_message_is_unchanged(
 
 
 @pytest.mark.parametrize(
-    "module", [master_db, logistics_db], ids=lambda m: m.__name__
+    "module", [master_db, logistics_rows], ids=lambda m: m.__name__
 )
 def test_schema_comes_from_db_schema(module, db_env: dict[str, str]) -> None:
     assert module.get_db_schema() == "haetdeul_test"
 
 
-def test_logistics_still_loads_env_once_and_not_through_the_shared_loader(
+def test_logistics_still_loads_env_once_while_the_shared_loader_reads_every_call(
     monkeypatch: pytest.MonkeyPatch, db_env: dict[str, str]
 ) -> None:
-    shared: list[object] = []
-    own: list[object] = []
-    monkeypatch.setattr(settings, "load_dotenv", lambda path: shared.append(path))
-    monkeypatch.setattr(logistics_db, "load_dotenv", lambda path: own.append(path))
-    monkeypatch.setattr(logistics_db, "_env_file_loaded", False)
+    """물류 스키마 이름은 `.env` 를 프로세스에서 한 번만 적재한다 — 공용 적재는 부를 때마다다.
+
+    ★ 2026-09-30 재구성 BL-015: 종전에는 `logistics/db.py` 가 자기 `load_dotenv` 를 따로 들고
+      있었다. 이제 한 번 적재 함수(`settings.load_env_file_once`)도 `app/core/settings.py` 에 있어
+      같은 기록기로 두 적재 방식을 견준다.
+    """
+    loads: list[object] = []
+    monkeypatch.setattr(settings, "load_dotenv", lambda path: loads.append(path))
+    monkeypatch.setattr(settings, "_env_file_loaded_once", False)
 
     for _ in range(3):
-        logistics_db.get_db_schema()
+        logistics_rows.get_db_schema()
+    assert loads == [settings.ENV_FILE]
 
-    assert own == [settings.ENV_FILE]
-    assert shared == []
+    settings.get_db_schema()
+    settings.get_db_schema()
+    assert loads == [settings.ENV_FILE] * 3
 
 
 def test_the_pool_reads_connection_settings_once_not_per_borrow(
@@ -182,7 +192,7 @@ def test_the_pool_reads_connection_settings_once_not_per_borrow(
 
     for _ in range(3):
         master_db.fetch_all("Q")
-        logistics_db.fetch_all("Q")
+        _read_logistics_runs()
 
     # 접속 정보 1 + 풀 크기 1 — 대여마다 늘지 않는다
     assert loads == [settings.ENV_FILE, settings.ENV_FILE]
@@ -681,6 +691,122 @@ def test_finance_run_history_write_failure_rolls_back_and_keeps_the_error(
     (conn,) = fake_pg.made
     assert conn.events[-1] == "rollback"
     assert "commit" not in conn.events
+
+
+# ── 물류 — 입구 대신 계층이 빌린다 (2026-09-30 재구성 BL-015) ─────────────────────────
+#
+# 옛 `logistics/db.py` 입구에서 재던 것 — 조회는 조회 연결을 빌려 돌려주고 commit 하지 않는다 ·
+# 쓰기는 남의 연결에 얹히지 않는 한 트랜잭션이다 · 행이 없으면 되돌린다 · 접속 정보 누락 문구 —
+# 을 그 일을 맡은 물류 readmodel(실행이력 조회) · service(실행이력 저장)에서 같은 진짜 풀로 잰다.
+
+
+def _read_logistics_runs() -> object:
+    from app.logistics.readmodel.runs import list_logistics_agent_runs
+
+    return list_logistics_agent_runs(limit=1)
+
+
+def _save_logistics_run() -> object:
+    from app.logistics.service.run_history import save_logistics_agent_run
+
+    return save_logistics_agent_run(
+        cycle="PROCUREMENT",
+        as_of=date(2026, 1, 5),
+        snapshot_id=None,
+        runtime_status="RUNTIME_NOT_READY",
+        verdict=None,
+        request_payload={},
+        response_payload={"verdict": None},
+    )
+
+
+def test_logistics_read_borrows_one_read_connection_and_returns_it(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    fake_pg.rows = [{"run_id": "RUN-1"}]
+
+    assert _read_logistics_runs() == [{"run_id": "RUN-1"}]
+    assert _read_logistics_runs() == [{"run_id": "RUN-1"}]
+
+    (conn,) = fake_pg.made  # 두 조회가 한 연결을 다시 썼다
+    assert len(conn.executed) == 2
+    assert "commit" not in conn.events  # 조회는 트랜잭션을 열지 않는다
+    assert conn.autocommit is False  # 돌려받은 연결은 쓰기용으로 되돌려져 있다
+
+
+def test_logistics_failed_read_returns_the_connection_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    with core_db.connection() as warm:
+        warm.fail_on_execute = psycopg.errors.UndefinedTable("no table")
+
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        _read_logistics_runs()
+
+    (conn,) = fake_pg.made
+    conn.fail_on_execute = None
+    assert _read_logistics_runs() == []  # 다음 조회가 같은 연결로 멀쩡히 돈다
+
+
+def test_logistics_run_history_write_is_one_transaction_on_its_own_connection(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    """실행이력은 남이 쥔 연결에 얹히지 않는다 — 얹히면 커밋 시점이 바뀐다."""
+    fake_pg.one = {"run_id": "RUN-1"}
+
+    with core_db.connection() as held:
+        _ = held.cursor().execute("SELECT held")
+        assert _save_logistics_run() == {"run_id": "RUN-1"}
+
+    write = next(c for c in fake_pg.made if c is not held)
+    assert len(write.executed) == 1
+    assert write.events[-1] == "commit"
+    assert "commit" not in held.events
+
+
+def test_logistics_run_history_write_without_a_row_rolls_back(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    """RETURNING 행이 없으면 종전 문구로 멈추고, 그 예외로 쓰기가 rollback 된다."""
+    with pytest.raises(RuntimeError) as raised:
+        _save_logistics_run()
+
+    assert str(raised.value) == "Database write did not return a row"
+    (conn,) = fake_pg.made
+    assert conn.events[-1] == "rollback"
+    assert "commit" not in conn.events
+
+
+def test_logistics_run_history_write_failure_rolls_back_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    with core_db.connection() as warm:
+        warm.fail_on_execute = psycopg.errors.UniqueViolation("dup")
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        _save_logistics_run()
+
+    (conn,) = fake_pg.made
+    assert conn.events[-1] == "rollback"
+    assert "commit" not in conn.events
+
+
+def test_logistics_missing_env_message_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch, fake_pg: type[FakePgConnection]
+) -> None:
+    """기준선 실패의 원인 문구가 이것이다 — 입구가 계층으로 옮겨도 같은 문구여야 한다."""
+    for key in settings.DB_CONNECTION_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    pool = core_db.DatabasePool("t-missing", settings.database_settings, connection_class=fake_pg)
+    monkeypatch.setattr(core_db, "SERVICE_POOL", pool)
+
+    with pytest.raises(RuntimeError) as raised:
+        _read_logistics_runs()
+
+    assert str(raised.value) == (
+        "Missing required database environment variables: "
+        "DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD"
+    )
 
 
 # ── 판매 — 입구 대신 계층이 빌린다 (2026-09-29 BL-013) ─────────────────────────────

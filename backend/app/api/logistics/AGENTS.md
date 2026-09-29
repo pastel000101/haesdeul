@@ -59,32 +59,27 @@ def build(as_of: date, pane: str) -> LogisticsTab:
 
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요** (#415).
 
-**★ 커넥션은 한 판에 하나입니다** (2026-09-15). `build()` 가 공통 풀에서 커넥션 하나를
-빌려(2026-09-29 풀 전환) 콘솔 함수에 `conn=` 으로 넘기고, Runtime 읽기(판매가능량 축)는
-`load_console_runtime` 한 번으로 재고·입고 콘솔이 나눠 씁니다.
+**★ 커넥션은 한 판에 하나입니다** (2026-09-15). 2026-09-30 부터 `build()` 는
+`read_console_page` 하나를 부르고, 그 함수가 연결 하나를 빌려 트랜잭션 하나로 그날 재료를 다
+읽습니다(종전 `build()` 의 경계 그대로). Runtime 읽기(판매가능량 축)는 한 번 읽어 재고·입고
+콘솔이 나눠 씁니다.
 
 ```python
-from app.core import db as core_db
-from app.logistics.console_service import (
-    get_inbound_console,
-    get_inventory_console,
-    get_outbound_console,
-    load_console_runtime,
-)
+from app.logistics.readmodel.console import read_console_page
+from app.logistics.schemas.historical import RuntimeSnapshotCoverage
 
-with core_db.connection() as conn, core_db.transaction(conn):
-    runtime = load_console_runtime(conn=conn, sim_run_id=..., as_of=as_of)
-    inv = get_inventory_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    inb = get_inbound_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    ob = get_outbound_console(conn=conn, sim_run_id=..., as_of=as_of)
+page = read_console_page(sim_run_id=..., as_of=as_of)
+if isinstance(page, RuntimeSnapshotCoverage):
+    ...  # 그날 Runtime Snapshot 이 없다 — 0 이 아니라 «모르는 날»
+inv, inb, ob = page.inventory, page.inbound, page.outbound
 ```
 
-`app/logistics/console_service.py` 에 `/logistics/inventory` · `/inbound` ·
-`/outbound` 가 쓰는 함수가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
-한 번 묻습니다 (`get_fefo_candidates_by_item(conn=, sim_run_id=, item_ids=, as_of=)`).
-물류 문제 장부는 `app/logistics/monitoring/exceptions.py` 가 주인입니다
-(`live_exceptions_at` · `resolved_exceptions_on`). **같은 쿼리를 두 벌 두면 언젠가
-값이 갈라집니다.**
+`app/logistics/readmodel/console.py` 에 `/logistics/inventory` · `/inbound` ·
+`/outbound` 가 쓰는 조회가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
+한 번 묻습니다 (`get_fefo_candidates_by_item(lots=, reservations=, item_ids=)`).
+물류 문제 장부 SQL 은 `app/logistics/repository/exceptions.py` 가 주인입니다
+(`live_exceptions_at` · `resolved_exceptions_on` — 한 판에서는 `read_console_page` 가
+함께 읽습니다). **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
 이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Card`)에 담습니다.
@@ -139,28 +134,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.logistics.db import fetch_one, fetch_all, get_db_schema
+물류는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/logistics/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/logistics/readmodel/` 입니다.
+
+```text
+app/logistics/repository/<기능>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/logistics/readmodel/<기능>.py    조회 연결을 빌려 repository 를 부르고 화면 값으로 편다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.inventory_lots WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.logistics.repository.rows.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---

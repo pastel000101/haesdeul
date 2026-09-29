@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.logistics.domain.console_rules import severity_at, still_working
-from app.logistics.monitoring.schemas import DetectionRecord, ExceptionEvidence, ExceptionRow
+from app.logistics.schemas.monitoring import DetectionRecord, ExceptionEvidence, ExceptionRow
 
 D1 = date(2026, 1, 20)
 D2 = D1 + timedelta(days=1)

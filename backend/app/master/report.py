@@ -1104,13 +1104,13 @@ def render_logistics_chat_report(
     from decimal import Decimal
 
     from app.contracts.core import ITEMS
-    from app.logistics.console_service import (
+    from app.logistics.readmodel.console import (
         get_inbound_console,
         get_inventory_console,
         get_outbound_console,
         load_console_runtime,
     )
-    from app.logistics.historical_repository import (
+    from app.logistics.readmodel.historical import (
         onhand_total_by_day,
         reservation_state_at,
         snapshot_days_between,

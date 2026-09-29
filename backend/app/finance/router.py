@@ -18,7 +18,6 @@ from app.contracts.envelope import AgentReply, AgentRequest
 from app.core import db as core_db
 from app.finance.adapter import finance_port
 from app.finance.domain import messages
-from app.finance.readmodel.credit_limits import credit_limit_history
 from app.finance.readmodel.runs import get_finance_execution, get_finance_run, list_finance_runs
 from app.finance.schemas.agent import FinalVerdict, FinanceCycle, RuntimeStatus
 from app.finance.schemas.cash_adjustments import CashAdjustmentChange
@@ -65,7 +64,9 @@ def get_credit_limits(
 ) -> list[CreditLimitHistoryItem]:
     """한 거래처의 여신한도 이력을 최신 적용일부터 반환한다."""
     try:
-        return credit_limit_history(conn, partner_id=partner_id, as_of=as_of)
+        return credit_limit_service.read_credit_limit_history(
+            conn, partner_id=partner_id, as_of=as_of
+        )
     except LookupError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
