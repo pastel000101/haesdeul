@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from app.contracts.parts import CollectionPartOut
 from app.finance.collection import (
     CollectionEvent,
     DeterministicCollectionFixtureSource,
@@ -13,7 +14,6 @@ from app.finance.collection import (
     apply_explicit_collection,
 )
 from app.finance.db import FinanceDataNotReady
-from app.master.collection import CollectionPartOut
 
 CollectionEventSource = DeterministicCollectionFixtureSource
 

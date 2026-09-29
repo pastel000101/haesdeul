@@ -20,7 +20,8 @@ from typing import Any, NamedTuple
 import psycopg
 from psycopg import sql
 
-from app.logistics.db import fetch_all, get_connection, get_db_schema
+from app.core import db as core_db
+from app.logistics.db import fetch_all, get_db_schema
 from app.logistics.inbound_schedules import (
     InboundScheduleView,
     in_transit_from,
@@ -327,8 +328,8 @@ def _schedule_lists(
       따로 읽으면 같은 289행 질의를 두 번 보낸다 (실측 2026-09-15 · 81 ms × 2).
       규칙은 `inbound_schedules` 가 그대로 소유한다.
 
-    ⚠️ **`conn` 이 없으면 자기 커넥션을 연다** (어댑터 경로 · 종전 그대로). 화면은
-       `build_result` 가 연 하나를 넘긴다 (이 모듈 머리의 «커넥션» 절).
+    ⚠️ **`conn` 이 없으면 공통 풀에서 자기 커넥션을 빌린다** (어댑터 경로 · 종전 그대로).
+       화면은 `build_result` 가 빌린 하나를 넘긴다 (이 모듈 머리의 «커넥션» 절).
     """
 
     def 읽기(c: Any):
@@ -342,7 +343,7 @@ def _schedule_lists(
 
     if conn is not None:
         return 읽기(conn)
-    with get_connection() as own:
+    with core_db.connection() as own, core_db.transaction(own):
         return 읽기(own)
 
 
@@ -666,7 +667,7 @@ def _delivery_route(*, conn: Any | None = None) -> tuple[str | None, bool]:
         if conn is not None:
             with conn.transaction():
                 return resolve_fixed_route(conn).logistics_contract_id, False
-        with get_connection() as own:
+        with core_db.connection() as own, core_db.transaction(own):
             return resolve_fixed_route(own).logistics_contract_id, False
     except RouteNotFound:
         return None, False

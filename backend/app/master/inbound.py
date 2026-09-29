@@ -60,7 +60,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.contracts.parts import InboundPartOut
+from app.core import db as core_db
 from app.master.day_gate import check_day_gate
 from app.master.sim_run_binding import bind_sim_run
 
@@ -69,7 +70,6 @@ __all__ = [
     "InboundExecution",
     "InboundOut",
     "InboundPart",
-    "InboundPartOut",
     "missing",
     "receive_arrivals",
     "register_inbound",
@@ -137,41 +137,6 @@ class InboundExecution(Protocol):
     """
 
     def receive(self, conn: Any, *, as_of: date) -> InboundPartOut: ...
-
-
-class InboundPartOut(BaseModel):
-    """한 파트의 입고 실행 결과.
-
-    ★ **`NOTHING_DUE` 를 `RECEIVED` 로 접지 않는다.** *"받을 것이 없었다"* 와
-      *"받았다"* 는 다른 사실이고, 뭉치면 **도착 예정이 안 잡히는 버그**가 매일
-      성공으로 보인다.
-    """
-
-    part: str
-    status: Literal["RECEIVED", "NOTHING_DUE", "BLOCKED"]
-    reason: str = ""
-    #: **이번 호출에서 입고 처리 파이프라인을 성공적으로 완료한 건.**
-    #:
-    #: 🔴 **신규 재고화만이 아니다** (물류 확정 2026-09-07). 이미 재고화된 건의
-    #: **멱등 검증**과 **남은 schedule 정리** 성공도 포함한다.
-    #:
-    #: ```text
-    #: 01-28   received=[A]   재고 +3,587kg   신규 재고화 완료
-    #: 01-29   received=[A]   재고 불변       기존 재고화를 다시 확인만 한다
-    #: ```
-    #:
-    #: ⚠️ **`received` 포함 여부만으로 이번 호출에서 새 Lot·Move 가 생겼다고 읽지
-    #: 않는다.** 신규 재고화 여부의 **권위 사실은 Receipt · Lot · Move 원장**이 갖는다.
-    #:
-    #: ★ **전에는 *"이번에 실제로 받은 입고 건"* 이라고 적었고 그것이 좁았다.** 물류
-    #: `_receive_one` 은 *"마지막 성공 단계 다음부터 이어 처리한다"* 이고,
-    #: `PUTAWAY_DONE`·`CLOSED` 여도 `materialize` 로 기존 Lot·Move 를 검증하고 남은
-    #: 일정을 걷은 뒤 성공으로 끝낸다 — **그 날도 자기 몫을 다 한 것**이다. 제 문장이
-    #: 물류 설계보다 좁아서 실측(2026-09-07 회귀)에서 어긋나 보였다.
-    #:
-    #: ★ 빈 목록이면 **이 호출에서 완료한 건이 없다** — 이미 다 끝났거나 받을 것이
-    #: 없었다. 어느 쪽인지는 `status` 가 말한다.
-    received: list[str] = Field(default_factory=list)
 
 
 class InboundOut(BaseModel):
@@ -261,7 +226,7 @@ def reset() -> None:
 
 
 def receive_arrivals(
-    as_of: date, *, connect: Any = None, sim_run_id: str
+    as_of: date, *, borrow: core_db.Borrow | None = None, sim_run_id: str
 ) -> InboundOut:
     """`as_of` 에 도착 예정인 것을 **한 트랜잭션으로** 받는다.
 
@@ -312,7 +277,7 @@ def receive_arrivals(
                     번인 장부에 쓴다. 걷기는 `run_scheduled_day` 가, 라우터는
                     요청이 준 축을 싣는다.
     """
-    gate = check_day_gate(as_of, connect=connect, sim_run_id=sim_run_id)
+    gate = check_day_gate(as_of, borrow=borrow, sim_run_id=sim_run_id)
     if gate.gate == "BLOCKED":
         return InboundOut(
             as_of=as_of,
@@ -334,27 +299,25 @@ def receive_arrivals(
             missing=list(absent),
         )
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
-        #    물류 `LogisticsInboundExecution` 은 그 축의 로트·이동을 쓴다 —
-        #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
-        #    앉고 이쪽은 번인에 남는다.**
-        #
-        # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
-        #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 입고이
-        #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
-        adapters = {
-            part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
-        }
-        results = [adapters[part].receive(conn, as_of=as_of) for part in PARTS]
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 입고 실패가 그날을 통째로 세우면 안 된다.
-        conn.rollback()
-        return InboundOut(as_of=as_of, status="FAILED", reason=f"입고 실행 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
+            #    물류 `LogisticsInboundExecution` 은 그 축의 로트·이동을 쓴다 —
+            #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
+            #    앉고 이쪽은 번인에 남는다.**
+            #
+            # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
+            #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 입고이
+            #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
+            adapters = {
+                part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
+            }
+            results = [adapters[part].receive(conn, as_of=as_of) for part in PARTS]
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 입고 실패가 그날을 통째로 세우면 안 된다.
+            conn.rollback()
+            return InboundOut(as_of=as_of, status="FAILED", reason=f"입고 실행 실패: {exc}")
 
     return _aggregate(as_of, results)
 

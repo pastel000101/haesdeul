@@ -13,11 +13,11 @@ from decimal import Decimal
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
 from app.logistics.query import llm as sqllm
 from app.logistics.query import status_query as sq
 from app.logistics.query.llm import AssistantTurn, StatusQueryLLMError, ToolCall
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
 
 AS_OF = date(2026, 1, 1)
 

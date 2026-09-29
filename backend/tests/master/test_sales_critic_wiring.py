@@ -24,11 +24,11 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import wiring
 from app.master.critic.schemas import CriticSalesRequest, CriticVerdictOut
 from app.master.critic.service import run_critic_procurement, run_critic_sales
 from app.master.critic_bridge import CriticSkipped, _sales_replies_in, build_sales_request
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.schemas import SalesRunRequest
 from app.master.service import run_sales
 from app.master.verifier import (

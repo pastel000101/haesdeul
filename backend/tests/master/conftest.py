@@ -302,34 +302,7 @@ def 매입_경계_조회를_막는다(
     monkeypatch.setattr(매입_경계_조회_문, 행이_없다)
 
 
-class 실_DB_연결을_열었다(AssertionError):
-    """`db` 마크가 없는 검사가 `psycopg.connect` 까지 갔다."""
-
-
-@pytest.fixture(autouse=True)
-def 실_DB_연결을_막는다(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """🔴 **`db` 마크가 없는 검사가 연결을 열려 하면 그 자리에서 예외를 던진다.**
-
-    ★ **문이 하나다.** 재무 · 물류 · 매입 · 판매 · ML 의 `get_connection` 이 전부
-      `psycopg.connect` 를 부른다. 이름을 복사해 간 모듈이 많아도 끝은 여기라, 여기
-      하나를 막으면 새 경로가 생겨도 실 DB 까지는 안 간다.
-
-    ★ **`.env` 가 있는 자리를 없는 자리와 같게 만든다.** 없는 자리에서는 환경변수
-      확인이 먼저 터져 여기까지 안 온다. 있는 자리에서는 이 가드가 없으면 새는 검사가
-      **팀 공용 DB 를 조용히 치고** 답이 그날 표에 따라 갈린다.
-
-    ⚠️ **예외를 삼키는 경로는 이 가드로 빨개지지 않는다.** 검사 뒤에 「불렸다」로
-      실패시키면 기존 검사 204건이 빨개져서(측정 2026-09-14 · 가짜 접속 환경변수)
-      그 판정은 넣지 않았다. 삼키는 경로도 **실 DB 에는 닿지 않는다.**
-    """
-    if _실_DB_검사다(request):
-        return
-
-    import psycopg
-
-    def 막는다(*args: object, **kwargs: object) -> object:
-        raise 실_DB_연결을_열었다(
-            f"db 마크가 없는 검사가 실 DB 연결을 열었다: {request.node.nodeid}"
-        )
-
-    monkeypatch.setattr(psycopg, "connect", 막는다)
+# 🔴 **실 DB 연결 가드는 루트 `tests/conftest.py::실_DB_연결을_막는다` 로 올렸다**
+#    (2026-09-29 · 풀 전환). 2026-09-14 부터 이 폴더에만 있던 가드다 — 연결을 이제
+#    `app/core/db.py` 의 풀이 만들어 문이 `psycopg.connect` 하나가 아니게 됐고, 가드가
+#    이 폴더에만 있으면 다른 폴더의 검사가 풀을 통해 샌다.

@@ -47,9 +47,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.contracts.parts import ReceivablePartOut
 from app.master import receivable
 from app.master.day_gate import DayGate
-from app.master.receivable import ReceivablePartOut, issue_receivables
+from app.master.receivable import issue_receivables
 
 AS_OF = date(2026, 1, 7)
 
@@ -63,7 +64,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -71,8 +72,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _재무:
@@ -97,7 +102,7 @@ def _세움(*ids: str, created: int | None = None) -> ReceivablePartOut:
     )
 
 
-def _막힌_Gate(as_of: date, *, connect: Any = None, sim_run_id: str = "") -> DayGate:
+def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> DayGate:
     return DayGate(
         as_of=as_of,
         gate="BLOCKED",
@@ -120,7 +125,7 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         receivable,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
@@ -184,7 +189,7 @@ def test_미등록이면_사유가_남는다():
     """⚠️ 뭉치면 배선이 빠진 날 매일 *"오늘은 판 게 없었다"* 로 보인다."""
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == ["finance"]
@@ -197,7 +202,7 @@ def test_확정_판매가_없는_것은_미등록이_아니다():
     receivable.register_receivable("finance", _재무())
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == [], "등록은 돼 있다"
@@ -213,13 +218,13 @@ def test_채권을_세우면_한_번_커밋한다():
     receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "ISSUED"
     assert out.parts[0].issued == ["AR-SALE-1"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_터지면_통째로_롤백한다():
@@ -227,13 +232,13 @@ def test_터지면_통째로_롤백한다():
     receivable.register_receivable("finance", _재무(raises=RuntimeError("축이 안 맞는다")))
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "FAILED"
     assert "축이 안 맞는다" in out.reason
     assert conn.committed == 0
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ④ 예외를 밖으로 안 낸다 ───────────────────────────────────────────────
@@ -243,7 +248,7 @@ def test_실패해도_예외가_안_오른다():
     """⚠️ *"예외를 안 올린다"* 가 *"그러니 판단을 계속한다"* 는 아니다 — `⑦` 이 그 답이다."""
     receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "FAILED"
     assert out.parts == [], "실패했으면 파트 결과를 내지 않는다"
@@ -257,7 +262,7 @@ def test_안_열린_날은_채권을_세우지_않는다(monkeypatch: pytest.Mon
     재무 = _재무()
     receivable.register_receivable("finance", 재무)
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "NOT_OPENED"
     assert 재무.calls == [], "장부가 안 열렸는데 파트를 불렀다"
@@ -274,7 +279,7 @@ def test_안_열린_것을_BLOCKED_로_접지_않는다(monkeypatch: pytest.Monk
     monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
     receivable.register_receivable("finance", _재무())
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status != "NOTHING_DUE"
     assert out.status != "BLOCKED", "안 열린 것을 BLOCKED 로 접었다"
@@ -334,7 +339,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
     재무 = _재무(out=_세움("AR-SAT-1"))
     receivable.register_receivable("finance", 재무)
 
-    out = issue_receivables(토요일, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(토요일, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "ISSUED"
     assert 재무.calls == [토요일], "실행일 달력으로 밀었다"
@@ -354,33 +359,33 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     # ① NOT_OPENED — 장부가 안 열렸다
     monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
     receivable.register_receivable("finance", _재무())
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     monkeypatch.setattr(
         receivable,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
     # ② NOTHING_DUE — 그날 확정된 판매가 없다
     receivable.register_receivable("finance", _재무())
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ③ ISSUED — 대상이 있었고 채권이 서 있다
     receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ④ BLOCKED — 대상은 있는데 못 세운다
     receivable.register_receivable(
         "finance",
         _재무(out=ReceivablePartOut(part="finance", status="BLOCKED", reason="기일이 없다")),
     )
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ⑤ FAILED — 세워 보다 터졌다
     receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     assert 본_것 == {"ISSUED", "NOTHING_DUE", "BLOCKED", "NOT_OPENED", "FAILED"}, (
         f"어휘 다섯 중 길이 없는 것이 있다: 나온 것 {sorted(본_것)}"
@@ -402,7 +407,7 @@ def test_BLOCKED_를_NOTHING_DUE_로_접지_않는다():
     )
     receivable.register_receivable("finance", _재무(out=막힘))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
     assert out.status != "NOTHING_DUE", "세울 게 있는데 없다고 말했다"
@@ -417,7 +422,7 @@ def test_세운_것이_있어도_막힌_것이_있으면_BLOCKED_다():
     )
     receivable.register_receivable("finance", _재무(out=둘))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
     assert out.parts[0].issued == ["AR-SALE-1"], "선 것까지 지우지는 않는다"
@@ -433,14 +438,14 @@ def test_ISSUED_인데_새로_만든_건수가_0_일_수_있다():
     두번째_걸음 = _세움("AR-SALE-1", "AR-SALE-2", created=0)
     receivable.register_receivable("finance", _재무(out=두번째_걸음))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "ISSUED", "이미 서 있는 것을 NOTHING_DUE 로 접었다"
     assert out.parts[0].created == 0
     assert len(out.parts[0].issued) == 2, "서 있는 채권을 안 실었다"
     # 🔴 대상이 없던 날과 **다른 값**이어야 한다.
     receivable.register_receivable("finance", _재무())
-    없던_날 = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    없던_날 = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert 없던_날.status != out.status, "두 사실이 같은 status 로 나간다"
 
 
@@ -561,7 +566,7 @@ def _하루(**kwargs) -> Any:
     defaults.update(kwargs)
     from datetime import datetime
 
-    from app.master.clock import SEOUL
+    from app.core.clock import SEOUL
 
     action = ScheduledAction(
         as_of=AS_OF,

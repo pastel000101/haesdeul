@@ -26,9 +26,10 @@ from typing import Any
 
 import pytest
 
+from app.contracts.parts import InboundPartOut
 from app.master import inbound
 from app.master.day_gate import DayGate
-from app.master.inbound import InboundPartOut, receive_arrivals
+from app.master.inbound import receive_arrivals
 
 AS_OF = date(2026, 1, 7)
 
@@ -42,7 +43,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -50,8 +51,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _물류:
@@ -84,7 +89,7 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         inbound,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
@@ -137,7 +142,7 @@ def test_미등록이면_사유가_남는다():
     """🔴 **뭉치면 물류 어댑터가 빠진 날 조용히 아무 일도 안 일어난다.**"""
     conn = _가짜커넥션()
 
-    out = receive_arrivals(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == ["logistics"]
@@ -150,7 +155,7 @@ def test_받을_것이_없는_것은_미등록이_아니다():
     inbound.register_inbound("logistics", _물류())
     conn = _가짜커넥션()
 
-    out = receive_arrivals(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == [], "등록은 돼 있다"
@@ -166,13 +171,13 @@ def test_받으면_한_번_커밋한다():
     inbound.register_inbound("logistics", _물류(out=_받음("INB-A-1")))
     conn = _가짜커넥션()
 
-    out = receive_arrivals(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "RECEIVED"
     assert out.parts[0].received == ["INB-A-1"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_터지면_통째로_롤백한다():
@@ -180,13 +185,13 @@ def test_터지면_통째로_롤백한다():
     inbound.register_inbound("logistics", _물류(raises=RuntimeError("검수에서 막혔다")))
     conn = _가짜커넥션()
 
-    out = receive_arrivals(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "FAILED"
     assert "검수에서 막혔다" in out.reason
     assert conn.committed == 0
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ④ 예외를 밖으로 안 낸다 ───────────────────────────────────────────────
@@ -199,7 +204,7 @@ def test_실패해도_예외가_안_오른다():
     """
     inbound.register_inbound("logistics", _물류(raises=RuntimeError("boom")))
 
-    out = receive_arrivals(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "FAILED"
     assert out.parts == [], "실패했으면 파트 결과를 내지 않는다"
@@ -222,7 +227,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
     물류 = _물류(out=_받음("INB-SAT-1"))
     inbound.register_inbound("logistics", 물류)
 
-    out = receive_arrivals(토요일, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = receive_arrivals(토요일, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "RECEIVED"
     assert 물류.calls == [토요일], "실행일 달력으로 밀었다"
@@ -232,7 +237,7 @@ def test_받는_날을_그대로_넘긴다():
     물류 = _물류()
     inbound.register_inbound("logistics", 물류)
 
-    receive_arrivals(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    receive_arrivals(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert 물류.calls == [AS_OF]
 
@@ -256,7 +261,7 @@ def test_파트가_BLOCKED_면_전체도_BLOCKED_다():
     )
     inbound.register_inbound("logistics", _물류(out=막힘))
 
-    out = receive_arrivals(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
     assert out.status != "NOTHING_DUE", "받을 게 있는데 없다고 말했다"
@@ -276,7 +281,7 @@ def test_받은_것이_있어도_막힌_것이_있으면_BLOCKED_다():
 
     inbound.register_inbound("logistics", _둘을_내는_물류())
 
-    out = receive_arrivals(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
 
@@ -284,7 +289,7 @@ def test_받은_것이_있어도_막힌_것이_있으면_BLOCKED_다():
 def test_전부_NOTHING_DUE_면_NOTHING_DUE_다():
     inbound.register_inbound("logistics", _물류())
 
-    out = receive_arrivals(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
 

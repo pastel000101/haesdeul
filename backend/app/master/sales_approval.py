@@ -41,9 +41,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from app.contracts.envelope import Capability
 from app.contracts.sales_logistics import SalesOutboundReservationRequest
+from app.core import db as core_db
 from app.logistics.sales_outbound import reserve_confirmed_sale_available
-from app.master.envelope import Capability
 from app.sales.logistics_request import outbound_reservation_for_sale
 from app.sales.persistence import (
     SalesPersistenceConflict,
@@ -468,7 +469,7 @@ def confirm_approved_sale(
     sim_run_id: str,
     confirm: Callable[[Any, SalesConfirmationInput], Any] | None = None,
     reserve: Callable[[Any, SalesOutboundReservationRequest], Any] | None = None,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
 ) -> SaleConfirmationOut:
     """승인된 판매안을 **판매 원장에 확정**한다.
 
@@ -524,7 +525,8 @@ def confirm_approved_sale(
         `app.logistics.sales_outbound.reserve_confirmed_sale_available` 이다.
         🔴 **`reserve_confirmed_sale` 이 아니다** — 저쪽은 전량 아니면 멈추고,
         여기서 멈추면 이미 선 확정이 예외로 되돌아간다.
-    :param connect: 커넥션 팩토리. 안 주면 `app.sales.db.get_connection` 이다.
+    :param borrow: 연결을 빌려 주는 함수. 안 주면 `app.core.db.connection`(공통 풀)이다.
+        판매 원장과 물류 예약이 같은 서비스 DB 에 있어 연결 하나로 한 번 commit 한다.
     """
     if revalidation_outcome != "PASSED":
         # 🔴 여기서 돌아선다 — **`confirm_sale` 을 부르지 않고 커넥션도 안 연다.**
@@ -600,54 +602,53 @@ def confirm_approved_sale(
 
     do_confirm = confirm_sale if confirm is None else confirm
     do_reserve = reserve_confirmed_sale_available if reserve is None else reserve
-    conn = _open(connect)
-    # 🔴 **어느 단계에서 터졌나.** 사유가 *"확정이 안 섰다"* 와 *"확정은 섰는데
-    #   재고를 못 잡았다"* 를 가르지 못하면 다음 사람이 또 손으로 재현해야 한다.
-    예약단계 = False
-    try:
-        result = do_confirm(conn, confirmation)
-        # 🔴 **여기부터가 8 이다.** `confirm_sale` 이 성공한 뒤에만 온다 —
-        #   순서를 바꾸면 안 선 확정의 재고를 잡는다.
-        예약단계 = True
-        # ★ **요청을 손으로 조립하지 않는다.** 예약 이름을 포함해 판매의 projection
-        #   이 만든다 — 여기서 문자열을 지으면 출고가 계산하는 이름과 갈린다.
-        #
-        # 🔴 **as_of = 가용량 판정 기준일 = 납품일. 확정일이 아니다**
-        #    (D/D+1 신선도 절벽 · 2026-09-15 · 물류 문서 24).
-        #
-        #    ```text
-        #    예약이 서는 시점     확정일 D     그대로 — 하루 사이 이중판매를 막는 자리
-        #    재고를 보는 기준일   납품일 D+1   할당(`_ship_one`)이 보는 날과 같아야 한다
-        #    ```
-        #
-        #    ⚠️ 확정일로 보면 D 에 잔여 1일인 Lot 을 예약이 세고, D+1 에 0일이 되어 할당이
-        #       못 쓴다 — `OutboundIntegrityError` 로 터지고 그 판매는 못 나간다
-        #       (REH-0914 배추 02-10: 확보 3,586kg · 납품일 가용 2,870kg).
-        #    ★ 값은 판매 확정 입력의 `sale_date` 다 — 날짜를 여기서 다시 짓지 않는다.
-        예약요청 = outbound_reservation_for_sale(
-            result, sim_run_id=sim_run_id, as_of=confirmation.sale_date
-        )
-        예약 = do_reserve(conn, 예약요청)
-        요구량 = Decimal(str(예약.required_qty_kg))
-        확보량 = Decimal(str(예약.reserved_qty_kg))
-        conn.commit()
-    except SalesPersistenceConflict as exc:
-        # ★ 판매가 *"이 사실로는 확정할 수 없다"* 고 말한 것이다. 문장은 판매가 쓴
-        #   것을 그대로 옮긴다 — 마스터가 다시 쓰면 사유의 주인이 둘이 된다.
-        conn.rollback()
-        return SaleConfirmationOut(status="BLOCKED", reason=f"판매가 확정을 막았다: {exc}")
-    except Exception as exc:  # noqa: BLE001 - 확정 실패가 적재된 결정을 지우면 안 된다.
-        conn.rollback()
-        if 예약단계:
-            # 🔴 **확정까지 같이 물러난다.** 확정만 서고 예약이 없는 상태가 바로
-            #   같은 재고를 두 번 파는 자리라, 그 상태로 커밋하느니 안 선 것이 낫다.
-            return SaleConfirmationOut(
-                status="FAILED",
-                reason=f"확정분 예약 적재 실패 — 확정까지 롤백했다: {exc}",
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        # 🔴 **어느 단계에서 터졌나.** 사유가 *"확정이 안 섰다"* 와 *"확정은 섰는데
+        #   재고를 못 잡았다"* 를 가르지 못하면 다음 사람이 또 손으로 재현해야 한다.
+        예약단계 = False
+        try:
+            result = do_confirm(conn, confirmation)
+            # 🔴 **여기부터가 8 이다.** `confirm_sale` 이 성공한 뒤에만 온다 —
+            #   순서를 바꾸면 안 선 확정의 재고를 잡는다.
+            예약단계 = True
+            # ★ **요청을 손으로 조립하지 않는다.** 예약 이름을 포함해 판매의 projection
+            #   이 만든다 — 여기서 문자열을 지으면 출고가 계산하는 이름과 갈린다.
+            #
+            # 🔴 **as_of = 가용량 판정 기준일 = 납품일. 확정일이 아니다**
+            #    (D/D+1 신선도 절벽 · 2026-09-15 · 물류 문서 24).
+            #
+            #    ```text
+            #    예약이 서는 시점     확정일 D     그대로 — 하루 사이 이중판매를 막는 자리
+            #    재고를 보는 기준일   납품일 D+1   할당(`_ship_one`)이 보는 날과 같아야 한다
+            #    ```
+            #
+            #    ⚠️ 확정일로 보면 D 에 잔여 1일인 Lot 을 예약이 세고, D+1 에 0일이 되어 할당이
+            #       못 쓴다 — `OutboundIntegrityError` 로 터지고 그 판매는 못 나간다
+            #       (REH-0914 배추 02-10: 확보 3,586kg · 납품일 가용 2,870kg).
+            #    ★ 값은 판매 확정 입력의 `sale_date` 다 — 날짜를 여기서 다시 짓지 않는다.
+            예약요청 = outbound_reservation_for_sale(
+                result, sim_run_id=sim_run_id, as_of=confirmation.sale_date
             )
-        return SaleConfirmationOut(status="FAILED", reason=f"판매 확정 적재 실패: {exc}")
-    finally:
-        conn.close()
+            예약 = do_reserve(conn, 예약요청)
+            요구량 = Decimal(str(예약.required_qty_kg))
+            확보량 = Decimal(str(예약.reserved_qty_kg))
+            conn.commit()
+        except SalesPersistenceConflict as exc:
+            # ★ 판매가 *"이 사실로는 확정할 수 없다"* 고 말한 것이다. 문장은 판매가 쓴
+            #   것을 그대로 옮긴다 — 마스터가 다시 쓰면 사유의 주인이 둘이 된다.
+            conn.rollback()
+            return SaleConfirmationOut(status="BLOCKED", reason=f"판매가 확정을 막았다: {exc}")
+        except Exception as exc:  # noqa: BLE001 - 확정 실패가 적재된 결정을 지우면 안 된다.
+            conn.rollback()
+            if 예약단계:
+                # 🔴 **확정까지 같이 물러난다.** 확정만 서고 예약이 없는 상태가 바로
+                #   같은 재고를 두 번 파는 자리라, 그 상태로 커밋하느니 안 선 것이 낫다.
+                return SaleConfirmationOut(
+                    status="FAILED",
+                    reason=f"확정분 예약 적재 실패 — 확정까지 롤백했다: {exc}",
+                )
+            return SaleConfirmationOut(status="FAILED", reason=f"판매 확정 적재 실패: {exc}")
 
     모자람 = 확보량 < 요구량
     return SaleConfirmationOut(
@@ -668,14 +669,6 @@ def confirm_approved_sale(
         reservation_outcome="SHORT" if 모자람 else "RESERVED",
     )
 
-
-def _open(connect: Callable[[], Any] | None) -> Any:
-    """판매 원장 커넥션. **판매 것을 쓴다** — 마스터가 자기 것을 열지 않는다."""
-    if connect is not None:
-        return connect()
-    from app.sales.db import get_connection
-
-    return get_connection()
 
 
 def _confirmation_input(

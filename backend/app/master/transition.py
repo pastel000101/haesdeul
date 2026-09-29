@@ -33,20 +33,22 @@ transition.py — 승인 → 상태전이의 **트랜잭션 경계** (C 형태 �
 🔴 **`with conn:` 을 쓰지 않는다.** psycopg3 의 커넥션 컨텍스트 매니저는 블록이
    정상 종료하면 **자동으로 commit** 한다. 그러면 "커밋은 마스터가 한 번만 한다"는
    이 파일의 유일한 일이 문법에 숨어 버리고, 변이 검사(커밋 지우기)도 안 걸린다.
-   commit · rollback · close 를 눈에 보이게 적는다.
+   commit · rollback 을 눈에 보이게 적는다. 연결은 공통 풀에서 `with borrow() as conn:` 으로
+   빌리고 블록 끝에 돌려준다 — **돌려줄 때 commit 하지 않는다** (2026-09-29 풀 전환 ·
+   `app/core/db.py`). 종전 `close()` 자리다.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
-from app.master.commitment import ApprovedCommitment
+from app.contracts.commitment import ApprovedCommitment
+from app.core import db as core_db
 from app.master.ledger import (
     BLOCK_NO_ARRIVAL,
     LedgerBlock,
@@ -541,7 +543,7 @@ def apply_approval(
     commitment: ApprovedCommitment,
     *,
     sim_run_id: str | None,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
 ) -> TransitionOut:
     """승인분을 재무·물류 장부에 **한 트랜잭션으로** 반영한다.
 
@@ -575,8 +577,9 @@ def apply_approval(
                     함수는 축을 **나르기만** 하고 상수를 읽지 않는다
                     (`ledger.sim_run_id_for`). 축이 없으면 원장 계산이 터지고
                     `FAILED` 가 사유를 싣는다 — 조용히 번인에 앉지 않는다.
-    :param connect: 커넥션 팩토리. 안 주면 `app.finance.db.get_connection` 을 쓴다 —
-                    재무·물류가 같은 DB(같은 `DB_*`)를 쓰므로 커넥션도 하나면 된다.
+    :param borrow: 연결을 빌려 주는 함수(`with borrow() as conn:` 끝에 돌려준다). 안 주면
+                    `app.core.db.connection`(공통 풀) — 재무·물류가 같은 DB(같은 `DB_*`)를
+                    쓰므로 연결도 하나면 된다. commit · rollback 은 여기서 눈에 보이게 한다.
     """
     absent = missing()
     if absent:
@@ -681,20 +684,18 @@ def apply_approval(
     except Exception as exc:  # noqa: BLE001 - 전이 실패가 적재된 결정을 지우면 안 된다.
         return TransitionOut(status="FAILED", reason=f"전이 계산 실패: {exc}")
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **재무보다 먼저다.** `payables.purchase_id` 가 `purchases` 를 참조하는
-        #    FK 라 부모 행이 먼저 서야 한다.
-        persist_purchases(conn, ledger_rows)
-        finance.persist(conn, finance_row)
-        logistics.persist(conn, logistics_rows)
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 전이 실패가 적재된 결정을 지우면 안 된다.
-        conn.rollback()
-        return TransitionOut(status="FAILED", reason=f"전이 적재 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **재무보다 먼저다.** `payables.purchase_id` 가 `purchases` 를 참조하는
+            #    FK 라 부모 행이 먼저 서야 한다.
+            persist_purchases(conn, ledger_rows)
+            finance.persist(conn, finance_row)
+            logistics.persist(conn, logistics_rows)
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 전이 실패가 적재된 결정을 지우면 안 된다.
+            conn.rollback()
+            return TransitionOut(status="FAILED", reason=f"전이 적재 실패: {exc}")
     return TransitionOut(
         status="APPLIED",
         parts=list(PARTS),

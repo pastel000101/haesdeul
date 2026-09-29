@@ -67,7 +67,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.contracts.parts import CollectionPartOut
+from app.core import db as core_db
 from app.master.day_gate import check_day_gate
 from app.master.sim_run_binding import bind_sim_run
 
@@ -75,7 +76,6 @@ __all__ = [
     "PARTS",
     "CollectionOut",
     "CollectionPart",
-    "CollectionPartOut",
     "CollectionSource",
     "collect_receipts",
     "missing",
@@ -126,28 +126,6 @@ class CollectionSource(Protocol):
     """
 
     def collect(self, conn: Any, *, as_of: date) -> CollectionPartOut: ...
-
-
-class CollectionPartOut(BaseModel):
-    """한 파트의 수금 실행 결과.
-
-    ★ **`NOTHING_DUE` 를 `COLLECTED` 로 접지 않는다.** *"들어올 것이 없었다"* 와
-      *"들어왔다"* 는 다른 사실이고, 뭉치면 **수금 사건이 안 잡히는 버그**가 매일
-      성공으로 보인다.
-    """
-
-    part: str
-    status: Literal["COLLECTED", "NOTHING_DUE", "BLOCKED"]
-    reason: str = ""
-    #: **이번 호출에서 수금 사건을 반영한 채권.** `receivable_id` 들이다.
-    #:
-    #: ⚠️ **금액을 여기 싣지 않는다.** 얼마가 들어왔는지의 권위 사실은 재무 원장
-    #: (`receivables` · `finance_states`)이 갖는다 — 여기에 복사해 두면 같은 사실의
-    #: 주인이 둘이 되고, 롤백된 날 이 목록만 살아남는다.
-    #:
-    #: ★ 빈 목록이면 **이 호출에서 반영한 채권이 없다** — 이미 다 수금됐거나 들어올
-    #: 것이 없었다. 어느 쪽인지는 `status` 가 말한다.
-    collected: list[str] = Field(default_factory=list)
 
 
 class CollectionOut(BaseModel):
@@ -238,7 +216,7 @@ def reset() -> None:
 
 
 def collect_receipts(
-    as_of: date, *, connect: Any = None, sim_run_id: str
+    as_of: date, *, borrow: core_db.Borrow | None = None, sim_run_id: str
 ) -> CollectionOut:
     """`as_of` 의 수금 사건을 **한 트랜잭션으로** 반영한다.
 
@@ -290,7 +268,7 @@ def collect_receipts(
     """
     # 🔴 **관문에도 이번 호출의 축을 넘긴다** (`#539` 후속). 안 넘기면 관문이 번인
     #    축으로 어댑터를 묶고, 걷기 실행에서 열린 날을 **안 열린 날**로 읽는다.
-    gate = check_day_gate(as_of, connect=connect, sim_run_id=sim_run_id)
+    gate = check_day_gate(as_of, borrow=borrow, sim_run_id=sim_run_id)
     if gate.gate == "BLOCKED":
         return CollectionOut(
             as_of=as_of,
@@ -312,27 +290,25 @@ def collect_receipts(
             missing=list(absent),
         )
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
-        #    `FinanceCollectionAdapter` 는 그 축을 재무 축과 대조해 fail-closed 한다 —
-        #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
-        #    앉고 이쪽은 번인에 남는다.**
-        #
-        # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
-        #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 수금이
-        #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
-        adapters = {
-            part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
-        }
-        results = [adapters[part].collect(conn, as_of=as_of) for part in PARTS]
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 수금 실패가 그날을 통째로 세우면 안 된다.
-        conn.rollback()
-        return CollectionOut(as_of=as_of, status="FAILED", reason=f"수금 실행 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
+            #    `FinanceCollectionAdapter` 는 그 축을 재무 축과 대조해 fail-closed 한다 —
+            #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
+            #    앉고 이쪽은 번인에 남는다.**
+            #
+            # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
+            #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 수금이
+            #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
+            adapters = {
+                part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
+            }
+            results = [adapters[part].collect(conn, as_of=as_of) for part in PARTS]
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 수금 실패가 그날을 통째로 세우면 안 된다.
+            conn.rollback()
+            return CollectionOut(as_of=as_of, status="FAILED", reason=f"수금 실행 실패: {exc}")
 
     return _aggregate(as_of, results)
 

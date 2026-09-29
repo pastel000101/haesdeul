@@ -23,8 +23,8 @@ import unicodedata
 
 import pytest
 
+from app.contracts.forecast import Forecast
 from app.master.inputs import _forecast_payload
-from app.ml.schemas import Forecast
 
 #: 뷰가 실제로 돌려주는 행. `v_ml_price_forecast` 실측(2026-09-11)을 본뜬다.
 _뷰행 = {

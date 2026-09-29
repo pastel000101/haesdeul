@@ -29,8 +29,8 @@ from pathlib import Path
 import psycopg
 import pytest
 
+from app.core import db as core_db
 from app.logistics import disposal, ledger, outbound, turnover
-from app.logistics.db import get_connection
 from app.logistics.disposal import (
     DisposalBlocked,
     DisposalIntegrityError,
@@ -104,48 +104,47 @@ def _repo_block(table: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
-
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
-            for item, name in ((ITEM_ID, "배추"), (NO_POLICY_ITEM, "건고추")):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item, ZONE, LIMIT_DAYS),
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
                 )
-            # 🔴 회전 정책은 **한 품목에만** 넣는다 — 실 DB 도 3/5 품목뿐이다.
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, %s, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (ITEM_ID, TARGET, PRIORITY_DAYS),
-            )
-        for module in (turnover, disposal, outbound, ledger):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
+                for item, name in ((ITEM_ID, "배추"), (NO_POLICY_ITEM, "건고추")):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 **한 품목에만** 넣는다 — 실 DB 도 3/5 품목뿐이다.
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, %s, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (ITEM_ID, TARGET, PRIORITY_DAYS),
+                )
+            for module in (turnover, disposal, outbound, ledger):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────
@@ -759,6 +758,9 @@ def test_39_44_경계와_잠금(conn: psycopg.Connection) -> None:
     assert conn.info.transaction_status.name in {"INTRANS", "INERROR"}
     코드 = _코드만(Path(disposal.__file__).read_text(encoding="utf-8"))
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "commit" not in 코드
     assert "rollback" not in 코드
     # ★ 새 잠금을 만들지 않고 출고 잠금을 재사용한다 — 순서 역전이 생길 자리가 없다.

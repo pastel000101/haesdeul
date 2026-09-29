@@ -38,6 +38,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import decision_service, sales_approval, wiring
 from app.master.decision import (
     _APPROVE_END_CODES,
@@ -50,7 +51,6 @@ from app.master.decision import (
     mark_current,
     scenario_ids_of,
 )
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.sales_flow import CandidateVerdict
 
 REQ = "REQ-20260910-0001"
@@ -213,7 +213,7 @@ class 커넥션_대역:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.commits += 1
@@ -221,8 +221,12 @@ class 커넥션_대역:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 @pytest.fixture
@@ -235,7 +239,8 @@ def 확정(monkeypatch) -> 확정_대역:
     # 🔴 **예약도 대역이다** (2026-09-12). 확정이 서면 그 자리에서 물류 예약이
     #    불리므로, 안 갈아 끼우면 이 파일이 실 DB 를 친다.
     monkeypatch.setattr(sales_approval, "reserve_confirmed_sale_available", 예약)
-    monkeypatch.setattr(sales_approval, "_open", lambda connect: conn)
+    # ★ 연결은 공통 풀에서 빌린다(2026-09-29) — 그 대여 자리를 대역으로 바꾼다.
+    monkeypatch.setattr(sales_approval.core_db, "connection", lambda: conn)
     대역.conn = conn  # type: ignore[attr-defined]
     대역.예약 = 예약  # type: ignore[attr-defined]
     return 대역
@@ -515,7 +520,7 @@ def test_CONDITIONAL_도_통과가_아니다(monkeypatch):
         sim_run_id=실행축,
         confirm=대역,
         reserve=예약_대역(),
-        connect=커넥션_대역,
+        borrow=커넥션_대역,
     )
 
     assert 결과.status == "BLOCKED"
@@ -539,7 +544,7 @@ def _확정(scenario: Mapping[str, Any], 대역: 확정_대역 | None = None):
         sim_run_id=실행축,
         confirm=대역 or 확정_대역(),
         reserve=예약_대역(),
-        connect=커넥션_대역,
+        borrow=커넥션_대역,
     )
 
 
@@ -843,7 +848,7 @@ def test_확정_대역이_실제로_불릴_수_있다(monkeypatch, 이력, 부�
 
     assert len(확정.호출) == 1
     assert 확정.conn.commits == 1, "확정했는데 커밋을 안 했다"
-    assert 확정.conn.closed == 1
+    assert 확정.conn.returned == 1
 
 
 def test_후보_목록이_비어_있지_않다():

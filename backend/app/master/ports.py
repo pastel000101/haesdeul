@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentName,
     AgentReply,
     AgentRequest,

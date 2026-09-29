@@ -12,11 +12,11 @@ from typing import ClassVar
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.finance import adapter
 from app.finance.application.orchestration import FinanceAgentController
 from app.finance.llm.planner import ToolAction
 from app.finance.schemas import CashEvent
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
 
 AS_OF = date(2025, 12, 31)
 

@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
-from app.ml.schemas import Forecast
+from app.contracts.forecast import Forecast
 
 SalesCycle = Literal["PROCUREMENT", "SALES"]
 RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]

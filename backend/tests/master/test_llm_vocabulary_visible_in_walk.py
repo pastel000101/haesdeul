@@ -38,9 +38,9 @@ from pathlib import Path
 
 import pytest
 
+from app.contracts.envelope import LLM_STATUSES, LLMStatus
 from app.master import backtest_runner
 from app.master.backtest_runner import WalkResult, format_summary
-from app.master.envelope import LLM_STATUSES, LLMStatus
 from app.master.scheduler import DayRunOutcome, ItemRunOutcome, _llm_statuses
 
 오늘 = date(2026, 9, 12)
@@ -276,7 +276,7 @@ def test_요약_모듈이_어휘_집합을_주인에게서_들여온다() -> Non
     들여온것 = {
         alias.asname or alias.name
         for node in ast.walk(ast.parse(_요약파일.read_text(encoding="utf-8")))
-        if isinstance(node, ast.ImportFrom) and node.module == "app.master.envelope"
+        if isinstance(node, ast.ImportFrom) and node.module == "app.contracts.envelope"
         for alias in node.names
     }
 

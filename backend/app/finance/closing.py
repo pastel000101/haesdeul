@@ -15,10 +15,10 @@ from typing import Any, Literal
 
 from psycopg import sql
 
+from app.core import db as core_db
 from app.finance.db import (
     FinanceDataNotReady,
     decimal_value,
-    get_connection,
     get_db_schema,
     load_inventory_snapshot_as_of,
 )
@@ -196,7 +196,7 @@ def close_day(
 
     if conn is not None:
         return FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=sim_run_id)
-    with get_connection() as owned_connection:
+    with core_db.connection() as owned_connection, core_db.transaction(owned_connection):
         return FinanceDayClosing().close(
             owned_connection, as_of=as_of, sim_run_id=sim_run_id
         )

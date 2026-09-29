@@ -17,7 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.ml.schemas import ITEMS, TargetKind
+from app.contracts.forecast import TargetKind
+from app.ml.schemas import ITEMS
 
 #: 답할 수 있는 범위. **마스터 라우팅 목록과 같은 값이어야 한다.**
 QA_ITEMS = ITEMS

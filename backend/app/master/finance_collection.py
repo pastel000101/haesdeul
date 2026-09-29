@@ -89,10 +89,10 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from app.contracts.parts import CollectionPartOut
 from app.finance.collection import CollectionEvent, DeterministicCollectionFixtureSource
 from app.finance.collection_adapter import FinanceCollectionSource
 from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis, get_finance_runtime_axis
-from app.master.collection import CollectionPartOut
 from app.master.collection_events import read_collection_events
 
 __all__ = ["FinanceCollectionAdapter"]

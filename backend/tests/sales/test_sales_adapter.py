@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.sales import adapter
 from app.sales.schemas import SalesProposalReply
 
@@ -598,7 +598,7 @@ def test_additional_supply_context_routes_to_purchase_boundary_query():
     as ``GENERATE_SCENARIOS`` -- the latter would build a procurement plan inside the
     sales cycle, silently and without error.
     """
-    from app.master.envelope import CAPABILITY_ROUTING
+    from app.contracts.envelope import CAPABILITY_ROUTING
 
     assert CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"] == (
         "purchase",

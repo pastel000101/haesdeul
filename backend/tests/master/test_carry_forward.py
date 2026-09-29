@@ -49,8 +49,8 @@ from typing import Any, Self
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master import ledger, transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 
 AS_OF = date(2026, 1, 13)
 
@@ -92,7 +92,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def cursor(self) -> _가짜커서:
         return _가짜커서()
@@ -103,8 +103,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _전이:
@@ -190,7 +194,7 @@ class _개장정본_감시:
         self.days = days
         self.호출: list[date] = []
 
-    def __call__(self, *, after: date, sim_run_id: str, connect: Any = None) -> tuple[date, ...]:
+    def __call__(self, *, after: date, sim_run_id: str, borrow: Any = None) -> tuple[date, ...]:
         self.호출.append(after)
         return tuple(d for d in self.days if d > after)
 
@@ -208,7 +212,7 @@ def test_정방향이면_다음날_하나뿐이다(_배선: tuple[_재무전이,
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert out.status == "APPLIED"
@@ -236,7 +240,7 @@ def test_이미_열린_날들에는_안_싣는다(_배선: tuple[_재무전이, 
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=9), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(도착=9), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert 물류.dates == [다음날], f"전방 전파가 되살아났다: {물류.dates}"
@@ -249,7 +253,7 @@ def test_따라잡은_날이_없다고_결과에_적는다(_배선: tuple[_재�
     ② 2026-09-10 — 전에는 *"따라잡은 날을 적는다"* 였다. 지금은 따라잡을 것이
       없으므로 **비어 있는 것이 정직한 답**이고, `UNREADABLE` 이 아니다.
     """
-    out = transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert out.carried_forward == []
@@ -264,7 +268,7 @@ def test_물류에_한_묶음만_준다(_배선: tuple[_재무전이, _전이]) 
     """
     _, 물류 = _배선
 
-    transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert 물류.persisted == [f"row@{다음날}"], f"묶음이 여럿 나갔다: {물류.persisted}"
 
@@ -286,7 +290,7 @@ def test_재무는_다음날_하나만_받는다(_배선: tuple[_재무전이, _
     """
     재무, _ = _배선
 
-    transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert 재무.dates == [다음날], "마스터가 재무 다일 의미를 대신 정했다"
 
@@ -322,7 +326,7 @@ def test_개장_정본을_아예_안_읽는다(
     감시 = _개장정본_감시(다음날 + timedelta(days=1), 다음날 + timedelta(days=2))
     monkeypatch.setattr("app.master.day_opening_repository.opened_days_after", 감시)
 
-    out = transition.apply_approval(_commitment(도착=9), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(도착=9), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert 감시.호출 == [], f"승인 전이가 개장 정본을 다시 읽었다: {감시.호출}"
@@ -390,7 +394,7 @@ def test_carried_forward_는_열린_날이_아니라_실제로_쓴_날이다(
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=2), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(도착=2), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert out.carried_forward == [d for d in 물류.dates if d != 다음날], (
@@ -559,7 +563,7 @@ def test_리드타임0이면_NOT_APPLIED_이고_커넥션을_안_연다(
         열린횟수.append(1)
         return _가짜커넥션()
 
-    out = transition.apply_approval(_리드타임0(), connect=_connect, sim_run_id=실행축)
+    out = transition.apply_approval(_리드타임0(), borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED", f"물류만 빠진 채 {out.status} 가 나갔다"
     # 🔴 **걷기 요약이 이 갈래로 센다** (2026-09-16). 문장은 여기가 짓고 **이름은
@@ -574,7 +578,7 @@ def test_사유가_도착일과_목표_상태일을_숫자로_적는다(
     _배선: tuple[_재무전이, _전이],
 ) -> None:
     """★ *"도착일이 목표 상태일보다 이르다"* 를 사람이 바로 알아보게 적는다."""
-    out = transition.apply_approval(_리드타임0(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_리드타임0(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED"
     assert AS_OF.isoformat() in out.reason, "회차 도착일이 사유에 없다"
@@ -595,7 +599,7 @@ def test_도착일이_목표_상태일과_같으면_지나간다(
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=1), connect=_가짜커넥션, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(도착=1), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert out.status == "APPLIED", out.reason
     assert 물류.dates == [다음날], f"경계 승인이 안 실렸다: {물류.dates}"

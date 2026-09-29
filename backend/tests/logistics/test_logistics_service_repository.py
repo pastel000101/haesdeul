@@ -1041,8 +1041,8 @@ def test_missing_storage_limit_does_not_promote_to_runtime_error():
     ★ **대표 두 mode 만 고정한다.** 넷이 같은 `_load_read` 하나를 지나므로
       (`adapter._RUNTIME_AXIS_MODES` 주석) 매입 경계와 판매 컨텍스트면 사슬이 증명된다.
     """
+    from app.contracts.envelope import AgentRequest, ExecutionContext
     from app.logistics import adapter
-    from app.master.envelope import AgentRequest, ExecutionContext
 
     rows = _inventory_rows()
     rows[0]["operational_limit_days"] = None

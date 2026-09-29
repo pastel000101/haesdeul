@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
 from app.purchase_agent.config import load_constraints

@@ -1,6 +1,13 @@
 """
 envelope.py — 마스터 ↔ 에이전트 공용 봉투 (M-1 공통 이벤트 규약 v0.2)
 
+🟢 **자리: `app/contracts/envelope.py`** (2026-09-29 재구성 BL-011 — 전에는
+  `app/master/envelope.py`). 부서 다섯이 봉투를 쓰려고 마스터 패키지를 import 하던
+  역방향 의존을 끊으려고 **통째로** 옮겼다. 타입 · 필드 · 기본값 · 검증 · 직렬화 코드는
+  그대로다. 더한 것은 부서 경계 회신의 Critic 검사 id `DEPT_CAP_CHECK_ID` 하나다
+  (`app/master/critic_bridge.py` 에서 옮김 — 부서가 그 이름을 읽으려고 마스터를
+  import 했다).
+
 정의서 v2.2 §7.1 이 정한 **Business 와 Execution 의 분리**를 타입으로 구현한다.
 
     AgentRequest        마스터 → 에이전트   context(request_id·as_of·mode) + 업무 입력
@@ -277,6 +284,37 @@ def agent_allowed_modes(agent: AgentName) -> frozenset[Mode]:
 
 
 # ---------------------------------------------------------------------------
+# 1-1. 부서 경계 회신의 Critic 검사 id — 마스터가 합성하고 부서가 맞춘다
+# ---------------------------------------------------------------------------
+
+DEPT_CAP_CHECK_ID: dict[AgentName, str] = {
+    "finance": "finance_cap_amount_krw",
+    "inventory": "warehouse_cap",
+}
+"""부서 경계 회신에서 마스터가 **합성하는** Critic 검사의 id. 소유자는 마스터다.
+
+🔴 **부서는 `checks[]` 를 내지 않는다.** `_replies_in` 이 부서 payload 에서 부서당
+  하나씩 만든다 — 그래서 이 이름의 주인이 마스터다 (2026-09-01 물류 확인).
+
+★ **공개하는 이유.** 부서 `DeptMeta` 의 `inputs_used` 키가 이 id 와 같아야 Critic 이
+  그 부서의 입력을 본다.
+
+  ```python
+  used = dm.inputs_used.get(chk.check_id, ())   # 이름이 다르면 빈 튜플
+  leaked = FORBIDDEN_SCENARIO_INPUTS & set(used)  # 위반 없음 → 조용히 통과
+  ```
+
+  **틀려도 에러가 안 난다.** 부서가 문자열을 베껴 두면 마스터가 이름을 바꾸는 날 그
+  부서의 검사가 조용히 무력화된다. 베끼지 말고 여기를 import 해서 쓴다 —
+  `MAX_PURCHASE_ATTEMPTS` 를 매입 YAML 이 인용하는 것과 같은 자리다.
+
+🟢 **2026-09-29 자리만 옮겼다** (`app/master/critic_bridge.py` → 여기, 재구성 BL-011).
+  부서가 이 이름을 읽으려고 마스터를 import 하지 않게 하려는 것이다. 이름을 정하고
+  검사를 합성하는 쪽은 여전히 마스터(`critic_bridge._replies_in`)다.
+"""
+
+
+# ---------------------------------------------------------------------------
 # 1-2. Capability — 판매가 요구하고 마스터가 라우팅한다 (판매 2026-09-06 통보)
 # ---------------------------------------------------------------------------
 
@@ -303,7 +341,10 @@ Capability = Literal[
   읽어도 되고, 갈린 날 빨간불이 뜬다. 런타임 의존 없이 어휘만 잠그는 자리다.
 
 ★ **제자리는 `app/contracts/core.py` 승격이다.** 그건 판매 파일을 고쳐야 해서 판매
-  owner 확인이 필요하고, 그때까지 여기 둔다 (설계 2026-09-06 정정 절)."""
+  owner 확인이 필요하고, 그때까지 여기 둔다 (설계 2026-09-06 정정 절).
+
+  🟢 2026-09-29 봉투가 `app/contracts/` 로 올라오면서 이 어휘도 공용 계약 자리에
+  왔다. 판매 `SalesCapability` 와 두 벌인 것은 그대로이고, 대조 테스트가 계속 잠근다."""
 
 CAPABILITY_ROUTING: dict[Capability, tuple[AgentName, Mode] | None] = {
     "FINANCIAL_VALIDATION": ("finance", "SALES_VALIDATION"),

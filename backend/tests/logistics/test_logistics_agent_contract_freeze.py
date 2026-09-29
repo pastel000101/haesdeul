@@ -59,6 +59,15 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
+from app.contracts.envelope import (
+    AgentReply,
+    AgentRequest,
+    ExecutionContext,
+    ExecutionMetadata,
+    agent_allowed_modes,
+    validate_reply,
+    wire_payload,
+)
 from app.logistics import adapter
 from app.logistics.repository import LogisticsRead
 from app.logistics.schemas import (
@@ -68,15 +77,6 @@ from app.logistics.schemas import (
     LogisticsPolicy,
     OutboundCommitment,
     ScheduledQuantity,
-)
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-    agent_allowed_modes,
-    validate_reply,
-    wire_payload,
 )
 
 # ---------------------------------------------------------------------------

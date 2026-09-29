@@ -173,7 +173,7 @@ def test_경과일수의_주인을_문서가_가리킨다():
 
 
 def _port(payload: dict[str, Any] | None = None):
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
     def port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
         run_id = f"{request.agent.upper()}-{request.call_seq}"
@@ -196,8 +196,8 @@ def _port(payload: dict[str, Any] | None = None):
 
 def _wire_all() -> list[str]:
     """세 부서를 다 등록하고, **불린 부서 이름**을 모으는 목록을 돌려준다."""
+    from app.contracts.envelope import AgentRequest
     from app.master import wiring
-    from app.master.envelope import AgentRequest
 
     called: list[str] = []
 

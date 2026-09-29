@@ -70,6 +70,7 @@ from app.api.primitives import (
 )
 from app.api.shown_run import SHOWN_SIM_RUN_ID
 from app.contracts.core import ITEMS
+from app.core import db as core_db
 from app.logistics.console_service import (
     get_fefo_candidates_by_item,
     get_inbound_console,
@@ -77,7 +78,6 @@ from app.logistics.console_service import (
     get_outbound_console,
     load_console_runtime,
 )
-from app.logistics.db import get_connection
 from app.logistics.historical_repository import (
     onhand_total_by_day,
     reservation_state_at,
@@ -1459,9 +1459,10 @@ def build_result(as_of: date, pane: str) -> LogisticsTabResult:
     run = SHOWN_SIM_RUN_ID
     try:
         #  🔴 **커넥션은 한 판에 하나다** (2026-09-15). 종전에는 조회마다 · FEFO 예약마다
-        #     새로 열어 한 판에 23개 · 388 ms 였다 (원격 DB · 연결당 14~22 ms). 읽기만
-        #     하므로 `with` 종료의 commit 은 아무것도 안 바꾼다.
-        with get_connection() as conn:
+        #     새로 열어 한 판에 23개 · 388 ms 였다 (원격 DB · 연결당 14~22 ms). 2026-09-29
+        #     부터 그 하나를 공통 풀에서 빌린다. 읽기만 하므로 블록 끝의 commit 은 아무것도
+        #     안 바꾼다.
+        with core_db.connection() as conn, core_db.transaction(conn):
             coverage = runtime_coverage_at(conn, sim_run_id=run, as_of=as_of)
             if not coverage.has_snapshot:
                 return LogisticsTabResult(
@@ -1604,7 +1605,7 @@ def _onhand_series(as_of: date, n: int, at: int) -> list[float | None]:
        0 이나 `IN` 으로 넘겨짚어 그린 선은 틀렸다는 것조차 알려 주지 않는다.
     """
     start = as_of - timedelta(days=at)
-    with get_connection() as conn:
+    with core_db.connection() as conn, core_db.transaction(conn):
         series = onhand_total_by_day(
             conn, sim_run_id=SHOWN_SIM_RUN_ID, start=start, end=as_of
         )
@@ -1634,7 +1635,7 @@ def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
        안 연 날들이 0kg 으로 그려집니다 (`_onhand_series` 참조).
     """
     try:
-        with get_connection() as conn:
+        with core_db.connection() as conn, core_db.transaction(conn):
             coverage = runtime_coverage_at(
                 conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of
             )
@@ -1648,7 +1649,7 @@ def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
                 ),
             )
         data = _onhand_series(as_of, n, at)
-        with get_connection() as conn:
+        with core_db.connection() as conn, core_db.transaction(conn):
             runtime = load_console_runtime(conn=conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
             inb = get_inbound_console(
                 conn=conn, sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, runtime=runtime

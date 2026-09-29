@@ -38,9 +38,9 @@ from typing import Any
 import pytest
 
 import app.main  # 임포트 시점에 배선이 선다 · ⑤ 의 `실제_배선` 이 이 모듈을 다시 실행한다
+from app.contracts.envelope import ExecutionContext
 from app.master import persistence, service
 from app.master.day_gate import DayGate
-from app.master.envelope import ExecutionContext
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 from app.master.scheduler import ScheduledAction, run_scheduled_day
 from app.master.schemas import ProcurementRunRequest, SalesRunRequest

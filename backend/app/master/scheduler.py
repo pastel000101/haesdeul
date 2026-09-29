@@ -134,7 +134,7 @@ close_day(as_of, …)       closing.py     ← 🔴 하루의 맨 끝이다
 
 🔴 **벽시계는 `clock` 에서만 읽는다.** 이 모듈은 `clock.seoul_now` ·
   `clock.today_in_seoul` 을 **부르는 쪽**이지 새로 읽는 쪽이 아니다
-  (`tests/master/test_clock_is_the_only_wall_clock.py` 가 AST 로 지킨다).
+  (`tests/core/test_clock_is_the_only_wall_clock.py` 가 AST 로 지킨다).
 
 ---
 
@@ -351,19 +351,20 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, get_args
 
-from app.finance.db import get_connection
+from app.contracts.commitment import ITEM_CODES
+from app.core import clock
+from app.core import db as core_db
 from app.finance.expenses import ExpenseSettlement, settle_due_expenses
-from app.master import clock, persistence
+from app.master import persistence
 from app.master.backfill import BackfillOut, SalesTermsRule, backfill_decisions
-from app.master.clock import SCHEDULE_DEADLINE, SCHEDULE_INTERVAL, SCHEDULE_START
 from app.master.closing import ClosingOut, close_day
 from app.master.collection import collect_receipts
-from app.master.commitment import ITEM_CODES
 from app.master.day_open import open_day
 from app.master.execution_day import CalendarNotCovered
 from app.master.forecast_gate import DayForecastReadiness, day_forecast_readiness
@@ -387,6 +388,7 @@ from app.master.run_repository import (
     list_runs,
 )
 from app.master.sales_terms import apply_sales_terms, read_run_sales_terms
+from app.master.schedule_times import SCHEDULE_DEADLINE, SCHEDULE_INTERVAL, SCHEDULE_START
 from app.master.schemas import ProcurementRunRequest, SalesBusinessMode, SalesRunRequest
 from app.master.service import run_procurement, run_sales
 
@@ -418,12 +420,13 @@ logger = logging.getLogger(__name__)
 
 # ── 시각 상수 ───────────────────────────────────────────────────────────
 #
-# 🔴 **선언은 `clock.py` 에 있다** (2026-09-08 에 옮겼다). 여기서 다시 세지 않고
-#    이름만 다시 내보낸다 — `sim_time` 이 기준점을 가져갈 때 `scheduler` 를 통과하면
-#    `sim_time → scheduler → service` 고리가 생기기 때문이다.
+# 🔴 **선언은 `schedule_times.py` 에 있다** (2026-09-08 `clock.py` 로 옮겼고, 2026-09-29
+#    `clock.py` 가 `core` 로 가면서 이 상수들만 `schedule_times.py` 로 옮겼다). 여기서
+#    다시 세지 않고 이름만 다시 내보낸다 — `sim_time` 이 기준점을 가져갈 때 `scheduler` 를
+#    통과하면 `sim_time → scheduler → service` 고리가 생기기 때문이다.
 #
-# ★ 값의 **뜻**(언제 깨우고 언제 마감하나)은 그대로 이 파일의 것이다. `clock.py` 는
-#   표준 라이브러리만 들이는 leaf 라 그 숫자를 두는 자리일 뿐이다.
+# ★ 값의 **뜻**(언제 깨우고 언제 마감하나)은 그대로 이 파일의 것이다.
+#   `schedule_times.py` 는 표준 라이브러리만 들이는 leaf 라 그 숫자를 두는 자리일 뿐이다.
 
 #: 하루 실행이 싣는 정책 판. **부르는 쪽이 바꿀 수 있게 인자로도 열어 둔다.**
 DAILY_POLICY_VERSION = "v1.3-PROVISIONAL"
@@ -1150,7 +1153,7 @@ def run_scheduled_day(
     auto_maintain: bool = False,
     settle_expenses_fn: Callable[..., Any] = settle_due_expenses,
     auto_settle_expenses: bool = False,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
 ) -> DayRunOutcome:
     """결정을 따른다. **여기에는 판단이 없다.**
 
@@ -1258,8 +1261,8 @@ def run_scheduled_day(
           그 순간 「지급」이 두 종류가 되고, 한 트랜잭션에 묶는 규율도 이 자리만 안
           지나게 된다 — `backfill_decisions` 를 두고 `record_decision` 을 직접 안
           부르는 것과 같은 이유다.
-    :param connect: 지급이 쓸 커넥션 팩토리. 안 주면 `app.finance.db.get_connection`
-        이다 (`close_day` · `collect_receipts` 와 같은 모양).
+    :param borrow: 지급이 쓸 연결을 빌려 주는 함수. 안 주면 `app.core.db.connection`(공통
+        풀)이다 (`close_day` · `collect_receipts` 와 같은 모양).
 
         🔴 **커넥션의 주인이 부르는 쪽이라 이 인자가 있다.** `settle_due_expenses` 는
           commit 도 rollback 도 안 한다고 적어 뒀다 — 그 반대편이 이 함수다. 여러
@@ -1618,7 +1621,7 @@ def run_scheduled_day(
         sim_run_id=sim_run_id,
         settle_expenses_fn=settle_expenses_fn,
         enabled=auto_settle_expenses,
-        connect=connect,
+        borrow=borrow,
     )
     if expense_note is not None:
         notes.append(expense_note)
@@ -2215,7 +2218,7 @@ def _settle_expenses(
     sim_run_id: str,
     settle_expenses_fn: Callable[..., Any],
     enabled: bool,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
 ) -> tuple[str, tuple[ExpenseSettlement, ...], str | None]:
     """지급일이 된 운영비를 **한 트랜잭션으로** 지급한다 (2026-09-17).
 
@@ -2248,21 +2251,20 @@ def _settle_expenses(
     """
     if not enabled:
         return "NOT_ATTEMPTED", (), None
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception as exc:  # noqa: BLE001 - 못 붙은 것도 «지급을 못 했다» 는 사실이다.
-        # 🔴 **못 붙은 날을 조용히 «지급할 것이 없었다» 로 적지 않는다.** 그 날도
-        #    마감을 막는다 — 안 막으면 그날 나갔어야 할 돈이 0원으로 확정된다.
-        return "FAILED", (), f"운영비 지급이 터졌다: {type(exc).__name__}: {exc}"
-    try:
-        settlements = tuple(settle_expenses_fn(conn, sim_run_id=sim_run_id, as_of=as_of))
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 절반만 나간 지급을 장부에 남기지 않는다.
-        conn.rollback()
-        return "FAILED", (), f"운영비 지급이 터졌다: {type(exc).__name__}: {exc}"
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception as exc:  # noqa: BLE001 - 못 붙은 것도 «지급을 못 했다» 는 사실이다.
+            # 🔴 **못 붙은 날을 조용히 «지급할 것이 없었다» 로 적지 않는다.** 그 날도
+            #    마감을 막는다 — 안 막으면 그날 나갔어야 할 돈이 0원으로 확정된다.
+            return "FAILED", (), f"운영비 지급이 터졌다: {type(exc).__name__}: {exc}"
+        try:
+            settlements = tuple(settle_expenses_fn(conn, sim_run_id=sim_run_id, as_of=as_of))
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 절반만 나간 지급을 장부에 남기지 않는다.
+            conn.rollback()
+            return "FAILED", (), f"운영비 지급이 터졌다: {type(exc).__name__}: {exc}"
     if not settlements:
         # ⚠️ **`NOT_ATTEMPTED` 와 접지 않는다** — *"켰는데 지급일이 된 것이 없었다"* 다.
         return "NOTHING_DUE", (), "운영비 지급: NOTHING_DUE 지급일이 된 비용이 없다"

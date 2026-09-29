@@ -56,8 +56,8 @@ import pytest
 
 import app.master
 from app.contracts.core import ContractViolation, SuggestedAdjustment
+from app.contracts.envelope import wire_adjustment
 from app.master.answer import _scope
-from app.master.envelope import wire_adjustment
 
 _BACKEND = Path(app.master.__file__).parent.parent.parent
 _LOGISTICS = _BACKEND / "app" / "logistics" / "adapter.py"

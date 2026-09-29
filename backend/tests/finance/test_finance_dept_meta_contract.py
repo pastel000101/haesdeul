@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.contracts.envelope import DEPT_CAP_CHECK_ID, AgentRequest, ExecutionContext
 from app.finance.application.harness import PRE_PURCHASE_TOOLS
 from app.finance.execution import (
     _CAP_TOOL_INPUTS,
@@ -27,8 +28,6 @@ from app.finance.execution import (
     _resolve_tool_inputs,
 )
 from app.finance.state import FinanceAgentState
-from app.master.critic_bridge import DEPT_CAP_CHECK_ID
-from app.master.envelope import AgentRequest, ExecutionContext
 
 FORBIDDEN_IN_FINANCE_CAP = frozenset(
     {"grade_unit_price", "qty_kg", "total_qty_kg", "avg_unit_price", "sourcing_plan"}

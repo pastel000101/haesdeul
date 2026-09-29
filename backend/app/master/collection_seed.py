@@ -139,17 +139,17 @@ NOT_ATTEMPTED  시도할 **이유가 없었다** — 하루가 안 열렸다
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
 
 from psycopg import sql
 
+from app.core import db as core_db
 from app.finance.db import (
     FinanceDataNotReady,
     FinanceRuntimeAxis,
-    get_connection,
     get_db_schema,
     get_finance_runtime_axis,
 )
@@ -326,7 +326,7 @@ def seed_day(
     as_of: date,
     *,
     sim_run_id: str,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
     read_axis: Callable[..., FinanceRuntimeAxis] = get_finance_runtime_axis,
     seed: Callable[..., CollectionSeedResult] = seed_collection_events,
 ) -> CollectionSeedOutcome:
@@ -367,34 +367,33 @@ def seed_day(
             ),
         )
 
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception as exc:  # noqa: BLE001 - 커넥션을 못 여는 것도 **못 한 것**이다.
-        return CollectionSeedOutcome(
-            status="UNREADABLE",
-            reason=f"수금 사건을 만들지 못했다: {type(exc).__name__}: {exc}",
-        )
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception as exc:  # noqa: BLE001 - 커넥션을 못 여는 것도 **못 한 것**이다.
+            return CollectionSeedOutcome(
+                status="UNREADABLE",
+                reason=f"수금 사건을 만들지 못했다: {type(exc).__name__}: {exc}",
+            )
 
-    try:
-        result = seed(
-            conn,
-            sim_run_id=sim_run_id,
-            financing_mode=axis["financing_mode"],
-            as_of=as_of,
-        )
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 실패를 `0 건` 으로 접지 않는다.
-        # 🔴 **`NOTHING_DUE` 로 접으면 *"확인했고 없었다"* 로 조용히 지나간다.**
-        # ⚠️ **되돌리기 실패가 사유를 덮으면 안 된다.** 무엇이 터졌는지가 먼저다.
-        with suppress(Exception):
-            conn.rollback()
-        return CollectionSeedOutcome(
-            status="UNREADABLE",
-            reason=f"수금 사건을 만들지 못했다: {type(exc).__name__}: {exc}",
-        )
-    finally:
-        conn.close()
+        try:
+            result = seed(
+                conn,
+                sim_run_id=sim_run_id,
+                financing_mode=axis["financing_mode"],
+                as_of=as_of,
+            )
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 실패를 `0 건` 으로 접지 않는다.
+            # 🔴 **`NOTHING_DUE` 로 접으면 *"확인했고 없었다"* 로 조용히 지나간다.**
+            # ⚠️ **되돌리기 실패가 사유를 덮으면 안 된다.** 무엇이 터졌는지가 먼저다.
+            with suppress(Exception):
+                conn.rollback()
+            return CollectionSeedOutcome(
+                status="UNREADABLE",
+                reason=f"수금 사건을 만들지 못했다: {type(exc).__name__}: {exc}",
+            )
 
     if result.created == 0:
         # ★ **확인했고 만들 것이 없었다.** 낼 것이 없었거나 이미 다 있었다 —

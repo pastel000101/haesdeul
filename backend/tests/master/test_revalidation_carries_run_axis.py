@@ -50,8 +50,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import revalidation, sales_approval, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 #: 재검증이 서는 날. 두 실행이 **같은 날 같은 회차**로 돌아야 ② 가 축만 잰다.
 고른_날 = date(2026, 1, 6)

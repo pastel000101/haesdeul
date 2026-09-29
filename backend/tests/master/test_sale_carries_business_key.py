@@ -117,7 +117,7 @@ class 커넥션_대역:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.commits += 1
@@ -125,8 +125,12 @@ class 커넥션_대역:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 def _scenario() -> dict[str, Any]:
@@ -160,7 +164,7 @@ def _확정(대역: 확정_대역, *, request_id: str = 업무키):
         sim_run_id=실행축,
         confirm=대역,
         reserve=예약_대역(),
-        connect=커넥션_대역,
+        borrow=커넥션_대역,
     )
 
 

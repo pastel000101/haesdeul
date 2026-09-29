@@ -35,6 +35,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from app.core import db as core_db
 from app.master.answer import agent_label
 
 # ─── 화면 사전과 같은 문구 (frontend/src/lib/procurementLabels.ts) ──────────
@@ -1111,14 +1112,13 @@ def render_logistics_chat_report(
         get_outbound_console,
         load_console_runtime,
     )
-    from app.logistics.db import get_connection
     from app.logistics.historical_repository import (
         onhand_total_by_day,
         reservation_state_at,
         snapshot_days_between,
     )
 
-    with get_connection() as conn:
+    with core_db.connection() as conn, core_db.transaction(conn):
         runtime = load_console_runtime(conn=conn, sim_run_id=sim_run_id, as_of=as_of)
         reservations = reservation_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)
         inventory = get_inventory_console(

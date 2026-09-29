@@ -25,10 +25,17 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.contracts.core import ContractViolation
-from app.master import AgentReply, AgentRequest, ExecutionMetadata, wiring
+from app.contracts.envelope import (
+    AgentReply,
+    AgentRequest,
+    ExecutionContext,
+    ExecutionMetadata,
+    agent_allowed_modes,
+    agent_dept,
+)
+from app.master import wiring
 from app.master.ask_schemas import AskRequest
 from app.master.ask_service import ask
-from app.master.envelope import ExecutionContext, agent_allowed_modes, agent_dept
 from app.master.llm.runtime import IntentService, LLMSettings, validate_intent
 from app.master.llm.schemas import NarrativeResult
 from app.master.router import router
@@ -361,6 +368,11 @@ def test_조립_뿌리를_부르면_ml_이_등록된다():
         wire_registries()
 
         assert wiring.registry().has("ml")
+        # ★ 2026-09-29 부터 조립 뿌리가 `ml_port` 를 직접 건다 (재구성 BL-011 — 전에는
+        #   `app/ml/wiring.py` 가 스스로 붙었다). 걸린 것이 그 포트인지까지 본다.
+        from app.ml.adapter import ml_port
+
+        assert wiring.registry().get("ml") is ml_port
     finally:
         for (module, _, register), saved in zip(되돌릴_것, 저장):
             module.reset()

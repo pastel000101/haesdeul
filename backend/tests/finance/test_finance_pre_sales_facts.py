@@ -19,6 +19,7 @@ from typing import ClassVar
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, agent_allowed_modes
 from app.finance import adapter
 from app.finance.capabilities.pre_sales import (
     build_obligation_facts,
@@ -28,7 +29,6 @@ from app.finance.capabilities.pre_sales import (
 from app.finance.db import FinanceDataNotReady
 from app.finance.schemas import CashEvent
 from app.finance.tools import summarize_partner_receivables
-from app.master.envelope import AgentRequest, ExecutionContext, agent_allowed_modes
 
 AS_OF = date(2026, 9, 16)
 
@@ -280,7 +280,7 @@ def test_어댑터가_내는_사실_전부(wired):
 
 def test_모든_최상위_숫자에_근거가_붙는다(wired):
     """봉투 규칙 — 최상위 숫자는 근거 없이 나갈 수 없다."""
-    from app.master.envelope import check_evidence_coverage
+    from app.contracts.envelope import check_evidence_coverage
 
     reply, _meta = adapter.finance_port(_facts_request())
 

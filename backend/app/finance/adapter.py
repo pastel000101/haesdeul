@@ -31,6 +31,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from app.contracts.core import Evidence
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.finance import user_messages as messages
 from app.finance.application.orchestration import FinanceAgentController
 from app.finance.capabilities.pre_sales import (
@@ -65,7 +66,6 @@ from app.finance.tools import (
     project_cashflow,
     summarize_partner_receivables,
 )
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.purchase_agent.schemas import PurchaseProposal
 
 # 재무 1차 Tool Set — T-FIN-01~06 (2026-08-27 확정). 그날 실제로 부른 것만 남긴다.

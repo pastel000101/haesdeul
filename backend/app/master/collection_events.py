@@ -47,13 +47,14 @@ haetdeul.receivables   15행
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 from psycopg import sql
 
+from app.core import db as core_db
 from app.finance.collection import CollectionEvent
-from app.finance.db import get_connection, get_db_schema
+from app.finance.db import get_db_schema
 
 __all__ = ["TABLE", "read_collection_events"]
 
@@ -77,7 +78,7 @@ def read_collection_events(
     *,
     sim_run_id: str,
     financing_mode: str,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
 ) -> tuple[CollectionEvent, ...]:
     """`(sim_run_id, financing_mode)` 축의 수금 사건 전부. 오래된 날짜부터.
 
@@ -101,14 +102,10 @@ def read_collection_events(
         " ORDER BY collection_date, receivable_id"
     ).format(_table())
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query, (sim_run_id, financing_mode))
-            rows = cursor.fetchall()
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(query, (sim_run_id, financing_mode))
+        rows = cursor.fetchall()
 
     return tuple(_event(row) for row in rows)
 

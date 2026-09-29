@@ -42,11 +42,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Literal, get_args
+from typing import Literal, get_args
 
-from app.logistics.db import get_connection
+from app.core import db as core_db
 from app.logistics.monitoring.detect import detect_logistics_exceptions
 from app.logistics.monitoring.schemas import DetectOut, DetectPhase
 
@@ -107,7 +108,7 @@ def run_logistics_inspection(
     *,
     sim_run_id: str,
     phase: DetectPhase,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
     detect_fn: Callable[..., DetectOut] = detect_logistics_exceptions,
 ) -> InspectionOut:
     """그날 창고를 한 번 본다. 🔴 **예외를 밖으로 내지 않는다.**
@@ -126,13 +127,15 @@ def run_logistics_inspection(
     :param detect_fn: 물류 경계. 🔴 **기본값이 실제 함수 자체다** — `None` 을 안 받는다
         (`clock.py` · `maintenance.py` 와 같은 규율).
     """
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception as exc:  # noqa: BLE001 - 연결 실패가 그날을 통째로 세우면 안 된다.
-        return InspectionOut(as_of=as_of, phase=phase, status="FAILED", reason=f"연결 실패: {exc}")
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception as exc:  # noqa: BLE001 - 연결 실패가 그날을 통째로 세우면 안 된다.
+            return InspectionOut(
+                as_of=as_of, phase=phase, status="FAILED", reason=f"연결 실패: {exc}"
+            )
 
-    try:
         try:
             result = detect_fn(conn, sim_run_id=sim_run_id, as_of=as_of, phase=phase)
         except Exception as exc:  # noqa: BLE001 - 점검이 터져도 하루는 계속 간다.
@@ -154,8 +157,6 @@ def run_logistics_inspection(
             reason=f"{result.reason}{_불확실(result)}",
             result=result,
         )
-    finally:
-        conn.close()
 
 
 def _불확실(result: DetectOut) -> str:

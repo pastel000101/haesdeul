@@ -9,7 +9,8 @@ sim_time.py **as_of 에서 파생한다**  "그날의 이 단계는 몇 시로 �
 ```
 
 ★ 그래서 이 파일은 `clock.seoul_now` 도 `clock.today_in_seoul` 도 **부르지 않는다.**
-  `clock.SEOUL` 만 가져다 쓴다 — 시간대 상수의 주인은 `clock.py` 하나이고,
+  `clock.SEOUL`(`app/core/clock.py`)만 가져다 쓴다 — 시간대 상수의 주인은 `clock.py`
+  하나이고,
   `ZoneInfo("Asia/Seoul")` 를 여기서 새로 만들면 값이 같아서 아무도 못 보다가
   규칙이 바뀌는 날 조용히 갈린다 (`revalidation.py` 가 실제로 그랬다 · 2026-09-08).
 
@@ -27,7 +28,7 @@ Master 가 as_of 에서 파생한다   🟢 같은 입력 → 같은 값. 시간
 
 ## 기준점 — 09:30 KST
 
-기준점은 `clock.SCHEDULE_START` **그 값을 가져다 쓴다.** 여기서 `time(9, 30)`
+기준점은 `schedule_times.SCHEDULE_START` **그 값을 가져다 쓴다.** 여기서 `time(9, 30)`
 을 새로 적지 않는다.
 
 ★ **왜 09:30 이 유일하게 근거 있는 기준점인가.** 스케줄러가 실제로 그 시각에
@@ -74,7 +75,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Literal
 
-from app.master.clock import SCHEDULE_START, SEOUL
+from app.core.clock import SEOUL
+from app.master.schedule_times import SCHEDULE_START
 
 __all__ = ["PHASES", "SimPhase", "phase_instant"]
 

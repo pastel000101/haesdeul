@@ -17,7 +17,7 @@ from math import ceil, floor, isfinite
 from typing import Any
 
 from app.contracts.core import Evidence
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionMetadata,
@@ -128,7 +128,7 @@ def _observed_at(
     """봉투에 실을 **관측 기준시점** (`#393` · `#626`).
 
     봉투가 이 칸을 *"그 값이 세상에 언제 드러났나"* 로 규정한다 — ``created_at`` 이
-    아니고 ``as_of`` 도 아니다 (``master/envelope.py`` ``AgentReply.observed_at``).
+    아니고 ``as_of`` 도 아니다 (``contracts/envelope.py`` ``AgentReply.observed_at``).
 
     🔴 **모수가 지금 하나다 — 시세뿐이다.** 봉투는 *"계산에 쓴 입력이 여럿이면 그중
       가장 늦은 것"* 이라고 정하는데, 우리 입력 여섯 중 **우리가 직접 관측하는 것은
@@ -403,7 +403,7 @@ def _uncalled_status() -> LLMStatus:
       썼네"* 가 한 값이 되고, **사람이 없는 문제를 찾는다** — 2025-12-31 실행이 그랬다.
       등급이 미상이라 ⑤가 후보를 만들기 전에 막혔는데, 설정은 켜져 있었다.
 
-    봉투가 네 값의 뜻을 규정한다 (``master/envelope.py`` ``LLMStatus``)::
+    봉투가 네 값의 뜻을 규정한다 (``contracts/envelope.py`` ``LLMStatus``)::
 
         DISABLED           설정이 꺼져 있다
         SKIPPED_TEMPLATE   켜져 있는데 이번 실행에서는 안 불렀다 — 부를 조건이 아니었다
@@ -871,7 +871,7 @@ def build_state(request: AgentRequest, *, quotes: QuoteSource | None = None) -> 
         #   ```
         #
         #   ⚠️ **다섯 중 하나만 계약이 「우리 행동을 바꾼다」고 적고 있다** —
-        #     ``master/envelope.py`` 의 ``_is_label`` docstring 이
+        #     ``contracts/envelope.py`` 의 ``_is_label`` docstring 이
         #     *"`payment_pressure: "MEDIUM"` 은 숫자가 아니지만 **매입의 행동을 바꾼다**"*
         #     라고 이름 걸고 적어 뒀는데, ``purchase_agent`` 전수에서 그 이름이 **0곳**이다.
         #

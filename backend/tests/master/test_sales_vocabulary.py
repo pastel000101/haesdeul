@@ -22,13 +22,7 @@ from typing import get_args
 import pytest
 
 from app.contracts.core import ContractViolation, SuggestedAdjustment
-from app.master.envelope import (
-    AgentName,
-    Mode,
-    agent_allowed_modes,
-    agent_dept,
-    validate_reply,
-)
+from app.contracts.envelope import AgentName, Mode, agent_allowed_modes, agent_dept, validate_reply
 from tests.master.test_envelope import reply, req
 
 # ── ① 판매가 부를 수 있는 대상이 됐다 ───────────────────────────────────────

@@ -42,7 +42,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any, Literal
 
-from app.master.envelope import ExecutionContext
+from app.contracts.envelope import ExecutionContext
 from app.master.plan import ExecutionPlan
 from app.master.run_repository import (
     LEDGER_GAP_END_CODE,

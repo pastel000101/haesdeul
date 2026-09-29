@@ -419,7 +419,7 @@ class _대역커넥션:
         self.log: list[tuple[str, list[Any]]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def cursor(self) -> _대역커서:
         return _대역커서(self)
@@ -430,8 +430,12 @@ class _대역커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
     @property
     def 쓴것(self) -> list[tuple[str, list[Any]]]:
@@ -534,22 +538,22 @@ def test_재고_쓰는_자리는_커밋하지_않는다() -> None:
 
 def test_기본_기록은_한_번_커밋하고_닫는다(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _대역커넥션(_연_설정())
-    monkeypatch.setattr(walk_provenance, "get_connection", lambda: conn)
+    monkeypatch.setattr(walk_provenance.core_db, "connection", lambda: conn)
 
     답 = record_walked_now(sim_run_id=실행축, walked_now=마감뒤)
 
     assert 답 == "WRITTEN"
-    assert (conn.commits, conn.rollbacks, conn.closed) == (1, 0, 1)
+    assert (conn.commits, conn.rollbacks, conn.returned) == (1, 0, 1)
 
 
 def test_기본_기록이_막히면_되돌리고_닫는다(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _대역커넥션(_연_설정(walked_now=마감뒤))
-    monkeypatch.setattr(walk_provenance, "get_connection", lambda: conn)
+    monkeypatch.setattr(walk_provenance.core_db, "connection", lambda: conn)
 
     with pytest.raises(WalkedNowConflict):
         record_walked_now(sim_run_id=실행축, walked_now=마감전)
 
-    assert (conn.commits, conn.rollbacks, conn.closed) == (0, 1, 1)
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
 
 
 # ── 문은 안 받는다 ───────────────────────────────────────────────────────

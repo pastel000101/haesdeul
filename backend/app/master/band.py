@@ -51,8 +51,8 @@ from app.contracts.core import (
     SplitLeg,
     T0Snapshot,
     T2Reply,
-    check_triple_identity,
 )
+from app.contracts.rules import check_triple_identity
 
 EPS = 1e-6
 INF = float("inf")

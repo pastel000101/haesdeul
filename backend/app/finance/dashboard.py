@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from psycopg import sql
 
+from app.core.text import decimal_or_zero
 from app.finance.db import fetch_all, fetch_one, get_db_schema
 from app.finance.schemas import (
     FinanceCashflowResponse,
@@ -211,9 +212,6 @@ def load_cashflow(*, sim_run_id: str, as_of: date, days: int) -> list[dict[str, 
     return fetch_all(query, [sim_run_id, as_of, days])
 
 
-_ZERO = Decimal(0)
-
-
 def get_finance_dashboard(
     *, sim_run_id: str, as_of: date, recent_limit: int = 10
 ) -> FinanceDashboardResponse:
@@ -278,8 +276,8 @@ def _dashboard_meta(*, sim_run_id: str, as_of: date) -> FinanceDashboardMeta:
 def _states(rows: list[dict[str, object]]) -> list[FinanceStateView]:
     result = []
     for row in rows:
-        cash = _decimal(row["current_cash_krw"])
-        minimum = _decimal(row["minimum_operating_cash_krw"])
+        cash = decimal_or_zero(row["current_cash_krw"])
+        minimum = decimal_or_zero(row["minimum_operating_cash_krw"])
         result.append(
             FinanceStateView(
                 **row,
@@ -292,14 +290,14 @@ def _states(rows: list[dict[str, object]]) -> list[FinanceStateView]:
 def _cashflow_summary(row: dict[str, object] | None) -> FinanceCashflowSummary:
     row = row or {}
     return FinanceCashflowSummary(
-        purchase_cash_out_krw=_decimal(row.get("purchase_cash_out_krw")),
-        logistics_cash_out_krw=_decimal(row.get("logistics_cash_out_krw")),
-        payroll_interest_cash_out_krw=_decimal(row.get("payroll_interest_cash_out_krw")),
-        operating_expense_cash_out_krw=_decimal(row.get("operating_expense_cash_out_krw")),
-        sales_recognized_krw=_decimal(row.get("sales_recognized_krw")),
-        collection_cash_in_krw=_decimal(row.get("collection_cash_in_krw")),
-        base_net_cash_krw=_decimal(row.get("base_net_cash_krw")),
-        loan_execution_krw=_decimal(row.get("loan_execution_krw")),
+        purchase_cash_out_krw=decimal_or_zero(row.get("purchase_cash_out_krw")),
+        logistics_cash_out_krw=decimal_or_zero(row.get("logistics_cash_out_krw")),
+        payroll_interest_cash_out_krw=decimal_or_zero(row.get("payroll_interest_cash_out_krw")),
+        operating_expense_cash_out_krw=decimal_or_zero(row.get("operating_expense_cash_out_krw")),
+        sales_recognized_krw=decimal_or_zero(row.get("sales_recognized_krw")),
+        collection_cash_in_krw=decimal_or_zero(row.get("collection_cash_in_krw")),
+        base_net_cash_krw=decimal_or_zero(row.get("base_net_cash_krw")),
+        loan_execution_krw=decimal_or_zero(row.get("loan_execution_krw")),
     )
 
 
@@ -310,10 +308,10 @@ def _receivable_summary(row: dict[str, object] | None) -> FinanceReceivableSumma
         collected_count=int(row.get("collected_count") or 0),
         partial_count=int(row.get("partial_count") or 0),
         open_count=int(row.get("open_count") or 0),
-        original_amount_krw=_decimal(row.get("original_amount_krw")),
-        received_amount_krw=_decimal(row.get("received_amount_krw")),
-        outstanding_amount_krw=_decimal(row.get("outstanding_amount_krw")),
-        overdue_amount_krw=_decimal(row.get("overdue_amount_krw")),
+        original_amount_krw=decimal_or_zero(row.get("original_amount_krw")),
+        received_amount_krw=decimal_or_zero(row.get("received_amount_krw")),
+        outstanding_amount_krw=decimal_or_zero(row.get("outstanding_amount_krw")),
+        overdue_amount_krw=decimal_or_zero(row.get("overdue_amount_krw")),
     )
 
 
@@ -321,10 +319,10 @@ def _payable_summary(row: dict[str, object] | None) -> FinancePayableSummary:
     row = row or {}
     return FinancePayableSummary(
         count=int(row.get("count") or 0),
-        original_amount_krw=_decimal(row.get("original_amount_krw")),
-        paid_amount_krw=_decimal(row.get("paid_amount_krw")),
-        outstanding_amount_krw=_decimal(row.get("outstanding_amount_krw")),
-        overdue_amount_krw=_decimal(row.get("overdue_amount_krw")),
+        original_amount_krw=decimal_or_zero(row.get("original_amount_krw")),
+        paid_amount_krw=decimal_or_zero(row.get("paid_amount_krw")),
+        outstanding_amount_krw=decimal_or_zero(row.get("outstanding_amount_krw")),
+        overdue_amount_krw=decimal_or_zero(row.get("overdue_amount_krw")),
     )
 
 
@@ -338,10 +336,10 @@ def _closings(
             minimum_operating_cash_krw=minimum,
             base_operating_buffer_krw=None
             if minimum is None
-            else _decimal(row["base_cash_balance_krw"]) - minimum,
+            else decimal_or_zero(row["base_cash_balance_krw"]) - minimum,
             loan_operating_buffer_krw=None
             if minimum is None
-            else _decimal(row["loan_cash_balance_krw"]) - minimum,
+            else decimal_or_zero(row["loan_cash_balance_krw"]) - minimum,
         )
         for row in rows
     ]
@@ -373,15 +371,7 @@ def _closing_payload(row: dict[str, object]) -> dict[str, object]:
 def _minimum_cash(rows: list[dict[str, object]]) -> Decimal | None:
     for row in rows:
         if row.get("financing_mode") == "BASE_NO_LOAN":
-            return _decimal(row.get("minimum_operating_cash_krw"))
+            return decimal_or_zero(row.get("minimum_operating_cash_krw"))
     if rows:
-        return _decimal(rows[0].get("minimum_operating_cash_krw"))
+        return decimal_or_zero(rows[0].get("minimum_operating_cash_krw"))
     return None
-
-
-def _decimal(value: object) -> Decimal:
-    if value is None:
-        return _ZERO
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))

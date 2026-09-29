@@ -35,6 +35,7 @@ from typing import Any, Literal
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.contracts.envelope import AgentReply, AgentRequest
 from app.finance.capabilities import procurement as _pre
 from app.finance.capabilities import sales as _sales
 from app.finance.capabilities import scenario as _scn
@@ -47,7 +48,6 @@ from app.finance.llm.planner import (
 )
 from app.finance.schemas import FinanceMode
 from app.finance.state import FinanceAgentState, _scenario_verdict
-from app.master.envelope import AgentReply, AgentRequest
 
 # ---------------------------------------------------------------------------
 # capability 소유와 의존 계약

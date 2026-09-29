@@ -21,12 +21,8 @@ from datetime import date
 
 import pytest
 
-from app.master.commitment import (
-    ApprovedCommitment,
-    ArrivalLeg,
-    CommitmentNotBuildable,
-    build_commitment,
-)
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg, CommitmentNotBuildable
+from app.master.commitment import build_commitment
 
 AS_OF = date(2025, 12, 31)
 
@@ -251,7 +247,7 @@ def test_계약_품목은_전부_매입이_받을_수_있다():
     ⚠️ 반대 방향(매입이 더 넓은 것)은 사고가 아니다 — 마스터가 안 보내면 그만이다.
       그래서 같음이 아니라 **포함**으로 건다.
     """
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     assert ITEM_CODES <= _purchase_item_names()
 
@@ -283,7 +279,7 @@ def test_매입과_계약의_차이를_알고_있다():
       매입 화면이 **보일 때 거른다** (`app/api/purchase/query.py`).
       선언을 좁히는 것과 기록을 고쳐 쓰는 것은 다른 일이다.
     """
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     extra = _purchase_item_names() - ITEM_CODES
 

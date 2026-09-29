@@ -31,7 +31,7 @@ from typing import Any, Protocol
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from app.master.envelope import agent_allowed_modes
+from app.contracts.envelope import agent_allowed_modes
 from app.master.llm.schemas import Intent, IntentResult, LLMStatus
 
 #: 🔴 **분류가 왜 실패했는지를 남기는 자리다** (2026-09-16). `day_opening_repository`

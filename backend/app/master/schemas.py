@@ -14,9 +14,9 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.contracts.core import ITEMS, EndCode
+from app.contracts.envelope import AgentName, Trigger
 from app.master.day_gate import DayGate
 from app.master.decision import DecisionOut
-from app.master.envelope import AgentName, Trigger
 from app.master.sales_flow import SalesEndCode
 
 SalesBusinessMode = Literal[

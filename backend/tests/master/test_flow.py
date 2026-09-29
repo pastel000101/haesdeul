@@ -9,15 +9,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import date
 
-from app.master import (
-    AgentRegistry,
-    AgentReply,
-    AgentRequest,
-    CallBudget,
-    ExecutionContext,
-    ExecutionMetadata,
-    MasterRunner,
-)
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master import AgentRegistry, CallBudget, MasterRunner
 from app.master.flow import ProcurementFlow
 from app.master.verifier import VerificationResult
 

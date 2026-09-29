@@ -27,33 +27,17 @@
 좌우하고, 그 상태는 이미 한 번 겪었다 (2026-08-31 · LLM_PROVIDER 건).
 """
 
-import os
-from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 
-import psycopg
-from dotenv import load_dotenv
-from psycopg import sql
-from psycopg.rows import dict_row
+# ★ 2026-09-28 연결을 만드는 구현은 `app/core/db.py` 로 옮겼고, 2026-09-29 풀 전환 뒤에는
+#   풀에서 **조회 연결만** 빌린다. **필요한 이름만 골라 가져온다** — `app.core.db` 모듈을
+#   통째로 들이면 쓰기 대여(`connection`)와 쓰기 경계(`transaction`)까지 이 모듈
+#   이름공간에 따라 들어와, 위 규칙 2 의 "없으면 import 에서 막힌다" 가 약해진다.
+from app.core.db import CONNECT_TIMEOUT_SECONDS as _CORE_CONNECT_TIMEOUT_SECONDS
+from app.core.db import Params, Query
+from app.core.db import read_connection as _read_connection
 
-Query = str | sql.Composed
-Params = Sequence[object] | Mapping[str, object] | None
-
-_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
-_CONNECTION_ENV_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
-
-
-def _required_environment(keys: tuple[str, ...]) -> dict[str, str]:
-    load_dotenv(_ENV_FILE)
-    values = {key: os.getenv(key, "") for key in keys}
-    missing = [key for key, value in values.items() if not value]
-    if missing:
-        raise RuntimeError(f"Missing required database environment variables: {', '.join(missing)}")
-    return values
-
-
-#: 접속 시도를 포기하는 시각(초). ``psycopg.connect`` 로 그대로 넘어간다.
+#: 접속 시도를 포기하는 시각(초). 공통 풀이 새 연결을 만들 때 ``connect_timeout`` 으로 넘긴다.
 #:
 #: ⚠️ **없으면 libpq 기본이 0(무제한)** 이라 TCP connect 가 커널 재시도 정책까지
 #:   매달린다. 접속이 **거부**되는 경우와 **무응답**인 경우가 다르게 동작한다
@@ -115,32 +99,20 @@ def _required_environment(keys: tuple[str, ...]) -> dict[str, str]:
 #: 🟢 ``#81`` 은 **ⓐ(각자 자기 ``db.py``)로 정해졌다** (2026-09-07 · 재무·마스터
 #:   합의). 공통 헬퍼(ⓑ)는 **발표 뒤**로 미뤘다 — 그때 이 인자가 헬퍼로 옮겨가고,
 #:   이 줄은 지워도 되며 **값은 따라간다.**
-CONNECT_TIMEOUT_SECONDS = 5
-
-
-def get_connection() -> psycopg.Connection[dict[str, Any]]:
-    """읽기용 연결. 이 모듈은 이 연결로 ``SELECT`` 만 보낸다."""
-    config = _required_environment(_CONNECTION_ENV_KEYS)
-    return psycopg.connect(
-        host=config["DB_HOST"],
-        port=config["DB_PORT"],
-        dbname=config["DB_NAME"],
-        user=config["DB_USER"],
-        password=config["DB_PASSWORD"],
-        row_factory=dict_row,
-        connect_timeout=CONNECT_TIMEOUT_SECONDS,
-    )
+#: 🟢 **ⓑ 로 옮겼다** (2026-09-28 · 재구성 BL-010). 값의 자리는
+#:   ``app/core/db.py::CONNECT_TIMEOUT_SECONDS`` 이고, 이 이름은 그 값을 가리킨다.
+CONNECT_TIMEOUT_SECONDS = _CORE_CONNECT_TIMEOUT_SECONDS
 
 
 def fetch_all(query: Query, params: Params = None) -> list[dict[str, Any]]:
-    """다건 조회."""
-    with get_connection() as connection, connection.cursor() as cursor:
+    """다건 조회. 풀에서 조회 전용 연결을 빌린다 — 다른 부서의 연결을 빌려 쓰지 않는다."""
+    with _read_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query, params)
         return cursor.fetchall()
 
 
 def fetch_one(query: Query, params: Params = None) -> dict[str, Any] | None:
-    """단건 조회."""
-    with get_connection() as connection, connection.cursor() as cursor:
+    """단건 조회. 풀에서 조회 전용 연결을 빌린다."""
+    with _read_connection() as connection, connection.cursor() as cursor:
         cursor.execute(query, params)
         return cursor.fetchone()

@@ -19,13 +19,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
 from app.master.flow import ProcurementFlow
 from app.master.ports import AgentRegistry
 from app.master.runner import MasterRunner

@@ -96,11 +96,11 @@ from typing import Any
 
 from psycopg import sql
 
+from app.contracts.commitment import ApprovedCommitment
 from app.logistics.db import get_db_schema
 from app.logistics.inbound_schedules import ScheduleReferenceMissing, record_schedule
 from app.logistics.purchase_detail import fetch_purchase_detail
 from app.logistics.schemas import InTransitItem
-from app.master.commitment import ApprovedCommitment
 
 __all__ = [
     "InboundScheduleConflict",

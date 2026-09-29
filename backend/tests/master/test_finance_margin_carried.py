@@ -54,9 +54,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import decision_service, revalidation, sales_approval, wiring
 from app.master.decision import DecisionIn, DecisionOut, mark_current
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 REQ = "REQ-20260910-0001"
 RUN_UUID = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
@@ -169,7 +169,10 @@ class 커넥션_대역:
 
     def rollback(self) -> None: ...
 
-    def close(self) -> None: ...
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None: ...
 
 
 class 결정_저장소:
@@ -258,7 +261,7 @@ def 확정(monkeypatch) -> 확정_대역:
     # 🔴 **예약도 대역이다** (2026-09-12). 확정이 서면 그 자리에서 물류 예약이
     #    불리므로, 안 갈아 끼우면 이 파일이 실 DB 를 친다.
     monkeypatch.setattr(sales_approval, "reserve_confirmed_sale_available", 예약_대역())
-    monkeypatch.setattr(sales_approval, "_open", lambda connect: 커넥션_대역())
+    monkeypatch.setattr(sales_approval.core_db, "connection", lambda: 커넥션_대역())
     return 대역
 
 

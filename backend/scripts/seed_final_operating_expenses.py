@@ -36,7 +36,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from psycopg import sql
 
-from app.finance.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.finance.db import get_db_schema
 from app.finance.expenses import create_expense
 
 #: 합의된 운영비. 월 3,855,000원 × 9개월 = 34,695,000원.
@@ -176,7 +177,9 @@ def main() -> int:
     print("세부 근거     " + NOTE.replace("\n", "\n             "))
     print()
 
-    with get_connection() as conn:
+    # ★ 풀은 이 실행 동안만 쓴다. commit · rollback 은 아래에서 눈에 보이게 하고,
+    #   블록이 끝나면 연결을 돌려준다(끝나지 않은 트랜잭션은 되돌린다).
+    with core_db.pool_lifespan(), core_db.connection() as conn:
         if not _evidence_exists(conn, EVIDENCE_ID):
             #  🔴 없는 근거로 비용을 만들지 않고, 같은 id 를 새로 만들지도 않는다.
             print(f"멈춤: 필요한 evidence_id 가 현재 DB 에 없음 — {EVIDENCE_ID}")

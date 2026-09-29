@@ -32,8 +32,9 @@ from typing import Any, Self
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master import ledger, transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg, build_commitment
+from app.master.commitment import build_commitment
 
 AS_OF = date(2025, 12, 31)
 
@@ -147,7 +148,7 @@ class 가짜커넥션:
         self.log: list[tuple[str, Any]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
         #: `None` 을 명시로 주면 *"items 표에 없다"* 를 잰다 — 기본값과 갈라 둔다.
         self.item_row = item_row
 
@@ -160,8 +161,12 @@ class 가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class 가짜전이:
@@ -260,7 +265,7 @@ def test_원장이_재무_persist_보다_먼저_불린다() -> None:
         conn.log = log  # 원장 SQL 과 부서 persist 를 **한 줄에** 세운다
         return conn
 
-    out = transition.apply_approval(_commitment(), connect=_connect, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(), borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "APPLIED"
     순서 = [
@@ -293,7 +298,7 @@ def test_회차가_둘인데_금액이_비면_NOT_APPLIED_이고_커넥션을_�
         calls.append(1)
         return 가짜커넥션()
 
-    out = transition.apply_approval(두회차, connect=_connect, sim_run_id=실행축)
+    out = transition.apply_approval(두회차, borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED"
     assert "1, 2회차 금액이 없어" in out.reason, "비어 있는 seq 를 이름으로 대야 한다"
@@ -310,7 +315,7 @@ def test_비어_있는_회차만_사유에_이름이_오른다() -> None:
 
     out = transition.apply_approval(
         _commitment(legs=_두회차(amounts=(1708000.0, None))),
-        connect=lambda: 가짜커넥션(),
+        borrow=lambda: 가짜커넥션(),
         sim_run_id=실행축,
     )
 
@@ -362,7 +367,7 @@ def test_다회차가_전이를_지나_purchases_두_행으로_나간다() -> No
         return conn
 
     out = transition.apply_approval(
-        _commitment(legs=_두회차()), connect=_connect, sim_run_id=실행축
+        _commitment(legs=_두회차()), borrow=_connect, sim_run_id=실행축
     )
 
     assert out.status == "APPLIED"
@@ -386,7 +391,7 @@ def test_다회차_지급일이_하나라도_없으면_NOT_APPLIED_다() -> None
 
     out = transition.apply_approval(
         _commitment(legs=_두회차(payment_due_dates=(AS_OF, None))),
-        connect=_connect,
+        borrow=_connect,
         sim_run_id=실행축,
     )
 
@@ -422,7 +427,7 @@ def test_지급일이_없으면_NOT_APPLIED_다() -> None:
         return 가짜커넥션()
 
     out = transition.apply_approval(
-        _commitment(legs=(_leg(payment_due_date=None),)), connect=_connect, sim_run_id=실행축
+        _commitment(legs=(_leg(payment_due_date=None),)), borrow=_connect, sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"

@@ -15,8 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.master.budget import CallBudget
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentName,
     AgentReply,
     AgentRequest,
@@ -24,6 +23,7 @@ from app.master.envelope import (
     Mode,
     validate_reply,
 )
+from app.master.budget import CallBudget
 from app.master.plan import ExecutionPlan, ExecutionStep
 from app.master.ports import AgentRegistry, empty_metadata, error_reply
 

@@ -11,8 +11,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.contracts.envelope import AgentName
 from app.master.decision import DecisionOut
-from app.master.envelope import AgentName
 from app.master.llm.schemas import Intent, LLMStatus
 from app.master.schemas import ProcurementRunResponse
 from app.master.status_flow import StatusCode

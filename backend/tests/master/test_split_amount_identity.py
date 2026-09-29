@@ -29,13 +29,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.contracts.core import (
-    Band,
-    MinimalScenario,
-    SourcingLot,
-    SplitLeg,
-    check_triple_identity,
-)
+from app.contracts.core import Band, MinimalScenario, SourcingLot, SplitLeg
+from app.contracts.rules import check_triple_identity
 from app.master.band import clip_scenario
 
 AS_OF = date(2025, 12, 31)

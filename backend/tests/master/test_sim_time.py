@@ -14,8 +14,9 @@ from pathlib import Path
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import sim_time
-from app.master.clock import SCHEDULE_START, SEOUL
+from app.master.schedule_times import SCHEDULE_START
 from app.master.sim_time import PHASES, phase_instant
 
 _AS_OF = date(2026, 9, 8)
@@ -36,7 +37,7 @@ def test_여섯_단계가_선언_순서대로_증가한다():
 
 
 def test_기준점은_스케줄러가_깨어나는_시각이다():
-    """★ **09:30 의 주인은 `clock.SCHEDULE_START` 다.**
+    """★ **09:30 의 주인은 `schedule_times.SCHEDULE_START` 다.**
 
     ⚠️ 여기서 `time(9, 30)` 을 새로 적으면 마감을 옮기는 날 둘이 조용히 갈린다.
       그래서 상수를 비교하지 않고 **그 상수로 기대값을 만든다.**
@@ -178,7 +179,7 @@ def test_기준점_상수를_새로_만들지_않는다():
     }
 
     assert not literals, f"시각 상수를 새로 만들었다: {literals}"
-    assert "from app.master.clock import SCHEDULE_START" in source
+    assert "from app.master.schedule_times import SCHEDULE_START" in source
 
 
 def test_시각_모듈이_스케줄러를_안_들인다():
@@ -189,7 +190,8 @@ def test_시각_모듈이_스케줄러를_안_들인다():
     `sim_time` 이 먹여 살리려는 자리가 정확히 `scheduler` 가 모는 자리다.
 
     ★ 그래서 `SCHEDULE_START` 의 집을 leaf 인 `clock.py` 로 옮겼다. 이 검사는
-      **되돌아가는 것**을 막는다.
+      **되돌아가는 것**을 막는다. (2026-09-29 `clock.py` 가 `core` 로 가면서 상수의
+      집은 같은 leaf 성격의 `master/schedule_times.py` 가 됐다.)
     """
     import ast
     import pathlib
@@ -204,10 +206,12 @@ def test_시각_모듈이_스케줄러를_안_들인다():
     }
 
     # ★ 자기 생존 검사 — 스캐너가 실제로 임포트를 찾았는가. 0건을 세면 공짜 초록이다.
-    assert "app.master.clock" in 들인_것, f"스캐너가 임포트를 못 찾았다: {sorted(들인_것)}"
+    assert "app.master.schedule_times" in 들인_것, (
+        f"스캐너가 임포트를 못 찾았다: {sorted(들인_것)}"
+    )
 
     막힌 = {이름 for 이름 in 들인_것 if "scheduler" in 이름 or "service" in 이름}
     assert not 막힌, (
         f"sim_time 이 {sorted(막힌)} 을 들였다 — 순환이 난다."
-        " 시각 상수는 leaf 인 app.master.clock 에서 가져온다"
+        " 시각 상수는 leaf 인 app.master.schedule_times 에서 가져온다"
     )

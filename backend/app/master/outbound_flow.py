@@ -48,7 +48,7 @@ database/10_domain_schema.sql
 🔴 **`decided_at` 은 `sim_time.phase_instant(as_of, "ALLOCATE")` 다. 벽시계를
    읽지 않는다.** `clock.seoul_now` 도 부르지 않는다 — 같은 `as_of` 를 다시
    돌리면 장부에 같은 값이 적혀야 한다
-   (`tests/master/test_clock_is_the_only_wall_clock.py` 가 AST 로도 지킨다).
+   (`tests/core/test_clock_is_the_only_wall_clock.py` 가 AST 로도 지킨다).
 
 ---
 
@@ -110,6 +110,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -121,7 +122,8 @@ from app.contracts.sales_logistics import (
     SalesOutboundReservationRequest,
     reservation_id_for_sale_item,
 )
-from app.finance.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.finance.db import get_db_schema
 from app.logistics.fefo_allocation import allocate_reserved_stock_fefo
 from app.logistics.outbound import (
     recommend_fefo_candidates,
@@ -401,7 +403,7 @@ def ship_due_sales(
     as_of: date,
     *,
     sim_run_id: str,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
     due_fn: Callable[..., Sequence[DueSaleItem]] = due_sale_items,
     reserve_fn: Callable[..., Any] = reserve_confirmed_sale_available,
     allocate_fn: Callable[..., Any] = allocate_reserved_stock_fefo,
@@ -429,13 +431,13 @@ def ship_due_sales(
 
     :param due_fn: 그날 나갈 것을 읽는 자리. **검사가 대역을 끼우는 곳**이다.
     """
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception as exc:  # noqa: BLE001 - 출고 실패가 그날을 통째로 세우면 안 된다.
-        return OutboundOut(as_of=as_of, status="FAILED", reason=f"연결 실패: {exc}")
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception as exc:  # noqa: BLE001 - 출고 실패가 그날을 통째로 세우면 안 된다.
+            return OutboundOut(as_of=as_of, status="FAILED", reason=f"연결 실패: {exc}")
 
-    try:
         try:
             rows = due_fn(conn, as_of=as_of, sim_run_id=sim_run_id)
         except Exception as exc:  # noqa: BLE001
@@ -489,8 +491,6 @@ def ship_due_sales(
             delivered_sales=delivered,
             notes=tuple(notes),
         )
-    finally:
-        conn.close()
 
 
 def _ship_one(

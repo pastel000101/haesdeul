@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance.adapter import finance_port
 from app.finance.schemas import (
     FinanceDebtPolicy,
@@ -12,7 +13,6 @@ from app.finance.schemas import (
     FinanceRuntimeContext,
     FinanceSnapshot,
 )
-from app.master.envelope import AgentRequest, ExecutionContext
 from app.sales.proposal import run_proposal
 from app.sales.schemas import SalesProposalInput
 

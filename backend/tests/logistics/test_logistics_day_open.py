@@ -157,6 +157,14 @@ class 가짜커넥션:
     def close(self) -> None:
         self.closes += 1
 
+    # ★ 마스터 `open_day` 는 공통 풀에서 연결을 빌린다(2026-09-29) — 그 대여 블록의 자리.
+    #   물류 파트가 닫거나(close) 커밋하지 않는다는 것은 위 두 수가 잰다.
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
 
 def _한_실행이_연_날들(*날: date, 실행: str = SIM_A) -> dict[date, set[str]]:
     """단일 run 환경 — 기존 검사들이 서 있던 그 모양이다."""
@@ -719,6 +727,9 @@ def test_open_day_does_not_commit_or_roll_back():
 def test_open_day_does_not_open_its_own_connection():
     """⑧ 원문에 `get_connection` 이 없다 — 마스터가 쥔 트랜잭션 밖에서 쓰면 안 된다."""
     assert "get_connection" not in _원문
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in _원문
+    assert "app.core" not in _원문
 
 
 def test_open_day_does_not_reuse_the_approval_write_path():
@@ -755,7 +766,7 @@ def test_master_open_day_walks_logistics_after_registration():
     master_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM))
 
-    결과 = master_day_open.open_day(AS_OF, connect=lambda: conn, sim_run_id=SIM_A)
+    결과 = master_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     assert 결과.status == "OPENED"
     assert [part.part for part in 결과.parts] == ["logistics"]
@@ -771,7 +782,7 @@ def test_master_open_day_is_idempotent_for_an_already_open_day():
     master_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM, AS_OF))
 
-    결과 = master_day_open.open_day(AS_OF, connect=lambda: conn, sim_run_id=SIM_A)
+    결과 = master_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     # 🔴 **`ALREADY_OPENED` 다** (계약 어휘 · 2026-09-06 정정). 멱등 no-op 은 실패가
     #    아니다 — `NOT_OPENED` 로 접으면 매일 도는 정상 상태가 실패로 보인다.
@@ -799,12 +810,12 @@ def test_master_open_day_walks_each_run_on_its_own_row():
     master_day_open.reset()
     master_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_A))
     a_conn = 가짜커넥션(dict(열린_날))
-    a결과 = master_day_open.open_day(AS_OF, connect=lambda: a_conn, sim_run_id=SIM_A)
+    a결과 = master_day_open.open_day(AS_OF, borrow=lambda: a_conn, sim_run_id=SIM_A)
 
     master_day_open.reset()
     master_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_B))
     b_conn = 가짜커넥션(dict(열린_날))
-    b결과 = master_day_open.open_day(AS_OF, connect=lambda: b_conn, sim_run_id=SIM_B)
+    b결과 = master_day_open.open_day(AS_OF, borrow=lambda: b_conn, sim_run_id=SIM_B)
 
     assert a결과.status == "ALREADY_OPENED"
     assert not [query for query in a_conn.커서.queries if "INSERT INTO" in query]

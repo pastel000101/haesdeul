@@ -35,8 +35,9 @@ from typing import Any
 
 from psycopg import errors as pg_errors
 
-from app.finance.db import get_connection
-from app.master.commitment import ApprovedCommitment, CommitmentNotBuildable, RecordedLeg
+from app.contracts.commitment import ApprovedCommitment, CommitmentNotBuildable
+from app.core import db as core_db
+from app.master.commitment import RecordedLeg
 from app.master.decision import (
     PROCUREMENT_CYCLE,
     DecisionRejected,
@@ -132,7 +133,7 @@ def record_purchase(
     request_id: str,
     body: PurchaseRecordIn,
     *,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
     apply_fn: Callable[..., TransitionOut] = apply_approval,
 ) -> TransitionOut:
     """실매입을 적고 **그 값으로 전이를 세운다.**
@@ -241,37 +242,35 @@ def record_purchase(
     if differs_from_plan(plan, legs, grade):
         _revalidate_or_reject(approval, legs, grade)
 
-    open_connection = get_connection if connect is None else connect
+    open_connection = core_db.connection if borrow is None else borrow
     # ① 기록을 **먼저 · 제 트랜잭션으로** 커밋한다. 이 커넥션은 전이에 넘기지 않는다 —
     #    넘기면 전이의 rollback 이 기록까지 되감는다 (위 독스트링 실측).
-    conn = open_connection()
-    try:
-        insert_purchase_record_legs(
-            conn,
-            sim_run_id=sim_run_id,
-            request_id=request_id,
-            decision_seq=decision.decision_seq,
-            grade=grade,
-            recorded_by=body.recorded_by.strip(),
-            legs=legs,
-        )
-        conn.commit()
-    except pg_errors.UniqueViolation as exc:
-        conn.rollback()
-        raise DecisionRejected(
-            f"이 승인(회차 {decision.decision_seq})에는 이미 실매입이 기록됐다.",
-            conflict=True,
-        ) from exc
-    except Exception:
-        # 🔴 기록이 안 앉았으면 전이를 안 부른다 — 없는 기록의 귀결은 없다.
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    with open_connection() as conn:
+        try:
+            insert_purchase_record_legs(
+                conn,
+                sim_run_id=sim_run_id,
+                request_id=request_id,
+                decision_seq=decision.decision_seq,
+                grade=grade,
+                recorded_by=body.recorded_by.strip(),
+                legs=legs,
+            )
+            conn.commit()
+        except pg_errors.UniqueViolation as exc:
+            conn.rollback()
+            raise DecisionRejected(
+                f"이 승인(회차 {decision.decision_seq})에는 이미 실매입이 기록됐다.",
+                conflict=True,
+            ) from exc
+        except Exception:
+            # 🔴 기록이 안 앉았으면 전이를 안 부른다 — 없는 기록의 귀결은 없다.
+            conn.rollback()
+            raise
 
-    # ③ 전이는 **커밋된 기록 뒤에** 제 커넥션으로 돈다. 실패해도 기록은 남고,
-    #    다음 개장 뒤 「미적용 전이 재시도」가 기록값으로 세운다.
-    return apply_fn(recorded, sim_run_id=sim_run_id, connect=connect)
+    # ③ 전이는 **커밋된 기록 뒤에** 제 커넥션으로 돈다(①의 연결은 이미 돌려줬다). 실패해도
+    #    기록은 남고, 다음 개장 뒤 「미적용 전이 재시도」가 기록값으로 세운다.
+    return apply_fn(recorded, sim_run_id=sim_run_id, borrow=borrow)
 
 
 def _check_single_grade(plan: ApprovedCommitment) -> None:

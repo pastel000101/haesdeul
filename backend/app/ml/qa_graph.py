@@ -43,7 +43,7 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from app.master.clock import today_in_seoul
+from app.core.clock import today_in_seoul
 from app.ml import qa_llm, qa_tools
 from app.ml.qa_schemas import (
     QA_ITEMS,
@@ -243,7 +243,7 @@ def supervise(state: QaState) -> QaState:
     #     화면(3000)은 날짜를 걸으며 채팅마다 그 날을 `as_of` 로 싣는다. 전에는
     #     «as_of 이하 최신 예측일» 을 오늘로 셌다 — 그날 예측이 없으면(휴일 등)
     #     하루 이틀 전 날이 「오늘」이 됐다. 해석기는 as_of 로 날을 센다.
-    #   ★ 벽시계는 `master/clock.py` 하나로만 읽는다 — 서버가 UTC 면 하루 밀린다.
+    #   ★ 벽시계는 `core/clock.py` 하나로만 읽는다 — 서버가 UTC 면 하루 밀린다.
     today = req.as_of or base_dt or today_in_seoul()
     chosen = qa_llm.interpret(req.question, today)
     if chosen is None:
@@ -611,7 +611,7 @@ def _asked_on(state: QaState) -> date:
     ★ 예측 기준일(`base_dt`)을 쓰지 않는다. 배치·보고서는 **예측표와 다른 표**라
       예측이 없는 날에도 배치는 돌았을 수 있다.
 
-    🔴 **`date.today()` 를 안 쓴다** (`master/clock.py`). 서버가 UTC 면 한국 09:00 이
+    🔴 **`date.today()` 를 안 쓴다** (`core/clock.py`). 서버가 UTC 면 한국 09:00 이
       UTC 자정이라 **날짜가 하루 밀린다** — 09:00 배치를 물었는데 어제 것을 읽는다.
       CLAUDE.md §9 에 같은 사고가 적혀 있다.
     """

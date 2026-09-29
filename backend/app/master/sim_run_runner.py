@@ -222,7 +222,8 @@ from typing import Any
 
 from psycopg import sql
 
-from app.finance.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.finance.db import get_db_schema
 from app.master.backfill import BACKFILL_CONFIG_KEY, read_rules
 from app.master.backtest_runner import _use_utf8_output
 from app.master.sim_run import create_sim_run
@@ -685,37 +686,37 @@ def main(argv: Sequence[str]) -> int:
     """
     args = _parser().parse_args(argv)
     _use_utf8_output()
-    conn = get_connection()
-    try:
-        opened = open_sim_run(
-            conn,
-            sim_run_id=args.sim_run_id,
-            company_persona_id=args.company_persona_id,
-            run_type=args.run_type,
-            period_start=date.fromisoformat(args.period_start),
-            period_end=date.fromisoformat(args.period_end),
-            as_of=date.fromisoformat(args.as_of),
-            status=args.status,
-            financing_mode=args.financing_mode,
-            baseline=BaselineLineage(
-                from_sim_run_id=args.baseline_run_id,
-                finance_state_id=args.baseline_state_id,
-            ),
-            opening_finance_state_id=args.opening_state_id,
-            opening_state_date=date.fromisoformat(args.opening_state_date),
-            opening_state_type=args.opening_state_type,
-            opening_fixture_id=args.opening_fixture_id,
-            opening_usage_scope=args.opening_usage_scope,
-            backfill_rules=_load_backfill_rules(args.backfill_rules),
-            baseline_commit=args.baseline_commit,
-            reset=args.reset,
-            note=args.note,
-        )
-    except Exception as exc:  # noqa: BLE001 - 못 연 것도 **결과**다. 조용히 0 을 내지 않는다.
-        print(f"열지 못했다: {type(exc).__name__}: {exc}")
-        return 1
-    finally:
-        conn.close()
+    # ★ 풀은 이 실행 동안만 쓴다 — 시작 때 열고, 정상 · 예외 어느 쪽으로 끝나도 닫는다.
+    #   `open_sim_run` 이 commit · rollback 을 쥐고, 연결은 블록 끝에 풀로 돌아간다.
+    with core_db.pool_lifespan(), core_db.connection() as conn:
+        try:
+            opened = open_sim_run(
+                conn,
+                sim_run_id=args.sim_run_id,
+                company_persona_id=args.company_persona_id,
+                run_type=args.run_type,
+                period_start=date.fromisoformat(args.period_start),
+                period_end=date.fromisoformat(args.period_end),
+                as_of=date.fromisoformat(args.as_of),
+                status=args.status,
+                financing_mode=args.financing_mode,
+                baseline=BaselineLineage(
+                    from_sim_run_id=args.baseline_run_id,
+                    finance_state_id=args.baseline_state_id,
+                ),
+                opening_finance_state_id=args.opening_state_id,
+                opening_state_date=date.fromisoformat(args.opening_state_date),
+                opening_state_type=args.opening_state_type,
+                opening_fixture_id=args.opening_fixture_id,
+                opening_usage_scope=args.opening_usage_scope,
+                backfill_rules=_load_backfill_rules(args.backfill_rules),
+                baseline_commit=args.baseline_commit,
+                reset=args.reset,
+                note=args.note,
+            )
+        except Exception as exc:  # noqa: BLE001 - 못 연 것도 **결과**다. 조용히 0 을 내지 않는다.
+            print(f"열지 못했다: {type(exc).__name__}: {exc}")
+            return 1
     print(format_summary(opened))
     return 0
 

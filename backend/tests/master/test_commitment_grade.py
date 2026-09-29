@@ -43,13 +43,9 @@ from typing import Any, Self
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg, SourcingLine
 from app.master import ledger, transition
-from app.master.commitment import (
-    ApprovedCommitment,
-    ArrivalLeg,
-    SourcingLine,
-    build_commitment,
-)
+from app.master.commitment import build_commitment
 
 AS_OF = date(2025, 12, 31)
 

@@ -22,7 +22,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.master.commitment import ApprovedCommitment
+from app.contracts.commitment import ApprovedCommitment
 from app.master.sales_approval import SaleConfirmationOut
 from app.master.transition import TransitionOut
 

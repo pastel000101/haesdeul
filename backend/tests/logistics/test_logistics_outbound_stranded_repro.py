@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import psycopg
 import pytest
@@ -127,8 +128,11 @@ class _Nested:
     def rollback(self) -> None:
         self.c.execute("ROLLBACK TO SAVEPOINT flow")
 
-    def close(self) -> None:  # 바깥 fixture 가 닫는다
-        pass
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
 
     def __getattr__(self, name: str):
         return getattr(self.c, name)
@@ -157,7 +161,7 @@ def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아�
     out = ship_due_sales(
         AS_OF,
         sim_run_id=SIM_RUN_ID,
-        connect=lambda: _Nested(conn),
+        borrow=lambda: _Nested(conn),
         due_fn=lambda _c, *, as_of, sim_run_id: (row,),
         allocate_fn=터지는_할당,
     )

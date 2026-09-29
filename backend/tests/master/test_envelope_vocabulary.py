@@ -34,7 +34,7 @@ from app.contracts.core import (
     RuntimeStatus,
     Verdict,
 )
-from app.master.envelope import (
+from app.contracts.envelope import (
     LLM_STATUSES,
     PASSING_VERDICTS,
     RUNTIME_STATUSES,

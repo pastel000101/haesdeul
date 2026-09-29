@@ -359,7 +359,9 @@ def test_the_purchase_db_module_exposes_only_read_helpers() -> None:
 
     # ``get_db_schema`` 가 없는 것이 계약이다 — 읽을 스키마는 ``market_quotes.source``
     # 가 정한다. 헬퍼가 있으면 다음 사람이 그걸로 배선하고 ``.env`` 가 테이블을 고른다.
-    assert public == {"fetch_all", "fetch_one", "get_connection"}
+    # ★ `get_connection` 은 2026-09-29 풀 전환으로 없어졌다 — 연결은 공통 풀에서 조회 전용으로
+    #   빌린다(`app.core.db.read_connection`). 매입이 연결 자체를 내주는 입구는 이제 없다.
+    assert public == {"fetch_all", "fetch_one"}
 
 
 def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -395,24 +397,40 @@ def test_the_connection_carries_a_connect_timeout(monkeypatch: pytest.MonkeyPatc
           (2026-09-11 재확인: 상수 20 → 1 failed · 상한 걷고 상수 20 → 통과).
       🟢 ``#81`` 의 ⓐ(각자)/ⓑ(공통 헬퍼)는 **ⓐ 로 정해졌다** (2026-09-07).
 
-    ⚠️ ``psycopg.connect`` 를 스파이로 갈아 끼우므로 **실제 접속이 일어나지 않는다.**
-      환경변수도 주입해 ``.env`` 에 안 기댄다 (``load_dotenv`` 는 기본이
-      ``override=False`` 라 여기서 넣은 값이 이긴다).
+    ⚠️ 2026-09-29 풀 전환 뒤 연결은 **공통 풀이 새 연결을 만들 때** 연다. 그래서 풀의 연결
+      종류를 스파이로 갈아 끼우고 매입 조회(``db.fetch_all``)를 한 번 부른다 — 스파이는 받은
+      인자를 적고 접속을 거절하므로 **실제 접속이 일어나지 않는다**(대여는 짧게 잡은 대기
+      시간 뒤 ``PoolTimeout`` 으로 끝난다). 환경변수도 주입해 ``.env`` 에 안 기댄다.
     """
+    from psycopg import OperationalError
+    from psycopg_pool import PoolTimeout
+
+    from app.core import db as core_db
+    from app.core import settings
+
     captured: dict[str, Any] = {}
 
-    def spy(**kwargs: Any) -> object:
-        captured.update(kwargs)
-        return object()
+    class _스파이:
+        @classmethod
+        def connect(cls, conninfo: str = "", **kwargs: Any) -> object:
+            captured.update(kwargs)
+            raise OperationalError("스파이는 접속하지 않는다")
 
     for key in ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"):
         monkeypatch.setenv(key, "x")
-    monkeypatch.setattr(db.psycopg, "connect", spy)
-
-    db.get_connection()
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "1")
+    pool = core_db.DatabasePool(
+        "test-purchase", settings.database_settings, connection_class=_스파이  # type: ignore[arg-type]
+    )
+    monkeypatch.setattr(core_db, "SERVICE_POOL", pool)
+    try:
+        with pytest.raises(PoolTimeout):
+            db.fetch_all("SELECT 1")
+    finally:
+        pool.close()
 
     assert "connect_timeout" in captured, (
-        "psycopg.connect 에 connect_timeout 이 안 넘어간다 — libpq 기본 0(무제한)이 된다"
+        "풀이 만드는 연결에 connect_timeout 이 안 넘어간다 — libpq 기본 0(무제한)이 된다"
     )
     # ⚠️ 상한 15 의 근거는 위 docstring 에 있다 — 프론트 읽기가 20초이므로 이 상한이
     #    "백엔드가 먼저 포기한다" 는 순서를 잠근다. 프론트 값이 움직이면 여기도 본다.

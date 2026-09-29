@@ -28,6 +28,7 @@ from psycopg import sql
 from psycopg.types.json import Jsonb
 
 from app.contracts.core import Evidence, SuggestedAdjustment
+from app.contracts.envelope import DEPT_CAP_CHECK_ID, AgentReply, AgentRequest, ExecutionMetadata
 from app.finance.db import (
     FinanceDataNotReady,
     execute_returning_one,
@@ -42,8 +43,6 @@ from app.finance.schemas import (
     FinancePolicy,
     RuntimeStatus,
 )
-from app.master.critic_bridge import DEPT_CAP_CHECK_ID
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 # ---------------------------------------------------------------------------
 # Evidence 생성 · 정책 출처 규율

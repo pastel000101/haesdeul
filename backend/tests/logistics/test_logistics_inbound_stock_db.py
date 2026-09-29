@@ -33,9 +33,9 @@ from pathlib import Path
 import psycopg
 import pytest
 
+from app.core import db as core_db
 from app.logistics import inbound_schedules, inbound_stock, inspections, receipts
 from app.logistics.arrival import DueInbound
-from app.logistics.db import get_connection
 from app.logistics.inbound_schedules import (
     in_transit_at,
     load_schedule_views,
@@ -117,51 +117,50 @@ def _repo_block(table: str) -> str:
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     """임시 스키마에 입고 파이프라인 표를 전부 세우고, 끝나면 **되돌린다**."""
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in (
-                "inventory_lots",
-                "inventory_moves",
-                "item_storage_policies",
-                "logistics_runtime_fixture",
-            ):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            # ★ 이관판을 여기서만 적용한다. 공유 DB 에는 적용하지 않는다.
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in (
+                    "inventory_lots",
+                    "inventory_moves",
+                    "item_storage_policies",
+                    "logistics_runtime_fixture",
+                ):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                # ★ 이관판을 여기서만 적용한다. 공유 DB 에는 적용하지 않는다.
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
+                )
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, %s, %s)",
-                (PURCHASE_ITEM_ID, PURCHASE_ID, ITEM_ID),
-            )
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                " (item_id, storage_zone, operational_policy_status) VALUES (%s, %s, %s)",
-                (ITEM_ID, ZONE, "PROVISIONAL"),
-            )
-        # ★ `inbound_schedules` 도 돌린다 — 안 돌리면 Reader 가 공유 `haetdeul` 을 읽는다.
-        for module in (receipts, inspections, inbound_stock, inbound_schedules):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        from app.logistics import ledger
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, %s, %s)",
+                    (PURCHASE_ITEM_ID, PURCHASE_ID, ITEM_ID),
+                )
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                    " (item_id, storage_zone, operational_policy_status) VALUES (%s, %s, %s)",
+                    (ITEM_ID, ZONE, "PROVISIONAL"),
+                )
+            # ★ `inbound_schedules` 도 돌린다 — 안 돌리면 Reader 가 공유 `haetdeul` 을 읽는다.
+            for module in (receipts, inspections, inbound_stock, inbound_schedules):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            from app.logistics import ledger
 
-        monkeypatch.setattr(ledger, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
-        connection.rollback()
-        connection.close()
+            monkeypatch.setattr(ledger, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────

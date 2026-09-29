@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import user_messages as messages
 from app.finance.application.harness import (
     FINALIZE_TOOL_NAME,
@@ -44,7 +45,6 @@ from app.finance.llm.planner import (
     finance_chat_model,
 )
 from app.finance.schemas import FinancePolicy
-from app.master.envelope import AgentRequest, ExecutionContext
 
 
 class _Response:

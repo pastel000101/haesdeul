@@ -34,7 +34,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.master.envelope import agent_dept
+from app.contracts.envelope import agent_dept
 from app.master.inputs import injected_keys
 from app.master.status_flow import StatusOutcome
 

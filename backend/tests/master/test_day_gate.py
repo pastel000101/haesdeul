@@ -36,10 +36,14 @@ AS_OF = date(2026, 1, 7)
 
 class _가짜커넥션:
     def __init__(self) -> None:
-        self.closed = 0
+        self.returned = 0
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _파트:
@@ -80,7 +84,7 @@ def _등록(finance: date | None, logistics: date | None) -> tuple[_파트, _파
 def test_둘_다_열려_있으면_통과한다():
     _등록(AS_OF, AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "PASS"
     assert gate.result == "ALREADY_OPENED"
@@ -92,7 +96,7 @@ def test_토요일도_통과한다():
     assert 토요일.weekday() == 5
     _등록(토요일, 토요일)
 
-    gate = check_day_gate(토요일, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(토요일, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "PASS"
 
@@ -102,7 +106,7 @@ def test_등록이_0건이면_통과한다():
 
     이것이 없으면 개장 구현이 붙기 전까지 **모든 판단이 막힌다.**
     """
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "PASS"
 
@@ -115,16 +119,16 @@ def test_관문은_열지_않는다():
     _등록(AS_OF, AS_OF)
 
     # open_day 를 부르면 AssertionError
-    check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
 
 def test_커넥션을_닫는다():
     conn = _가짜커넥션()
     _등록(AS_OF, AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: conn, sim_run_id=축)
+    check_day_gate(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ② 막힘 — gate 와 result 를 따로 낸다 ──────────────────────────────────
@@ -135,7 +139,7 @@ def test_한_파트만_안_열려도_막는다():
     온전하지 않고, 그 위에서 판단하면 **없는 상태를 읽거나 남의 날 상태를 읽는다.**"""
     _등록(AS_OF - timedelta(days=1), AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "BLOCKED"
     assert gate.result == "NOT_OPENED"
@@ -147,7 +151,7 @@ def test_gate_만_보고_막을_수_있다():
     같다** (판매 요청)."""
     _등록(AS_OF - timedelta(days=3), AS_OF - timedelta(days=3))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "BLOCKED"
     assert gate.result in {"NOT_OPENED", "REJECTED_GAP", "NEVER_OPENED"}
@@ -158,7 +162,7 @@ def test_막히면_next_action_이_반드시_찬다():
     할지도 같이 말한다."""
     _등록(AS_OF - timedelta(days=2), AS_OF - timedelta(days=2))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.next_action is not None
 
@@ -169,7 +173,7 @@ def test_막히면_next_action_이_반드시_찬다():
 def test_한_번도_안_열렸으면_OPEN_DAY_REQUIRED():
     _등록(None, None)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.result == "NEVER_OPENED"
     assert gate.next_action == "OPEN_DAY_REQUIRED"
@@ -180,7 +184,7 @@ def test_한_번도_안_열렸으면_OPEN_DAY_REQUIRED():
 def test_상한_안이면_RETRY_OPEN_DAY():
     _등록(AS_OF - timedelta(days=5), AS_OF - timedelta(days=5))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.result == "NOT_OPENED"
     assert gate.next_action == "RETRY_OPEN_DAY"
@@ -192,7 +196,7 @@ def test_31일을_넘으면_ADMIN_FORCE_OPEN_REQUIRED():
     """🔴 **`NOT_OPENED` 로 접으면 화면이 재시도를 권하고, 재시도로는 안 풀린다.**"""
     _등록(AS_OF - timedelta(days=40), AS_OF - timedelta(days=40))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.result == "REJECTED_GAP"
     assert gate.next_action == "ADMIN_FORCE_OPEN_REQUIRED"
@@ -207,7 +211,7 @@ def test_366일을_넘으면_SPLIT_FORCE_OPEN_REQUIRED():
     """
     _등록(AS_OF - timedelta(days=400), AS_OF - timedelta(days=400))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.result == "REJECTED_GAP"
     assert gate.next_action == "SPLIT_FORCE_OPEN_REQUIRED"
@@ -219,7 +223,7 @@ def test_정본이_없으면_첫_실패로_보고_그렇게_적는다():
     """⚠️ **근사하되 근사라고 적는다.** 못 읽었다고 판단을 멈추지 않는다."""
     _등록(AS_OF - timedelta(days=2), AS_OF - timedelta(days=2))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.next_action == "RETRY_OPEN_DAY"
     assert "개장 정본이 없어 첫 실패로 본다" in gate.reason
@@ -242,11 +246,11 @@ def test_연속_실패_2회부터_사람을_부른다(monkeypatch: pytest.Monkey
     _등록(AS_OF - timedelta(days=2), AS_OF - timedelta(days=2))
 
     monkeypatch.setattr("app.master.day_gate.read_day_opening", lambda **kw: 정본(1))
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert gate.next_action == "RETRY_OPEN_DAY"
 
     monkeypatch.setattr("app.master.day_gate.read_day_opening", lambda **kw: 정본(2))
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert gate.next_action == "CONTACT_OPERATOR"
     assert "연속 2회 실패" in gate.reason
 
@@ -265,7 +269,7 @@ def test_attempt_count_가_많아도_연속_실패가_적으면_재시도다(mon
     )
     _등록(AS_OF - timedelta(days=2), AS_OF - timedelta(days=2))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert gate.next_action == "RETRY_OPEN_DAY"
 
 
@@ -281,7 +285,7 @@ def test_조회가_터지면_CONTACT_OPERATOR():
 
     day_open.register_day_opening("finance", _터지는파트())
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert gate.gate == "BLOCKED"
     assert gate.next_action == "CONTACT_OPERATOR"

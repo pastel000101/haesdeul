@@ -1,15 +1,16 @@
 """Finance 영속 계층 — 연결 · 경계 계약 · 조회 구현.
 
 이 파일이 소유하는 것
-    PostgreSQL 연결/조회 헬퍼 · `FinanceAsOfDataPort` 경계 계약 ·
+    PostgreSQL 연결/조회 입구(구현은 `app.core.db`) · `FinanceAsOfDataPort` 경계 계약 ·
     `FinanceDataNotReady` · Finance State/Policy/부채 조회 · as-of DataPort 구현
 
 여기 **없는 것**
     금액 공식 · 판정 · 실행 통제 · 사람이 읽는 문장
 
 ★ 이 경로(`app.finance.db`)는 **재무 밖 도메인(master · orchestrator)이 이미 import
-  한다.** 그래서 옮길 수 없고, 옮길 수 없으므로 여기가 정본이다 — 같은 일을 하는
-  모듈을 옆에 새로 만들면 어느 쪽이 진짜인지 알 수 없게 된다.
+  한다.** 그래서 이름은 여기에 그대로 둔다. 연결 풀과 대여·반환은 `app/core/db.py` 한 곳에
+  있고(2026-09-29 풀 전환), 이 파일은 재무 조회·쓰기 헬퍼만 든다 — 같은 일을 하는 구현이
+  두 곳에 생기지 않게 하려는 것이다.
 
 ★ **경계는 폴더가 아니라 규율이다.** 아래 `FinanceAsOfDataPort` 절은 구현을 알지 못한다
   — 계약이 먼저 오고 구현이 뒤에 온다는 순서가 그 규율을 눈으로 확인시킨다.
@@ -17,21 +18,17 @@
 ★ as-of 재현성 보호는 그대로다. 과거 시점을 오늘 상태로 대신 답하지 않는다.
 """
 
-import os
-from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
-from contextvars import ContextVar
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, Protocol, TypedDict, cast
 
-import psycopg
-from dotenv import load_dotenv
 from psycopg import sql
-from psycopg.rows import dict_row
 
+from app.core import db as core_db
+from app.core import settings
+from app.core.db import Params, Query
 from app.finance.sales_validation import PartnerReceivable
 from app.finance.schemas import (
     CashEvent,
@@ -43,130 +40,50 @@ from app.finance.schemas import (
 from app.finance.tools import build_debt_service_schedule, effective_cash_date
 
 # ---------------------------------------------------------------------------
-# PostgreSQL 연결과 조회 헬퍼 (재무 밖 도메인도 쓴다)
+# PostgreSQL 조회 · 쓰기 헬퍼 (재무 밖 도메인도 쓴다)
 # ---------------------------------------------------------------------------
-
-Query = str | sql.Composed
-Params = Sequence[object] | Mapping[str, object] | None
-
-_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
-_CONNECTION_ENV_KEYS = ("DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD")
-CONNECT_TIMEOUT_SECONDS = 5
-
-
-def _load_environment() -> None:
-    load_dotenv(_ENV_FILE)
-
-
-def _required_environment(keys: tuple[str, ...]) -> dict[str, str]:
-    _load_environment()
-    values = {key: os.getenv(key, "") for key in keys}
-    missing = [key for key, value in values.items() if not value]
-    if missing:
-        raise RuntimeError(f"Missing required database environment variables: {', '.join(missing)}")
-    return values
+#
+# ★ 연결 풀 · 대여 · 반환은 `app/core/db.py`, 설정은 `app/core/settings.py` 다. 아래 함수는
+#   **재무 입구**이고, SQL 실행은 여기서 눈에 보이게 한다 (2026-09-29 풀 전환).
+#
+#   🔴 연결은 **호출할 때** `app.core.db` 의 대여 함수로 빌린다. 검사가 그 이름을 바꿔 끼우고
+#      *"재무 코드가 자기 연결을 안 빌리는지"* 를 보기 때문이다
+#      (`tests/finance/test_finance_day_open.py` · `test_finance_transition.py`).
+#
+#   ★ 종전 재무 읽기 범위(`read_connection_scope` · 2026-09-17)는 없앴다. 그 범위가 막던
+#     «조회마다 새 연결» 을 이제 풀이 막는다 — 조회는 풀의 연결을 빌려 한 문장으로 끝낸다.
 
 
 def get_db_schema() -> str:
     """설정된 PostgreSQL Schema 이름을 반환한다."""
-    return _required_environment(("DB_SCHEMA",))["DB_SCHEMA"]
-
-
-def get_connection() -> psycopg.Connection[dict[str, Any]]:
-    """환경변수 설정으로 새 PostgreSQL Connection을 생성한다."""
-    config = _required_environment(_CONNECTION_ENV_KEYS)
-    return psycopg.connect(
-        host=config["DB_HOST"],
-        port=config["DB_PORT"],
-        dbname=config["DB_NAME"],
-        user=config["DB_USER"],
-        password=config["DB_PASSWORD"],
-        connect_timeout=CONNECT_TIMEOUT_SECONDS,
-        row_factory=dict_row,
-    )
-
-
-#: 읽기 한 판이 빌려 쓰는 커넥션 자리. **범위 밖에서는 `None`** 이고, 그때는
-#: `fetch_one`/`fetch_all` 이 종전 그대로 호출마다 새로 연다.
-_READ_SCOPE: ContextVar[dict[str, Any] | None] = ContextVar(
-    "finance_read_connection_scope", default=None
-)
-
-
-@contextmanager
-def read_connection_scope() -> Iterator[None]:
-    """이 블록 안의 **SELECT 들이 커넥션 하나를 나눠 쓴다** (2026-09-17).
-
-    ```text
-    종전   fetch_all 한 번 = psycopg.connect 한 번   화면 한 판에 21개 (원격 · 개당 14~22ms)
-    지금   범위 안에서 처음 한 번만 연다             나머지는 그 커넥션의 커서
-    ```
-
-    🔴 **읽기에만 건다.** `execute_*` 계열(쓰기)은 이 범위를 안 본다 — 쓰기가 남의
-       트랜잭션에 얹히면 커밋 시점이 조용히 바뀐다.
-
-    🔴 **질의 하나가 터지면 그 커넥션을 버린다.** PostgreSQL 은 실패한 트랜잭션 안에서
-       다음 질의를 전부 거절하므로, 안 버리면 **첫 실패가 뒤의 모든 조회를 같이
-       죽인다** — 호출마다 새로 열던 종전에는 없던 일이다. 버리면 다음 조회가 새로
-       연다.
-
-    ⚠️ **스레드마다 따로다** (`ContextVar`). 커넥션은 스레드 안전하지 않으므로 이게
-       맞다 — 범위를 연 스레드에서 연 커넥션을 다른 스레드가 집지 못한다.
-
-    ★ 범위를 안 열면 아무것도 안 바뀐다. 여는 것만으로는 커넥션이 안 열린다(지연).
-    """
-    holder: dict[str, Any] = {}
-    token = _READ_SCOPE.set(holder)
-    try:
-        yield
-    finally:
-        _READ_SCOPE.reset(token)
-        borrowed = holder.pop("conn", None)
-        if borrowed is not None:
-            borrowed.close()
-
-
-@contextmanager
-def _read_cursor() -> Iterator[Any]:
-    """읽기 커서 하나. 범위가 열려 있으면 그 커넥션을 빌린다."""
-    holder = _READ_SCOPE.get()
-    if holder is None:
-        with get_connection() as connection, connection.cursor() as cursor:
-            yield cursor
-        return
-    connection = holder.get("conn")
-    if connection is None:
-        connection = get_connection()
-        holder["conn"] = connection
-    try:
-        with connection.cursor() as cursor:
-            yield cursor
-    except Exception:
-        holder.pop("conn", None)
-        try:
-            connection.close()
-        except Exception:  # noqa: BLE001,S110  이미 끊긴 커넥션은 조용히 버린다 —
-            pass  #  닫다가 난 오류를 올리면 **진짜 오류(아래 raise)를 덮는다**
-        raise
+    return settings.get_db_schema()
 
 
 def fetch_one(query: Query, params: Params = None) -> dict[str, Any] | None:
-    """Parameter binding을 사용해 단건 SELECT 결과를 반환한다."""
-    with _read_cursor() as cursor:
+    """Parameter binding을 사용해 단건 SELECT 결과를 반환한다. 풀에서 조회 연결을 빌린다."""
+    with core_db.read_connection() as conn, conn.cursor() as cursor:
         cursor.execute(query, params)
         return cursor.fetchone()
 
 
 def fetch_all(query: Query, params: Params = None) -> list[dict[str, Any]]:
-    """Parameter binding을 사용해 다건 SELECT 결과를 반환한다."""
-    with _read_cursor() as cursor:
+    """Parameter binding을 사용해 다건 SELECT 결과를 반환한다. 풀에서 조회 연결을 빌린다."""
+    with core_db.read_connection() as conn, conn.cursor() as cursor:
         cursor.execute(query, params)
         return cursor.fetchall()
 
 
 def execute_returning_one(query: Query, params: Params = None) -> dict[str, Any]:
-    """변경 SQL을 실행하고 RETURNING으로 생성된 단건 결과를 반환한다."""
-    with get_connection() as connection, connection.cursor() as cursor:
+    """변경 SQL을 실행하고 RETURNING으로 생성된 단건 결과를 반환한다.
+
+    한 호출 = 한 트랜잭션(연결을 빌려 commit 하고 돌려준다). RETURNING 행이 없으면
+    `RuntimeError` 를 올리고 그 예외로 rollback 된다.
+    """
+    with (
+        core_db.connection() as conn,
+        core_db.transaction(conn),
+        conn.cursor() as cursor,
+    ):
         cursor.execute(query, params)
         row = cursor.fetchone()
         if row is None:

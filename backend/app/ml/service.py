@@ -10,9 +10,10 @@
 from datetime import date
 from typing import Any
 
+from app.contracts.forecast import DailyPoint, Forecast, TargetKind
 from app.ml import repository
 from app.ml.db import fetch_all, get_db_schema
-from app.ml.schemas import HORIZON_DAYS, ITEMS, DailyPoint, Forecast, TargetKind
+from app.ml.schemas import HORIZON_DAYS, ITEMS
 
 _READ_SQL = """
 SELECT base_dt, item_nm, target_kind, offset_days, target_dt,

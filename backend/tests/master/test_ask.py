@@ -15,7 +15,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import AgentReply, AgentRequest, ExecutionMetadata, decision_service, wiring
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master import decision_service, wiring
 from app.master.ask_schemas import AskRequest
 from app.master.ask_service import ask
 from app.master.decision import DecisionOut, mark_current
@@ -928,7 +929,8 @@ def logistics_report_stubs(monkeypatch):
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics import console_service, db, historical_repository
+    from app.core import db as core_db
+    from app.logistics import console_service, historical_repository
     from app.logistics.schemas import (
         ConsoleArrivalSummary,
         ConsoleCapacity,
@@ -946,6 +948,12 @@ def logistics_report_stubs(monkeypatch):
         def __exit__(self, *_exc):
             return False
 
+        def commit(self) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
     def _connect():
         calls["connection"] += 1
         return _Conn()
@@ -954,7 +962,7 @@ def logistics_report_stubs(monkeypatch):
         calls["reservations"] += 1
         return ()
 
-    monkeypatch.setattr(db, "get_connection", _connect)
+    monkeypatch.setattr(core_db, "connection", _connect)
     monkeypatch.setattr(historical_repository, "reservation_state_at", _reservations)
     monkeypatch.setattr(console_service, "load_console_runtime", lambda **_kwargs: None)
     monkeypatch.setattr(

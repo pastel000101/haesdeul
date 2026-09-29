@@ -118,7 +118,7 @@ _ORDER_WINDOW_DAYS = 14
 #   양파      834        1,022        +23%
 #   ```
 #
-# ★ **어휘의 주인은 ML 이다** (`app.ml.schemas.TargetKind` — `AUC` · `WHSL` · `RTL`).
+# ★ **어휘의 주인은 ML 이다** (`app.contracts.forecast.TargetKind` — `AUC` · `WHSL` · `RTL`).
 #   마스터는 **고르기만 하고 새로 만들지 않는다.**
 #
 # ⚠️ **`RTL`(소매)은 안 쓴다.** 단위가 `원/단위` 이고 `unit_weight_kg` 가 전부 비어
@@ -321,7 +321,7 @@ def _forecast_payload(row: dict[str, Any]) -> dict[str, Any]:
 
     🔴 **`as_of` · `target_kind` 를 더했다** (2026-09-11 · 걷기 실측).
 
-      ML 계약(`app/ml/schemas.py Forecast`)이 **필수**로 두는 칸인데 여기서 버리고
+      ML 계약(`app/contracts/forecast.py Forecast`)이 **필수**로 두는 칸인데 여기서 버리고
       있었다. 매입은 안 읽어서 안 아팠고, 판매는 그 모델을 그대로 쓰므로 봉투가
       통째로 거부됐다 — **206일에서 537건.** `use_recommended` 때와 같은 모양이다.
 
@@ -334,8 +334,8 @@ def _forecast_payload(row: dict[str, Any]) -> dict[str, Any]:
         # 🔴 **`as_of` 와 `target_kind` 는 ML 계약의 필수 칸이다** (2026-09-11).
         #    뷰가 주는데 여기서 버리고 있었다 — `use_recommended` 때와 같은 모양이다.
         #
-        #    ★★ 매입은 이 둘을 안 읽어서 안 아팠고, 판매는 ML 모델(`app.ml.schemas
-        #      .Forecast`)을 그대로 쓰므로 **없으면 봉투가 통째로 거부된다.**
+        #    ★★ 매입은 이 둘을 안 읽어서 안 아팠고, 판매는 ML 모델(`app.contracts
+        #      .forecast.Forecast`)을 그대로 쓰므로 **없으면 봉투가 통째로 거부된다.**
         #      걷기 206일에서 판매 537건이 이 자리에서 죽었다.
         "as_of": row["as_of"],
         "target_kind": row["target_kind"],

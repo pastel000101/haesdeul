@@ -176,8 +176,8 @@ def test_collect_inputs_가_받은_축을_확정_주문에_넘긴다(monkeypatch
 
 def test_run_procurement_이_봉투의_축으로_입력을_모은다(monkeypatch):
     """🔴 **요청이 준 축이 적재층까지 간다.** 번인 상수로 끊기면 걷기가 남의 판매를 읽는다."""
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
     from app.master import wiring
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
     from app.master.schemas import ProcurementRunRequest
 
     seen: list[dict[str, Any]] = []

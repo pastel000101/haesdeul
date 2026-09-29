@@ -173,6 +173,11 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Any, get_args
 
+# 🔴 **어휘의 주인에서 들여온다. 여기서 네 이름을 안 적는다** (2026-09-12).
+#   손으로 적으면 어휘가 느는 날 요약만 옛말을 하고, 새로 든 값이 성적표에서
+#   조용히 사라진다 — `envelope` 가 `get_args` 로 한 벌만 만드는 이유 그대로다.
+from app.contracts.envelope import LLM_STATUSES
+from app.core import db as core_db
 from app.master.backfill import (
     BackfillRuleMissing,
     BackfillRules,
@@ -184,11 +189,6 @@ from app.master.bootstrap import wire_registries
 # 🔴 **마감 어휘도 주인에서 읽는다** (2026-09-16). `ClosingOut.status` 의 다섯 값을 여기서
 #   손으로 적으면 어휘가 느는 날 요약만 옛말을 하고 새 값의 0 이 안 찍힌다.
 from app.master.closing import ClosingOut
-
-# 🔴 **어휘의 주인에서 들여온다. 여기서 네 이름을 안 적는다** (2026-09-12).
-#   손으로 적으면 어휘가 느는 날 요약만 옛말을 하고, 새로 든 값이 성적표에서
-#   조용히 사라진다 — `envelope` 가 `get_args` 로 한 벌만 만드는 이유 그대로다.
-from app.master.envelope import LLM_STATUSES
 from app.master.execution_day import CalendarNotCovered
 from app.master.forecast_gate import DayForecastReadiness, day_forecast_readiness
 
@@ -2113,19 +2113,23 @@ def main(argv: Sequence[str]) -> int:
     # ⚠️ **`walk()` 안이 아니라 여기다.** `walk` 는 검사가 대역을 꽂아 부르는 함수이고,
     #   거기서 전역 등록소를 채우면 검사가 만든 세상을 조립 뿌리가 덮어쓴다.
     wire_registries()
-    result = walk(
-        sim_run_id=args.sim_run_id,
-        start=date.fromisoformat(args.start),
-        end=date.fromisoformat(args.end),
-        now=datetime.fromisoformat(args.now),
-        max_consecutive_failures=args.max_consecutive_failures,
-        auto_approve=args.auto_approve,
-        auto_maintain=args.auto_maintain,
-        auto_settle_expenses=args.auto_settle_expenses,
-        # 🔴 **받은 문자열 그대로 넘긴다** (2026-09-13). 위 `now` 는 파싱한 값이라
-        #    `16:00` 이 `16:00:00` 이 되고, 사람이 준 것이 원장에서 사라진다.
-        walked_now=args.now,
-    )
+    # ★ 풀은 이 걷기 동안만 쓴다 — 시작 때 열고, 정상 · 예외 어느 쪽으로 끝나도 닫는다.
+    #   🔴 **하루를 한 트랜잭션으로 묶지 않는다.** 단계마다 제 연결을 빌리고 제 commit 을
+    #      한다(설계서 §진입점 4). 풀은 연결을 다시 쓰게 할 뿐 경계를 바꾸지 않는다.
+    with core_db.pool_lifespan():
+        result = walk(
+            sim_run_id=args.sim_run_id,
+            start=date.fromisoformat(args.start),
+            end=date.fromisoformat(args.end),
+            now=datetime.fromisoformat(args.now),
+            max_consecutive_failures=args.max_consecutive_failures,
+            auto_approve=args.auto_approve,
+            auto_maintain=args.auto_maintain,
+            auto_settle_expenses=args.auto_settle_expenses,
+            # 🔴 **받은 문자열 그대로 넘긴다** (2026-09-13). 위 `now` 는 파싱한 값이라
+            #    `16:00` 이 `16:00:00` 이 되고, 사람이 준 것이 원장에서 사라진다.
+            walked_now=args.now,
+        )
     print(format_summary(result))
     return 0 if result.completed and not result.incidents else 1
 

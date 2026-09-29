@@ -31,9 +31,9 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import wiring
 from app.master.day_gate import DayGate
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.schemas import SalesRunRequest
 from app.master.service import run_sales
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
@@ -179,7 +179,7 @@ def test_매입은_필수가_아니다():
       남은 근거가 **조건부라는 사실 하나**이고 그것이 원래 이 검사의 뜻이다 —
       부족량이 있는 후보에만 걸리므로 없는 날은 매입 없이도 판매가 돌아야 한다.
     """
-    from app.master.envelope import CAPABILITY_ROUTING
+    from app.contracts.envelope import CAPABILITY_ROUTING
 
     assert CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"] is not None, (
         "라우팅이 다시 None 이 됐다면 이 검사의 전제가 또 바뀐 것이다"

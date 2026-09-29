@@ -27,9 +27,9 @@ from typing import Any, NamedTuple
 import psycopg
 import pytest
 
+from app.core import db as core_db
 from app.logistics import historical_repository, inbound_schedules, turnover
 from app.logistics import tools as calc
-from app.logistics.db import get_connection
 from app.logistics.monitoring import exceptions as exception_repo
 from app.logistics.monitoring.exceptions import (
     live_exceptions_at,
@@ -118,49 +118,51 @@ def _file(name: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            for name in ("30_logistics_wms_schema.sql", "logistics_inventory_lots_nullable.sql"):
-                cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            agent_ddl = _file("40_logistics_agent_schema.sql")
-            cur.execute(agent_ddl.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                for name in (
+                    "30_logistics_wms_schema.sql",
+                    "logistics_inventory_lots_nullable.sql",
+                ):
+                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                agent_ddl = _file("40_logistics_agent_schema.sql")
+                cur.execute(agent_ddl.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            for run in (SIM, OTHER_SIM):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (run,))
-            for item_id, item_name in ((BAECHU, "배추"), (MU, "무")):
+                for run in (SIM, OTHER_SIM):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (run,))
+                for item_id, item_name in ((BAECHU, "배추"), (MU, "무")):
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item_id, item_name)
+                    )
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, 'PO-1', %s)",
+                        (f"PI-{item_id}", item_id),
+                    )
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item_id, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 배추에만 — 정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다.
                 cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item_id, item_name)
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (BAECHU, PRIORITY_DAYS),
                 )
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, 'PO-1', %s)",
-                    (f"PI-{item_id}", item_id),
-                )
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item_id, ZONE, LIMIT_DAYS),
-                )
-            # 🔴 회전 정책은 배추에만 — 정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다.
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (BAECHU, PRIORITY_DAYS),
-            )
-        for module in (turnover, historical_repository, exception_repo, inbound_schedules):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+            for module in (turnover, historical_repository, exception_repo, inbound_schedules):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────

@@ -19,9 +19,9 @@ from uuid import uuid4
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master import decision_service as svc
 from app.master import transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.decision import AUTO_BACKFILL, DecisionIn, DecisionOut
 
 AS_OF = date(2025, 12, 31)
@@ -102,7 +102,7 @@ class 가짜커넥션:
     def __init__(self, log: list[tuple[str, Any]] | None = None) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
         self.cursors: list[가짜커서] = []
         self._log = log
 
@@ -117,8 +117,12 @@ class 가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class 가짜전이:
@@ -172,7 +176,7 @@ def test_둘_다_미등록이면_커넥션을_열지_않는다() -> None:
     """🔴 열고 나서 아무 일도 안 하면 **빈 트랜잭션**이 승인마다 열렸다 닫힌다."""
     calls: list[int] = []
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -192,7 +196,7 @@ def test_한쪽만_등록되면_반쪽으로_반영하지_않는다() -> None:
     calls: list[int] = []
 
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -212,7 +216,7 @@ def test_둘_다_등록되면_한_커넥션으로_한_번_커밋한다() -> None
     calls: list[int] = []
 
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(conn, calls), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(conn, calls), sim_run_id=실행축
     )
 
     assert out.status == "APPLIED"
@@ -235,7 +239,7 @@ def test_둘_다_등록되면_한_커넥션으로_한_번_커밋한다() -> None
     assert conn.commits == 1, "커밋은 한 번뿐이다"
     assert conn.commits == 1, "커밋은 두 파트가 끝난 뒤 한 번이다"
     assert conn.rollbacks == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
     persisted = [(name, got) for name, got in log if name.endswith(".persist")]
     assert [name for name, _ in persisted] == ["finance.persist", "logistics.persist"]
@@ -253,7 +257,7 @@ def test_재무_build_는_상태가_설_날을_받는다() -> None:
     transition.register_transition("logistics", 가짜전이("logistics", log))
 
     transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
     )
 
     assert ("finance.build", AS_OF + timedelta(days=1)) in log
@@ -273,7 +277,7 @@ def test_물류_적재가_터지면_전부_되돌린다() -> None:
     conn = 가짜커넥션()
 
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(conn, []), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -281,7 +285,7 @@ def test_물류_적재가_터지면_전부_되돌린다() -> None:
     assert conn.commits == 0
     assert conn.rollbacks == 1
     # ② 하나로 바뀌었다 (물류 `#484`) — 개장 정본 읽기가 없어져 대역을 한 번만 닫는다.
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_적재_실패가_예외로_올라가지_않는다() -> None:
@@ -293,7 +297,7 @@ def test_적재_실패가_예외로_올라가지_않는다() -> None:
     )
 
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -311,7 +315,7 @@ def test_build_가_터지면_커넥션을_열지_않는다() -> None:
     calls: list[int] = []
 
     out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -437,7 +441,7 @@ def test_등록되어_있으면_승인_경로가_커밋까지_간다(wired, monk
         # ★ **축은 그대로 흘린다.** 여기서 `**_` 로 삼키면 결정 경로가 축을 넘기는지가
         #   이 검사에서 안 보인다.
         lambda commitment, *, sim_run_id, **_: real_apply(
-            commitment, sim_run_id=sim_run_id, connect=lambda: conn
+            commitment, sim_run_id=sim_run_id, borrow=lambda: conn
         ),
     )
 

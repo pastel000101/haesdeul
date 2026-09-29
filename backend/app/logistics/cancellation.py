@@ -40,11 +40,11 @@ from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any
 
+from app.contracts.commitment import ApprovedCommitment
 from app.logistics.inbound_schedules import (
     assert_cancellable,
     cancel_schedule,
 )
-from app.master.commitment import ApprovedCommitment
 
 __all__ = ["LogisticsCancellationAdapter", "inbound_ids_of", "withdraw_inventory"]
 

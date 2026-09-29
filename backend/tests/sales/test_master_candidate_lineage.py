@@ -4,9 +4,9 @@ from datetime import date
 from pathlib import Path
 from uuid import UUID
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import decision_service, persistence, wiring
 from app.master.day_gate import DayGate
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.schemas import SalesRunRequest
 from app.master.service import run_sales
 from app.sales.console_proposals import get_console_sales_proposals

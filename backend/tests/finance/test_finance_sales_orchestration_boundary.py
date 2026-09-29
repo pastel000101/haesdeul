@@ -65,17 +65,18 @@ def test_finance_touches_master_only_through_shared_contract_modules():
     #382 는 Sales → Finance persistence 경계를 닫은 작업이다. 기존 production 의
     Envelope/Critic 계약 import 와 새 CollectionSource 계약까지 한 번에 0화하는 것은
     별도 리팩터링이어야 하므로, 여기서는 허용 계약을 명시해 타입 복제를 막는다.
-    """
-    master_modules = {
-        name for name in _imported_modules(FINANCE) if name.startswith("app.master")
-    }
 
-    assert master_modules == {
-        "app.master.closing",
-        "app.master.collection",
-        "app.master.critic_bridge",
-        "app.master.envelope",
-    }
+    ★ 2026-09-29 그 리팩터링을 했다 (재구성 BL-011). 허용하던 넷(`closing` · `collection` ·
+      `critic_bridge` · `envelope`)에서 재무가 가져가던 것은 전부 계약 — `ClosingPartOut` ·
+      `CollectionPartOut` · `DEPT_CAP_CHECK_ID` · 봉투 — 이었고, 그것을 `app/contracts/` 로
+      올려 재무가 마스터를 읽는 자리가 없어졌다. 타입 복제를 막는 뜻은 그대로다 — 같은
+      타입을 공용 계약 한 자리에서 가져오는지 함께 잰다.
+    """
+    imported = _imported_modules(FINANCE)
+    master_modules = {name for name in imported if name.startswith("app.master")}
+
+    assert master_modules == set()
+    assert {"app.contracts.envelope", "app.contracts.parts"} <= imported
 
 
 def test_the_sales_capability_takes_a_payload_not_a_sales_client():
@@ -101,7 +102,7 @@ def test_master_has_sales_vocabulary_without_claiming_routing_is_complete():
     """Sales 호출 어휘는 존재하지만 그것만으로 실제 routing 완료를 뜻하지 않는다."""
     from typing import get_args
 
-    from app.master.envelope import AgentName
+    from app.contracts.envelope import AgentName
 
     assert "sales" in set(get_args(AgentName))
 
@@ -122,11 +123,7 @@ def test_master_routes_financial_validation_to_the_finance_mode():
     """
     from typing import get_args
 
-    from app.master.envelope import (
-        CAPABILITY_ROUTING,
-        Mode,
-        agent_allowed_modes,
-    )
+    from app.contracts.envelope import CAPABILITY_ROUTING, Mode, agent_allowed_modes
 
     assert "SALES_VALIDATION" in get_args(Mode)
     assert "SALES_VALIDATION" in agent_allowed_modes("finance")
@@ -137,7 +134,7 @@ def test_master_routes_financial_validation_to_the_finance_mode():
 
 
 def test_sales_validation_is_not_opened_to_other_agents():
-    from app.master.envelope import agent_allowed_modes
+    from app.contracts.envelope import agent_allowed_modes
 
     assert "SALES_VALIDATION" not in agent_allowed_modes("inventory")
     assert "SALES_VALIDATION" not in agent_allowed_modes("purchase")

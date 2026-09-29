@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import user_messages as messages
 from app.finance.application.orchestration import FinanceAgentController
 from app.finance.db import FinanceDataNotReady
@@ -25,7 +26,6 @@ from app.finance.llm.planner import (
     ToolAction,
 )
 from app.finance.schemas import FinancePolicy
-from app.master.envelope import AgentRequest, ExecutionContext
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
 

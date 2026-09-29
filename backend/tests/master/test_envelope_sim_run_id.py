@@ -31,7 +31,7 @@ import ast
 from pathlib import Path
 
 import app.master
-from app.master.envelope import ExecutionContext
+from app.contracts.envelope import ExecutionContext
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 
 _MASTER_DIR = Path(app.master.__file__).parent

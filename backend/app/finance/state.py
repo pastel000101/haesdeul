@@ -11,9 +11,9 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from app.contracts.envelope import AgentRequest
 from app.finance.execution import missing_source_name
 from app.finance.schemas import CashEvent, FinancePolicy
-from app.master.envelope import AgentRequest
 
 
 @dataclass(frozen=True)

@@ -33,16 +33,20 @@ payload 가 비어 있다           오늘 예측 요약을 답한다 — 되묻
 `app/ml/` 밖을 고치지 않으므로 **문서로 넘긴다** (`app/ml/README.md`).
 
 ```python
-# app/master/envelope.py:58
+# app/contracts/envelope.py  AgentName
 AgentName = Literal["finance", "inventory", "purchase", "sales", "ml"]
 
-# app/master/envelope.py:194  _AGENT_MODES
+# app/contracts/envelope.py  _AGENT_MODES
 "ml": frozenset({"STATUS_QUERY"}),
 
-# app/master/bootstrap.py
-from app.ml.wiring import register_ml_agent
-register_ml_agent()
+# app/master/bootstrap.py  wire_registries
+register_agent("ml", ml_port)
 ```
+
+🟢 **2026-09-29 자리가 바뀌었다** (재구성 BL-011). 봉투가 `app/contracts/envelope.py` 로
+  올라왔고, 등록은 다른 파트와 같이 마스터 조립 루트가 `ml_port` 를 직접 건다. 전에는
+  `app/ml/wiring.py` 의 `register_ml_agent` 가 마스터 등록소를 import 해 스스로 붙었다 —
+  부서가 마스터를 import 하는 역방향이라 지웠다.
 
 ★ **모드를 새로 만들지 않았다.** `STATUS_QUERY` 는 *"묻기만 하는 요청"* 이고
   우리가 하는 일이 정확히 그것이다. 새 모드를 요구하면 저쪽이 고칠 자리가 는다.
@@ -83,7 +87,7 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import Evidence
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionMetadata,

@@ -85,7 +85,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
-from app.master.clock import today_in_seoul
+from app.core.clock import today_in_seoul
 from app.master.decision import (
     AUTO_BACKFILL,
     SALES_CYCLE,
@@ -121,7 +121,7 @@ as_of <= 2026-09-18  그리고  as_of < 실제 서울 오늘   자동으로 채�
   09-18 사이에 누가 걷기를 걸 때 **그날 안을 자동 승인**할 수 있다 — 에이전트 자율
   승인 금지가 뚫린다. `as_of >= today_in_seoul()` 이면 경계 안이어도 막는다.
 
-  ★ 실제 날짜는 새로 읽지 않고 마스터 시각 정본 `clock.today_in_seoul` 을 쓴다.
+  ★ 실제 날짜는 새로 읽지 않고 시각 정본 `core.clock.today_in_seoul` 을 쓴다.
 
   ⚠️ **걷기의 `--now`(판정 시각)로 가드하지 않는다.** `--now` 는 사람이 고르는 입력이라
     그것으로 재면 미래 시각 하나로 가드가 풀린다 — 이 가드는 **실제 시계**다.

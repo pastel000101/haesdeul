@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
+from app.contracts.parts import CollectionPartOut
 from app.finance.collection import CollectionEvent, DeterministicCollectionFixtureSource
 from app.finance.collection_adapter import FinanceCollectionSource
 from app.finance.state_identity import daily_finance_state_id
-from app.master.collection import CollectionPartOut
 
 source_SIM_RUN_ID = "SIM-COLLECTION-SOURCE"
 source_MODE = "LOAN_BASELINE"

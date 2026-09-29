@@ -37,8 +37,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal, get_args, get_origin
 
+from app.contracts.parts import CollectionPartOut
 from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
-from app.master.collection import CollectionPartOut
 from app.master.collection_seed import SeedStatus, seed_day
 from app.master.finance_collection import FinanceCollectionAdapter
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
@@ -99,7 +99,7 @@ def _두_경로를_태운다(대역: str, 축을_만든다: Any) -> _관측:
     seed = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=_안_불린다,
+        borrow=_안_불린다,
         read_axis=축을_만든다(센다),
     )
     part = FinanceCollectionAdapter(

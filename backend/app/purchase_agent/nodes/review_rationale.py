@@ -18,7 +18,7 @@
 import re
 from typing import Any
 
-from app.master.envelope import LLMCallMetadata
+from app.contracts.envelope import LLMCallMetadata
 from app.purchase_agent.config import load_constraints
 from app.purchase_agent.features import SELF_REVIEW, enabled
 from app.purchase_agent.llm.mix import context_labels

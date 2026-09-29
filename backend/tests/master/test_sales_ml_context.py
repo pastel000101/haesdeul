@@ -23,21 +23,19 @@ from typing import Any, get_args
 
 import pytest
 
-from app.master import (
-    AgentRegistry,
+from app.contracts import envelope
+from app.contracts.envelope import (
+    CAPABILITY_ROUTING,
+    AgentName,
     AgentReply,
     AgentRequest,
-    CallBudget,
     ExecutionContext,
     ExecutionMetadata,
-    MasterRunner,
-    envelope,
-    persistence,
-    wiring,
+    agent_allowed_modes,
 )
+from app.master import AgentRegistry, CallBudget, MasterRunner, persistence, wiring
 from app.master import flow as procurement_flow
 from app.master import sales_flow as sales_flow_module
-from app.master.envelope import CAPABILITY_ROUTING, AgentName, agent_allowed_modes
 from app.master.inputs import SourcedInput
 from app.master.sales_flow import SalesFlow
 from app.master.schemas import SalesRunRequest

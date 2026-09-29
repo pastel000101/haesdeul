@@ -221,7 +221,8 @@ def test_insert_omits_generated_financial_limit_and_uses_exact_source_date():
 def test_open_day_uses_supplied_connection_and_opens_none_of_its_own():
     conn = _Conn([SOURCE])
 
-    with patch("app.finance.db.get_connection") as opened:
+    # ★ 연결은 공통 풀에서만 빌린다 — 풀의 대여 입구를 막아 두고 한 번도 안 불렸는지 본다.
+    with patch("app.core.db.DatabasePool.connection") as opened:
         FinanceDayOpening().open_day(conn, as_of=AS_OF, carry_from=CARRY_FROM)
 
     opened.assert_not_called()

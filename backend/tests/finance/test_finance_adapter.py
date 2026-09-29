@@ -14,16 +14,16 @@ from typing import ClassVar
 
 import pytest
 
-from app.finance import adapter
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.llm.planner import ToolAction
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionContext,
     ExecutionMetadata,
     validate_reply,
 )
+from app.finance import adapter
+from app.finance.application.orchestration import FinanceAgentController
+from app.finance.llm.planner import ToolAction
 
 AS_OF = date(2025, 12, 31)
 

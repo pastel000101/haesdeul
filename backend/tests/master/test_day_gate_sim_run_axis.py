@@ -72,10 +72,14 @@ def _NFC(값: str) -> str:
 
 class _가짜커넥션:
     def __init__(self) -> None:
-        self.closed = 0
+        self.returned = 0
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _축따라_열리는_파트:
@@ -132,7 +136,7 @@ def test_관문이_묶인_어댑터에_묻는다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "PASS", f"열려 있는 날이 막혔다: {gate.result} · {gate.reason!r}"
     assert gate.result == "ALREADY_OPENED"
@@ -145,7 +149,7 @@ def test_묶지_않은_실패가_사유로만_숨지_않는다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert "AttributeError" not in gate.reason, (
         f"표시 객체에 어댑터 메서드를 불렀다: {gate.reason!r}"
@@ -157,16 +161,16 @@ def test_관문은_여전히_열지_않는다() -> None:
     """★ 묶고 나서도 여는 것은 `open_day` 다 — `_축따라_열리는_파트.open_day` 가 터진다."""
     _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
 
 def test_커넥션을_닫는다() -> None:
     conn = _가짜커넥션()
     _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: conn, sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: conn, sim_run_id=걷기축)
 
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ② 넘긴 축의 어댑터가 선다 (남의 축 것이 아니다) ─────────────────────────
@@ -180,7 +184,7 @@ def test_넘긴_축으로_어댑터를_묶는다() -> None:
     """
     만든축 = _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert 만든축 == [걷기축] * len(day_open.PARTS), f"묶인 축이 다르다: {만든축}"
     assert BURN_IN_SIM_RUN_ID not in 만든축
@@ -193,7 +197,7 @@ def test_남의_축으로_물으면_안_열린_것으로_보인다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=남의축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=남의축)
 
     assert gate.gate == "BLOCKED"
 
@@ -209,7 +213,7 @@ def test_뒤로_걷는_자리도_묶인_것에_묻는다() -> None:
     """
     _등록(AS_OF - timedelta(days=5))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "BLOCKED"
     assert gate.result == "NOT_OPENED"
@@ -305,7 +309,7 @@ def test_수금이_자기_축을_관문에_넘긴다(monkeypatch: pytest.MonkeyP
     받은: dict[str, Any] = {}
     monkeypatch.setattr(collection, "check_day_gate", _관문기록(받은))
 
-    out = collection.collect_receipts(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    out = collection.collect_receipts(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert out.status == "NOT_OPENED", "대역 관문이 안 불렸다 — 이 검사가 아무것도 안 잰다"
     assert 받은.get("sim_run_id") == 걷기축, f"수금이 관문에 넘긴 축: {받은!r}"
@@ -316,7 +320,7 @@ def test_마감이_자기_축을_관문에_넘긴다(monkeypatch: pytest.MonkeyP
     받은: dict[str, Any] = {}
     monkeypatch.setattr(closing, "check_day_gate", _관문기록(받은))
 
-    out = closing.close_day(AS_OF, sim_run_id=걷기축, connect=lambda: _가짜커넥션())
+    out = closing.close_day(AS_OF, sim_run_id=걷기축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "NOT_OPENED", "대역 관문이 안 불렸다 — 이 검사가 아무것도 안 잰다"
     assert 받은.get("sim_run_id") == 걷기축, f"마감이 관문에 넘긴 축: {받은!r}"
@@ -334,7 +338,7 @@ def test_못_물어보면_여전히_사람을_부른다() -> None:
 
     day_open.register_day_opening("finance", SimRunBound(lambda axis: _터지는파트()))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "BLOCKED"
     assert gate.next_action == "CONTACT_OPERATOR"
@@ -349,7 +353,7 @@ def test_축이_비면_막고_사유를_낸다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id="")
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id="")
 
     assert gate.gate == "BLOCKED"
     assert gate.next_action == "CONTACT_OPERATOR"
@@ -368,12 +372,12 @@ def test_기본값이_없어_축을_안_주면_부르지_못한다() -> None:
 
     _등록(AS_OF)
     with pytest.raises(TypeError, match="sim_run_id"):
-        check_day_gate(AS_OF, connect=lambda: _가짜커넥션())  # type: ignore[call-arg]
+        check_day_gate(AS_OF, borrow=lambda: _가짜커넥션())  # type: ignore[call-arg]
 
 
 def test_등록이_0건이면_축이_없어도_통과한다() -> None:
     """⚠️ **미등록은 통과다.** 묶기 전에 돌아서므로 빈 축으로도 안 터진다."""
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id="")
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id="")
 
     assert gate.gate == "PASS"
 
@@ -392,7 +396,7 @@ def test_막힌_날_연속_실패도_받은_축의_개장_정본에서_센다(mo
     monkeypatch.setattr(관문모듈, "read_day_opening", 정본)
     _등록(AS_OF - timedelta(days=2))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.next_action == "RETRY_OPEN_DAY", "전제가 깨졌다 — 정본을 읽는 분기가 아니다"
     assert 읽은축 == [걷기축], f"개장 정본을 남의 축으로 읽었다: {읽은축}"

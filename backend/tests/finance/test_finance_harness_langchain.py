@@ -23,6 +23,7 @@ from unittest.mock import patch
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import user_messages as messages
 from app.finance.application import harness as harness_module
 from app.finance.application.harness import (
@@ -55,7 +56,6 @@ from app.finance.llm.planner import (
 from app.finance.schemas import FinancePolicy
 from app.finance.state import FinanceAgentState
 from app.finance.user_messages import explanation_keys
-from app.master.envelope import AgentRequest, ExecutionContext
 
 
 @contextmanager

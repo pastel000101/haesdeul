@@ -25,14 +25,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.master.answer import agent_label
 from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
 from app.master.flow import ProcurementFlow
 from app.master.runner import AgentRegistry, MasterRunner
 

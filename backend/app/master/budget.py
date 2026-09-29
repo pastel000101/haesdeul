@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.master.envelope import AgentName, Mode
+from app.contracts.envelope import AgentName, Mode
 from app.master.ports import MasterError
 
 

@@ -59,7 +59,8 @@ from typing import Any, Literal
 
 from psycopg import sql
 
-from app.finance.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.finance.db import get_db_schema
 from app.master.sim_run_open import RUN_TABLE
 
 __all__ = [
@@ -159,19 +160,17 @@ def stamp_walked_now(conn: Any, *, sim_run_id: str, walked_now: str) -> WalkedNo
 
 
 def record_walked_now(*, sim_run_id: str, walked_now: str) -> WalkedNowStamp:
-    """커넥션을 열어 `stamp_walked_now` 를 부르고 **한 번 커밋한다.** 걷기의 기본값이다.
+    """공통 풀에서 연결을 빌려 `stamp_walked_now` 를 부르고 **한 번 커밋한다.** 걷기의 기본값이다.
 
     ⚠️ **막히면 롤백한다.** 잰 것만 있고 쓴 것이 없어도 행 잠금은 풀어야 한다.
     """
-    conn = get_connection()
-    try:
-        stamp = stamp_walked_now(conn, sim_run_id=sim_run_id, walked_now=walked_now)
-    except Exception:
-        with suppress(Exception):
-            conn.rollback()
-        raise
-    else:
-        conn.commit()
-        return stamp
-    finally:
-        conn.close()
+    with core_db.connection() as conn:
+        try:
+            stamp = stamp_walked_now(conn, sim_run_id=sim_run_id, walked_now=walked_now)
+        except Exception:
+            with suppress(Exception):
+                conn.rollback()
+            raise
+        else:
+            conn.commit()
+            return stamp

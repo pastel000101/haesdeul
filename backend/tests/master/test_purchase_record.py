@@ -44,9 +44,10 @@ import pytest
 from psycopg import errors as pg_errors
 from pydantic import ValidationError
 
+from app.contracts.commitment import ApprovedCommitment
 from app.master import decision_service as svc
 from app.master import purchase_record as pr
-from app.master.commitment import ApprovedCommitment, RecordedLeg
+from app.master.commitment import RecordedLeg
 from app.master.decision import (
     AUTO_BACKFILL,
     DecisionIn,
@@ -169,8 +170,11 @@ class _커넥션:
         self.rollbacks += 1
         self.pending = []
 
-    def close(self) -> None:
-        pass
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
 
 
 class _전이:
@@ -194,7 +198,7 @@ class _전이:
 
     def __call__(self, commitment: ApprovedCommitment, *, sim_run_id: str | None, **kw: Any):
         self.calls.append((commitment, sim_run_id))
-        connect = kw.get("connect")
+        connect = kw.get("borrow")
         if self.opens and connect is not None:
             conn = connect()
             if self.rolls_back:
@@ -318,7 +322,7 @@ def _실매입(**over: Any) -> dict[str, Any]:
 
 def _기록한다(세상: dict[str, Any], body: dict[str, Any], 전이: _전이 | None = None):
     문 = 전이 or _전이()
-    out = pr.record_purchase(업무키, PurchaseRecordIn(**body), connect=세상["connect"], apply_fn=문)
+    out = pr.record_purchase(업무키, PurchaseRecordIn(**body), borrow=세상["connect"], apply_fn=문)
     return out, 문
 
 
@@ -461,7 +465,7 @@ def test_전이가_실패해도_응답은_201_에_FAILED_그대로다(
         router_module,
         "record_purchase",
         lambda request_id, body: pr.record_purchase(
-            request_id, body, connect=세상["connect"], apply_fn=문
+            request_id, body, borrow=세상["connect"], apply_fn=문
         ),
     )
 
@@ -1187,7 +1191,7 @@ class _조언자:
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     def __call__(self, request: Any) -> Any:
-        from app.master.envelope import AgentReply, ExecutionMetadata
+        from app.contracts.envelope import AgentReply, ExecutionMetadata
 
         self.calls.append((request.mode, dict(request.payload)))
         runtime = "RUNTIME_NOT_READY" if self.business_status == "skipped" else "READY"

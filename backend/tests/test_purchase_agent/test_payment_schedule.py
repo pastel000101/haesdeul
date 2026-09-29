@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
 from app.purchase_agent.graph import run_purchase_agent

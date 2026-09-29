@@ -41,8 +41,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import ask_service, revalidation, router, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 #: 이 검사가 고르는 "고른 날". 🔴 **오늘일 리 없는 값으로 둔다** — 벽시계가 어딘가에
 #: 남아 있으면 그 자리에서 값이 갈린다.

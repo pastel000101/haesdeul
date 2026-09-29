@@ -28,8 +28,8 @@ from app.contracts.core import (
     SplitLeg,
     T0Snapshot,
     T2Reply,
-    gate_variant_axes,
 )
+from app.contracts.rules import gate_variant_axes
 
 #: 🟢 **시뮬레이션 기준일** (`M-24` `D-2` 확정 · 2026-09-03).
 #:

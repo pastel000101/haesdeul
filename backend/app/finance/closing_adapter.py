@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.contracts.parts import ClosingPartOut
 from app.finance.closing import close_day
-from app.master.closing import ClosingPartOut
 
 __all__ = ["FinanceClosingAdapter"]
 

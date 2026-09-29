@@ -72,8 +72,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
-from app.master.commitment import ApprovedCommitment
+from app.contracts.commitment import ApprovedCommitment
+from app.core import db as core_db
 from app.master.ledger import cancel_purchases
 from app.master.sim_run_binding import bind_sim_run
 from app.master.transition import PARTS, TransitionPart, purchase_id_for
@@ -236,7 +236,7 @@ def undo_approval(
     *,
     cancelled_on: date,
     sim_run_id: str | None,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
 ) -> CancellationOut:
     """승인 하나를 다섯 자리에서 **한 트랜잭션으로** 물린다.
 
@@ -290,27 +290,25 @@ def undo_approval(
     target_state_date = cancelled_on + timedelta(days=1)
     purchase_ids = purchase_ids_of(commitment)
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # ★ **매입 원장을 먼저 물린다.** 승인이 부모를 먼저 세운 것과 같은 순서다 —
-        #   읽는 사람이 두 경로를 나란히 볼 수 있어야 한다.
-        cancelled = cancel_purchases(conn, purchase_ids.values())
-        for part in PARTS:
-            adapters[part].cancel(
-                conn,
-                commitment=commitment,
-                cancelled_on=cancelled_on,
-                target_state_date=target_state_date,
-                purchase_ids=purchase_ids,
-                financing_mode=financing_mode,
-            )
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 취소 실패가 적재된 결정을 지우면 안 된다.
-        conn.rollback()
-        return CancellationOut(status="FAILED", reason=f"취소 적재 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # ★ **매입 원장을 먼저 물린다.** 승인이 부모를 먼저 세운 것과 같은 순서다 —
+            #   읽는 사람이 두 경로를 나란히 볼 수 있어야 한다.
+            cancelled = cancel_purchases(conn, purchase_ids.values())
+            for part in PARTS:
+                adapters[part].cancel(
+                    conn,
+                    commitment=commitment,
+                    cancelled_on=cancelled_on,
+                    target_state_date=target_state_date,
+                    purchase_ids=purchase_ids,
+                    financing_mode=financing_mode,
+                )
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 취소 실패가 적재된 결정을 지우면 안 된다.
+            conn.rollback()
+            return CancellationOut(status="FAILED", reason=f"취소 적재 실패: {exc}")
     return CancellationOut(
         status="CANCELLED", parts=list(PARTS), cancelled_purchases=cancelled
     )

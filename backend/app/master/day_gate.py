@@ -48,13 +48,12 @@ gate = BLOCKED   NOT_OPENED · REJECTED_GAP · NEVER_OPENED
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.core import db as core_db
 from app.master.calendar_walk import MAX_WALK_DAYS
 from app.master.day_open import PARTS, registered
 from app.master.day_opening_repository import read_day_opening
@@ -124,7 +123,7 @@ def _passed(as_of: date) -> DayGate:
 def check_day_gate(
     as_of: date,
     *,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
     sim_run_id: str,
 ) -> DayGate:
     """그날이 열렸는지 **물어보기만** 한다. 열지 않는다.
@@ -144,38 +143,36 @@ def check_day_gate(
         # ⚠️ 물어볼 데가 없다. **없는 구현에 대고 "안 열렸다" 고 말하지 않는다.**
         return _passed(as_of)
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **등록소가 든 표시가 아니라 이번 물음의 축으로 묶는다** (`#539` 후속).
-        #    `registered()` 에 앉아 있는 것은 `SimRunBound` — 공장을 든 **표시**이고
-        #    어댑터가 아니다. 안 묶고 `is_open` 을 부르면 `AttributeError` 가 나고,
-        #    이 함수는 예외를 값으로 바꾸므로 **에러 없이 사유 문자열로만** 나타난다.
-        #    실제로 그랬다: 걷기 `SIM-WALK-2026-FULL` 이 아흐레 내내
-        #    *"개장 여부를 못 읽었다: AttributeError"* 로 한 건도 판단을 못 세웠다.
-        #
-        # ★ **`_last_opened` 도 이 사전을 받는다.** 묶는 자리가 둘이면 한쪽만 고치는
-        #   날이 오고, 그 날 뒤로 걷는 쪽만 다시 표시 객체에 묻는다.
-        adapters = {
-            part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
-        }
-        closed = [part for part in present if not adapters[part].is_open(conn, as_of=as_of)]
-        if not closed:
-            return _passed(as_of)
-        last, gap = _last_opened(adapters, present, conn, as_of=as_of)
-    except Exception as exc:  # noqa: BLE001 - 못 물어본 것과 안 열린 것은 다르다.
-        return DayGate(
-            as_of=as_of,
-            gate="BLOCKED",
-            result="NOT_OPENED",
-            reason=f"개장 여부를 못 읽었다: {type(exc).__name__}",
-            next_action="CONTACT_OPERATOR",
-        )
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **등록소가 든 표시가 아니라 이번 물음의 축으로 묶는다** (`#539` 후속).
+            #    `registered()` 에 앉아 있는 것은 `SimRunBound` — 공장을 든 **표시**이고
+            #    어댑터가 아니다. 안 묶고 `is_open` 을 부르면 `AttributeError` 가 나고,
+            #    이 함수는 예외를 값으로 바꾸므로 **에러 없이 사유 문자열로만** 나타난다.
+            #    실제로 그랬다: 걷기 `SIM-WALK-2026-FULL` 이 아흐레 내내
+            #    *"개장 여부를 못 읽었다: AttributeError"* 로 한 건도 판단을 못 세웠다.
+            #
+            # ★ **`_last_opened` 도 이 사전을 받는다.** 묶는 자리가 둘이면 한쪽만 고치는
+            #   날이 오고, 그 날 뒤로 걷는 쪽만 다시 표시 객체에 묻는다.
+            adapters = {
+                part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
+            }
+            closed = [part for part in present if not adapters[part].is_open(conn, as_of=as_of)]
+            if not closed:
+                return _passed(as_of)
+            last, gap = _last_opened(adapters, present, conn, as_of=as_of)
+        except Exception as exc:  # noqa: BLE001 - 못 물어본 것과 안 열린 것은 다르다.
+            return DayGate(
+                as_of=as_of,
+                gate="BLOCKED",
+                result="NOT_OPENED",
+                reason=f"개장 여부를 못 읽었다: {type(exc).__name__}",
+                next_action="CONTACT_OPERATOR",
+            )
 
     return _blocked(
-        as_of, closed=closed, last=last, gap=gap, connect=connect, sim_run_id=sim_run_id
+        as_of, closed=closed, last=last, gap=gap, borrow=borrow, sim_run_id=sim_run_id
     )
 
 
@@ -208,7 +205,7 @@ def _blocked(
     closed: list[str],
     last: date | None,
     gap: int | None,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
     sim_run_id: str,
 ) -> DayGate:
     """막힌 이유와 다음 걸음. **판정 규칙은 계약 §2 그대로다.**
@@ -242,14 +239,14 @@ def _blocked(
         why = f"{gap}일이 밀려 상한({MAX_WALK_DAYS}일)을 넘었다 — 관리자 강제 개장이 필요하다"
     else:
         # 🟢 **연속 실패 횟수로 가른다** (계약 §2 · 정본 표가 섰다).
-        # 🔴 **`connect` 를 넘긴다.** 안 넘기면 호출자가 대역을 줘도 이 한 줄만
+        # 🔴 **`borrow` 를 넘긴다.** 안 넘기면 호출자가 대역을 줘도 이 한 줄만
         #    실 DB 로 샌다 — 그 사이 표가 생기면 검사가 조용히 다른 것을 잰다.
         #    실제로 그랬다: `master_day_openings` 를 공유 DB 에 적용한 날
         #    (2026-09-07) 대역을 쓰던 검사가 빨간불이 됐다. **안 터지던 이유가
         #    '표가 없다' 였고, 그 이유가 사라진 것이다.**
         # 🔴 **받은 축으로 읽는다** (2026-09-14). 전에는 번인 상수를 박아, 걷기
         #    실행의 연속 실패 횟수를 번인 개장 기록에서 셌다.
-        record = read_day_opening(as_of=as_of, sim_run_id=sim_run_id, connect=connect)
+        record = read_day_opening(as_of=as_of, sim_run_id=sim_run_id, borrow=borrow)
         if record is None:
             # ⚠️ 못 읽었거나 한 번도 안 불렀다. **근사하되 근사라고 적는다.**
             꼬리 = " 개장 정본이 없어 첫 실패로 본다"

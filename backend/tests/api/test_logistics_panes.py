@@ -160,7 +160,7 @@ def 화면(monkeypatch):
         lots: list[Any] | None = None,
     ) -> Any:
         inv = 재고(items if items is not None else [품목(ITEM_ON_SCREEN)], capacity, lots)
-        monkeypatch.setattr(logistics_query, "get_connection", lambda: _커넥션())
+        monkeypatch.setattr(logistics_query.core_db, "connection", lambda: _커넥션())
         monkeypatch.setattr(
             logistics_query,
             "runtime_coverage_at",
@@ -202,11 +202,19 @@ def 화면(monkeypatch):
 
 
 class _커넥션:
+    """공통 풀에서 빌린 연결의 대역 — `build_result` 가 한 판을 한 트랜잭션으로 읽는다."""
+
     def __enter__(self) -> Any:
         return self
 
     def __exit__(self, *_: object) -> bool:
         return False
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
 
 
 def _도착요약() -> Any:
@@ -233,7 +241,7 @@ def test_기본_탭은_한눈에_보기다():
 
 
 def test_그날이_없는_날도_한눈에_보기로_연다(monkeypatch):
-    monkeypatch.setattr(logistics_query, "get_connection", lambda: _커넥션())
+    monkeypatch.setattr(logistics_query.core_db, "connection", lambda: _커넥션())
     monkeypatch.setattr(
         logistics_query,
         "runtime_coverage_at",
@@ -714,7 +722,7 @@ def test_화면_한_판은_커넥션_하나로_읽는다(화면, monkeypatch):
 
     result = 화면(live=(), resolved=())
     assert result.http_status == 200
-    monkeypatch.setattr(logistics_query, "get_connection", 세는_커넥션)
+    monkeypatch.setattr(logistics_query.core_db, "connection", 세는_커넥션)
     logistics_query.build_result(AS_OF, "summary")
     assert len(열린것) == 1
 
@@ -740,8 +748,11 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
     코드가 그것을 부르는 것은 다른 일이고, 이 함수는 뒤엣것만 잡는다.
 
       · `ast.Call`      — `get_connection()` · `x.get_connection()` · `psycopg.connect()`
+                          · 공통 풀 대여 `core_db.connection()` · `core_db.read_connection()`
       · `ast.Import`    — `import psycopg` (다음 줄에서 `psycopg.connect()` 할 수 있다)
       · `ast.ImportFrom`— `from ... import get_connection` · `from psycopg import connect`
+                          · 연결 모듈 `from app.core import db` · `from app.core.db import …`
+                          (2026-09-29 풀 전환 — 연결을 여는 문이 풀로 옮겨 갔다)
 
     독스트링 · 주석 · 문자열 리터럴 안의 낱말은 세지 않는다.
     `from psycopg import sql` 은 SQL 조립이라 걸리지 않는다.
@@ -755,6 +766,10 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
             elif isinstance(부름, ast.Attribute) and (
                 부름.attr == "get_connection"
                 or (부름.attr == "connect" and _뿌리_이름(부름.value) == "psycopg")
+                or (
+                    부름.attr in {"connection", "read_connection"}
+                    and _뿌리_이름(부름.value) == "core_db"
+                )
             ):
                 걸린것.append(f"부름 {ast.unparse(부름)}()")
         elif isinstance(노드, ast.Import):
@@ -765,8 +780,11 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
         elif isinstance(노드, ast.ImportFrom):
             뿌리 = (노드.module or "").split(".")[0]
             for 이름 in 노드.names:
-                if 이름.name == "get_connection" or (
-                    뿌리 == "psycopg" and 이름.name == "connect"
+                if (
+                    이름.name == "get_connection"
+                    or (뿌리 == "psycopg" and 이름.name == "connect")
+                    or (노드.module == "app.core" and 이름.name == "db")
+                    or 노드.module == "app.core.db"
                 ):
                     걸린것.append(f"들임 from {노드.module} import {이름.name}")
     return 걸린것
@@ -784,6 +802,10 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
         ("빌려서_부른다", "conn = db.get_connection()\n", True),
         ("들이기만_한다", "from app.logistics.db import get_connection\n", True),
         ("모듈을_들인다", "import psycopg\n", True),
+        ("풀에서_빌린다", "with core_db.connection() as conn:\n    pass\n", True),
+        ("조회를_빌린다", "with core_db.read_connection() as conn:\n    pass\n", True),
+        ("연결_모듈을_들인다", "from app.core import db as core_db\n", True),
+        ("대여_함수를_들인다", "from app.core.db import connection\n", True),
     ],
 )
 def test_커넥션_검사는_낱말이_아니라_부름을_본다(

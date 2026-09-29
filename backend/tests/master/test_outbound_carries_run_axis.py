@@ -49,8 +49,8 @@ from typing import Any, Self
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import outbound_flow, scheduler
-from app.master.clock import SEOUL
 from app.master.outbound_flow import due_sale_items, ship_due_sales
 from app.master.pending_transition import RetryOut
 from app.master.scheduler import ScheduledAction, run_scheduled_day
@@ -150,7 +150,7 @@ class _연결:
     def __init__(self, 표: list[dict[str, Any]]) -> None:
         self.커서 = _커서(표)
         self.events: list[str] = []
-        self.closed = False
+        self.returned = False
 
     def cursor(self) -> _커서:
         return self.커서
@@ -161,8 +161,12 @@ class _연결:
     def rollback(self) -> None:
         self.events.append("rollback")
 
-    def close(self) -> None:
-        self.closed = True
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려줬다 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned = True
 
 
 def _행(
@@ -238,7 +242,7 @@ def _내보낸다(sim_run_id: str, 표: list[dict[str, Any]] | None = None) -> t
     out = ship_due_sales(
         고른_날,
         sim_run_id=sim_run_id,
-        connect=lambda: conn,
+        borrow=lambda: conn,
         reserve_fn=_대역(_예약결과()),
         allocate_fn=_대역(),
         ship_fn=ship,
@@ -319,7 +323,7 @@ def test_축_없이_부르면_터진다():
     conn = _연결(부딪히는_표)
 
     with pytest.raises(TypeError):
-        ship_due_sales(고른_날, connect=lambda: conn)  # type: ignore[call-arg]
+        ship_due_sales(고른_날, borrow=lambda: conn)  # type: ignore[call-arg]
 
     with pytest.raises(TypeError):
         due_sale_items(conn, as_of=고른_날)  # type: ignore[call-arg]

@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from psycopg import sql
 
+from app.core.text import decimal_or_zero
 from app.sales.db import fetch_all, fetch_one, get_db_schema
 from app.sales.receivable_history import history_columns, history_join, projected_status
 from app.sales.schemas import (
@@ -241,8 +242,8 @@ def get_sales_dashboard(
 ) -> SalesDashboardResponse:
     meta = load_sales_dashboard_meta(sim_run_id=sim_run_id, as_of=as_of)
     summary = load_sales_summary(sim_run_id=sim_run_id, as_of=as_of) or {}
-    total_sales = _decimal(summary.get("total_sales_amount_krw"))
-    profit = _decimal(summary.get("contribution_profit_krw"))
+    total_sales = decimal_or_zero(summary.get("total_sales_amount_krw"))
+    profit = decimal_or_zero(summary.get("contribution_profit_krw"))
 
     return SalesDashboardResponse(
         meta=SalesDashboardMeta(
@@ -253,12 +254,12 @@ def get_sales_dashboard(
         summary=SalesDashboardSummary(
             sales_count=int(summary.get("sales_count") or 0),
             customer_count=int(summary.get("customer_count") or 0),
-            total_sales_quantity_kg=_decimal(summary.get("total_sales_quantity_kg")),
+            total_sales_quantity_kg=decimal_or_zero(summary.get("total_sales_quantity_kg")),
             total_sales_amount_krw=total_sales,
             contribution_profit_krw=profit,
             contribution_margin_pct=_pct(profit, total_sales),
-            received_amount_krw=_decimal(summary.get("received_amount_krw")),
-            outstanding_receivables_krw=_decimal(summary.get("outstanding_receivables_krw")),
+            received_amount_krw=decimal_or_zero(summary.get("received_amount_krw")),
+            outstanding_receivables_krw=decimal_or_zero(summary.get("outstanding_receivables_krw")),
         ),
         collection_summary=_collection_summary(
             load_collection_summary(sim_run_id=sim_run_id, as_of=as_of)
@@ -288,7 +289,7 @@ def _collection_summary(rows: list[dict[str, object]]) -> dict[str, SalesCollect
         status = str(row["collection_status"])
         result[status] = SalesCollectionStatusSummary(
             count=int(row.get("count") or 0),
-            sales_amount_krw=_decimal(row.get("sales_amount_krw")),
+            sales_amount_krw=decimal_or_zero(row.get("sales_amount_krw")),
         )
     return result
 
@@ -296,18 +297,18 @@ def _collection_summary(rows: list[dict[str, object]]) -> dict[str, SalesCollect
 def _items(rows: list[dict[str, object]]) -> list[SalesItemSummary]:
     items = []
     for row in rows:
-        amount = _decimal(row["sales_amount_krw"])
-        profit = _decimal(row["contribution_profit_krw"])
+        amount = decimal_or_zero(row["sales_amount_krw"])
+        profit = decimal_or_zero(row["contribution_profit_krw"])
         items.append(
             SalesItemSummary(
                 item_id=str(row["item_id"]),
                 item_name=str(row["item_name"]),
                 line_count=int(row["line_count"]),
-                total_quantity_kg=_decimal(row["total_quantity_kg"]),
+                total_quantity_kg=decimal_or_zero(row["total_quantity_kg"]),
                 sales_amount_krw=amount,
                 contribution_profit_krw=profit,
                 contribution_margin_pct=_pct(profit, amount),
-                avg_unit_price_krw_per_kg=_decimal(row["avg_unit_price_krw_per_kg"]),
+                avg_unit_price_krw_per_kg=decimal_or_zero(row["avg_unit_price_krw_per_kg"]),
             )
         )
     return items
@@ -316,8 +317,8 @@ def _items(rows: list[dict[str, object]]) -> list[SalesItemSummary]:
 def _recent_sales(rows: list[dict[str, object]]) -> list[SalesHistoryItem]:
     result = []
     for row in rows:
-        amount = _decimal(row["total_amount_krw"])
-        profit = _decimal(row["contribution_profit_krw"])
+        amount = decimal_or_zero(row["total_amount_krw"])
+        profit = decimal_or_zero(row["contribution_profit_krw"])
         status = str(row["collection_status"])
         result.append(
             SalesHistoryItem(
@@ -326,7 +327,7 @@ def _recent_sales(rows: list[dict[str, object]]) -> list[SalesHistoryItem]:
                 sale_date=row["sale_date"],
                 customer_partner_id=str(row["customer_partner_id"]),
                 partner_name=None if row.get("partner_name") is None else str(row["partner_name"]),
-                total_quantity_kg=_decimal(row["total_quantity_kg"]),
+                total_quantity_kg=decimal_or_zero(row["total_quantity_kg"]),
                 total_amount_krw=amount,
                 contribution_profit_krw=profit,
                 contribution_margin_pct=_pct(profit, amount),
@@ -349,9 +350,9 @@ def _today_confirmed_sales(rows: list[dict[str, object]]) -> list[TodayConfirmed
             partner_name=None if row.get("partner_name") is None else str(row["partner_name"]),
             item_id=str(row["item_id"]),
             item_name=None if row.get("item_name") is None else str(row["item_name"]),
-            quantity_kg=_decimal(row["quantity_kg"]),
-            unit_price_krw_per_kg=_decimal(row["unit_price_krw_per_kg"]),
-            line_amount_krw=_decimal(row["line_amount_krw"]),
+            quantity_kg=decimal_or_zero(row["quantity_kg"]),
+            unit_price_krw_per_kg=decimal_or_zero(row["unit_price_krw_per_kg"]),
+            line_amount_krw=decimal_or_zero(row["line_amount_krw"]),
             order_status=str(row["order_status"]),
         )
         for row in rows
@@ -363,11 +364,11 @@ def _receivables(rows: list[dict[str, object]], *, as_of: date) -> list[SalesRec
     for row in rows:
         #  🔴 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
         status = projected_status(
-            original_amount_krw=_decimal(row["original_amount_krw"]),
-            received_amount_krw=_decimal(row["received_amount_krw"]),
+            original_amount_krw=decimal_or_zero(row["original_amount_krw"]),
+            received_amount_krw=decimal_or_zero(row["received_amount_krw"]),
         )
         due_date = row["due_date"]
-        outstanding = _decimal(row["outstanding_amount_krw"])
+        outstanding = decimal_or_zero(row["outstanding_amount_krw"])
         display_status = (
             "연체"
             if due_date < as_of and outstanding > 0
@@ -382,8 +383,8 @@ def _receivables(rows: list[dict[str, object]], *, as_of: date) -> list[SalesRec
                 partner_name=None if row.get("partner_name") is None else str(row["partner_name"]),
                 issued_date=row["issued_date"],
                 due_date=due_date,
-                original_amount_krw=_decimal(row["original_amount_krw"]),
-                received_amount_krw=_decimal(row["received_amount_krw"]),
+                original_amount_krw=decimal_or_zero(row["original_amount_krw"]),
+                received_amount_krw=decimal_or_zero(row["received_amount_krw"]),
                 outstanding_amount_krw=outstanding,
                 status=status,
                 display_status=display_status,
@@ -391,14 +392,6 @@ def _receivables(rows: list[dict[str, object]], *, as_of: date) -> list[SalesRec
             )
         )
     return result
-
-
-def _decimal(value: object) -> Decimal:
-    if value is None:
-        return _ZERO
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
 
 
 def _pct(part: Decimal, whole: Decimal) -> Decimal:

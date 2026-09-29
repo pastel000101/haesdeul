@@ -25,9 +25,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import persistence, wiring
 from app.master.day_gate import DayGate
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.router import router
 from app.master.sales_flow import SALES_BUDGET
 from app.master.schemas import ProcurementRunRequest, SalesBusinessMode, SalesRunRequest

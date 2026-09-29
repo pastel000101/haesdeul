@@ -331,7 +331,7 @@ def test_미판정_검증은_재검증_통과_어휘_밖이다():
     ★ 이 계약은 `revalidation._verdict` 가 이미 갖고 있다 — 여기서 새로 만들지 않고
       **그것이 살아 있는지**만 잰다.
     """
-    from app.master.envelope import PASSING_VERDICTS
+    from app.contracts.envelope import PASSING_VERDICTS
 
     assert "skipped" not in PASSING_VERDICTS
     assert PASSING_VERDICTS == frozenset({"ok", "conditional"})
@@ -426,6 +426,6 @@ def test_종료코드_어휘가_한_벌이다():
 
 def test_새_통과_어휘를_만들지_않았다():
     """🔴 `skipped` 를 통과로 만드는 것이 아니다 — 후보를 살려 둘 뿐이다."""
-    from app.master.envelope import PASSING_VERDICTS
+    from app.contracts.envelope import PASSING_VERDICTS
 
     assert PASSING_VERDICTS == frozenset({"ok", "conditional"})

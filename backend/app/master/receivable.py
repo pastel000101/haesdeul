@@ -82,7 +82,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.contracts.parts import ReceivablePartOut
+from app.core import db as core_db
 from app.master.day_gate import check_day_gate
 from app.master.sim_run_binding import bind_sim_run
 
@@ -90,7 +91,6 @@ __all__ = [
     "PARTS",
     "ReceivableOut",
     "ReceivablePart",
-    "ReceivablePartOut",
     "ReceivableSource",
     "issue_receivables",
     "missing",
@@ -139,34 +139,6 @@ class ReceivableSource(Protocol):
     """
 
     def issue(self, conn: Any, *, as_of: date) -> ReceivablePartOut: ...
-
-
-class ReceivablePartOut(BaseModel):
-    """한 파트의 채권 발행 결과.
-
-    ★ **`NOTHING_DUE` 를 `ISSUED` 로 접지 않는다.** *"그날 확정 판매가 없었다"* 와
-      *"채권이 섰다"* 는 다른 사실이고, 뭉치면 **판매가 확정됐는데 채권이 안 서는
-      버그**가 매일 성공으로 보인다.
-    """
-
-    part: str
-    status: Literal["ISSUED", "NOTHING_DUE", "BLOCKED"]
-    reason: str = ""
-    #: **그날 대상 판매에 대해 서 있는 채권.** `receivable_id` 들이다.
-    #:
-    #: ⚠️ **금액을 여기 싣지 않는다.** 얼마짜리 채권인지의 권위 사실은 재무 원장
-    #: (`receivables` · `finance_states`)이 갖는다 — 여기에 복사해 두면 같은 사실의
-    #: 주인이 둘이 되고, 롤백된 날 이 목록만 살아남는다.
-    #:
-    #: ★ **이번 호출에서 새로 만든 것만이 아니다.** 멱등이라 이미 있으면 안 만들고,
-    #: 그래도 채권은 서 있다. 새로 만든 건수는 `created` 가 따로 나른다.
-    issued: list[str] = Field(default_factory=list)
-    #: 🔴 **이번 호출에서 실제로 새로 만든 건수.**
-    #:
-    #: ⚠️ **`issued` 와 한 값으로 접으면 안 된다.** 접으면 *"이미 있어서 안 만들었다"*
-    #: 와 *"대상이 없었다"* 가 같아 보이고, 멱등 재실행이 매일 *"아무것도 안 했다"* 로
-    #: 읽힌다. `ISSUED` 인데 `created == 0` 인 것이 **정상 상태**다.
-    created: int = 0
 
 
 class ReceivableOut(BaseModel):
@@ -259,7 +231,7 @@ def reset() -> None:
 
 
 def issue_receivables(
-    as_of: date, *, connect: Any = None, sim_run_id: str
+    as_of: date, *, borrow: core_db.Borrow | None = None, sim_run_id: str
 ) -> ReceivableOut:
     """`as_of` 에 확정된 판매를 **한 트랜잭션으로** 채권으로 세운다.
 
@@ -302,7 +274,7 @@ def issue_receivables(
                     번인 장부에 쓴다. 걷기는 `run_scheduled_day` 가, 라우터는
                     요청이 준 축을 싣는다.
     """
-    gate = check_day_gate(as_of, connect=connect, sim_run_id=sim_run_id)
+    gate = check_day_gate(as_of, borrow=borrow, sim_run_id=sim_run_id)
     if gate.gate == "BLOCKED":
         return ReceivableOut(
             as_of=as_of,
@@ -323,27 +295,25 @@ def issue_receivables(
             missing=list(absent),
         )
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
-        #    `FinanceReceivableAdapter` 는 그 축을 재무 축과 대조해 fail-closed 한다 —
-        #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
-        #    앉고 이쪽은 번인에 남는다.**
-        #
-        # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
-        #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 채권이
-        #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
-        adapters = {
-            part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
-        }
-        results = [adapters[part].issue(conn, as_of=as_of) for part in PARTS]
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 발행 실패가 그날을 통째로 세우면 안 된다.
-        conn.rollback()
-        return ReceivableOut(as_of=as_of, status="FAILED", reason=f"채권 발행 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **등록소가 든 축이 아니라 이번 호출의 축으로 묶는다** (`#531` 후속).
+            #    `FinanceReceivableAdapter` 는 그 축을 재무 축과 대조해 fail-closed 한다 —
+            #    등록소가 프로세스 시작 때 든 상수로 쓰면 **매입 원장만 새 실행에
+            #    앉고 이쪽은 번인에 남는다.**
+            #
+            # ★ **`try` 안이다.** 축이 비면 `bind_sim_run` 이 막는데, 그 실패도 예외로
+            #   올라가지 않고 아래 `except` 가 `FAILED` + 사유로 옮긴다 — 채권이
+            #   그날을 통째로 세우면 안 된다는 이 함수의 계약 그대로다.
+            adapters = {
+                part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
+            }
+            results = [adapters[part].issue(conn, as_of=as_of) for part in PARTS]
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 발행 실패가 그날을 통째로 세우면 안 된다.
+            conn.rollback()
+            return ReceivableOut(as_of=as_of, status="FAILED", reason=f"채권 발행 실패: {exc}")
 
     return _aggregate(as_of, results)
 

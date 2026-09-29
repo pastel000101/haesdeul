@@ -1377,7 +1377,9 @@ def test_커넥션을_스스로_안_연다() -> None:
     """
     원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
 
-    for 금지 in ("get_connection", "execute_query", "fetch_one", "fetch_all"):
+    for 금지 in (
+        "get_connection", "core_db", "app.core", "execute_query", "fetch_one", "fetch_all"
+    ):
         assert 금지 not in 원문, f"여는 절차가 커넥션을 스스로 연다: {금지}"
 
 

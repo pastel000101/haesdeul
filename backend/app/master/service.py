@@ -13,13 +13,13 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from app.contracts.envelope import ExecutionContext
 from app.master import persistence, wiring
 from app.master.answer import facts_from_procurement, render_answer
 from app.master.budget import CallBudget
 from app.master.day_gate import check_day_gate
 from app.master.decision import CommitmentOut
 from app.master.decision_service import commitments_before, get_decisions
-from app.master.envelope import ExecutionContext
 from app.master.execution_calendar import build_execution_calendar
 from app.master.execution_day import (
     CalendarNotCovered,

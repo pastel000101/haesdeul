@@ -4,8 +4,8 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from app.contracts.envelope import AgentReply, ExecutionMetadata
 from app.main import app
-from app.master.envelope import AgentReply, ExecutionMetadata
 from app.master.wiring import registry
 
 

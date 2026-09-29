@@ -106,7 +106,8 @@ def test_판매_build_가_보는_실행을_넘긴다(monkeypatch):
 
 @contextmanager
 def _가짜_커넥션():
-    yield object()
+    """공통 풀에서 빌린 연결의 대역 — 화면은 한 판을 한 트랜잭션으로 읽는다(commit 은 빈 일)."""
+    yield SimpleNamespace(commit=lambda: None, rollback=lambda: None)
 
 
 def _물류_대역(monkeypatch) -> list[tuple[str, str]]:
@@ -120,7 +121,7 @@ def _물류_대역(monkeypatch) -> list[tuple[str, str]]:
         return 대역
 
     열림 = SimpleNamespace(has_snapshot=True, first_as_of=AS_OF, last_as_of=AS_OF)
-    monkeypatch.setattr(logistics_query, "get_connection", _가짜_커넥션)
+    monkeypatch.setattr(logistics_query.core_db, "connection", _가짜_커넥션)
     monkeypatch.setattr(logistics_query, "runtime_coverage_at", 기록("coverage", 열림))
     monkeypatch.setattr(logistics_query, "onhand_total_by_day", 기록("onhand", {}))
     monkeypatch.setattr(logistics_query, "snapshot_days_between", 기록("days", set()))

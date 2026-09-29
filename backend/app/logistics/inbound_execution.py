@@ -83,6 +83,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
+from app.contracts.parts import InboundPartOut
 from app.logistics.arrival import (
     ArrivalBlockReason,
     ArrivalUnresolvedReason,
@@ -102,7 +103,6 @@ from app.logistics.purchase_detail import (
 )
 from app.logistics.receipts import ReceiptStatus, check_receipt_state, create_arrived_receipt
 from app.logistics.transition import USAGE_SCOPE
-from app.master.inbound import InboundPartOut
 
 __all__ = [
     "InboundBlockReason",

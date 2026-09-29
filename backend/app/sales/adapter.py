@@ -14,7 +14,7 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.sales.console_proposals import ConsoleSalesProposalsResponse, get_console_sales_proposals
 from app.sales.llm.runtime import load_settings
 from app.sales.partner_profile import get_partner_profile

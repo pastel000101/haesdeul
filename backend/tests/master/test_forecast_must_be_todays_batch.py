@@ -178,8 +178,8 @@ def test_당일_배치가_없으면_run_procurement_이_E4_로_선다(monkeypatc
     forecast MISSING → 매입 payload 에 forecast 없음 → RUNTIME_NOT_READY → E4_NOT_STARTED
     ```
     """
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
     from app.master import wiring
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
     from app.master.inputs import MasterInputs, SourcedInput
     from app.master.schemas import ProcurementRunRequest
     from app.master.service import run_procurement

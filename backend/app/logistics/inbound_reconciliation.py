@@ -62,6 +62,9 @@ usage_scope
 ⚠️ **`cancellation.py` 를 import 하지 않는다.** 그쪽은 마스터가 임시로 얹은 모듈이라
    `app.master.commitment` · `app.finance.db` 를 끌고 온다. 여기서 부르면 그 의존성이
    물류 코어로 옮겨 붙는다 — 규율은 참고하되 코드는 안 가져온다.
+   (2026-09-29 약정 타입이 `app.contracts.commitment` 로 올라가, 지금 그 파일의 import 는
+   물류 `inbound_schedules` 와 공용 약정 타입뿐이다. 코드를 두 벌로 만들지 않는다는
+   규율은 그대로다.)
 
 ---
 
@@ -291,7 +294,7 @@ def _materialized_lineage(
 def _row_values(row: Any) -> tuple[Any, ...]:
     """`dict_row` 든 tuple 이든 같은 순서로 읽는다.
 
-    ★ 커넥션의 `row_factory` 가 호출자마다 다르다 — `db.get_connection` 은
+    ★ 커넥션의 `row_factory` 가 호출자마다 다르다 — 공통 풀 연결(`app.core.db`)은
       `dict_row` 를 쓰고, 남의 트랜잭션을 물려받으면 기본 tuple 일 수 있다.
     """
     if isinstance(row, dict):

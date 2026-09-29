@@ -49,8 +49,8 @@ from typing import Any
 
 from psycopg import sql
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.finance.db import get_db_schema
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 
 # ⚠️ **`transition` 을 모듈 맨 위에서 부르지 않는다.** 전이 경계가 이 파일을 부르고
 #    (`apply_approval`), 이 파일은 그쪽이 소유한 ID 짓는 함수를 쓴다 — 양쪽 다 위에서

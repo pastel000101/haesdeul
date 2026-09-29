@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.backtest_runner import WalkResult, format_summary
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.decision import AUTO_BACKFILL
 from app.master.pending_transition import (
     RetriedTransition,

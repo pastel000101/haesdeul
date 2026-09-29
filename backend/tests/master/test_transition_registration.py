@@ -21,12 +21,12 @@ from typing import Any, Self
 import pytest
 
 import app.main  # noqa: F401  — import 시점에 두 전이를 등록한다. 이 검사의 전제다
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.finance import transition as finance_transition
 from app.finance.day_open import FinanceDayOpening
 from app.logistics.day_open import LogisticsDayOpening
 from app.logistics.transition import LogisticsTransitionAdapter
 from app.master import day_open, transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 from app.master.sim_run_binding import bind_sim_run
 
@@ -146,7 +146,7 @@ class 가짜커넥션:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
         self.executed: list[tuple[str, Any]] = []
 
     def cursor(self) -> 가짜커서:
@@ -158,8 +158,12 @@ class 가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 @pytest.fixture
@@ -273,7 +277,7 @@ def test_승인이_두_파트를_다_거쳐_한_번_커밋한다(재무_읽기�
     """
     conn = 가짜커넥션()
 
-    out = transition.apply_approval(_commitment(), connect=lambda: conn, sim_run_id=실행축)
+    out = transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     assert out.status == "APPLIED", out.reason
     assert out.parts == ["finance", "logistics"]
@@ -283,14 +287,14 @@ def test_승인이_두_파트를_다_거쳐_한_번_커밋한다(재무_읽기�
     #    트랜잭션 밖에서 개장 정본을 한 번 더 읽어(`opened_days_after`) 같은 대역이
     #    두 번 닫혔다. 전파가 없어져 그 읽기가 사라졌다.
     #    지키는 것은 **write 가 한 트랜잭션**이고, 위 두 줄이 그것을 잰다.
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_세_장부가_한_커넥션으로_다_쓰인다(재무_읽기를_대역으로) -> None:
     """★ 매입 원장 · 재무 채무 · 물류 입고 예정 셋이 다 나가야 한다."""
     conn = 가짜커넥션()
 
-    transition.apply_approval(_commitment(), connect=lambda: conn, sim_run_id=실행축)
+    transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     문장 = [text for text, _ in conn.executed]
     assert any("INSERT INTO" in t and "purchases" in t for t in 문장), "매입 원장이 안 나갔다"
@@ -312,7 +316,7 @@ def test_물류_write_가_상태가_설_날의_행을_고른다(재무_읽기를
     """
     conn = 가짜커넥션()
 
-    transition.apply_approval(_commitment(), connect=lambda: conn, sim_run_id=실행축)
+    transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     물류 = [params for text, params in conn.executed if "logistics_runtime_fixture" in text]
     # ★ 읽기 하나 · 쓰기 하나다 — 물류가 그 행을 **잠그고**(FOR UPDATE) 고친다.

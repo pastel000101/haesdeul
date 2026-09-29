@@ -60,8 +60,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.schemas import SalesRunRequest
 from app.master.service import _sales_user_request, run_sales
 from app.sales.schemas import SalesUserRequest

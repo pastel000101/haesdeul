@@ -337,7 +337,7 @@ def test_하루를_돌리면_출고가_낸_값이_하루_결과에_실린다() -
     """
     from datetime import datetime
 
-    from app.master.clock import SEOUL
+    from app.core.clock import SEOUL
     from app.master.pending_transition import RetryOut
     from app.master.scheduler import ScheduledAction, run_scheduled_day
 

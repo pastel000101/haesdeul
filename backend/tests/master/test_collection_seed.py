@@ -120,7 +120,7 @@ class _가짜DB:
     쓰기_예외: Exception | None = None
     committed: int = 0
     rolled_back: int = 0
-    closed: int = 0
+    returned: int = 0
     문장들: list[str] = field(default_factory=list)
 
     def cursor(self) -> _가짜커서:
@@ -132,8 +132,12 @@ class _가짜DB:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _가짜커서:
@@ -569,7 +573,7 @@ def test_financing_mode_를_재무_축에서_받는다() -> None:
     결과 = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=lambda: db,
+        borrow=lambda: db,
         read_axis=_축(financing_mode=남의_모드),
     )
 
@@ -591,7 +595,7 @@ def test_축의_실행이_다르면_막는다() -> None:
     결과 = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=lambda: db,
+        borrow=lambda: db,
         read_axis=_축(sim_run_id=남의_실행),
     )
 
@@ -630,7 +634,7 @@ def test_쓰기가_실패하면_UNREADABLE_이다() -> None:
     db = _가짜DB(receivables=[열림], 쓰기_예외=RuntimeError("relation does not exist"))
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축()
     )
 
     assert 결과.status == "UNREADABLE", f"실패가 {결과.status} 로 접혔다"
@@ -645,7 +649,7 @@ def test_낼_것이_없으면_NOTHING_DUE_다() -> None:
     db = _가짜DB(receivables=[완료])
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축()
     )
 
     assert 결과 == CollectionSeedOutcome(status="NOTHING_DUE", created=0, skipped=0)
@@ -659,7 +663,7 @@ def test_커넥션을_못_열어도_UNREADABLE_이다() -> None:
         raise FinanceDataNotReady("connection refused")
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=못_연다, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=못_연다, read_axis=_축()
     )
 
     assert 결과.status == "UNREADABLE"
@@ -669,10 +673,10 @@ def test_커넥션을_못_열어도_UNREADABLE_이다() -> None:
 def test_성공하면_커밋하고_닫는다() -> None:
     db = _가짜DB(receivables=[열림])
 
-    seed_day(AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축())
+    seed_day(AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축())
 
     assert db.committed == 1
-    assert db.closed == 1
+    assert db.returned == 1
 
 
 # ---------------------------------------------------------------------------
@@ -705,7 +709,10 @@ class _개장커넥션:
     def rollback(self) -> None:
         return None
 
-    def close(self) -> None:
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
         return None
 
 
@@ -731,7 +738,7 @@ def test_개장이_성공하면_사건을_만든다(등록소를_비운다: None
         return CollectionSeedOutcome(status="SEEDED", created=3, skipped=1)
 
     out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "ALREADY_OPENED"
@@ -752,7 +759,7 @@ def test_사건_생성이_터져도_하루는_열린다(등록소를_비운다: 
         raise RuntimeError("수금 사건 표가 없다")
 
     out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=터진다, sim_run_id=BURN_IN_SIM_RUN_ID
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=터진다, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "ALREADY_OPENED", f"사건 생성이 하루를 막았다: {out.status}"
@@ -781,7 +788,7 @@ def test_하루가_안_열리면_시도하지_않는다(등록소를_비운다: 
         return CollectionSeedOutcome(status="SEEDED", created=1)
 
     out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "NOT_OPENED"
@@ -797,7 +804,7 @@ def test_낼_것이_없는_날은_NOTHING_DUE_로_실린다(등록소를_비운�
 
     out = day_open.open_day(
         AS_OF,
-        connect=lambda: _개장커넥션(),
+        borrow=lambda: _개장커넥션(),
         seed_collection=lambda as_of, **_: CollectionSeedOutcome(status="NOTHING_DUE"),
         sim_run_id=BURN_IN_SIM_RUN_ID,
     )

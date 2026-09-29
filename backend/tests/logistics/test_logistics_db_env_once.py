@@ -1,4 +1,9 @@
-"""물류 DB 설정 파일(.env)을 프로세스에서 한 번만 읽는지 확인한다 (실 DB 연결 없음)."""
+"""물류 DB 설정 파일(.env)을 프로세스에서 한 번만 읽는지 확인한다 (실 DB 연결 없음).
+
+★ 2026-09-29 풀 전환 뒤 물류 입구가 `.env` 를 읽는 자리는 스키마 이름 하나다. 접속 정보는
+  공통 풀이 열릴 때 한 번 읽는다 (`tests/core/test_department_db_entrypoints.py::
+  test_the_pool_reads_connection_settings_once_not_per_borrow`).
+"""
 
 import pytest
 
@@ -12,16 +17,12 @@ def load_calls(monkeypatch: pytest.MonkeyPatch) -> list[object]:
     monkeypatch.setattr(db, "load_dotenv", lambda path: calls.append(path))
     monkeypatch.setattr(db, "_env_file_loaded", False)
     monkeypatch.setenv("DB_SCHEMA", "logistics_test")
-    for key in db._CONNECTION_ENV_KEYS:
-        monkeypatch.setenv(key, "x")
     return calls
 
 
 def test_여러_번_불러도_설정_파일은_한_번만_읽는다(load_calls: list[object]) -> None:
     for _ in range(5):
         assert db.get_db_schema() == "logistics_test"
-    for _ in range(5):
-        db._required_environment(db._CONNECTION_ENV_KEYS)
 
     assert load_calls == [db._ENV_FILE]
 

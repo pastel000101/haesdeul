@@ -25,9 +25,9 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import user_messages as messages
 from app.finance.adapter import finance_port
-from app.master.envelope import AgentRequest, ExecutionContext
 
 _EXECUTION = "app.finance.execution"
 

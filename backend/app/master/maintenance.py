@@ -59,11 +59,12 @@ occurred_at   걷기의 시간축         🔴 벽시계를 여기서 안 읽는
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Literal
 
-from app.finance.db import get_connection
+from app.core import db as core_db
 from app.logistics.auto_maintenance import (
     AutoMaintenanceResult,
     run_logistics_auto_maintenance,
@@ -157,7 +158,7 @@ def run_auto_maintenance(
     *,
     sim_run_id: str,
     occurred_at: datetime,
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
     maintain_fn: Callable[..., AutoMaintenanceResult] = run_logistics_auto_maintenance,
 ) -> MaintenanceOut:
     """그날 자리를 비운다. 🔴 **예외를 밖으로 내지 않는다.**
@@ -178,13 +179,13 @@ def run_auto_maintenance(
     :param maintain_fn: 물류 경계. 🔴 **기본값이 실제 함수 자체다** — `None` 을
         안 받는다 (`clock.py` · `verifier.py` 와 같은 규율).
     """
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception as exc:  # noqa: BLE001 - 연결 실패가 그날을 통째로 세우면 안 된다.
-        return MaintenanceOut(as_of=as_of, status="FAILED", reason=f"연결 실패: {exc}")
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception as exc:  # noqa: BLE001 - 연결 실패가 그날을 통째로 세우면 안 된다.
+            return MaintenanceOut(as_of=as_of, status="FAILED", reason=f"연결 실패: {exc}")
 
-    try:
         try:
             result = maintain_fn(
                 conn,
@@ -225,5 +226,3 @@ def run_auto_maintenance(
             ),
             result=result,
         )
-    finally:
-        conn.close()

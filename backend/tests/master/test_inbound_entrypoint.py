@@ -35,9 +35,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.contracts.parts import InboundPartOut
 from app.master import inbound
 from app.master.day_gate import DayGate
-from app.master.inbound import InboundPartOut, receive_arrivals
+from app.master.inbound import receive_arrivals
 
 AS_OF = date(2026, 1, 7)
 
@@ -60,7 +61,10 @@ class _물류:
 class _가짜커넥션:
     def commit(self) -> None: ...
     def rollback(self) -> None: ...
-    def close(self) -> None: ...
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None: ...
 
 
 @pytest.fixture(autouse=True)
@@ -73,7 +77,7 @@ def _빈_등록소() -> Any:
         inbound.register_inbound(part, impl)
 
 
-def _막힌_Gate(as_of: date, *, connect: Any = None, sim_run_id: str = "") -> DayGate:
+def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> DayGate:
     return DayGate(
         as_of=as_of,
         gate="BLOCKED",
@@ -140,7 +144,7 @@ def test_안_열린_날은_받지_않는다(monkeypatch: pytest.MonkeyPatch) -> 
     물류 = _물류()
     inbound.register_inbound("logistics", 물류)
 
-    out = receive_arrivals(AS_OF, connect=_가짜커넥션, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
     assert out.status == "NOT_OPENED"
     assert 물류.calls == [], "장부가 안 열렸는데 파트를 불렀다"
@@ -151,7 +155,7 @@ def test_안_열린_것과_받을_게_없는_것을_가른다(monkeypatch: pytes
     monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
     inbound.register_inbound("logistics", _물류())
 
-    out = receive_arrivals(AS_OF, connect=_가짜커넥션, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
     assert out.status != "NOTHING_DUE"
     assert out.status != "BLOCKED", (
@@ -164,7 +168,7 @@ def test_다음에_할_일을_해석하지_않고_옮긴다(monkeypatch: pytest.
     monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
     inbound.register_inbound("logistics", _물류())
 
-    out = receive_arrivals(AS_OF, connect=_가짜커넥션, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
     assert out.next_action == "OPEN_DAY_REQUIRED"
     assert out.reason == "한 번도 열린 적이 없다"
@@ -175,14 +179,14 @@ def test_열린_날은_평소대로_받는다(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         inbound,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
     물류 = _물류(InboundPartOut(part="logistics", status="RECEIVED", received=["INB-A-1"]))
     inbound.register_inbound("logistics", 물류)
 
-    out = receive_arrivals(AS_OF, connect=_가짜커넥션, sim_run_id=축)
+    out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
     assert out.status == "RECEIVED"
     assert 물류.calls == [AS_OF]
@@ -223,14 +227,14 @@ def test_토요일에도_받는다(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         inbound,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
     물류 = _물류(InboundPartOut(part="logistics", status="RECEIVED", received=["INB-SAT-1"]))
     inbound.register_inbound("logistics", 물류)
 
-    out = receive_arrivals(토요일, connect=_가짜커넥션, sim_run_id=축)
+    out = receive_arrivals(토요일, borrow=_가짜커넥션, sim_run_id=축)
 
     assert out.status == "RECEIVED"
     assert 물류.calls == [토요일]

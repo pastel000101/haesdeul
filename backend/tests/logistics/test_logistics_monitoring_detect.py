@@ -63,7 +63,7 @@ from app.logistics.schemas import InventoryLotSnapshot
 
 AS_OF = date(2026, 1, 20)
 SIM = "SIM-DETECT-TEST"
-#: 시뮬레이션 달력의 시간대 (`historical_repository._KST` 와 같다).
+#: 시뮬레이션 달력의 시간대 (`app.core.clock.SEOUL` 과 같다).
 _KST = ZoneInfo("Asia/Seoul")
 #: 실 DB 정책값 그대로 (`agent_policy_config`) — 검사에서 다른 숫자를 쓰면 경계를
 #: 재는 의미가 없다.

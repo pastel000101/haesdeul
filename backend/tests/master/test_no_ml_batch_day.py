@@ -40,10 +40,10 @@ from typing import Any, get_args
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import ml_batch_calendar, persistence, scheduler
 from app.master.backfill import BackfillOut
 from app.master.backtest_runner import format_summary, walk
-from app.master.clock import SEOUL
 from app.master.execution_day import CalendarNotCovered
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.maintenance import MaintenanceOut

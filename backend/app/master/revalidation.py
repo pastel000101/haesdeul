@@ -46,12 +46,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from app.master import wiring
-from app.master.answer import agent_label
-from app.master.budget import BudgetExhausted, CallBudget
-from app.master.day_gate import check_day_gate
-from app.master.decision import PROCUREMENT_CYCLE, SALES_CYCLE, RevalidationOutcome
-from app.master.envelope import (
+from app.contracts.envelope import (
     PASSING_VERDICTS,
     AgentName,
     AgentReply,
@@ -62,6 +57,11 @@ from app.master.envelope import (
     wire_adjustment,
     wire_payload,
 )
+from app.master import wiring
+from app.master.answer import agent_label
+from app.master.budget import BudgetExhausted, CallBudget
+from app.master.day_gate import check_day_gate
+from app.master.decision import PROCUREMENT_CYCLE, SALES_CYCLE, RevalidationOutcome
 from app.master.flow import ADVISORS
 from app.master.persistence import record_revalidation
 from app.master.ports import AgentNotRegistered
@@ -297,7 +297,7 @@ def revalidate_scenario(
 
       🔴 **여기서 시계를 읽으면 백테스트가 무효가 된다.** `2026-03-10` 을 걷는 실행이
         승인 경로를 타는 순간 재검증만 오늘로 답하고, 곡선에 벽시계가 섞인다.
-        `tests/master/test_clock_is_the_only_wall_clock.py` 가 이 파일이 `clock` 을
+        `tests/core/test_clock_is_the_only_wall_clock.py` 가 이 파일이 `clock` 을
         다시 임포트하지 않는지 지킨다.
 
       ⚠️ **기본값을 두지 않는다.** 기본값은 곧 업무 규칙이 되고, 안 넘긴 자리가

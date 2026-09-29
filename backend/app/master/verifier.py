@@ -32,6 +32,7 @@ from typing import Any, Protocol
 from pydantic import ValidationError
 
 from app.contracts.core import Evidence
+from app.contracts.envelope import ENVELOPE_META_KEYS, AgentName
 from app.master.critic.schemas import (
     CriticProcurementRequest,
     CriticSalesRequest,
@@ -39,7 +40,6 @@ from app.master.critic.schemas import (
 )
 from app.master.critic.service import run_critic_procurement, run_critic_sales
 from app.master.critic_bridge import CriticSkipped, build_request, build_sales_request, fold
-from app.master.envelope import ENVELOPE_META_KEYS, AgentName
 from app.master.plan import ExecutionPlan
 
 # 🟢 **지연 import 와 `_default_critic` 래퍼를 지웠다** (2026-09-07 · 2판).

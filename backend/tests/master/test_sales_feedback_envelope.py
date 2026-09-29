@@ -50,14 +50,9 @@ from fastapi.testclient import TestClient
 
 import app.main  # import 시점에 판매 어댑터를 등록한다. §5 의 전제다
 from app.contracts.core import SuggestedAdjustment
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.master import wiring
 from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
 from app.master.ports import AgentRegistry
 from app.master.runner import MasterRunner
 from app.master.sales_flow import MAX_FEEDBACK_ATTEMPTS, SalesFlow

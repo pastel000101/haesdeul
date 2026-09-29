@@ -221,6 +221,9 @@ def test_모듈이_자기_커넥션을_열지_않는다():
     code = source.replace(module_docstring, "", 1)
 
     assert "get_connection" not in code
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in code
+    assert "app.core" not in code
     assert "fetch_all" not in code
     assert "fetch_one" not in code
     assert "execute_returning_one" not in code

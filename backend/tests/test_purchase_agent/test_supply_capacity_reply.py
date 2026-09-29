@@ -31,7 +31,7 @@ from datetime import date
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.purchase_agent.adapter import purchase_port
 from app.sales.schemas import PurchaseAdditionalSupplyResult
 

@@ -105,10 +105,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, get_args
-from zoneinfo import ZoneInfo
 
 from psycopg import sql
 
+from app.core.clock import SEOUL
 from app.logistics.db import get_db_schema
 from app.logistics.ledger import record_inventory_move
 from app.logistics.turnover import fefo_sort_key, freshness_days_of, is_disposal_candidate
@@ -1146,10 +1146,6 @@ _ALLOCATION_COLUMNS = (
 )
 
 
-#: 시뮬레이션 달력의 시간대. `historical_repository._KST` · `master.sim_time` 과 같다.
-_KST = ZoneInfo("Asia/Seoul")
-
-
 def _sim_day(moment: datetime) -> date:
     """시각 하나를 **시뮬레이션 달력의 하루**로 옮긴다.
 
@@ -1163,7 +1159,7 @@ def _sim_day(moment: datetime) -> date:
         raise InvalidOutboundRequest(
             f"시간대 없는 시각으로 시뮬레이션 날짜를 만들 수 없다: {moment!r}."
         )
-    return moment.astimezone(_KST).date()
+    return moment.astimezone(SEOUL).date()
 
 
 def _되살려도_되는_날인지_본다(

@@ -39,14 +39,16 @@ day_opening_repository.py — 개장 정본(`master_day_openings`) 적재·조�
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from contextlib import ExitStack
 from datetime import date
 from typing import Any
 
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-from app.finance.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.finance.db import get_db_schema
 
 __all__ = [
     "DayOpeningRecord",
@@ -100,7 +102,7 @@ def record_day_opening(
     result: str,
     reason: str = "",
     parts: Sequence[Any] = (),
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
 ) -> bool:
     """개장 1회를 정본에 적는다. **예외를 올리지 않는다.**
 
@@ -138,38 +140,37 @@ def record_day_opening(
         """
     ).format(_table(), _table(), _table())
 
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception:
-        logger.exception("개장 정본 커넥션 실패 - 개장 결과는 그대로 나간다")
-        return False
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                query,
-                (
-                    as_of,
-                    sim_run_id,
-                    result,
-                    0 if succeeded else 1,
-                    reason or None,
-                    Jsonb(payload),
-                    succeeded,
-                ),
-            )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        logger.exception("개장 정본 적재 실패 - 개장 결과는 그대로 나간다")
-        return False
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception:
+            logger.exception("개장 정본 커넥션 실패 - 개장 결과는 그대로 나간다")
+            return False
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    query,
+                    (
+                        as_of,
+                        sim_run_id,
+                        result,
+                        0 if succeeded else 1,
+                        reason or None,
+                        Jsonb(payload),
+                        succeeded,
+                    ),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("개장 정본 적재 실패 - 개장 결과는 그대로 나간다")
+            return False
     return True
 
 
 def read_day_opening(
-    *, as_of: date, sim_run_id: str, connect: Callable[[], Any] | None = None
+    *, as_of: date, sim_run_id: str, borrow: core_db.Borrow | None = None
 ) -> DayOpeningRecord | None:
     """그 날의 개장 정본. **없으면 `None` 이고 그것은 *"한 번도 안 불렀다"* 다.**
 
@@ -181,21 +182,20 @@ def read_day_opening(
         " FROM {} WHERE as_of = %s AND sim_run_id = %s"
     ).format(_table())
 
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception:
-        logger.exception("개장 정본 커넥션 실패 - 근사로 답한다")
-        return None
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query, (as_of, sim_run_id))
-            row = cursor.fetchone()
-    except Exception:
-        logger.exception("개장 정본 조회 실패 - 근사로 답한다")
-        return None
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception:
+            logger.exception("개장 정본 커넥션 실패 - 근사로 답한다")
+            return None
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(query, (as_of, sim_run_id))
+                row = cursor.fetchone()
+        except Exception:
+            logger.exception("개장 정본 조회 실패 - 근사로 답한다")
+            return None
     if row is None:
         return None
     # ★ `dict_row` 면 Mapping, 아니면 순서 튜플이다. 조회 컬럼 순서와 짝이다.
@@ -215,7 +215,7 @@ def read_day_opening(
 
 
 def opened_days_after(
-    *, after: date, sim_run_id: str, connect: Callable[[], Any] | None = None
+    *, after: date, sim_run_id: str, borrow: core_db.Borrow | None = None
 ) -> tuple[date, ...] | None:
     """`after` **보다 뒤에** 이미 열린 날들. 오래된 것부터.
 
@@ -261,21 +261,20 @@ def opened_days_after(
         " AND result IN ('OPENED', 'ALREADY_OPENED') ORDER BY as_of"
     ).format(_table())
 
-    open_connection = get_connection if connect is None else connect
-    try:
-        conn = open_connection()
-    except Exception:
-        logger.exception("개장 정본 조회 실패 - 앞질러 열린 날을 모른 채 간다")
-        return None
-    try:
-        with conn.cursor() as cur:
-            cur.execute(query, (sim_run_id, after))
-            rows = cur.fetchall()
-    except Exception:
-        logger.exception("개장 정본 조회 실패 - 앞질러 열린 날을 모른 채 간다")
-        return None
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with ExitStack() as stack:
+        try:
+            conn = stack.enter_context(open_connection())
+        except Exception:
+            logger.exception("개장 정본 조회 실패 - 앞질러 열린 날을 모른 채 간다")
+            return None
+        try:
+            with conn.cursor() as cur:
+                cur.execute(query, (sim_run_id, after))
+                rows = cur.fetchall()
+        except Exception:
+            logger.exception("개장 정본 조회 실패 - 앞질러 열린 날을 모른 채 간다")
+            return None
     return tuple(row["as_of"] if isinstance(row, Mapping) else row[0] for row in rows)
 
 

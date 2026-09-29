@@ -14,8 +14,8 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import scheduler
-from app.master.clock import SEOUL
 from app.master.execution_day import CalendarNotCovered
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
@@ -863,7 +863,7 @@ def test_request_id_에_시각이_안_들어간다():
 
 def test_품목_목록을_다시_안_센다():
     """★ `commitment.ITEM_CODES` 하나가 주인이다."""
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     assert set(scheduler.scheduled_items()) == set(ITEM_CODES)
 

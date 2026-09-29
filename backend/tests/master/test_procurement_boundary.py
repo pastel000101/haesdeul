@@ -20,8 +20,8 @@ from uuid import UUID
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import procurement_boundary
-from app.master.clock import SEOUL
 from app.master.execution_day import CalendarNotCovered
 from app.master.procurement_boundary import (
     ABSENT_REASONS,

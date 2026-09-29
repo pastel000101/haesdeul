@@ -24,8 +24,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from app.contracts.envelope import AgentName, agent_allowed_modes
 from app.master.budget import BudgetExhausted
-from app.master.envelope import AgentName, agent_allowed_modes
 from app.master.plan import ExecutionPlan
 from app.master.runner import MasterRunner
 

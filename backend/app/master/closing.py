@@ -137,14 +137,14 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.contracts.parts import ClosingPartOut
+from app.core import db as core_db
 from app.master.day_gate import check_day_gate
 
 __all__ = [
     "PARTS",
     "ClosingOut",
     "ClosingPart",
-    "ClosingPartOut",
     "ClosingPort",
     "close_day",
     "missing",
@@ -195,42 +195,6 @@ class ClosingPort(Protocol):
     """
 
     def close(self, conn: Any, *, as_of: date, sim_run_id: str) -> ClosingPartOut: ...
-
-
-class ClosingPartOut(BaseModel):
-    """한 파트의 마감 결과.
-
-    ★ **`NOTHING_DUE` 를 `CLOSED` 로 접지 않는다.** *"그날 닫을 움직임이 없었다"* 와
-      *"닫았다"* 는 다른 사실이고, 뭉치면 **하루가 안 닫히는 버그**가 매일 성공으로
-      보인다.
-    """
-
-    part: str
-    status: Literal["CLOSED", "NOTHING_DUE", "BLOCKED"]
-    reason: str = ""
-    #: **그날에 대해 서 있는 마감 행.** `daily_closings` 의 키다.
-    #:
-    #: 🔴 **금액을 여기 싣지 않는다.** 그날 얼마가 나가고 잔액이 얼마인지의 권위
-    #: 사실은 `daily_closings` 한 곳이 갖는다 — 여기에 복사해 두면 **같은 사실의
-    #: 주인이 둘**이 되고, 롤백된 날 이 목록만 살아남는다.
-    #:
-    #: ⚠️ **그것이 이 판이 안 하는 것의 전부다.** 칸 하나만 열어 둬도 다음 판이
-    #: 거기에 값을 채우고, 그러면 마스터가 손익을 계산하기 시작한다.
-    #:
-    #: ★ **이번 호출에서 새로 만든 것만이 아니다.** 멱등이라 이미 있으면 안 만들고,
-    #: 그래도 마감은 서 있다. 새로 적은 건수는 `created` 가 따로 나른다.
-    closed: list[str] = Field(default_factory=list)
-    #: 🔴 **이번 호출에서 실제로 새로 적은 건수.**
-    #:
-    #: ⚠️ **`closed` 와 한 값으로 접으면 안 된다.** 접으면 *"이미 닫혀 있어서 안
-    #: 적었다"* 와 *"닫을 것이 없었다"* 가 같아 보이고, 멱등 재실행이 매일
-    #: *"아무것도 안 했다"* 로 읽힌다. `CLOSED` 인데 `created == 0` 인 것이
-    #: **정상 상태**다.
-    #:
-    #: 🔴 **어댑터가 낸 값을 그대로 적는다.** 여기서 `len(closed)` 로 다시 세지
-    #: 않는다 — 세는 순간 마스터가 계산을 시작하고, 두 번째 걸음이 매일 새 행을
-    #: 적은 것처럼 보인다.
-    created: int = 0
 
 
 class ClosingOut(BaseModel):
@@ -330,7 +294,7 @@ def close_day(
     *,
     sim_run_id: str,
     ledger_gap: str = "",
-    connect: Any = None,
+    borrow: core_db.Borrow | None = None,
 ) -> ClosingOut:
     """`as_of` 를 **한 트랜잭션으로** 닫는다. **숫자는 재무가 낸다.**
 
@@ -380,7 +344,7 @@ def close_day(
 
     # 🔴 **관문에도 이번 마감의 축을 넘긴다** (`#539` 후속). 안 넘기면 관문이 번인
     #    축으로 어댑터를 묶고, 걷기 실행에서 열린 날을 **안 열린 날**로 읽는다.
-    gate = check_day_gate(as_of, connect=connect, sim_run_id=sim_run_id)
+    gate = check_day_gate(as_of, borrow=borrow, sim_run_id=sim_run_id)
     if gate.gate == "BLOCKED":
         return ClosingOut(
             as_of=as_of,
@@ -416,18 +380,18 @@ def close_day(
         )
 
     adapters = registered()
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        # 🔴 **파트마다 정확히 한 번이다.** 두 번 부르고 어댑터의 멱등에 기대지
-        #    않는다 — `master_agent_runs` 에서 틀렸던 그 기대다.
-        results = [adapters[part].close(conn, as_of=as_of, sim_run_id=sim_run_id) for part in PARTS]
-        conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 마감 실패가 그날 걷기 결과를 바꾸면 안 된다.
-        conn.rollback()
-        return ClosingOut(as_of=as_of, status="FAILED", reason=f"마감 실패: {exc}")
-    finally:
-        conn.close()
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            # 🔴 **파트마다 정확히 한 번이다.** 두 번 부르고 어댑터의 멱등에 기대지
+            #    않는다 — `master_agent_runs` 에서 틀렸던 그 기대다.
+            results = [
+                adapters[part].close(conn, as_of=as_of, sim_run_id=sim_run_id) for part in PARTS
+            ]
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 마감 실패가 그날 걷기 결과를 바꾸면 안 된다.
+            conn.rollback()
+            return ClosingOut(as_of=as_of, status="FAILED", reason=f"마감 실패: {exc}")
 
     return _aggregate(as_of, results)
 

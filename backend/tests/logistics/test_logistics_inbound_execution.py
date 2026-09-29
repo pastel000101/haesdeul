@@ -25,6 +25,7 @@ from typing import Any, Self, get_args
 
 import pytest
 
+from app.contracts.parts import InboundPartOut
 from app.logistics import inbound_execution, inbound_stock, inspections
 from app.logistics.arrival import ArrivalBlockReason, ArrivalUnresolvedReason
 from app.logistics.inbound_execution import (
@@ -54,7 +55,7 @@ from app.logistics.purchase_detail import (
 from app.logistics.receipts import ReceiptExistence, ReceiptStatus, ReceiptWriteResult
 from app.logistics.schemas import InTransitItem
 from app.logistics.transition import USAGE_SCOPE
-from app.master.inbound import PARTS, InboundPartOut
+from app.master.inbound import PARTS
 
 SIM_RUN_ID = "SIM-BURNIN-202512"
 AS_OF = date(2026, 1, 7)
@@ -790,7 +791,9 @@ def test_20_커밋도_롤백도_닫기도_새_커넥션도_없다(monkeypatch: p
     assert (conn.commits, conn.rollbacks, conn.closed) == (0, 0, 0)
     assert wiring.call_count("materialize") == 1
     code = _code_only(_source())
-    for banned in ("commit", "rollback", ".close(", "get_connection", "psycopg"):
+    for banned in (
+        "commit", "rollback", ".close(", "get_connection", "core_db", "app.core", "psycopg"
+    ):
         assert banned not in code, f"{banned} — 트랜잭션 경계는 마스터 것이다"
 
 
@@ -834,7 +837,11 @@ def test_20c_id_규칙을_다시_짓지_않는다():
 
 
 def test_20d_다른_파트를_임포트하지_않는다():
-    """⚠️ `app.master.inbound` 만은 예외다 — 결과 계약(`InboundPartOut`)의 주인이다."""
+    """다른 파트도 마스터도 import 하지 않는다. 결과 계약은 공용 계약에서 온다.
+
+    ★ 2026-09-29 전에는 `app.master.inbound` 하나가 예외였다 — 결과 계약(`InboundPartOut`)이
+      거기 있었다. 그 타입을 `app/contracts/parts.py` 로 올려 예외가 없어졌다 (재구성 BL-011).
+    """
     tree = ast.parse(_source())
     modules: set[str] = set()
     for node in ast.walk(tree):
@@ -844,7 +851,8 @@ def test_20d_다른_파트를_임포트하지_않는다():
             modules.add(node.module)
 
     assert not [m for m in modules if m.startswith(("app.purchase", "app.finance", "app.sales"))]
-    assert {m for m in modules if m.startswith("app.master")} == {"app.master.inbound"}
+    assert {m for m in modules if m.startswith("app.master")} == set()
+    assert "app.contracts.parts" in modules, "결과 계약을 어디서 가져오는지 못 찾았다"
 
 
 def test_20e_파트_이름이_마스터_등록소와_같다():

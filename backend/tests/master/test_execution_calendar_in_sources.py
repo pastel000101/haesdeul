@@ -36,8 +36,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.execution_day import CalendarNotCovered
 from app.master.inputs import MasterInputs, SourcedInput
 from app.master.schemas import ProcurementRunRequest

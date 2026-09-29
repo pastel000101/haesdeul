@@ -19,7 +19,7 @@ from datetime import date
 import pytest
 
 from app.contracts.core import SuggestedAdjustment
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.master.flow import ProcurementFlow
 from app.master.ports import AgentRegistry
 from app.master.runner import MasterRunner

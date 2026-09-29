@@ -19,10 +19,10 @@ from decimal import Decimal
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
 from app.finance.application.orchestration import FinanceAgentController
 from app.finance.capabilities.scenario import _scenario_schedule
-from app.master.envelope import AgentRequest, ExecutionContext
 from tests.finance.test_finance_adapter import _AdapterPlanner, _Context
 
 AS_OF = date(2025, 12, 31)

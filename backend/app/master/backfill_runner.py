@@ -60,6 +60,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 
+from app.core import db as core_db
 from app.master.backfill import BackfillOut, backfill_decisions
 from app.master.backtest_runner import _use_utf8_output
 from app.master.bootstrap import wire_registries
@@ -272,12 +273,14 @@ def main(argv: Sequence[str]) -> int:
     #
     # ★ **여기서 무엇을 등록할지 정하지 않는다.** 목록의 주인은 `bootstrap` 하나다.
     wire_registries()
-    run = run_backfill(
-        sim_run_id=args.sim_run_id,
-        start=date.fromisoformat(args.start),
-        end=date.fromisoformat(args.end),
-        commit=args.commit,
-    )
+    # ★ 풀은 이 실행 동안만 쓴다 — 시작 때 열고, 정상 · 예외 어느 쪽으로 끝나도 닫는다.
+    with core_db.pool_lifespan():
+        run = run_backfill(
+            sim_run_id=args.sim_run_id,
+            start=date.fromisoformat(args.start),
+            end=date.fromisoformat(args.end),
+            commit=args.commit,
+        )
     print(format_summary(run))
     return 0 if run.result.status == "RAN" and not run.result.outcomes.get("FAILED") else 1
 

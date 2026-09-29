@@ -74,6 +74,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.core import db as core_db
 from app.finance.db import fetch_all, get_db_schema
 
 #: 커버일수. `constraints.yaml` 의 `coverage_days` 와 같은 셋이지만 **여기서 판정하지
@@ -357,4 +358,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with core_db.pool_lifespan():
+        main()

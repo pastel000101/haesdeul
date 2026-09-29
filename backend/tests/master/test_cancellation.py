@@ -27,9 +27,9 @@ from typing import Any
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master import cancellation
 from app.master.cancellation import CancellationOut, undo_approval
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 
 APPROVED_ON = date(2026, 1, 5)
 
@@ -67,7 +67,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
         self.updated: list[Any] = []
 
     def cursor(self) -> Any:
@@ -93,8 +93,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _파트:
@@ -166,7 +170,7 @@ def test_어댑터가_하나도_없으면_안_돈다():
     살아 있는"* 장부가 남는다."""
     conn = _가짜커넥션()
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -180,7 +184,7 @@ def test_한_파트만_등록돼도_안_돈다():
     conn = _가짜커넥션()
 
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -199,7 +203,7 @@ def test_취소일을_그대로_싣는다_승인일이_아니다():
     finance, logistics = _등록한다()
 
     undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     assert finance.calls[0]["cancelled_on"] == CANCELLED_ON
@@ -212,7 +216,7 @@ def test_상태가_설_날은_취소_다음_달력일이다():
     finance, _ = _등록한다()
 
     undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     assert finance.calls[0]["target_state_date"] == date(2026, 1, 8)
@@ -225,7 +229,7 @@ def test_금요일_취소면_토요일이다():
     finance, _ = _등록한다()
 
     undo_approval(
-        _commitment(), cancelled_on=금요일, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=금요일, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     토요일 = date(2026, 1, 10)
@@ -237,7 +241,7 @@ def test_당일_취소면_승인과_같은_상태일에_닿는다():
     finance, _ = _등록한다()
 
     undo_approval(
-        _commitment(), cancelled_on=APPROVED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=APPROVED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     assert finance.calls[0]["target_state_date"] == date(2026, 1, 6)
@@ -249,7 +253,7 @@ def test_취소일이_승인일보다_앞서면_막는다():
     conn = _가짜커넥션()
 
     out = undo_approval(
-        _commitment(), cancelled_on=date(2026, 1, 4), connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=date(2026, 1, 4), borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -268,7 +272,7 @@ def test_두_파트가_같은_purchase_ids_를_받는다():
     undo_approval(
         _commitment(legs=2),
         cancelled_on=CANCELLED_ON,
-        connect=lambda: _가짜커넥션(),
+        borrow=lambda: _가짜커넥션(),
         sim_run_id=실행축,
     )
 
@@ -284,7 +288,7 @@ def test_승인이_만든_ID_와_같은_값이다():
     finance, _ = _등록한다()
 
     undo_approval(
-        commitment, cancelled_on=CANCELLED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        commitment, cancelled_on=CANCELLED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     기대 = {leg.seq: purchase_id_for(commitment, leg.seq) for leg in commitment.arrival_schedule}
@@ -299,14 +303,14 @@ def test_다_성공하면_한_번_커밋한다():
     _등록한다()
 
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "CANCELLED"
     assert out.parts == ["finance", "logistics"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_한_파트가_터지면_통째로_롤백한다():
@@ -315,14 +319,14 @@ def test_한_파트가_터지면_통째로_롤백한다():
     _등록한다(logistics_raises=RuntimeError("입고된 뒤라 못 물린다"))
 
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
     assert "입고된 뒤라 못 물린다" in out.reason
     assert conn.committed == 0
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_실패해도_예외를_밖으로_내지_않는다():
@@ -330,7 +334,7 @@ def test_실패해도_예외를_밖으로_내지_않는다():
     _등록한다(logistics_raises=RuntimeError("boom"))
 
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     assert isinstance(out, CancellationOut)
@@ -345,7 +349,7 @@ def test_원장을_DELETE_하지_않는다():
     conn = _가짜커넥션()
     _등록한다()
 
-    undo_approval(_commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축)
+    undo_approval(_commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축)
 
     원문 = " ".join(q for q, _ in conn.updated).upper()
     assert "DELETE" not in 원문, f"원장을 지웠다 — {원문}"
@@ -358,7 +362,7 @@ def test_이미_취소된_것은_안_센다():
     conn = _가짜커넥션()
     _등록한다()
 
-    undo_approval(_commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축)
+    undo_approval(_commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축)
 
     원문 = " ".join(q for q, _ in conn.updated)
     assert "settlement_status <> 'CANCELLED'" in 원문
@@ -370,7 +374,7 @@ def test_회차가_없으면_원장을_안_건드린다():
     finance, _ = _등록한다()
 
     out = undo_approval(
-        _commitment(legs=0), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(legs=0), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "CANCELLED"
@@ -456,7 +460,7 @@ def test_두_파트가_같은_financing_mode_를_받는다():
     finance, logistics = _등록한다()
 
     undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: _가짜커넥션(), sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: _가짜커넥션(), sim_run_id=실행축
     )
 
     assert finance.calls[0]["financing_mode"] == MODE
@@ -478,7 +482,7 @@ def test_축을_못_읽으면_막는다(monkeypatch: pytest.MonkeyPatch):
     conn = _가짜커넥션()
 
     out = undo_approval(
-        _commitment(), cancelled_on=CANCELLED_ON, connect=lambda: conn, sim_run_id=실행축
+        _commitment(), cancelled_on=CANCELLED_ON, borrow=lambda: conn, sim_run_id=실행축
     )
 
     assert out.status == "FAILED"

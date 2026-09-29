@@ -59,20 +59,20 @@ def build(as_of: date, pane: str) -> LogisticsTab:
 
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요** (#415).
 
-**★ 커넥션은 한 판에 하나입니다** (2026-09-15). `build()` 가 커넥션 하나를 열어
-콘솔 함수에 `conn=` 으로 넘기고, Runtime 읽기(판매가능량 축)는 `load_console_runtime`
-한 번으로 재고·입고 콘솔이 나눠 씁니다.
+**★ 커넥션은 한 판에 하나입니다** (2026-09-15). `build()` 가 공통 풀에서 커넥션 하나를
+빌려(2026-09-29 풀 전환) 콘솔 함수에 `conn=` 으로 넘기고, Runtime 읽기(판매가능량 축)는
+`load_console_runtime` 한 번으로 재고·입고 콘솔이 나눠 씁니다.
 
 ```python
+from app.core import db as core_db
 from app.logistics.console_service import (
     get_inbound_console,
     get_inventory_console,
     get_outbound_console,
     load_console_runtime,
 )
-from app.logistics.db import get_connection
 
-with get_connection() as conn:
+with core_db.connection() as conn, core_db.transaction(conn):
     runtime = load_console_runtime(conn=conn, sim_run_id=..., as_of=as_of)
     inv = get_inventory_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
     inb = get_inbound_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)

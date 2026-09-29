@@ -6,6 +6,13 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import (
+    AgentReply,
+    AgentRequest,
+    ExecutionContext,
+    ExecutionMetadata,
+    validate_reply,
+)
 from app.finance import user_messages as messages
 from app.finance.application.harness import (
     PRE_PURCHASE_TOOLS,
@@ -26,13 +33,6 @@ from app.finance.db import (
 from app.finance.execution import get_finance_execution, save_finance_execution
 from app.finance.llm.planner import FinancePlannerContractViolation, ToolAction
 from app.finance.schemas import CashEvent, FinancePolicy
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-    validate_reply,
-)
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
 

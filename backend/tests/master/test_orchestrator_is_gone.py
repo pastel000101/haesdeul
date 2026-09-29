@@ -224,12 +224,19 @@ def test_공용_계약을_쓰는_파일이_늘지_않는다():
     #   품목 범위**를 `ITEMS` 에서 읽는다. 🔴 피마늘·건고추를 보고서 코드에 직접
     #   적어서 거르지 않는다 — 범위는 업무 결정이고 그 주인은 계약이다.
     #   commitment.py·forecast_gate.py·inputs.py 와 같은 자리다.
+    # ★ 2026-09-29 에 둘이 빠졌다 (재구성 BL-011). `envelope.py` 는 파일째
+    #   `app/contracts/envelope.py` 로 올라갔고, `commitment.py` 는 약정 타입과
+    #   `ITEM_CODES` 를 `app/contracts/commitment.py` 로 보내 이제 그쪽을 읽는다 —
+    #   계약을 덜 쓰게 된 것이 아니라 계약의 자리가 늘었다. 품목 목록을 다시 세지 않는
+    #   규율은 `ITEM_CODES` 와 함께 옮겨 갔다 (`test_item_set_follows_contract.py`).
+    # ★ 같은 날 plan.py 가 들어왔다 — `RuntimeStatus` · `Verdict` 를 봉투가 다시 내보내는
+    #   이름으로 읽던 것을 **정의 자리에서** 읽는다. 새로 쓰기 시작한 계약이 아니라 경로가
+    #   곧아진 것이다 (물류 어댑터의 `Verdict` 도 같이 바꿨다).
     assert users == {
         "band.py": ["app.contracts.core"],
+        "plan.py": ["app.contracts.core"],
         "report.py": ["app.contracts.core"],
-        "commitment.py": ["app.contracts.core"],
         "critic_bridge.py": ["app.contracts.core"],
-        "envelope.py": ["app.contracts.core"],
         "inputs.py": ["app.contracts.core"],
         "flow.py": ["app.contracts.core"],
         "forecast_gate.py": ["app.contracts.core"],

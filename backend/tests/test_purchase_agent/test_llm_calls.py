@@ -16,11 +16,7 @@ from datetime import date
 
 import pytest
 
-from app.master.envelope import (
-    ContractViolation,
-    LLMCallMetadata,
-    summarize_llm_calls,
-)
+from app.contracts.envelope import ContractViolation, LLMCallMetadata, summarize_llm_calls
 from app.purchase_agent.adapter import SOURCING_SELECTION
 
 ITEM = "배추"

@@ -26,6 +26,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from app.contracts.core import Evidence, SuggestedAdjustment
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.finance import execution
 from app.finance import user_messages as messages
 from app.finance.application.harness import (
@@ -70,7 +71,6 @@ from app.finance.llm.planner import (
 )
 from app.finance.state import FinanceAgentState
 from app.finance.user_messages import explanation_for, explanation_keys
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 # ---------------------------------------------------------------------------
 # 업무 결과 확정 — Tool 관측에서 payload/Evidence 로

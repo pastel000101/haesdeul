@@ -1,9 +1,11 @@
 """마스터 에이전트 (정의서 v2.2 · 소유: 이현서).
 
-`envelope` 는 마스터 ↔ 도메인 에이전트가 주고받는 **공용 계약**이다.
-재무·물류·매입 파트가 전부 여기서 임포트한다 — M-1 공통 이벤트 규약 v0.2.
+마스터 ↔ 도메인 에이전트가 주고받는 **공용 계약**(봉투, M-1 공통 이벤트 규약 v0.2)은
+`app/contracts/envelope.py` 에 있다 (2026-09-29 재구성 BL-011 — 전에는 이 패키지의
+`envelope` 모듈이었고 여기서 그 이름들을 다시 내보냈다). 파트가 봉투를 쓰려고 마스터를
+import 하지 않게 옮긴 것이라, 이 패키지는 봉투 이름을 다시 내보내지 않는다.
 
-나머지 모듈은 **마스터 본체**다.
+이 패키지의 모듈은 **마스터 본체**다.
 
     ports    에이전트 호출 접점 · 레지스트리 · 실패를 값으로
     budget   호출 예산 강제 (정의서 §1.2-12)
@@ -16,20 +18,6 @@
 """
 
 from app.master.budget import BudgetExhausted, CallBudget
-from app.master.envelope import (
-    SCHEMA_VERSION,
-    AgentName,
-    AgentReply,
-    AgentRequest,
-    EnvelopeFinding,
-    ExecutionContext,
-    ExecutionMetadata,
-    LLMStatus,
-    Mode,
-    Trigger,
-    agent_allowed_modes,
-    validate_reply,
-)
 from app.master.flow import (
     ADVISORS,
     ProcurementFlow,
@@ -49,30 +37,18 @@ from app.master.runner import MasterRunner
 
 __all__ = [
     "ADVISORS",
-    "SCHEMA_VERSION",
-    "AgentName",
     "AgentNotRegistered",
     "AgentPort",
     "AgentRegistry",
-    "AgentReply",
-    "AgentRequest",
     "BudgetExhausted",
     "CallBudget",
-    "EnvelopeFinding",
-    "ExecutionContext",
-    "ExecutionMetadata",
     "ExecutionPlan",
     "ExecutionStep",
-    "LLMStatus",
     "MasterError",
     "MasterRunner",
-    "Mode",
     "ProcurementFlow",
     "ProcurementOutcome",
-    "Trigger",
     "VerifierPort",
-    "agent_allowed_modes",
     "empty_metadata",
     "error_reply",
-    "validate_reply",
 ]

@@ -94,6 +94,7 @@ from typing import Any
 
 from psycopg import sql
 
+from app.contracts.parts import ReceivablePartOut
 from app.finance.db import (
     FinanceDataNotReady,
     FinanceRuntimeAxis,
@@ -103,7 +104,6 @@ from app.finance.db import (
 from app.finance.receivables import ReceivablePersistenceConflict, confirm_receivable
 from app.finance.sales_validation import ReceivableCreateInput
 from app.master.day_opening_repository import handled_on_first_open_day
-from app.master.receivable import ReceivablePartOut
 
 __all__ = [
     "ISSUABLE_ORDER_STATUSES",

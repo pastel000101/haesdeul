@@ -33,10 +33,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import decision_service, persistence, revalidation, wiring
 from app.master.day_gate import DayGate
 from app.master.decision import DecisionIn, DecisionOut, mark_current
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 REQ = "REQ-20260901-0001"
 RUN_UUID = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
@@ -609,7 +609,7 @@ def test_추가매입은_라우팅이_열려도_재검증에서_안_부른다(mo
     ★ 그래서 `_NOT_REVALIDATED` 로 막고 `unroutable` 로 남긴다 — 라우팅이 열리기
       전과 화면이 같고, *"이 검증은 안 왔다"* 는 사실 그대로다.
     """
-    from app.master.envelope import CAPABILITY_ROUTING
+    from app.contracts.envelope import CAPABILITY_ROUTING
 
     assert CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"] is not None, (
         "라우팅이 닫혀 있으면 이 검사가 아무것도 안 잰다 — 열린 채로 막는 것이 요점이다"

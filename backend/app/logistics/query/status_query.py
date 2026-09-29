@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -33,7 +34,8 @@ from typing import Any
 
 from psycopg import sql
 
-from app.logistics.db import get_connection, get_db_schema
+from app.core import db as core_db
+from app.logistics.db import get_db_schema
 from app.logistics.query.llm import (
     AssistantTurn,
     Chat,
@@ -529,20 +531,20 @@ def answer_status_question(
     """질문형 STATUS_QUERY 를 **LLM tool-calling loop** 로 처리한다.
 
     :param chat: LLM 전송 seam(기본 = 설정된 provider). 🔴 테스트는 가짜 chat 을 준다.
-    :param conn: 이미 열린 커넥션(테스트/재사용). 없으면 이 함수가 하나 연다.
+    :param conn: 이미 열린 커넥션(테스트/재사용). 없으면 **Tool 을 부를 때마다** 공통 풀에서
+                 조회 연결을 빌리고 그 Tool 이 끝나면 돌려준다.
+
+    🔴 **LLM 을 기다리는 동안 연결을 쥐지 않는다** (2026-09-29 풀 전환). 종전에는 루프 앞에서
+       연결 하나를 열어 LLM 턴 내내 쥐고 있었다. Tool 은 전부 읽기라 Tool 마다 빌려도 답이
+       같다(READ COMMITTED 는 문장마다 새 스냅숏).
     """
     llm = chat if chat is not None else build_chat()
-    own_connection = conn is None
-    connection = conn if conn is not None else get_connection()
-    try:
-        return _run_loop(question, sim_run_id=sim_run_id, as_of=as_of, chat=llm, conn=connection)
-    finally:
-        if own_connection:
-            connection.close()
+    borrow = core_db.read_connection if conn is None else (lambda: nullcontext(conn))
+    return _run_loop(question, sim_run_id=sim_run_id, as_of=as_of, chat=llm, borrow=borrow)
 
 
 def _run_loop(
-    question: str, *, sim_run_id: str, as_of: date, chat: Chat, conn: Any
+    question: str, *, sim_run_id: str, as_of: date, chat: Chat, borrow: core_db.Borrow
 ) -> StatusQueryAnswer:
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -579,7 +581,8 @@ def _run_loop(
                 result: dict[str, Any] = {"error": "TOOL_BUDGET_EXCEEDED", "tool": call.name}
             else:
                 tool_calls_made += 1
-                result = _run_one_tool(call, conn=conn, sim_run_id=sim_run_id, as_of=as_of)
+                with borrow() as conn:
+                    result = _run_one_tool(call, conn=conn, sim_run_id=sim_run_id, as_of=as_of)
             tool_trace.append(
                 {"tool": call.name, "arguments": dict(call.arguments), "result": result}
             )

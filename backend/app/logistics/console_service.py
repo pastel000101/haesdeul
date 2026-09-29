@@ -53,12 +53,12 @@ app/logistics        물류 도메인 · Agent · 그리고 이 조회 조립
    커넥션 재사용이 줄이는 것은 **연결 비용과 중복 조회**다.
    `repository` 의 읽기 함수들도 같은 `conn` 을 받는다 (`get_current_logistics_read(conn=)`).
 
-   ⚠️ **커넥션 하나가 «모든 SELECT 가 같은 시점» 을 보장하지는 않는다.** `get_connection`
-      은 격리수준을 안 정해 PostgreSQL 기본값 `READ COMMITTED` 로 돈다 — 같은 트랜잭션
-      안이라도 SELECT 는 문장마다 새 스냅샷을 잡아, 사이에 다른 커밋이 있으면 두 조회가
-      다른 값을 볼 수 있다. 화면이 «같은 as_of» 로 서는 근거는 커넥션이 아니라 **각 SQL 의
-      `as_of` cutoff**(`historical_repository`)다. 조회 원자성이 필요하면 `REPEATABLE READ`
-      가 있어야 하고, 그것은 이 작업의 범위가 아니다.
+   ⚠️ **커넥션 하나가 «모든 SELECT 가 같은 시점» 을 보장하지는 않는다.** 공통 풀의 연결
+      (`app.core.db`)은 격리수준을 안 정해 PostgreSQL 기본값 `READ COMMITTED` 로 돈다 —
+      같은 트랜잭션 안이라도 SELECT 는 문장마다 새 스냅샷을 잡아, 사이에 다른 커밋이
+      있으면 두 조회가 다른 값을 볼 수 있다. 화면이 «같은 as_of» 로 서는 근거는 커넥션이
+      아니라 **각 SQL 의 `as_of` cutoff**(`historical_repository`)다. 조회 원자성이
+      필요하면 `REPEATABLE READ` 가 있어야 하고, 그것은 이 작업의 범위가 아니다.
 """
 
 from __future__ import annotations
@@ -70,6 +70,7 @@ from typing import Any, cast
 
 from psycopg import sql
 
+from app.core.text import to_decimal
 from app.logistics import arrival, historical_repository
 from app.logistics.db import get_db_schema
 from app.logistics.historical_repository import (
@@ -143,11 +144,6 @@ def _rows(conn: Any, query: sql.Composed, params: Any = None) -> list[dict[str, 
 
 def _schema() -> sql.Identifier:
     return sql.Identifier(get_db_schema())
-
-
-def _decimal(value: Any) -> Decimal:
-    """숫자 칸을 Decimal 로. `None` 은 0 이 아니라 호출부가 따로 다룬다."""
-    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 # ── 공통 조회 ───────────────────────────────────────────────────────────
@@ -469,9 +465,11 @@ def get_inventory_console(
                 available_qty_kg=(
                     None if available_by_name is None else available_by_name.get(name, Decimal(0))
                 ),
-                reserved_qty_kg=_decimal(totals.get("reserved_qty_kg", 0)),
-                allocated_qty_kg=_decimal(totals.get("allocated_qty_kg", 0)),
-                unallocated_reserved_qty_kg=_decimal(totals.get("unallocated_reserved_qty_kg", 0)),
+                reserved_qty_kg=to_decimal(totals.get("reserved_qty_kg", 0)),
+                allocated_qty_kg=to_decimal(totals.get("allocated_qty_kg", 0)),
+                unallocated_reserved_qty_kg=to_decimal(
+                    totals.get("unallocated_reserved_qty_kg", 0)
+                ),
                 active_reservation_count=int(totals.get("active_reservation_count", 0)),
                 sell_priority_lot_count=sum(1 for lot in item_lots if lot.sell_priority),
                 expired_lot_count=len(expired),

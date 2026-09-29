@@ -48,7 +48,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.contracts.core import Evidence, SuggestedAdjustment
+from app.contracts.core import Evidence, SuggestedAdjustment, Verdict
+from app.contracts.envelope import DEPT_CAP_CHECK_ID, AgentReply, AgentRequest, ExecutionMetadata
 from app.logistics.interpretation import (
     build_sanitized_context,
     master_interpretation_service,
@@ -88,8 +89,6 @@ from app.logistics.tools import (
     fefo_inventory_cost_basis,
     supply_capacity_by_date,
 )
-from app.master.critic_bridge import DEPT_CAP_CHECK_ID
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata, Verdict
 from app.purchase_agent.schemas import PurchaseProposal
 
 logger = logging.getLogger(__name__)
@@ -1361,7 +1360,7 @@ def _pre_sales(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
     ★ **payload 는 판매 계약(`app.sales.schemas.SalesLogisticsContext`)의 낱말을 쓴다.**
       🔴 **그 모듈을 import 하지 않는다** — 조정자를 건너뛰고 두 부서를 실행 계층에서
       붙이면 판매가 자기 파일을 고치는 날 물류가 같이 깨진다 (마스터가 판매 어휘를
-      베껴 두고 테스트로만 대조하는 것과 같은 판단, `master/envelope.Capability`).
+      베껴 두고 테스트로만 대조하는 것과 같은 판단, `contracts/envelope.Capability`).
       맞추는 것은 **JSON 모양뿐**이다.
 
       🔴 **숫자를 실은 셋만 payload 최상위에 둔다.**
@@ -2462,7 +2461,7 @@ def _load_read(*, as_of: date, sim_run_id: str) -> LogisticsRead | None:
 
     🔴 **`sim_run_id` 는 봉투에서 온다. 여기서 지어내지 않는다** (#345).
        *"어느 실행의 장부인가"* 는 물류 사실이 아니라 마스터가 소유한 값이다
-       (`master/envelope.ExecutionContext`). 그래서 `BURN_IN_SIM_RUN_ID` 로 메우지도,
+       (`contracts/envelope.ExecutionContext`). 그래서 `BURN_IN_SIM_RUN_ID` 로 메우지도,
        최신 실행을 고르지도, DB 에서 되짚지도 않는다 — 그 전부가 fail-open 이다.
 
     ★ **선택 인자로 두지 않았다.** 어댑터 경로에는 값이 없는 경우가 없다 —

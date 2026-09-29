@@ -59,8 +59,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main  # import 시점에 판매 어댑터를 등록한다. 이 검사의 전제다
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import persistence, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.sales.adapter import sales_port
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 

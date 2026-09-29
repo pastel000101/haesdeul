@@ -23,12 +23,12 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
 from app.finance.application.orchestration import FinanceAgentController
 from app.finance.execution import _finance_dept_meta
 from app.finance.llm.planner import ToolAction
 from app.finance.state import FinanceAgentState
-from app.master.envelope import AgentRequest, ExecutionContext
 from tests.finance.test_finance_adapter import _Context, _Policy
 
 AS_OF = date(2025, 12, 31)

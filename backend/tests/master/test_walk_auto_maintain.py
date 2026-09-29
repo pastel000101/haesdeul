@@ -43,6 +43,7 @@ from typing import Any
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.logistics.auto_maintenance import (
     AutoMaintenanceResult,
     LotMaintenanceOutcome,
@@ -50,7 +51,6 @@ from app.logistics.auto_maintenance import (
 )
 from app.master import backtest_runner, maintenance, scheduler
 from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.clock import SEOUL
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.maintenance import (
     AUTO_MAINTENANCE,
@@ -435,7 +435,7 @@ def test_마스터가_사유와_행위자와_시각을_물류에_넘긴다() -> 
         AS_OF,
         sim_run_id=실행,
         occurred_at=지금,
-        connect=연결,
+        borrow=연결,
         maintain_fn=경계,
     )
 
@@ -533,7 +533,7 @@ def test_걷는_날마다_그날의_시각이_간다() -> None:
 def test_마스터_유지보수가_시계를_안_읽는다() -> None:
     """🔴 **벽시계를 읽는 자리는 `clock.py` 하나다.**
 
-    ★ `tests/master/test_clock_is_the_only_wall_clock.py` 와 같은 결이다 —
+    ★ `tests/core/test_clock_is_the_only_wall_clock.py` 와 같은 결이다 —
       이 파일에 `datetime.now` 나 `utcnow` 가 들어오면 시간축의 주인이 둘이 된다.
     """
     원문 = Path(maintenance.__file__).read_text(encoding="utf-8")
@@ -606,7 +606,7 @@ def test_연결이_안_되면_FAILED_로_돌아서고_예외를_안_낸다() -> 
     def 못붙음() -> Any:
         raise RuntimeError("연결이 안 된다")
 
-    out = run_auto_maintenance(AS_OF, sim_run_id=실행, occurred_at=지금, connect=못붙음)
+    out = run_auto_maintenance(AS_OF, sim_run_id=실행, occurred_at=지금, borrow=못붙음)
 
     assert out.status == "FAILED"
     assert out.result is None
@@ -618,13 +618,13 @@ def test_물류가_터지면_롤백하고_커밋을_안_한다() -> None:
     경계 = _물류경계(boom=RuntimeError("물류가 터졌다"))
 
     out = run_auto_maintenance(
-        AS_OF, sim_run_id=실행, occurred_at=지금, connect=연결, maintain_fn=경계
+        AS_OF, sim_run_id=실행, occurred_at=지금, borrow=연결, maintain_fn=경계
     )
 
     assert out.status == "FAILED"
     assert 연결.conn.committed == 0
     assert 연결.conn.rolled_back == 1
-    assert 연결.conn.closed == 1
+    assert 연결.conn.returned == 1
 
 
 def test_트랜잭션의_주인이_마스터다() -> None:
@@ -637,12 +637,12 @@ def test_트랜잭션의_주인이_마스터다() -> None:
     경계 = _물류경계(result=_물류결과("DISPOSED", "PALLETS_EMPTIED"))
 
     run_auto_maintenance(
-        AS_OF, sim_run_id=실행, occurred_at=지금, connect=연결, maintain_fn=경계
+        AS_OF, sim_run_id=실행, occurred_at=지금, borrow=연결, maintain_fn=경계
     )
 
     assert 연결.conn.committed == 1, "한 사이클에 커밋이 하나가 아니다"
     assert 연결.conn.rolled_back == 0
-    assert 연결.conn.closed == 1
+    assert 연결.conn.returned == 1
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -801,7 +801,7 @@ class _커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -809,8 +809,12 @@ class _커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _연결:

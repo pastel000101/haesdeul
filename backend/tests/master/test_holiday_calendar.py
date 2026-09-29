@@ -471,8 +471,8 @@ def test_실_DB_의_표가_미래_공휴일을_답한다():
 
 
 def _wire_all() -> list[str]:
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
     from app.master import wiring
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
     called: list[str] = []
 
@@ -604,7 +604,9 @@ def test_실행일_모듈에_SQL_이_없다():
     code = ast.get_docstring(ast.parse(source))
     본문 = source.replace(code or "", "")  # 모듈 docstring 은 뷰 이름을 말할 수 있다
 
-    for 금지 in ("SELECT", "fetch_all", "fetch_one", "get_connection", "psycopg"):
+    for 금지 in (
+        "SELECT", "fetch_all", "fetch_one", "get_connection", "core_db", "app.core", "psycopg"
+    ):
         assert 금지 not in 본문, f"실행일 모듈이 DB 를 안다: {금지}"
     assert "app.finance.db" not in source, "실행일 모듈이 DB 모듈을 임포트한다"
 

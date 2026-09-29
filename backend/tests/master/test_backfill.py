@@ -18,7 +18,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.master import backfill, clock, decision
+from app.core import clock
+from app.master import backfill, decision
 from app.master.backfill import (
     ALWAYS_BASE,
     ALWAYS_FIXED_TYPE,
@@ -304,7 +305,7 @@ def test_오늘이_09_19_일_때_09_12_부터_09_20_까지의_결과_분포() ->
 
 
 def test_실제_오늘의_기본은_clock_today_in_seoul_자체다() -> None:
-    """🔴 **실제 날짜를 새로 읽지 않는다.** 마스터 시각 정본을 그대로 쓴다.
+    """🔴 **실제 날짜를 새로 읽지 않는다.** 시각 정본(`core/clock.py`)을 그대로 쓴다.
 
     ⚠️ `None` 이 아니다 — *"안 줬다"* 와 *"기본 시계"* 가 같은 값이 되면 안 된다.
     """

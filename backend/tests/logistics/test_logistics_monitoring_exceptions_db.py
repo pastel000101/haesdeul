@@ -35,8 +35,8 @@ import psycopg
 import pytest
 
 from app.api.logistics.query import _SEVERITY, _SEVERITY_UNKNOWN, _severity_at
+from app.core import db as core_db
 from app.logistics import historical_repository, turnover
-from app.logistics.db import get_connection
 from app.logistics.monitoring import exceptions as exception_repo
 from app.logistics.monitoring.detect import (
     COMMITTED,
@@ -110,46 +110,48 @@ def _file(name: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            for name in ("30_logistics_wms_schema.sql", "logistics_inventory_lots_nullable.sql"):
-                cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            # 🔴 이 판이 만드는 표가 검사 대상이다 — 저장소의 DDL 을 **그대로** 돌린다.
-            에이전트 = _file("40_logistics_agent_schema.sql")
-            cur.execute(에이전트.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                for name in (
+                    "30_logistics_wms_schema.sql",
+                    "logistics_inventory_lots_nullable.sql",
+                ):
+                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                # 🔴 이 판이 만드는 표가 검사 대상이다 — 저장소의 DDL 을 **그대로** 돌린다.
+                에이전트 = _file("40_logistics_agent_schema.sql")
+                cur.execute(에이전트.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            for 실행 in (SIM, OTHER_SIM):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (실행,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
-            for item, name in ((BAECHU, "배추"), (MU, "무")):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                for 실행 in (SIM, OTHER_SIM):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (실행,))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
+                for item, name in ((BAECHU, "배추"), (MU, "무")):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 **배추에만** 넣는다 — 실 DB 도 5 중 3 품목뿐이고,
+                #    정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다 (LEFT JOIN).
                 cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item, ZONE, LIMIT_DAYS),
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (BAECHU, PRIORITY_DAYS),
                 )
-            # 🔴 회전 정책은 **배추에만** 넣는다 — 실 DB 도 5 중 3 품목뿐이고,
-            #    정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다 (LEFT JOIN).
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (BAECHU, PRIORITY_DAYS),
-            )
-        for module in (turnover, historical_repository, exception_repo):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+            for module in (turnover, historical_repository, exception_repo):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────

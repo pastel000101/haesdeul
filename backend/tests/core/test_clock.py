@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from app.master.clock import SEOUL, seoul_now, today_in_seoul
+from app.core.clock import SEOUL, seoul_now, today_in_seoul
 
 _UTC = UTC
 

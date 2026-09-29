@@ -27,8 +27,8 @@ from datetime import date
 
 import pytest
 
+from app.contracts.envelope import ExecutionContext
 from app.master import ask_service, persistence, run_repository, service
-from app.master.envelope import ExecutionContext
 from app.master.plan import ExecutionPlan
 from app.master.schemas import (
     ProcurementRunRequest,

@@ -1,6 +1,17 @@
 """
 clock.py — **벽시계를 읽는 단 하나의 자리.**
 
+2026-09-29 `app/master/clock.py` 에서 옮겼다. 시간대와 벽시계는 부서가 다 같이 쓰는 기반이라
+`core` 에 둔다 — 마스터 안에 있을 때는 부서가 마스터를 import 할 수 없어 물류가
+`ZoneInfo("Asia/Seoul")` 를 따로 만들어 들고 있었다. 하루 시각 상수(09:30 시작 · 5분 간격 ·
+10:30 마감)는 스케줄러의 업무 값이라 옮기지 않았다 (`app/master/schedule_times.py`).
+
+```text
+여기           지금이 몇 시인가 — 시스템 시각을 서울 시간대로 읽는다    진입점이 한 번
+as_of          업무 날짜 — 진입점이 정해서 인자로만 흘린다             아래는 전부 이것
+sim_time       as_of 에서 단계 시각을 만든다 — 시계를 안 읽는다        app/master/sim_time.py
+```
+
 🔴 **이 저장소는 앱 전체에서 벽시계를 금지한다.** 여러 파일이 명시적으로 적어 뒀다.
 
 ```text
@@ -18,6 +29,11 @@ master/revalidation.py                 "서버 타임존에 답이 끌려가면 
     코드**로 돈다. 179 영업일 걷기가 `as_of` 를 인자로 넘겨 도는 것과 똑같고,
     **다른 것은 `as_of` 하나뿐이다.** 아래 어딘가가 시계를 한 번 더 읽으면 그
     지점부터 백테스트가 오늘 날짜로 답하기 시작하고, 성적이 조용히 무효가 된다.
+
+  (시계 함수를 가져가는 자리는 셋이다 — 스케줄러 깨어남(`master/scheduler.py`), 자동
+  승인의 실제 오늘 가드(`master/backfill.py`), ML 질의응답이 기준일을 못 받았을 때의
+  대체(`ml/qa_graph.py`). 목록과 이유는 `tests/core/test_clock_is_the_only_wall_clock.py`
+  가 들고 지킨다.)
 
 🔴 **시간대를 반드시 명시한다** — `ZoneInfo("Asia/Seoul")`.
 
@@ -46,13 +62,10 @@ master/revalidation.py                 "서버 타임존에 답이 끌려가면 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 __all__ = [
-    "SCHEDULE_DEADLINE",
-    "SCHEDULE_INTERVAL",
-    "SCHEDULE_START",
     "SEOUL",
     "seoul_now",
     "today_in_seoul",
@@ -66,42 +79,11 @@ __all__ = [
 SEOUL = ZoneInfo("Asia/Seoul")
 
 
-# ── 하루의 시각 상수 ────────────────────────────────────────────────────
-#
-# ★ **이름을 붙여 둔다.** 09:30 · 5분 · 10:30 이 코드 여기저기에 숫자로 흩어지면
-#   마감을 11:00 로 옮기는 날 한 군데를 빠뜨리고, 그 한 군데가 조용히 다르게 돈다.
-#
-# 🔴 **왜 `scheduler.py` 가 아니라 여기 있나** (2026-09-08 · 옮겨 왔다).
-#
-#   `sim_time.phase_instant` 가 기준점으로 `SCHEDULE_START` 를 쓴다. 그것을
-#   `scheduler` 에서 가져오면 `sim_time → scheduler → service` 를 끌어오고,
-#   `service` 가 나중에 `phase_instant` 를 쓰는 날 **순환이 난다.**
-#
-#   ★ 그 경로는 가설이 아니다 — `sim_time` 이 먹여 살리려는 자리가 정확히
-#     `scheduler` 가 모는 자리다.
-#
-#   이 파일은 표준 라이브러리만 들이는 **leaf** 라 누가 가져가도 고리가 안 생긴다.
-#   값의 뜻(언제 깨우고 언제 마감하나)은 그대로 스케줄러의 것이고, **여기는 그
-#   숫자를 두는 자리**다.
-
-#: ML 적재(09:23 쯤)가 끝났을 시각. **첫 깨어남.**
-SCHEDULE_START: time = time(9, 30)
-
-#: `WAIT` 일 때 다음 깨어남까지. **판단을 안 돌리고 그냥 다시 온다.**
-SCHEDULE_INTERVAL: timedelta = timedelta(minutes=5)
-
-#: 마감. 여기를 넘기면 **한 번 돌려 `E4_NOT_STARTED` 로 확정 기록**한다.
-#:
-#: ⚠️ 마감을 안 두면 예측이 영영 안 오는 날 스케줄러가 하루 종일 `WAIT` 하고,
-#:   *"오늘 못 돌았다"* 가 어디에도 안 남는다.
-SCHEDULE_DEADLINE: time = time(10, 30)
-
-
 def seoul_now() -> datetime:
     """지금 이 순간을 **서울 시각으로** 읽는다. 🔴 저장소에서 벽시계를 읽는 유일한 줄.
 
-    ★ 이 한 줄이 밖으로 새지 않는지는 `tests/master/test_clock_is_the_only_wall_clock.py`
-      가 `app/master/` 전체를 AST 로 훑어 지킨다.
+    ★ 이 한 줄이 밖으로 새지 않는지는 `tests/core/test_clock_is_the_only_wall_clock.py`
+      가 `app/` 전체를 AST 로 훑어 지킨다.
     """
     return datetime.now(SEOUL)
 

@@ -7,8 +7,9 @@
                              `연동/push_forecast.py` 로 직접 합니다 — 같은 일을
                              하는 코드가 두 벌이면 날짜 변환 규칙이 갈라집니다
 
-  마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 판매는 `app.ml.schemas.Forecast`
-  모양만 씁니다. **`schemas.py` · `service.py` 는 그대로 둡니다.**
+  마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 판매는 `app.contracts.forecast.Forecast`
+  모양만 씁니다 (2026-09-29 전 `app.ml.schemas.Forecast`).
+  **`schemas.py` · `service.py` 는 그대로 둡니다.**
   되살리려면 아래 `# ` 를 지우면 됩니다.
 """
 
@@ -24,7 +25,8 @@ from app.ml.qa_schemas import QaAnswer, QaRequest
 #
 # from fastapi import HTTPException, Query, status
 #
-# from app.ml.schemas import ITEMS, Forecast, TargetKind
+# from app.contracts.forecast import Forecast, TargetKind
+# from app.ml.schemas import ITEMS
 # from app.ml.service import get_forecast, push_forecasts
 
 router = APIRouter(prefix="/ml", tags=["ml"])

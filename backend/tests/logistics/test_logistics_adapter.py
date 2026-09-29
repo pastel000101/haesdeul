@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
 from app.logistics.llm import runtime as llm_runtime
 from app.logistics.llm.runtime import (
@@ -45,7 +46,6 @@ from app.logistics.schemas import (
     ScheduledQuantity,
 )
 from app.logistics.tools import build_lot_constraints as real_build_lot_constraints
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
 
 AS_OF = date(2025, 12, 31)
 
@@ -1406,7 +1406,7 @@ def test_inputs_used_키는_마스터가_합성하는_check_id_다(wired):
     이름의 주인은 마스터(`critic_bridge.DEPT_CAP_CHECK_ID`)이고, 물류는 거기에 맞출
     뿐이다. 물류는 문자열을 베끼지 않고 그 상수를 참조한다 (#137).
     """
-    from app.master.critic_bridge import DEPT_CAP_CHECK_ID
+    from app.contracts.envelope import DEPT_CAP_CHECK_ID
 
     _, meta = adapter.logistics_port(req())
     assert list(_dept_meta(meta)["inputs_used"]) == [DEPT_CAP_CHECK_ID["inventory"]]
@@ -1442,7 +1442,7 @@ def test_check_id_문자열을_물류가_들고_있지_않다():
     """
     import inspect
 
-    from app.master.critic_bridge import DEPT_CAP_CHECK_ID
+    from app.contracts.envelope import DEPT_CAP_CHECK_ID
 
     source = inspect.getsource(adapter)
     literal = DEPT_CAP_CHECK_ID["inventory"]
@@ -2140,6 +2140,8 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
         "app.logistics.service",
         "app.logistics.run_repository",
         "app.logistics.db",
+        # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문 — 옛 `get_connection` 과 같은 자리다.
+        "app.core.db",
         "app.logistics.outbound",
         "app.logistics.llm.runtime",
         "app.master.cycle_llm",

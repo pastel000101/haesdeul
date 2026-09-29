@@ -1830,7 +1830,7 @@ def test_앞날_배치는_기준일_뒤는_못_본다고_한_줄로_말한다(�
 
 def test_앞날_배치도_어댑터는_고장이_아니라고_낸다(도구를_갈아_끼운다, monkeypatch):
     """🔴 `RUNTIME_NOT_READY` 로 올리면 마스터가 이 한 줄을 **버린다.**"""
-    from app.master import envelope as E
+    from app.contracts import envelope as E
     from app.ml import adapter
 
     도구를_갈아_끼운다(rows=[])

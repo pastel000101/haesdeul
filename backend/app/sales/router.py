@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, ValidationError
 
-from app.master.envelope import AgentReply, AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext
 from app.sales.adapter import sales_port
 from app.sales.partner_profile import (
     FOREIGN_FIELDS,

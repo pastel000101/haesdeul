@@ -38,14 +38,10 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+from app.contracts import envelope
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.master import backtest_runner
 from app.master.backtest_runner import WalkResult, format_summary
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
 from app.master.plan import ExecutionPlan
 from app.master.scheduler import DayRunOutcome, ItemRunOutcome, _observed_ats
 from app.master.service import _steps
@@ -187,7 +183,9 @@ def test_응답_스키마까지_None_이_None_으로_나간다() -> None:
 # ---------------------------------------------------------------------------
 
 
-_봉투파일 = Path(backtest_runner.__file__).with_name("envelope.py")
+#: 2026-09-29 봉투가 `app/contracts/envelope.py` 로 올라갔다 (재구성 BL-011) — 전에는
+#: `backtest_runner.py` 옆(`app/master/`)에 있었다.
+_봉투파일 = Path(envelope.__file__)
 
 
 def _필드주석(source: str, 클래스: str, 필드: str) -> str:

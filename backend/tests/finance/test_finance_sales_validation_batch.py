@@ -18,12 +18,12 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance.adapter import finance_port
 from app.finance.application.orchestration import (
     aggregate_sales_business_status,
     branch_requests,
 )
-from app.master.envelope import AgentRequest, ExecutionContext
 
 _EXECUTION = "app.finance.execution"
 

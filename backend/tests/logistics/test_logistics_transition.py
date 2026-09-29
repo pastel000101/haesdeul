@@ -20,6 +20,7 @@ from typing import Any, Self
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.logistics import transition
 from app.logistics.inbound_schedules import (
     InboundScheduleView,
@@ -38,7 +39,6 @@ from app.logistics.transition import (
     build_next_inventory,
     persist_inventory,
 )
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 
 AS_OF = date(2025, 12, 31)
 SIM_RUN_ID = "LOG-RUNTIME-SIM-BURNIN-202512-DAY30"
@@ -547,6 +547,9 @@ def test_persist_does_not_open_its_own_connection():
     source = Path(transition.__file__).read_text(encoding="utf-8")
 
     assert "get_connection" not in source
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in source
+    assert "app.core" not in source
 
 
 def test_persist_raises_when_the_fixture_row_is_missing():

@@ -13,7 +13,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.ml.schemas import HORIZON_DAYS, ITEMS, SPEC, DailyPoint, Forecast
+from app.contracts.forecast import DailyPoint, Forecast
+from app.ml.schemas import HORIZON_DAYS, ITEMS, SPEC
 
 KST = timezone(timedelta(hours=9))
 AS_OF = date(2026, 8, 26)

@@ -5,10 +5,12 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from psycopg import sql
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.contracts.envelope import AgentReply, AgentRequest
+from app.core import db as core_db
 from app.finance import user_messages as messages
 from app.finance.adapter import finance_port
 from app.finance.cash_adjustments import (
@@ -16,7 +18,7 @@ from app.finance.cash_adjustments import (
     record_cash_adjustment,
 )
 from app.finance.collection import FinanceCollectionConflict, apply_collection_event
-from app.finance.db import FinanceDataNotReady, get_connection, get_db_schema
+from app.finance.db import FinanceDataNotReady, get_db_schema
 from app.finance.execution import get_finance_execution, get_finance_run, list_finance_runs
 from app.finance.expenses import (
     KNOWN_EXPENSE_CATEGORIES,
@@ -31,9 +33,17 @@ from app.finance.schemas import (
     FinanceCycle,
     RuntimeStatus,
 )
-from app.master.envelope import AgentReply, AgentRequest
 
 router = APIRouter(prefix="/finance", tags=["finance"])
+
+#: 요청 처리 동안 공통 풀에서 빌린 연결 (2026-09-29 풀 전환). **commit 하지 않는다** —
+#: 트랜잭션은 핸들러가 `core_db.transaction(conn)` 으로 연다(종전 핸들러의 연결 블록과 같은
+#: 경계: 정상 commit · 예외 rollback). `scope="function"` 이라 응답을 보내기 전에 연결을
+#: 돌려준다. 🔴 `/agent` 처럼 LLM 을 기다리는 라우트에는 걸지 않는다.
+#:
+#: ⚠️ `app.master.ask_service` 가 아래 쓰기 핸들러를 파이썬 함수로 부르므로(설계서 규칙 1
+#:   위반 · BL-014 에서 service 로 뺀다) 그쪽은 `core_db.connection()` 으로 빌려 넘긴다.
+DbConnection = Annotated[core_db.Connection, Depends(core_db.db_connection, scope="function")]
 
 
 class CreditLimitChange(BaseModel):
@@ -74,10 +84,11 @@ class CreditLimitHistoryItem(BaseModel):
 def get_credit_limits(
     partner_id: Annotated[str, Query(min_length=1)],
     as_of: date,
+    conn: DbConnection,
 ) -> list[CreditLimitHistoryItem]:
     """한 거래처의 여신한도 이력을 최신 적용일부터 반환한다."""
     schema = sql.Identifier(get_db_schema())
-    with get_connection() as conn, conn.cursor() as cursor:
+    with core_db.transaction(conn), conn.cursor() as cursor:
         cursor.execute(
             sql.SQL("SELECT 1 FROM {}.partners WHERE partner_id = %s").format(schema),
             [partner_id],
@@ -104,11 +115,11 @@ def get_credit_limits(
 
 
 @router.post("/credit-limits", status_code=status.HTTP_201_CREATED)
-def register_credit_limit(change: CreditLimitChange) -> dict[str, object]:
+def register_credit_limit(change: CreditLimitChange, conn: DbConnection) -> dict[str, object]:
     """열린 한도 기간을 끝내고 새 기간을 추가한다; 과거 금액은 덮어쓰지 않는다."""
     schema = sql.Identifier(get_db_schema())
     try:
-        with get_connection() as conn, conn.cursor() as cursor:
+        with core_db.transaction(conn), conn.cursor() as cursor:
             cursor.execute(
                 sql.SQL("""
                     SELECT 1 FROM {}.partners WHERE partner_id = %s
@@ -259,10 +270,10 @@ def list_expense_categories() -> dict[str, object]:
 
 
 @router.post("/expenses", status_code=status.HTTP_201_CREATED)
-def create_operating_expense(expense: ExpenseCreate) -> dict[str, object]:
+def create_operating_expense(expense: ExpenseCreate, conn: DbConnection) -> dict[str, object]:
     """운영비 한 건을 `ACCRUED` 로 적는다."""
     try:
-        with get_connection() as conn:
+        with core_db.transaction(conn):
             expense_id = create_expense(conn, **expense.model_dump())
     except ExpenseConflict as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
@@ -270,10 +281,12 @@ def create_operating_expense(expense: ExpenseCreate) -> dict[str, object]:
 
 
 @router.post("/expenses/{expense_id}/settle")
-def settle_operating_expense(expense_id: str, request: ExpenseSettle) -> dict[str, object]:
+def settle_operating_expense(
+    expense_id: str, request: ExpenseSettle, conn: DbConnection
+) -> dict[str, object]:
     """`ACCRUED` 비용을 지급하고 같은 거래에서 현금을 줄인다."""
     try:
-        with get_connection() as conn:
+        with core_db.transaction(conn):
             result = settle_expense(conn, expense_id=expense_id, **request.model_dump())
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -293,10 +306,12 @@ def settle_operating_expense(expense_id: str, request: ExpenseSettle) -> dict[st
 
 
 @router.post("/expenses/{expense_id}/cancel")
-def cancel_operating_expense(expense_id: str, request: ExpenseCancel) -> dict[str, object]:
+def cancel_operating_expense(
+    expense_id: str, request: ExpenseCancel, conn: DbConnection
+) -> dict[str, object]:
     """`ACCRUED` 비용을 취소한다. 이미 지급된 비용은 여기로 오지 못한다."""
     try:
-        with get_connection() as conn:
+        with core_db.transaction(conn):
             cancel_expense(conn, expense_id=expense_id, **request.model_dump())
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -306,13 +321,15 @@ def cancel_operating_expense(expense_id: str, request: ExpenseCancel) -> dict[st
 
 
 @router.post("/receivables/collections", status_code=status.HTTP_201_CREATED)
-def record_receivable_collection(change: ReceivableCollectionChange) -> dict[str, object]:
+def record_receivable_collection(
+    change: ReceivableCollectionChange, conn: DbConnection
+) -> dict[str, object]:
     """한 채권의 실제 전액/부분 수금을 누적 전이로 기록한다."""
     if not change.collect_all and change.amount_krw is None:
         raise HTTPException(status_code=422, detail="부분 수금액을 입력해 주세요.")
     schema = sql.Identifier(get_db_schema())
     try:
-        with get_connection() as conn, conn.cursor() as cursor:
+        with core_db.transaction(conn), conn.cursor() as cursor:
             cursor.execute(
                 sql.SQL("""SELECT original_amount_krw, received_amount_krw FROM {}.receivables
                            WHERE receivable_id = %s AND sim_run_id = %s FOR UPDATE""").format(
@@ -374,10 +391,10 @@ def record_receivable_collection(change: ReceivableCollectionChange) -> dict[str
 
 
 @router.post("/cash-adjustments", status_code=status.HTTP_201_CREATED)
-def create_cash_adjustment(change: CashAdjustmentChange) -> dict[str, object]:
+def create_cash_adjustment(change: CashAdjustmentChange, conn: DbConnection) -> dict[str, object]:
     """사용자 자금 입금·출금을 근거와 함께 기록한다."""
     try:
-        with get_connection() as conn:
+        with core_db.transaction(conn):
             result = record_cash_adjustment(conn, **change.model_dump())
         return {
             "cash_adjustment_id": result.cash_adjustment_id,

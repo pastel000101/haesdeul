@@ -42,6 +42,8 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.contracts.envelope import ExecutionContext
+from app.core import db as core_db
 
 # DOMAIN_ACTION은 기존 Domain read/write를 호출만 한다. Master에 SQL/재계산을 두지 않는다.
 from app.finance.console_credit import get_console_credit
@@ -84,7 +86,6 @@ from app.master.budget import CallBudget
 from app.master.decision import DecisionIn, DecisionRejected
 from app.master.decision_repository import link_follow_up
 from app.master.decision_service import record_decision
-from app.master.envelope import ExecutionContext
 from app.master.llm.answer_runtime import NarrativeService, get_narrative_service
 from app.master.llm.runtime import IntentService, get_intent_service
 from app.master.llm.schemas import DomainSlots, Intent, IntentResult
@@ -738,19 +739,21 @@ def _domain_write(
         category = slots.cash_category or (
             "OWNER_INJECTION" if direction == "INFLOW" else "OWNER_WITHDRAWAL"
         )
-        result = create_cash_adjustment(
-            CashAdjustmentChange(
-                sim_run_id=SHOWN_SIM_RUN_ID,
-                financing_mode=mode,
-                adjustment_date=as_of,
-                direction=direction,
-                category=category,
-                amount_krw=_money(slots.amount, field="금액"),
-                source_ref=slots.source_ref or "",
-                recorded_by=actor,
-                note=slots.note,
+        with core_db.connection() as conn:
+            result = create_cash_adjustment(
+                CashAdjustmentChange(
+                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    financing_mode=mode,
+                    adjustment_date=as_of,
+                    direction=direction,
+                    category=category,
+                    amount_krw=_money(slots.amount, field="금액"),
+                    source_ref=slots.source_ref or "",
+                    recorded_by=actor,
+                    note=slots.note,
+                ),
+                conn,
             )
-        )
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -760,19 +763,23 @@ def _domain_write(
 
     if action == "FINANCE_CREDIT_LIMIT_UPSERT":
         partner_id = _partner_id(intent, as_of=as_of)
-        result = register_credit_limit(
-            CreditLimitChange(
-                partner_id=partner_id,
-                credit_limit_krw=_money(slots.credit_limit, field="새 여신한도", allow_zero=True),
-                effective_from=_user_date(
-                    slots.effective_from, as_of=as_of, field="적용 시작일", required=True
+        with core_db.connection() as conn:
+            result = register_credit_limit(
+                CreditLimitChange(
+                    partner_id=partner_id,
+                    credit_limit_krw=_money(
+                        slots.credit_limit, field="새 여신한도", allow_zero=True
+                    ),
+                    effective_from=_user_date(
+                        slots.effective_from, as_of=as_of, field="적용 시작일", required=True
+                    ),
+                    evidence_grade=slots.evidence_grade,  # type: ignore[arg-type]
+                    source_ref=slots.source_ref or "",
+                    recorded_by=actor,
+                    note=slots.note,
                 ),
-                evidence_grade=slots.evidence_grade,  # type: ignore[arg-type]
-                source_ref=slots.source_ref or "",
-                recorded_by=actor,
-                note=slots.note,
+                conn,
             )
-        )
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -786,19 +793,21 @@ def _domain_write(
     if action == "FINANCE_COLLECTION_CREATE":
         receivable_id = _find_receivable(intent, as_of=as_of)
         mode = _financing_mode(intent, as_of=as_of)
-        result = record_receivable_collection(
-            ReceivableCollectionChange(
-                sim_run_id=SHOWN_SIM_RUN_ID,
-                financing_mode=mode,
-                collection_date=as_of,
-                receivable_id=receivable_id,
-                collect_all=bool(slots.collect_all),
-                amount_krw=None if slots.collect_all else _money(slots.amount, field="수금액"),
-                source_ref=slots.source_ref or "",
-                recorded_by=actor,
-                note=slots.note,
+        with core_db.connection() as conn:
+            result = record_receivable_collection(
+                ReceivableCollectionChange(
+                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    financing_mode=mode,
+                    collection_date=as_of,
+                    receivable_id=receivable_id,
+                    collect_all=bool(slots.collect_all),
+                    amount_krw=None if slots.collect_all else _money(slots.amount, field="수금액"),
+                    source_ref=slots.source_ref or "",
+                    recorded_by=actor,
+                    note=slots.note,
+                ),
+                conn,
             )
-        )
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -810,23 +819,25 @@ def _domain_write(
         )
 
     if action == "FINANCE_EXPENSE_CREATE":
-        result = create_operating_expense(
-            ExpenseCreate(
-                sim_run_id=SHOWN_SIM_RUN_ID,
-                expense_date=_user_date(
-                    slots.expense_date, as_of=as_of, field="비용 발생일", required=True
+        with core_db.connection() as conn:
+            result = create_operating_expense(
+                ExpenseCreate(
+                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    expense_date=_user_date(
+                        slots.expense_date, as_of=as_of, field="비용 발생일", required=True
+                    ),
+                    due_date=_user_date(
+                        slots.due_date, as_of=as_of, field="지급 예정일", required=True
+                    ),
+                    expense_category=slots.expense_category or "",
+                    amount_krw=_money(slots.amount, field="비용 금액"),
+                    evidence_id=slots.evidence_id or "",
+                    related_delivery_id=slots.related_delivery_id,
+                    is_fixed=bool(slots.is_fixed),
+                    note=slots.note,
                 ),
-                due_date=_user_date(
-                    slots.due_date, as_of=as_of, field="지급 예정일", required=True
-                ),
-                expense_category=slots.expense_category or "",
-                amount_krw=_money(slots.amount, field="비용 금액"),
-                evidence_id=slots.evidence_id or "",
-                related_delivery_id=slots.related_delivery_id,
-                is_fixed=bool(slots.is_fixed),
-                note=slots.note,
+                conn,
             )
-        )
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -836,16 +847,18 @@ def _domain_write(
 
     if action == "FINANCE_EXPENSE_SETTLE":
         mode = _financing_mode(intent, as_of=as_of)
-        result = settle_operating_expense(
-            slots.expense_id or "",
-            ExpenseSettle(
-                sim_run_id=SHOWN_SIM_RUN_ID,
-                financing_mode=mode,
-                paid_date=_user_date(
-                    slots.paid_date, as_of=as_of, field="실제 지급일", required=True
+        with core_db.connection() as conn:
+            result = settle_operating_expense(
+                slots.expense_id or "",
+                ExpenseSettle(
+                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    financing_mode=mode,
+                    paid_date=_user_date(
+                        slots.paid_date, as_of=as_of, field="실제 지급일", required=True
+                    ),
                 ),
-            ),
-        )
+                conn,
+            )
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -857,9 +870,11 @@ def _domain_write(
         )
 
     if action == "FINANCE_EXPENSE_CANCEL":
-        result = cancel_operating_expense(
-            slots.expense_id or "", ExpenseCancel(sim_run_id=SHOWN_SIM_RUN_ID)
-        )
+        with core_db.connection() as conn:
+            result = cancel_operating_expense(
+                slots.expense_id or "", ExpenseCancel(sim_run_id=SHOWN_SIM_RUN_ID),
+                conn,
+            )
         return DomainActionAnswer(
             domain="finance",
             action=action,

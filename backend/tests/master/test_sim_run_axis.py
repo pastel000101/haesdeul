@@ -24,10 +24,10 @@ from uuid import uuid4
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.master import decision_service as svc
 from app.master import ledger, transition
 from app.master.backtest_runner import walk
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.decision import AUTO_BACKFILL, DecisionIn, DecisionOut
 from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
 from app.master.scheduler import DayRunOutcome, ScheduledAction
@@ -252,7 +252,10 @@ class _가짜커넥션:
     def rollback(self) -> None:
         return None
 
-    def close(self) -> None:
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
         return None
 
 
@@ -318,7 +321,7 @@ def _승인한다(monkeypatch: pytest.MonkeyPatch, *, 실행행_축: str | None)
         svc,
         "apply_approval",
         lambda commitment, *, sim_run_id, **_: real_apply(
-            commitment, sim_run_id=sim_run_id, connect=lambda: conn
+            commitment, sim_run_id=sim_run_id, borrow=lambda: conn
         ),
     )
     # ★ **자동 승인으로 태운다** (2026-09-15 · 설계 260915 안 A). 사람 승인은 이제
@@ -455,6 +458,9 @@ def test_실행을_만드는_자리가_커넥션을_스스로_안_연다() -> No
     원문 = _벗긴_원문(_MASTER / "sim_run.py")
 
     assert "get_connection" not in 원문, "실행을 만드는 자리가 커넥션을 스스로 연다"
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 원문, "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
+    assert "app.core" not in 원문, "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
 
 
 def test_실행_시각을_모듈이_안_읽는다() -> None:

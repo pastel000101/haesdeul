@@ -44,12 +44,13 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.contracts.parts import ClosingPartOut
+from app.core.clock import SEOUL
 from app.finance import closing_adapter as finance_closing_adapter
 from app.finance.closing import FinanceDayClosingResult
 from app.finance.closing_adapter import FinanceClosingAdapter
 from app.master import closing
-from app.master.clock import SEOUL
-from app.master.closing import ClosingPartOut, close_day
+from app.master.closing import close_day
 from app.master.day_gate import DayGate
 
 AS_OF = date(2026, 1, 7)
@@ -61,7 +62,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -69,8 +70,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _재무:
@@ -154,11 +159,11 @@ def test_master_closing_registry_calls_finance_adapter(monkeypatch: pytest.Monke
     closing.register_closing("finance", FinanceClosingAdapter())
     conn = _가짜커넥션()
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: conn)
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
 
     assert out.status == "CLOSED"
     assert calls == [(AS_OF, 축)]
-    assert (conn.committed, conn.rolled_back, conn.closed) == (1, 0, 1)
+    assert (conn.committed, conn.rolled_back, conn.returned) == (1, 0, 1)
 
 
 def _코드만() -> str:
@@ -184,7 +189,7 @@ def _코드만() -> str:
     return ast.unparse(ast.fix_missing_locations(tree))
 
 
-def _막힌_Gate(as_of: date, *, connect: Any = None, sim_run_id: str = "") -> DayGate:
+def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> DayGate:
     return DayGate(
         as_of=as_of,
         gate="BLOCKED",
@@ -207,7 +212,7 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(
         closing,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
@@ -271,7 +276,7 @@ def test_미등록이면_사유가_남는다():
     """
     conn = _가짜커넥션()
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: conn)
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == ["finance"]
@@ -281,7 +286,7 @@ def test_미등록이면_사유가_남는다():
 
 def test_미등록이어도_터지지_않는다():
     """🔴 **어댑터가 없으면 미등록으로 남는다 — 예외가 아니다.**"""
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "NOTHING_DUE", "미등록이 예외나 FAILED 로 나갔다"
 
@@ -293,7 +298,7 @@ def test_닫을_움직임이_없는_것은_미등록이_아니다():
     )
     conn = _가짜커넥션()
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: conn)
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == [], "등록은 돼 있다"
@@ -309,13 +314,13 @@ def test_닫으면_한_번_커밋한다():
     closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
     conn = _가짜커넥션()
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: conn)
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
 
     assert out.status == "CLOSED"
     assert out.parts[0].closed == ["SIM-1:2026-01-07"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_터지면_통째로_롤백한다():
@@ -323,13 +328,13 @@ def test_터지면_통째로_롤백한다():
     closing.register_closing("finance", _재무(raises=RuntimeError("잔액을 못 읽는다")))
     conn = _가짜커넥션()
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: conn)
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
 
     assert out.status == "FAILED"
     assert "잔액을 못 읽는다" in out.reason
     assert conn.committed == 0
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ③-b 같은 날을 두 번 걸어도 두 벌이 안 쌓인다 ──────────────────────────
@@ -369,8 +374,8 @@ def test_같은_날을_두_번_걸어도_두_벌이_안_쌓인다():
     재무 = _재무()
     closing.register_closing("finance", 재무)
 
-    첫째 = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
-    둘째 = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    첫째 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
+    둘째 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert 첫째.status == "CLOSED"
     assert 둘째.status == "CLOSED", "이미 닫힌 것을 NOTHING_DUE 로 접었다"
@@ -389,7 +394,7 @@ def test_한_번_부르고_어댑터의_멱등에_기대지_않는다():
     재무 = _재무()
     closing.register_closing("finance", 재무)
 
-    close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert 재무.calls == [(AS_OF, 축)], f"파트를 한 번보다 많이 불렀다: {재무.calls}"
 
@@ -401,7 +406,7 @@ def test_실패해도_예외가_안_오른다():
     """★ 이력 때문에 운영이 멈추면 안 된다 — `try_save_run` 이 `try_` 인 이유와 같다."""
     closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "FAILED"
     assert out.parts == [], "실패했으면 파트 결과를 내지 않는다"
@@ -415,7 +420,7 @@ def test_안_열린_날은_닫지_않는다(monkeypatch: pytest.MonkeyPatch) -> 
     재무 = _재무()
     closing.register_closing("finance", 재무)
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "NOT_OPENED"
     assert 재무.calls == [], "장부가 안 열렸는데 파트를 불렀다"
@@ -432,7 +437,7 @@ def test_안_열린_것을_BLOCKED_로_접지_않는다(monkeypatch: pytest.Monk
     monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
     closing.register_closing("finance", _재무())
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status != "NOTHING_DUE"
     assert out.status != "BLOCKED", "안 열린 것을 BLOCKED 로 접었다"
@@ -447,7 +452,7 @@ def test_안_열린_날은_관문_사유보다_앞이다(monkeypatch: pytest.Mon
     closing.register_closing("finance", _재무())
 
     out = close_day(
-        AS_OF, sim_run_id=축, ledger_gap="장부가 안 서서", connect=lambda: _가짜커넥션()
+        AS_OF, sim_run_id=축, ledger_gap="장부가 안 서서", borrow=lambda: _가짜커넥션()
     )
 
     assert out.status == "NOT_OPENED", "안 열린 날이 BLOCKED 로 접혔다"
@@ -493,7 +498,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
     재무 = _재무()
     closing.register_closing("finance", 재무)
 
-    out = close_day(토요일, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(토요일, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "CLOSED"
     assert 재무.calls == [(토요일, 축)], "실행일 달력으로 밀었다"
@@ -507,7 +512,7 @@ def test_sim_run_id_를_인자로_받아_어댑터까지_흘린다():
     재무 = _재무()
     closing.register_closing("finance", 재무)
 
-    close_day(AS_OF, sim_run_id="SIM-다른실행", connect=lambda: _가짜커넥션())
+    close_day(AS_OF, sim_run_id="SIM-다른실행", borrow=lambda: _가짜커넥션())
 
     assert 재무.calls == [(AS_OF, "SIM-다른실행")], f"축이 안 흘렀다: {재무.calls}"
 
@@ -521,7 +526,7 @@ def test_빈_축을_조용히_전체로_바꾸지_않는다():
     closing.register_closing("finance", _재무())
 
     with pytest.raises(ValueError, match="sim_run_id 없이"):
-        close_day(AS_OF, sim_run_id="  ", connect=lambda: _가짜커넥션())
+        close_day(AS_OF, sim_run_id="  ", borrow=lambda: _가짜커넥션())
 
 
 def test_마감_원문에_실행_축_상수가_박혀_있지_않다():
@@ -546,12 +551,12 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     # ① NOT_OPENED — 하루가 안 열렸다
     monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
     closing.register_closing("finance", _재무())
-    본_것.add(close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션()).status)
+    본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     monkeypatch.setattr(
         closing,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
@@ -559,22 +564,22 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     closing.register_closing(
         "finance", _재무(out=ClosingPartOut(part="finance", status="NOTHING_DUE"))
     )
-    본_것.add(close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션()).status)
+    본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     # ③ CLOSED — 닫았다
     closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
-    본_것.add(close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션()).status)
+    본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     # ④ BLOCKED — 장부가 안 서서 못 닫는다
     본_것.add(
         close_day(
-            AS_OF, sim_run_id=축, ledger_gap="장부가 안 서서", connect=lambda: _가짜커넥션()
+            AS_OF, sim_run_id=축, ledger_gap="장부가 안 서서", borrow=lambda: _가짜커넥션()
         ).status
     )
 
     # ⑤ FAILED — 닫아 보다 터졌다
     closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
-    본_것.add(close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션()).status)
+    본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     assert 본_것 == {"CLOSED", "NOTHING_DUE", "BLOCKED", "NOT_OPENED", "FAILED"}, (
         f"어휘 다섯 중 길이 없는 것이 있다: 나온 것 {sorted(본_것)}"
@@ -610,9 +615,9 @@ def test_BLOCKED_를_NOTHING_DUE_로_접지_않는다():
         AS_OF,
         sim_run_id=축,
         ledger_gap="장부가 안 서서 (입고: BLOCKED)",
-        connect=lambda: _가짜커넥션(),
+        borrow=lambda: _가짜커넥션(),
     )
-    없음 = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    없음 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert 막힘.status == "BLOCKED"
     assert 막힘.status != 없음.status, "두 사실이 같은 status 로 나간다"
@@ -630,7 +635,7 @@ def test_파트가_BLOCKED_면_전체도_BLOCKED_다():
     )
     closing.register_closing("finance", _재무(out=막힘))
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "BLOCKED"
     assert out.parts[0].closed == ["SIM-1:2026-01-07"], "선 것까지 지우지는 않는다"
@@ -646,7 +651,7 @@ def test_CLOSED_인데_새로_적은_건수가_0_일_수_있다():
     두번째_걸음 = _닫음("SIM-1:2026-01-07", created=0)
     closing.register_closing("finance", _재무(out=두번째_걸음))
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "CLOSED", "이미 닫힌 것을 NOTHING_DUE 로 접었다"
     assert out.parts[0].created == 0, "어댑터가 낸 값 대신 마스터가 다시 셌다"
@@ -655,7 +660,7 @@ def test_CLOSED_인데_새로_적은_건수가_0_일_수_있다():
     closing.register_closing(
         "finance", _재무(out=ClosingPartOut(part="finance", status="NOTHING_DUE"))
     )
-    없던_날 = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    없던_날 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
     assert 없던_날.status != out.status, "두 사실이 같은 status 로 나간다"
 
 
@@ -860,7 +865,7 @@ def test_관문이_막은_날에는_어댑터를_안_부른다() -> None:
 
     out, _ = _하루(
         issue_fn=_Spy(_Out("BLOCKED", "기일이 없다")),
-        close_fn=lambda as_of, **kw: close_day(as_of, connect=lambda: _가짜커넥션(), **kw),
+        close_fn=lambda as_of, **kw: close_day(as_of, borrow=lambda: _가짜커넥션(), **kw),
         sim_run_id=축,
     )
 
@@ -964,6 +969,6 @@ def test_어댑터가_낸_값을_그대로_옮긴다() -> None:
     파트 = _닫음("SIM-1:2026-01-07", "SIM-1:2026-01-08", created=0)
     closing.register_closing("finance", _재무(out=파트))
 
-    out = close_day(AS_OF, sim_run_id=축, connect=lambda: _가짜커넥션())
+    out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
     assert out.parts[0] is 파트, "마스터가 파트 결과를 다시 지었다"

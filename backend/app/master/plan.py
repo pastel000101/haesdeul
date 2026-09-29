@@ -17,15 +17,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
-from app.master.envelope import (
+from app.contracts.core import RuntimeStatus, Verdict
+from app.contracts.envelope import (
     AgentName,
     AgentReply,
     AgentRequest,
     EnvelopeFinding,
     ExecutionMetadata,
     Mode,
-    RuntimeStatus,
-    Verdict,
 )
 
 

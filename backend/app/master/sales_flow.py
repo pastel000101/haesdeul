@@ -39,7 +39,6 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from app.contracts.core import SuggestedAdjustment
-from app.master.budget import BudgetExhausted, CallBudget
 
 # 🔴 **넷은 봉투에 있다 — 매입 Flow 에서 가져오지 않는다.**
 #
@@ -57,7 +56,7 @@ from app.master.budget import BudgetExhausted, CallBudget
 #
 # ★ 처음에는 `flow.py` 에서 private 로 읽어 왔다. **판매가 매입 모듈에 매인 것**이라
 #   매입을 손대면 판매가 깨졌고, 그래서 넷을 봉투로 올렸다 (순수 이동).
-from app.master.envelope import (
+from app.contracts.envelope import (
     PASSING_VERDICTS,
     AgentFailure,
     AgentName,
@@ -69,6 +68,7 @@ from app.master.envelope import (
     wire_adjustment,
     wire_payload,
 )
+from app.master.budget import BudgetExhausted, CallBudget
 from app.master.plan import ExecutionPlan
 from app.master.ports import AgentNotRegistered
 from app.master.procurement_boundary import ProcurementBoundary

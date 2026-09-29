@@ -9,8 +9,8 @@ from decimal import Decimal
 from app.api.primitives import Card, Chart, Column, Note, Series, Source, Stat, Table
 from app.api.sales.schema import SalesTab
 from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.core.text import format_manwon, format_won
 from app.sales.dashboard import get_sales_dashboard
-from app.sales.db import read_connection_scope
 
 _ORDER_STATUS_LABELS = {
     "CONFIRMED": "판매 확정",
@@ -20,23 +20,22 @@ _ORDER_STATUS_LABELS = {
 
 
 def build(as_of: date) -> SalesTab:
-    #  🔵 **이 조회 안의 SELECT 들이 커넥션 하나를 나눠 쓴다** (2026-09-17). 종전에는
-    #     안쪽 `fetch_all` 이 호출마다 새로 열어 **한 판에 6개**였다 (원격 DB · 개당
-    #     14~22ms). 읽기뿐이라 되는 일이고, 규칙과 경고는 저쪽 docstring 에 있다.
-    with read_connection_scope():
-        dash = get_sales_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+    #  🔵 이 조회 안의 `fetch_all` 은 공통 풀에서 연결을 빌려 쓴다 (2026-09-29 풀 전환).
+    #     종전(2026-09-17)에는 영업 읽기 범위로 한 판의 연결을 하나로 묶었다 — 조회마다
+    #     새로 열면 한 판에 6개였다(원격 DB · 개당 14~22ms). 이제 그 재사용을 풀이 한다.
+    dash = get_sales_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
     summary = dash.summary
     quantity_detail = f"고객 {summary.customer_count}곳 · 총 {_kg(summary.total_sales_quantity_kg)}"
     receivable_detail = (
-        f"수금 {_won(summary.received_amount_krw)} · "
-        f"미수 {_won(summary.outstanding_receivables_krw)}"
+        f"수금 {format_won(summary.received_amount_krw)} · "
+        f"미수 {format_won(summary.outstanding_receivables_krw)}"
     )
 
     return SalesTab(
         stats=[
             Stat(
                 label="총 판매금액",
-                value=_manwon(summary.total_sales_amount_krw),
+                value=format_manwon(summary.total_sales_amount_krw),
                 unit="만원",
                 detail=f"기준일까지 판매 {summary.sales_count}건",
                 tone="info",
@@ -52,7 +51,7 @@ def build(as_of: date) -> SalesTab:
             ),
             Stat(
                 label="공헌이익",
-                value=_manwon(summary.contribution_profit_krw),
+                value=format_manwon(summary.contribution_profit_krw),
                 unit="만원",
                 detail=f"매출에서 변동비를 뺀 금액 · {summary.contribution_margin_pct}%",
                 tone="good",
@@ -60,7 +59,7 @@ def build(as_of: date) -> SalesTab:
             ),
             Stat(
                 label="아직 받을 돈",
-                value=_manwon(summary.outstanding_receivables_krw),
+                value=format_manwon(summary.outstanding_receivables_krw),
                 unit="만원",
                 detail=receivable_detail,
                 tone="warn" if summary.outstanding_receivables_krw > 0 else "good",
@@ -155,8 +154,8 @@ def _items_card(dash) -> Card:
                     "item": item.item_name,
                     "lines": item.line_count,
                     "qty": _kg(item.total_quantity_kg),
-                    "amount": _won(item.sales_amount_krw),
-                    "profit": _won(item.contribution_profit_krw),
+                    "amount": format_won(item.sales_amount_krw),
+                    "profit": format_won(item.contribution_profit_krw),
                     "margin": f"{item.contribution_margin_pct}%",
                     "unit": f"{_number(item.avg_unit_price_krw_per_kg)}원/kg",
                 }
@@ -190,8 +189,8 @@ def _recent_sales_card(dash) -> Card:
                     "no": sale.sale_id,
                     "partner": sale.partner_name,
                     "qty": _kg(sale.total_quantity_kg),
-                    "amount": _won(sale.total_amount_krw),
-                    "margin": _won(sale.contribution_profit_krw),
+                    "amount": format_won(sale.total_amount_krw),
+                    "margin": format_won(sale.contribution_profit_krw),
                     "due": sale.collection_due_date.isoformat(),
                     "state": sale.collection_status_label,
                     "outbound": _ORDER_STATUS_LABELS.get(sale.order_status, "출고 상태 확인 필요"),
@@ -248,9 +247,9 @@ def _receivables_card(dash) -> Card:
                     "due": receivable.due_date.isoformat(),
                     "sale": receivable.sale_id,
                     "partner": receivable.partner_name,
-                    "original": _won(receivable.original_amount_krw),
-                    "received": _won(receivable.received_amount_krw),
-                    "outstanding": _won(receivable.outstanding_amount_krw),
+                    "original": format_won(receivable.original_amount_krw),
+                    "received": format_won(receivable.received_amount_krw),
+                    "outstanding": format_won(receivable.outstanding_amount_krw),
                     "status": receivable.display_status,
                     "d_day": _d_day(receivable.d_day),
                 }
@@ -259,14 +258,6 @@ def _receivables_card(dash) -> Card:
             empty_text="기준일까지 매출채권이 없습니다",
         ),
     )
-
-
-def _won(value: Decimal) -> str:
-    return f"{value.quantize(Decimal(1)):,.0f}원"
-
-
-def _manwon(value: Decimal) -> str:
-    return f"{(value / Decimal(10000)).quantize(Decimal(1)):,.0f}"
 
 
 def _kg(value: Decimal) -> str:

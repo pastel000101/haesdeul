@@ -584,6 +584,9 @@ def test_23_24_25_커밋도_롤백도_새_커넥션도_없다():
     assert conn.closed == 0
     코드 = _코드만(_원문())
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "commit" not in 코드
     assert "rollback" not in 코드
 

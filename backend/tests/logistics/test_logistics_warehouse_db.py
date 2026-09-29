@@ -29,8 +29,8 @@ from pathlib import Path
 import psycopg
 import pytest
 
+from app.core import db as core_db
 from app.logistics import disposal, ledger, outbound, turnover, warehouse
-from app.logistics.db import get_connection
 from app.logistics.warehouse import (
     InvalidPlacementRequest,
     PalletNotEmptyable,
@@ -119,29 +119,28 @@ def _repo_block(table: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            _씨앗(cur)
-        for module in (warehouse, turnover, outbound, ledger, disposal):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
+                )
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                _씨앗(cur)
+            for module in (warehouse, turnover, outbound, ledger, disposal):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 def _씨앗(cur: psycopg.Cursor) -> None:
@@ -685,7 +684,7 @@ def test_29_잠금이_읽기보다_먼저다(conn: psycopg.Connection) -> None:
 def test_30_커밋도_롤백도_새_커넥션도_없다() -> None:
     본문 = _코드만(Path(warehouse.__file__).read_text(encoding="utf-8"))
 
-    for 금지 in (".commit()", ".rollback()", "get_connection"):
+    for 금지 in (".commit()", ".rollback()", "get_connection", "core_db", "app.core"):
         assert 금지 not in 본문, f"트랜잭션 소유권을 침범한다: {금지}"
 
 

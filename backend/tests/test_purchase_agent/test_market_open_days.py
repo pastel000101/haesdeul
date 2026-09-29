@@ -26,7 +26,7 @@
 
 from datetime import date
 
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
 from app.purchase_agent.nodes.self_check import (
     MARKET_SKIP_REASONS,

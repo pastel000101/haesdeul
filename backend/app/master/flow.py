@@ -30,9 +30,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.contracts.core import EndCode, Evidence, ItemCode, SuggestedAdjustment
-from app.master.answer import agent_label
-from app.master.budget import BudgetExhausted
-from app.master.envelope import (
+from app.contracts.envelope import (
     PASSING_VERDICTS,
     AgentFailure,
     AgentName,
@@ -42,6 +40,8 @@ from app.master.envelope import (
     forecast_is_clean,
     wire_adjustment,
 )
+from app.master.answer import agent_label
+from app.master.budget import BudgetExhausted
 from app.master.plan import ExecutionPlan
 from app.master.runner import MasterRunner
 from app.master.verifier import VerificationContext, VerificationResult

@@ -12,7 +12,7 @@ LLM 이 돌려주는 건 **닫힌 열거에서 고른 값들**뿐이고, 실제 
                                       └ flow.py 는 한 줄도 안 바뀐다
 ```
 
-상태 4종(`LLMStatus`)은 `app/master/envelope.py` 와 **같은 어휘**다 — 팀 공용 AI 카드가
+상태 4종(`LLMStatus`)은 `app/contracts/envelope.py` 와 **같은 어휘**다 — 팀 공용 AI 카드가
 수정 없이 동작한다.
 """
 
@@ -22,7 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.master.envelope import AgentName
+from app.contracts.envelope import AgentName
 
 #: 봉투(`envelope.LLMStatus`)와 같은 4값. 새로 만들지 않는다.
 LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]

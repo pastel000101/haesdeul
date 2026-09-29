@@ -46,10 +46,10 @@ from pathlib import Path
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
 from app.finance import user_messages as messages
 from app.finance.application.orchestration import FinanceAgentController
-from app.master.envelope import AgentRequest, ExecutionContext
 from tests.finance.test_finance_adapter import AS_OF, _AdapterPlanner, _Context
 
 #: 실 장애가 난 조합 그대로. 번인과 걷기가 **함께** 서 있다.

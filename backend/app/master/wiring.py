@@ -15,7 +15,7 @@ wiring.py — 프로세스 전역 에이전트 레지스트리
 
 from __future__ import annotations
 
-from app.master.envelope import AgentName
+from app.contracts.envelope import AgentName
 from app.master.flow import ADVISORS
 from app.master.ports import AgentPort, AgentRegistry
 

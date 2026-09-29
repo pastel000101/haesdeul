@@ -67,7 +67,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
 
-from app.master.commitment import ApprovedCommitment
+from app.contracts.commitment import ApprovedCommitment
 from app.master.decision import awaits_purchase_record
 from app.master.decision_service import current_approved_commitment
 from app.master.pending_transition_repository import approved_decisions, ledger_purchase_ids

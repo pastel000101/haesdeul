@@ -22,7 +22,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.master import envelope as E
+from app.contracts import envelope as E
 from app.ml import adapter
 from app.ml.qa_schemas import QaAnswer, QaMeta
 
@@ -471,25 +471,14 @@ def test_쓴_도구와_순서의_길이가_같다(monkeypatch):
 
 
 # ── 등록 ────────────────────────────────────────────────────────────────
-
-
-def test_마스터가_이름을_모르면_조용히_안_붙는다(monkeypatch):
-    """🔴 예외를 던지면 저쪽 부팅이 죽는다. 우리 배선 때문에 서버가 안 뜨면 안 된다."""
-    from app.ml import wiring
-
-    modes = {k: v for k, v in E._AGENT_MODES.items() if k != "ml"}
-    monkeypatch.setattr(E, "_AGENT_MODES", modes)
-    assert wiring.master_knows_us() is False
-    assert wiring.register_ml_agent() is False
-
-
-def test_이름을_알면_등록된다():
-    """이름만 있으면 바로 붙는다 — 저쪽이 더 할 일은 한 줄뿐이다."""
-    from app.master import wiring as master_wiring
-    from app.ml import wiring
-
-    assert wiring.register_ml_agent() is True
-    assert master_wiring.registry().has("ml")                # type: ignore[arg-type]
+#
+# 🟢 2026-09-29 (재구성 BL-011): ML 이 `app/ml/wiring.py::register_ml_agent` 로 마스터 등록소를
+#   import 해 스스로 붙던 것을, 마스터 조립 뿌리(`app/master/bootstrap.py`)가 다른 파트와
+#   같이 `ml_port` 를 직접 거는 것으로 바꿨다. 그래서 여기 있던 검사 둘 —
+#   «마스터가 이름을 모르면 조용히 안 붙는다» · «이름을 알면 등록된다» — 을 지웠다.
+#   앞의 것은 ML 이 마스터 파일을 못 고치던 때의 방어라, 어휘가 `app/contracts/envelope.py`
+#   에 있는 지금은 그 경우가 없다. 등록 결과는 `tests/master/test_ml_status_wiring.py` 의
+#   `test_조립_뿌리를_부르면_ml_이_등록된다` 가 잰다 (걸린 포트가 `ml_port` 인지까지).
 
 
 # ── 현재 모델 (2026-09-16) ──────────────────────────────────────────────

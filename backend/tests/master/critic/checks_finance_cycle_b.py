@@ -24,12 +24,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from app.contracts.core import (
-    CheckResult,
-    Evidence,
-    ItemCode,
-    compute_sales_cash_priority,
-)
+from app.contracts.core import CheckResult, Evidence, ItemCode
+from app.contracts.rules import compute_sales_cash_priority
 
 DEPT = "finance"
 CYCLE = "B"

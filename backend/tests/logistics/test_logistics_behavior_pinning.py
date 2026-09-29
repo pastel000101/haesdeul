@@ -30,6 +30,7 @@ from typing import Any, get_args
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
 from app.logistics.interpretation import _MISSING_DATA_NAMES
 from app.logistics.llm.runtime import InterpretationService, LLMSettings, UnavailableProvider
@@ -54,7 +55,6 @@ from app.logistics.schemas import (
     ScenarioValidationResult,
 )
 from app.logistics.service import run_logistics_procurement_with_snapshot
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
 
 AS_OF = date(2026, 8, 21)
 

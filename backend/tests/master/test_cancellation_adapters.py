@@ -25,12 +25,12 @@ from typing import Any
 
 import pytest
 
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.logistics.cancellation import (
     LogisticsCancellationAdapter,
     inbound_ids_of,
     withdraw_inventory,
 )
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
 from app.master.finance_cancellation import FinanceCancellationAdapter
 
 APPROVED_ON = date(2026, 1, 5)

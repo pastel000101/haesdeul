@@ -5,10 +5,13 @@
 """
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from app.api.router import router as screen_router
+from app.core import db as core_db
 from app.finance.router import router as finance_router
 from app.master.bootstrap import wire_registries
 from app.master.critic.router import router as critic_router
@@ -17,7 +20,20 @@ from app.ml.console_proxy import router as ml_console_router
 from app.ml.router import router as ml_router
 from app.sales.router import router as sales_router
 
-app = FastAPI(title="mainproject")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """앱이 떠 있는 동안 DB 연결 풀을 쓴다 — 시작 때 열고, 끝날 때 닫는다 (2026-09-29).
+
+    ★ **풀만 다룬다.** 테이블을 만들거나 고치지 않는다(정의는 `database/*.sql` 하나다).
+    ★ DB 설정이 없으면 미리 열지 않고 뜬다 — `/health` 와 DB 를 안 쓰는 경로는 그대로 돌고,
+      DB 경로는 첫 대여에서 종전 문구로 실패한다 (`app/core/db.py::pool_lifespan`).
+    """
+    with core_db.pool_lifespan():
+        yield
+
+
+app = FastAPI(title="mainproject", lifespan=lifespan)
 # 화면용 API (`/api/…`). **부서 라우터와 주소로 가른다** — `/finance/agent` 는
 # 에이전트를 돌리고, `/api/finance` 는 화면에 값을 준다. `/api` 아래는 GET 뿐이다.
 app.include_router(screen_router)

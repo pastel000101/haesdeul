@@ -583,7 +583,8 @@ def test_persist_uses_the_supplied_connection_and_never_commits():
 
 def test_persist_opens_no_connection_of_its_own():
     """자기 커넥션을 열면 마스터가 쥔 트랜잭션 밖에서 쓰게 된다."""
-    with patch("app.finance.db.get_connection") as opened:
+    # ★ 연결은 공통 풀에서만 빌린다 — 풀의 대여 입구를 막아 두고 한 번도 안 불렸는지 본다.
+    with patch("app.core.db.DatabasePool.connection") as opened:
         _persist(_build(_Commitment(legs=[(1, WED)])))
 
     opened.assert_not_called()
@@ -746,7 +747,7 @@ def test_adapter_persist_forwards_the_supplied_connection_and_opens_none():
             f"{_MODULE}.load_inventory_snapshot_as_of",
             return_value=InventorySnapshot(Decimal(1), Decimal(2), Decimal(3)),
         ),
-        patch("app.finance.db.get_connection") as opened,
+        patch("app.core.db.DatabasePool.connection") as opened,
     ):
         written = FinanceTransitionAdapter().persist(conn, transition)
 

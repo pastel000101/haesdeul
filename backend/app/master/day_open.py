@@ -34,7 +34,9 @@ day_open.py — **하루를 여는 진입점**. 그날 상태 행을 보장한�
 
 🔴 **`with conn:` 을 쓰지 않는다.** psycopg3 의 커넥션 컨텍스트 매니저는 블록이
    정상 종료하면 자동으로 commit 한다. 그러면 "커밋은 마스터가 한 번만 한다"는
-   규율이 문법에 숨고, 변이 검사(커밋 지우기)도 안 걸린다.
+   규율이 문법에 숨고, 변이 검사(커밋 지우기)도 안 걸린다. 연결은 공통 풀에서
+   `with borrow() as conn:` 으로 빌리고 블록 끝에 돌려준다 — 그 반환은 commit 하지 않는다
+   (2026-09-29 풀 전환 · `app/core/db.py`).
 
 ⚠️ **등록된 구현이 아직 없다.** 재무는 미회신이고 물류는 파트 소유다. 등록이 0건이어도
    이 경로가 도는 것이 정상이다 — `transition.py` 가 `#238` 에서 그렇게 만들어졌다.
@@ -48,7 +50,7 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from app.finance.db import get_connection
+from app.core import db as core_db
 from app.master.calendar_walk import MAX_WALK_DAYS
 from app.master.collection_seed import CollectionSeedOutcome, SeedStatus, seed_day
 from app.master.day_opening_repository import record_day_opening
@@ -354,7 +356,7 @@ def _walk_part(
 def open_day(
     as_of: date,
     *,
-    connect: Callable[[], Any] | None = None,
+    borrow: core_db.Borrow | None = None,
     force: bool = False,
     seed_collection: Callable[..., CollectionSeedOutcome] = seed_day,
     sim_run_id: str,
@@ -406,8 +408,9 @@ def open_day(
       ★ **그 결과가 개장을 실패시키지 않는다.** 사건 생성이 터져도 하루는 열려야 하고,
         *"못 했다"* 는 `collection_seed_status` 로만 실린다.
 
-    :param connect: 커넥션 팩토리. 안 주면 `app.finance.db.get_connection` 을 쓴다 —
-                    재무·물류가 같은 DB(같은 `DB_*`)를 쓰므로 커넥션도 하나면 된다.
+    :param borrow: 연결을 빌려 주는 함수(`with borrow() as conn:` 끝에 돌려준다). 안 주면
+                    `app.core.db.connection`(공통 풀) — 재무·물류가 같은 DB(같은 `DB_*`)를
+                    쓰므로 연결도 하나면 된다. commit · rollback 은 여기서 눈에 보이게 한다.
     :param force: 관리자 강제 개장. **상한만 푼다.**
     :param seed_collection: 수금 사건을 만드는 방법. 기본값이 `collection_seed.seed_day`
                     이고, 검사가 대역을 끼울 자리다. **파트 트랜잭션 밖에서** 돈다.
@@ -437,51 +440,49 @@ def open_day(
         _record(out, sim_run_id=sim_run_id)
         return out
 
-    open_connection = get_connection if connect is None else connect
-    conn = open_connection()
-    try:
-        limit = MAX_FORCE_CARRY_DAYS if force else MAX_CARRY_DAYS
-        # 🔴 **등록소가 든 축이 아니라 이번 하루의 축으로 묶는다** (`#531` 후속).
-        #    물류 `LogisticsDayOpening` 은 그 축으로 전날 행을 좁혀 읽는다 —
-        #    `uq_log_runtime_fixture` 가 `(sim_run_id, as_of, usage_scope)` 라
-        #    안 좁히면 **남의 실행 행을 보고 "열렸다"** 고 답한다 (`#324`).
-        parts = [
-            _walk_part(
-                part, bind_sim_run(_OPENINGS[part], sim_run_id), conn, as_of=as_of, limit=limit
-            )
-            for part in present
-        ]
-        if any(part.status == "PART_FAILED" and part.gap_days is None for part in parts):
-            # 🔴 **파트가 터지면 전체를 되돌린다.** 다른 파트가 만든 행도 되돌린다 —
-            #    반쯤 만들다 만 행이 남으면 다음 날이 그 위에 선다.
+    open_connection = core_db.connection if borrow is None else borrow
+    with open_connection() as conn:
+        try:
+            limit = MAX_FORCE_CARRY_DAYS if force else MAX_CARRY_DAYS
+            # 🔴 **등록소가 든 축이 아니라 이번 하루의 축으로 묶는다** (`#531` 후속).
+            #    물류 `LogisticsDayOpening` 은 그 축으로 전날 행을 좁혀 읽는다 —
+            #    `uq_log_runtime_fixture` 가 `(sim_run_id, as_of, usage_scope)` 라
+            #    안 좁히면 **남의 실행 행을 보고 "열렸다"** 고 답한다 (`#324`).
+            parts = [
+                _walk_part(
+                    part, bind_sim_run(_OPENINGS[part], sim_run_id), conn, as_of=as_of, limit=limit
+                )
+                for part in present
+            ]
+            if any(part.status == "PART_FAILED" and part.gap_days is None for part in parts):
+                # 🔴 **파트가 터지면 전체를 되돌린다.** 다른 파트가 만든 행도 되돌린다 —
+                #    반쯤 만들다 만 행이 남으면 다음 날이 그 위에 선다.
+                conn.rollback()
+                # 🔴 **`opened` 를 비운다. 되돌렸으니 그 행들은 없다.**
+                #
+                #    남겨 두면 화면이 *"이 날들을 만들었다"* 로 읽는데 DB 에는 없다 —
+                #    `parts` 자체는 남긴다. 어느 파트가 **왜** 못 열었는지가 계약상
+                #    화면까지 가야 하기 때문이다 (§6).
+                parts = [part.model_copy(update={"opened": []}) for part in parts]
+            else:
+                # ★ **상한 초과(`gap_days`)는 롤백이 아니다.** 그 파트는 **아무것도 안
+                #   만들었고**, 다른 파트가 만든 행은 살려야 한다 — *"한 파트가 뒤처졌다고
+                #   다른 파트를 되돌리지 않는다"* (계약 C.1).
+                conn.commit()
+        except Exception as exc:  # noqa: BLE001 - 하루 넘김 실패가 500 으로 올라가면 안 된다.
             conn.rollback()
-            # 🔴 **`opened` 를 비운다. 되돌렸으니 그 행들은 없다.**
-            #
-            #    남겨 두면 화면이 *"이 날들을 만들었다"* 로 읽는데 DB 에는 없다 —
-            #    `parts` 자체는 남긴다. 어느 파트가 **왜** 못 열었는지가 계약상
-            #    화면까지 가야 하기 때문이다 (§6).
-            parts = [part.model_copy(update={"opened": []}) for part in parts]
-        else:
-            # ★ **상한 초과(`gap_days`)는 롤백이 아니다.** 그 파트는 **아무것도 안
-            #   만들었고**, 다른 파트가 만든 행은 살려야 한다 — *"한 파트가 뒤처졌다고
-            #   다른 파트를 되돌리지 않는다"* (계약 C.1).
-            conn.commit()
-    except Exception as exc:  # noqa: BLE001 - 하루 넘김 실패가 500 으로 올라가면 안 된다.
-        conn.rollback()
-        # ⚠️ 계약 어휘에 `FAILED` 가 없다 — *"한 파트라도 실패하면 전체는
-        #    `NOT_OPENED`"* 가 계약이고 커밋 실패도 *"못 열었다"* 다. 무엇이 터졌는지는
-        #    `reason` 이 나른다.
-        out = DayOpenOut(
-            as_of=as_of,
-            status="NOT_OPENED",
-            reason=f"하루 넘김 실패: {exc}",
-            missing=list(absent),
-        )
-        out = _seed_collection(out, seed_collection, sim_run_id=sim_run_id)
-        _record(out, sim_run_id=sim_run_id)
-        return out
-    finally:
-        conn.close()
+            # ⚠️ 계약 어휘에 `FAILED` 가 없다 — *"한 파트라도 실패하면 전체는
+            #    `NOT_OPENED`"* 가 계약이고 커밋 실패도 *"못 열었다"* 다. 무엇이 터졌는지는
+            #    `reason` 이 나른다.
+            out = DayOpenOut(
+                as_of=as_of,
+                status="NOT_OPENED",
+                reason=f"하루 넘김 실패: {exc}",
+                missing=list(absent),
+            )
+            out = _seed_collection(out, seed_collection, sim_run_id=sim_run_id)
+            _record(out, sim_run_id=sim_run_id)
+            return out
 
     out = _aggregate(as_of, parts, absent, force=force)
     # 🔴 **개장이 성공한 뒤에 부른다** (재무 조건 `⑥`).

@@ -13,9 +13,8 @@ from datetime import date
 from typing import Any
 from uuid import UUID
 
+from app.contracts.commitment import ApprovedCommitment, CommitmentNotBuildable
 from app.master.commitment import (
-    ApprovedCommitment,
-    CommitmentNotBuildable,
     RecordedLeg,
     build_commitment,
     with_purchase_record,

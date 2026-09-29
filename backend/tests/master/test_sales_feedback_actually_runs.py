@@ -20,10 +20,10 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import SuggestedAdjustment
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.finance.capabilities.sales import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
 from app.finance.execution import _adjustment_from_dict
-from app.master import AgentRegistry, CallBudget, ExecutionContext, MasterRunner
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master import AgentRegistry, CallBudget, MasterRunner
 from app.master.sales_flow import SalesFlow
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 

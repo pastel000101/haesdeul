@@ -19,8 +19,8 @@ from typing import Any
 
 import pytest
 
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master import persistence, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.schemas import SalesRunRequest
 from app.master.service import run_sales
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD

@@ -1,4 +1,4 @@
-"""**`app/master/` 에서 벽시계를 읽는 곳은 `clock.py` 하나다.**
+"""**`app/` 에서 벽시계를 읽는 곳은 `core/clock.py` 하나다.**
 
 🔴 **왜 검사로 지키는가.** 벽시계는 한 줄이면 다시 생긴다. `datetime.now()` 를
 어딘가에 적는 것은 아무 마찰도 없고, 스위트도 안 깨진다 — **오늘 날짜로 답해도
@@ -29,6 +29,12 @@
     읽고 있었는데, 그것은 `date.today()` 도 `datetime.now()` 도 아니라 ①에 안
     걸렸다 — 이 파일이 그때 초록이었다. ②가 그 자리를 잡는다.
 
+🔴 **훑는 범위가 `app/` 전체다** (2026-09-29). 시계가 `app/master/clock.py` 에서
+  `app/core/clock.py` 로 옮겨 가면서 부서도 가져다 쓸 수 있게 됐다 — 전처럼 `app/master/`
+  만 훑으면 부서에서 새는 자리를 못 본다. 옮기던 날 앱 전체를 훑은 결과가 아래 목록
+  그대로였다(벽시계 호출은 `core/clock.py` 하나, 시계 함수를 가져가는 곳 셋, 시간대를
+  따로 만드는 곳은 ML 고정 오프셋 둘). 이 파일은 그날 `tests/master/` 에서 옮겨 왔다.
+
 ⚠️ **`tests/` 는 대상이 아니다.** 검사가 고정 시각을 만드는 것은 벽시계가 아니다.
 """
 
@@ -37,9 +43,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import app.master
+import app
 
-_MASTER = Path(app.master.__file__).parent
+_APP = Path(app.__file__).parent
 
 #: 벽시계를 읽는 호출 이름.
 #:
@@ -50,8 +56,11 @@ _WALL_CLOCK_ATTRS = frozenset({"today", "now", "utcnow"})
 #: 그 호출을 받는 이름. `datetime.datetime.now()` 처럼 점이 더 붙어도 끝만 본다.
 _CLOCK_RECEIVERS = ("date", "datetime")
 
-#: 벽시계를 읽어도 되는 **단 하나의 파일.**
-_ALLOWED = "clock.py"
+#: 벽시계를 읽어도 되는 **단 하나의 파일** (`app/` 기준 경로).
+_ALLOWED = "core/clock.py"
+
+#: 그 파일의 import 이름. 시계 함수를 가져가는 자리를 이 이름으로 찾는다.
+_CLOCK_MODULE = "app.core.clock"
 
 #: 🟡 **날짜가 아니라 사건 시각을 찍는 자리.** 축이 달라 이 규율의 대상이 아니다.
 #:
@@ -84,15 +93,16 @@ _TIMESTAMP_ONLY: dict[str, set[str]] = {}
 #:   가 정확히 그 모양으로 벽시계를 읽고 있었고(2026-09-09 · `#452`), 이 파일은 그때
 #:   초록이었다. **읽는 줄만 세는 것으로는 부족하고, 그 줄을 가져가는 것도 세야 한다.**
 #:
-#: ★ **상수는 시계가 아니다.** `SEOUL` · `SCHEDULE_START` 는 값이라 가져가도 답이
-#:   안 움직인다 (`sim_time.py` 가 그 둘만 가져간다).
+#: ★ **상수는 시계가 아니다.** `SEOUL` 은 값이라 가져가도 답이 안 움직인다
+#:   (`sim_time.py` · 물류 출고·과거 조회가 그것만 가져간다).
 _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 
-#: 그 둘을 가져가도 되는 파일 — **진입점뿐이다.**
+#: 그 둘을 가져가도 되는 파일 — **실제 오늘이 곧 입력인 자리뿐이다** (`app/` 기준 경로).
 #:
 #: ```text
-#: scheduler.py   아무도 as_of 를 안 넘겨 준다. 09:30 에 깨어나는 것이 유일한 입력
-#: router.py      화면이 누른 승인에 as_of 가 안 실려 온다 (master_decide)
+#: master/scheduler.py   아무도 as_of 를 안 넘겨 준다. 09:30 에 깨어나는 것이 유일한 입력
+#: master/backfill.py    자동 승인의 실제 오늘 가드 — 걷기가 넘기는 날짜로 재면 풀린다
+#: ml/qa_graph.py        ML 질의응답이 기준일(as_of) 없이 왔을 때 「오늘」로 대체한다
 #: ```
 #:
 #: 🔴 **깊은 자리는 여기 못 들어온다.** 들어오는 순간 백테스트가 그 지점부터 오늘로
@@ -105,44 +115,84 @@ _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 #: 실제 시계를 재야 뜻이 선다 — 걷기가 넘기는 날짜로 재면 걷기가 고른 날짜 하나로
 #: 가드가 풀린다. 그래서 `backfill_decisions(today=today_in_seoul)` 기본 인자로만
 #: 가져가고, 판단 · 재검증 쪽으로는 안 흘린다 (가드 한 줄만 쓴다).
-_CLOCK_READER_IMPORTERS = frozenset({"scheduler.py", "backfill.py"})
+#: 🔴 **`ml/qa_graph.py` 가 셋째다** (2026-09-29 · 범위를 `app/` 전체로 넓히며 적었다 —
+#: 그 전부터 가져가고 있었고, 마스터만 훑던 검사 밖이었다). 화면(`/ml/qa`)이나 마스터
+#: 봉투(`ml_port`)가 기준일을 실어 보내면 그 날을 쓰고, 없을 때만 서울 오늘로 대체한다
+#: (해석 노드와 `_asked_on`).
+_CLOCK_READER_IMPORTERS = frozenset({"master/scheduler.py", "master/backfill.py", "ml/qa_graph.py"})
+
+#: 🟡 **서울 지역 시간대가 아니라 고정 오프셋 UTC+9 를 따로 드는 자리** (2026-09-29 확인).
+#:
+#: ★ `SEOUL` 과 지금은 같은 값이지만 **뜻이 다르다** — `clock.py` 의 `SEOUL` 주석 그대로
+#:   *"UTC+9"* 와 *"서울"* 은 다른 말이다. ML 예측 시각을 적재 · 표시하는 두 자리가 쓴다.
+#:   `SEOUL` 로 바꿀지는 ML 쪽을 정리할 때 정한다 — 시계를 옮기면서 시간대의 뜻까지
+#:   바꾸지 않았다.
+#:
+#: 🔴 **목록이지 면제가 아니다.** 여기 없는 자리가 시간대를 새로 만들면 아래 검사가 운다.
+#:   물류 출고 · 과거 조회가 따로 들던 `ZoneInfo("Asia/Seoul")` 은 같은 날 `SEOUL` 로 옮겼다.
+_FIXED_OFFSET_OWNERS = frozenset({"ml/qa_graph.py", "ml/repository.py"})
 
 
-def _clock_readers_used(path: Path) -> set[str]:
-    """그 파일이 `clock` 에서 **가져다 쓰는 시계 이름들.** 두 모양을 다 본다.
+def _clock_module_names(tree: ast.AST) -> set[str]:
+    """그 파일에서 **시계 모듈을 가리키는 이름들.** `clock` 은 늘 넣는다.
 
     ```text
-    from app.master.clock import today_in_seoul   → ImportFrom 으로 잡는다
-    from app.master import clock ... clock.seoul_now  → Attribute 로 잡는다
+    from app.core import clock               → clock
+    from app.core import clock as 시계        → 시계
+    import app.core.clock                     → app.core.clock
+    ```
+
+    ⚠️ **별칭을 안 보면 별칭으로 샌다.** 이 저장소는 `from app.core import db as core_db`
+      처럼 core 모듈에 별칭을 붙여 쓴다 — `core_clock.seoul_now` 가 생기는 날 `clock`
+      이라는 이름만 보는 스캐너는 초록이다.
+    """
+    names = {"clock"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "app.core":
+            names |= {alias.asname or alias.name for alias in node.names if alias.name == "clock"}
+        elif isinstance(node, ast.Import):
+            names |= {
+                alias.asname or alias.name for alias in node.names if alias.name == _CLOCK_MODULE
+            }
+    return names
+
+
+def _clock_readers_in(source: str) -> set[str]:
+    """그 원문이 `clock` 에서 **가져다 쓰는 시계 이름들.** 두 모양을 다 본다.
+
+    ```text
+    from app.core.clock import today_in_seoul   → ImportFrom 으로 잡는다
+    from app.core import clock ... clock.seoul_now  → Attribute 로 잡는다
     ```
 
     ⚠️ **한 모양만 보면 다른 모양으로 샌다.** 저장소에 둘 다 실제로 있다 —
-      `revalidation.py` 가 앞의 것이었고 `scheduler.py` 가 뒤의 것이다.
+      `backfill.py` 가 앞의 것이고 `scheduler.py` 가 뒤의 것이다.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(source)
+    module_names = _clock_module_names(tree)
     found: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "app.master.clock":
+        if isinstance(node, ast.ImportFrom) and node.module == _CLOCK_MODULE:
             found |= {alias.name for alias in node.names} & _CLOCK_READERS
         elif (
             isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "clock"
             and node.attr in _CLOCK_READERS
+            and ast.unparse(node.value) in module_names
         ):
             found.add(node.attr)
     return found
 
 
 def _scan_clock_readers() -> dict[str, set[str]]:
-    """`app/master/` 전체를 훑는다. 파일 이름 → 가져다 쓰는 시계 이름."""
+    """`app/` 전체를 훑는다. 파일 경로 → 가져다 쓰는 시계 이름."""
     hits: dict[str, set[str]] = {}
-    for path in sorted(_MASTER.rglob("*.py")):
-        if path.name == _ALLOWED:
+    for path in sorted(_APP.rglob("*.py")):
+        name = path.relative_to(_APP).as_posix()
+        if name == _ALLOWED:
             continue  # 자기 안에서 자기를 쓰는 것은 새는 것이 아니다
-        used = _clock_readers_used(path)
+        used = _clock_readers_in(path.read_text(encoding="utf-8"))
         if used:
-            hits[path.relative_to(_MASTER).as_posix()] = used
+            hits[name] = used
     return hits
 
 
@@ -169,13 +219,24 @@ def _wall_clock_calls(path: Path) -> set[str]:
 
 
 def _scan() -> dict[str, set[str]]:
-    """`app/master/` 전체를 훑는다. 파일 이름 → 벽시계 호출 이름."""
+    """`app/` 전체를 훑는다. 파일 경로 → 벽시계 호출 이름."""
     hits: dict[str, set[str]] = {}
-    for path in sorted(_MASTER.rglob("*.py")):
+    for path in sorted(_APP.rglob("*.py")):
         calls = _wall_clock_calls(path)
         if calls:
-            hits[path.relative_to(_MASTER).as_posix()] = calls
+            hits[path.relative_to(_APP).as_posix()] = calls
     return hits
+
+
+def _timezone_calls(path: Path) -> set[str]:
+    """그 파일이 시간대를 만드는 호출. `{"ZoneInfo('Asia/Seoul')"}`."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {
+        ast.unparse(node)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and ast.unparse(node.func).split(".")[-1] in ("ZoneInfo", "timezone")
+    }
 
 
 def test_스캐너가_clock의_벽시계를_실제로_찾는다():
@@ -184,7 +245,7 @@ def test_스캐너가_clock의_벽시계를_실제로_찾는다():
     ★ 스캐너가 죽으면 *"벽시계가 하나도 없다"* 와 *"스캐너가 아무것도 못 본다"* 가
       **같은 결과**로 보인다. 둘을 가르는 것이 이 검사다.
     """
-    calls = _wall_clock_calls(_MASTER / _ALLOWED)
+    calls = _wall_clock_calls(_APP / _ALLOWED)
 
     assert calls, (
         "스캐너가 clock.py 의 벽시계 호출을 못 찾았다 —"
@@ -210,14 +271,14 @@ def test_스캐너가_예외_자리도_실제로_찾는다():
         return
 
     for name, expected in _TIMESTAMP_ONLY.items():
-        assert _wall_clock_calls(_MASTER / name) >= expected, (
+        assert _wall_clock_calls(_APP / name) >= expected, (
             f"{name} 에 {expected} 가 없다 — 예외 목록이 유령을 가리킨다."
             " 그 자리가 사라졌으면 목록에서도 지워야 한다"
         )
 
 
 def test_벽시계를_읽는_곳은_clock_하나뿐이다():
-    """**`clock.py` 밖에서 벽시계를 읽으면 여기서 운다.**
+    """**`core/clock.py` 밖에서 벽시계를 읽으면 여기서 운다.**
 
     ⚠️ 고치는 법은 그 자리에서 `datetime.now()` 를 지우고 **`as_of` 를 인자로 받는
       것**이다. `clock.today_in_seoul()` 을 그 자리에서 부르는 것도 답이 아니다 —
@@ -243,8 +304,8 @@ def test_예외_자리는_날짜를_안_만든다():
     이유로 그 변신까지 통과시키면 예외가 구멍이 된다.
     """
     for name in _TIMESTAMP_ONLY:
-        clock_calls = {ast.unparse(node) for node, _ in _clock_nodes(_MASTER / name)}
-        tree = ast.parse((_MASTER / name).read_text(encoding="utf-8"))
+        clock_calls = {ast.unparse(node) for node, _ in _clock_nodes(_APP / name)}
+        tree = ast.parse((_APP / name).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             # `<벽시계 호출>.date()` 를 찾는다 — 시각이 날짜로 바뀌는 유일한 모양이다.
             if (
@@ -264,17 +325,21 @@ def test_스캐너가_시계를_가져가는_진입점을_실제로_찾는다():
 
     ★ 이 스캐너가 죽으면 *"아무도 시계를 안 가져간다"* 와 *"스캐너가 아무것도 못
       본다"* 가 **같은 결과**로 보인다. 그래서 **있는 것이 잡히는지**부터 잰다 —
-      두 임포트 모양이 저장소에 실제로 하나씩 있으므로 둘 다 짚는다.
+      두 임포트 모양이 저장소에 실제로 하나씩 있으므로 각각 그 파일에서 짚는다.
+      별칭 모양은 저장소에 아직 없어서 원문 한 조각으로 잰다.
     """
     hits = _scan_clock_readers()
 
     assert hits, "시계를 가져가는 파일을 하나도 못 찾았다 — 스캐너가 고장 났다"
-    assert "seoul_now" in hits.get("scheduler.py", set()), (
-        f"`from app.master import clock` + `clock.seoul_now` 모양을 못 잡았다: {hits}"
+    assert "seoul_now" in hits.get("master/scheduler.py", set()), (
+        f"`from app.core import clock` + `clock.seoul_now` 모양을 못 잡았다: {hits}"
     )
-    assert "today_in_seoul" in hits.get("scheduler.py", set()), (
-        f"`from app.master.clock import today_in_seoul` 모양을 못 잡았다: {hits}"
+    assert "today_in_seoul" in hits.get("master/backfill.py", set()), (
+        f"`from app.core.clock import today_in_seoul` 모양을 못 잡았다: {hits}"
     )
+    assert _clock_readers_in(
+        "from app.core import clock as 시계\nx = 시계.seoul_now()\n"
+    ) == {"seoul_now"}, "`from app.core import clock as …` 별칭 모양을 못 잡았다"
 
 
 def test_시계를_가져가는_곳은_진입점뿐이다():
@@ -304,7 +369,7 @@ def test_재검증은_시계를_안_가져간다():
     ★ 위 검사가 이미 이것을 덮지만, **이름을 적어 둔다.** 목록이 넓어지는 날
       `revalidation.py` 가 슬쩍 끼는 것과 진입점이 하나 느는 것은 다른 일이다.
     """
-    assert "revalidation.py" not in _scan_clock_readers(), (
+    assert "master/revalidation.py" not in _scan_clock_readers(), (
         "재검증이 clock 을 다시 가져간다 — as_of 는 진입점이 정해서 넘겨야 한다"
     )
 
@@ -315,17 +380,23 @@ def test_clock_말고는_ZoneInfo_로_시간대를_안_만든다():
     🔴 `timezone(timedelta(hours=9))` 를 각자 들고 있으면 조용히 갈린다. 실제로
       `revalidation.py` 가 `_KST` 를 따로 들고 있었고(2026-09-08 정리), 값이 같아서
       아무도 못 봤다 — **같아서 못 본 것이지 안 갈릴 이유가 있던 것이 아니다.**
-    """
-    owners = []
-    for path in sorted(_MASTER.rglob("*.py")):
-        source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and ast.unparse(node.func).split(".")[-1] in (
-                "ZoneInfo",
-                "timezone",
-            ):
-                owners.append(path.relative_to(_MASTER).as_posix())
-                break
 
-    assert owners == [_ALLOWED], f"시간대를 만드는 곳이 clock.py 말고 또 있다: {owners}"
+    🟡 ML 두 자리는 고정 오프셋이라 목록으로 적어 둔다(`_FIXED_OFFSET_OWNERS`). 그 자리가
+      지역명 시간대를 따로 만들기 시작하면 그것도 여기서 운다.
+    """
+    owners = {
+        path.relative_to(_APP).as_posix(): calls
+        for path in sorted(_APP.rglob("*.py"))
+        if (calls := _timezone_calls(path))
+    }
+
+    assert owners.get(_ALLOWED) == {"ZoneInfo('Asia/Seoul')"}, (
+        f"스캐너가 clock.py 의 시간대를 못 찾았다 — 공짜 초록이 된다: {owners}"
+    )
+    assert set(owners) == {_ALLOWED} | _FIXED_OFFSET_OWNERS, (
+        f"시간대를 만드는 곳이 clock.py 말고 또 있다: {owners}"
+    )
+    for name in _FIXED_OFFSET_OWNERS:
+        assert owners[name] == {"timezone(timedelta(hours=9))"}, (
+            f"{name} 가 고정 오프셋 말고 다른 시간대를 만든다: {owners[name]}"
+        )

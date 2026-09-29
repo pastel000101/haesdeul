@@ -55,10 +55,11 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
-from zoneinfo import ZoneInfo
 
 from psycopg import sql
 
+from app.core.clock import SEOUL
+from app.core.text import to_decimal
 from app.logistics.db import get_db_schema
 from app.logistics.outbound import _reservation_status_for
 from app.logistics.outbound_schedules import confirmed_outbound_at
@@ -94,9 +95,6 @@ __all__ = [
     "snapshot_days_between",
     "timestamp_cutoff",
 ]
-
-#: 시뮬레이션 달력의 시간대. `sim_time.phase_instant` 와 같은 시간대다.
-_KST = ZoneInfo("Asia/Seoul")
 
 #: 용량 정책에 유효일 컬럼이 없다는 사실을 응답에 적는 값. **정책 이력 표를 만들지
 #: 않는다** — 한계를 숨기지 않고 그대로 말하는 쪽을 고른다.
@@ -396,7 +394,7 @@ def timestamp_cutoff(as_of: date) -> datetime:
        따라 하루가 밀리고, 밀린 것을 아무도 알아채지 못한다. tz-aware 파라미터를
        넘겨 DB 가 같은 순간을 보게 한다.
     """
-    return datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=_KST)
+    return datetime.combine(as_of + timedelta(days=1), time.min, tzinfo=SEOUL)
 
 
 def _schema() -> sql.Identifier:
@@ -407,10 +405,6 @@ def _rows(conn: Any, query: sql.Composed, params: Any) -> list[dict[str, Any]]:
     with conn.cursor() as cursor:
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
-
-
-def _decimal(value: Any) -> Decimal:
-    return value if isinstance(value, Decimal) else Decimal(str(value))
 
 
 #: 원장 누계 한 조각. **`ADJUST` 는 더하지 않고 세기만 한다** — 세어 둔 것을 보고
@@ -490,7 +484,7 @@ def ledger_state_by_lot(
     _reject_adjust(rows, sim_run_id=sim_run_id, as_of=as_of)
     return {
         row["lot_id"]: LedgerLotState(
-            balance_kg=_decimal(row["balance_kg"]),
+            balance_kg=to_decimal(row["balance_kg"]),
             last_moved_at=row["last_moved_at"],
         )
         for row in rows
@@ -582,7 +576,7 @@ def lot_state_at(conn: Any, *, sim_run_id: str, as_of: date) -> tuple[Historical
 
     lots: list[HistoricalLot] = []
     for row in rows:
-        balance = _decimal(row["balance_kg"])
+        balance = to_decimal(row["balance_kg"])
         lots.append(
             HistoricalLot(
                 lot_id=row["lot_id"],
@@ -884,7 +878,7 @@ def onhand_total_by_day(
             f"(sim_run_id={sim_run_id!r} · moved_at={sorted(adjust_days)})."
         )
 
-    net_by_day = {row["moved_at"]: _decimal(row["net_kg"]) for row in rows}
+    net_by_day = {row["moved_at"]: to_decimal(row["net_kg"]) for row in rows}
     running = sum((qty for day, qty in net_by_day.items() if day < start), Decimal(0))
 
     series: dict[date, Decimal] = {}
@@ -1084,7 +1078,7 @@ def reservation_state_at(
         잡은것 = sum(
             (a.allocated_qty_kg for a in 할당 if a.state == "ALLOCATED"), start=Decimal(0)
         )
-        확보 = _decimal(row["reserved_qty_kg"])
+        확보 = to_decimal(row["reserved_qty_kg"])
         # 🔴 **놓아준 날부터 «아직 안 고른 몫» 은 0 이다 (WP-3 보정 2).** 확보량은
         #    보존되므로 그대로 빼면 놓아준 예약이 *"아직 60kg 남았다"* 로 보인다.
         미할당 = (
@@ -1099,7 +1093,7 @@ def reservation_state_at(
                 item_name=row["item_name"],
                 sale_id=row["sale_id"],
                 sale_date=row["sale_date"],
-                required_qty_kg=_decimal(row["required_qty_kg"]),
+                required_qty_kg=to_decimal(row["required_qty_kg"]),
                 reserved_qty_kg=확보,
                 due_date=row["due_date"],
                 state=상태,
@@ -1189,7 +1183,7 @@ def _historical_allocation(
         reservation_id=row["reservation_id"],
         lot_id=row["lot_id"],
         pallet_id=row["pallet_id"],
-        allocated_qty_kg=_decimal(row["allocated_qty_kg"]),
+        allocated_qty_kg=to_decimal(row["allocated_qty_kg"]),
         allocation_basis=row["allocation_basis"],
         decided_by=row["decided_by"],
         decided_at=row["decided_at"],

@@ -14,12 +14,7 @@ from math import ceil, floor
 import pytest
 from _injection import declare_thresholds, force_situation
 
-from app.master.envelope import (
-    AgentRequest,
-    ExecutionContext,
-    check_reasoning,
-    validate_reply,
-)
+from app.contracts.envelope import AgentRequest, ExecutionContext, check_reasoning, validate_reply
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import (
     SUPPORTED_MODES,
@@ -1463,7 +1458,7 @@ def test_status_query_answers_without_building_scenarios() -> None:
 
 def test_generate_scenarios_still_requires_used_tools() -> None:
     """면제는 ``STATUS_QUERY`` **하나뿐**이다 — 판단하는 mode는 재현할 대상이 있다."""
-    from app.master.envelope import ExecutionMetadata, validate_reply
+    from app.contracts.envelope import ExecutionMetadata, validate_reply
 
     request = _request("배추", SPREAD_WIDE)
     reply, metadata = purchase_port(request)
@@ -1496,7 +1491,7 @@ def test_every_scenario_number_carries_a_path_evidence() -> None:
     같은 이름의 필드가 안마다 2~3벌이라 위치가 필요하다 — 매입 요청으로 신설된 규칙이다
     (M-1 §7.1). 라벨은 면제이므로 ``label``·``strategy_type`` 근거는 만들지 않는다.
     """
-    from app.master.envelope import required_claims
+    from app.contracts.envelope import required_claims
 
     reply = purchase_port(_request("배추", SPREAD_WIDE))[0]
     required = required_claims(reply.payload, reply.judgment_fields)
@@ -1686,7 +1681,7 @@ def test_our_vocabulary_is_the_envelope_vocabulary() -> None:
     """어휘를 우리가 새로 만들지 않는다 — 봉투 계약의 네 값을 그대로 쓴다."""
     from typing import get_args
 
-    from app.master.envelope import LLMStatus as EnvelopeStatus
+    from app.contracts.envelope import LLMStatus as EnvelopeStatus
     from app.purchase_agent.llm.schemas import LLMStatus as OurStatus
 
     assert set(get_args(OurStatus)) == set(get_args(EnvelopeStatus))
@@ -1703,7 +1698,7 @@ def _request_with_mode(mode: str, monkeypatch: pytest.MonkeyPatch) -> AgentReque
     봉투(``_AGENT_MODES``)가 지금은 앞에서 막지만, 그것이 우리 어댑터가 안전하다는
     뜻은 아니다. 그 방어가 사라지는 날을 여기서 미리 살아 본다.
     """
-    from app.master import envelope
+    from app.contracts import envelope
 
     monkeypatch.setitem(
         envelope._AGENT_MODES, "purchase", envelope._AGENT_MODES["purchase"] | {mode}

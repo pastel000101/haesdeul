@@ -422,6 +422,9 @@ def test_18_자기_커넥션을_열지_않는다():
     """
     코드 = _코드만(_원문())
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "fetch_all" not in 코드
 
     conn = 가짜커넥션([_줄()])

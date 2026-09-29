@@ -122,7 +122,7 @@ class 커넥션_대역:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.commits += 1
@@ -130,8 +130,12 @@ class 커넥션_대역:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 def _scenario() -> dict[str, Any]:
@@ -165,7 +169,7 @@ def _확정(확정: 확정_대역, 예약: 예약_대역, conn: 커넥션_대역
         sim_run_id=실행축,
         confirm=확정,
         reserve=예약,
-        connect=(커넥션_대역 if conn is None else (lambda: conn)),
+        borrow=(커넥션_대역 if conn is None else (lambda: conn)),
     )
 
 
@@ -399,7 +403,7 @@ def test_재검증이_막히면_예약까지_안_간다() -> None:
         sim_run_id=실행축,
         confirm=확정,
         reserve=예약,
-        connect=커넥션_대역,
+        borrow=커넥션_대역,
     )
 
     assert 결과.status == "BLOCKED"
@@ -459,7 +463,7 @@ def test_확정이_안_서면_예약_칸은_비어_있다(칸: str) -> None:
         sim_run_id=실행축,
         confirm=확정_대역(),
         reserve=예약_대역(),
-        connect=커넥션_대역,
+        borrow=커넥션_대역,
     )
 
     assert 결과.status == "BLOCKED"

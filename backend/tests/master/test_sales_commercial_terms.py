@@ -42,6 +42,7 @@ from typing import Any
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import backtest_runner, scheduler
 from app.master import sales_terms as 조건모듈
 from app.master.backfill import (
@@ -53,7 +54,6 @@ from app.master.backfill import (
     read_rules,
 )
 from app.master.backtest_runner import walk
-from app.master.clock import SEOUL
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.inputs import SourcedInput
 from app.master.sales_terms import apply_sales_terms, read_run_sales_terms, rules_source_ref

@@ -46,14 +46,17 @@ def test_계약_품목은_전부_ML_예측이_있다():
 def test_마스터_약정_어휘를_따로_세지_않는다():
     """`ITEM_CODES` 는 계약에서 온다 — 값이 같은 것으로는 부족하다.
 
+    ★ 2026-09-29 `ITEM_CODES` 가 약정 타입과 함께 `app/contracts/commitment.py` 로 옮겨
+      갔다 (재구성 BL-011). 형태를 보는 원문도 그 파일이다.
+
     ⚠️ 값 비교만 하면 **양쪽을 똑같이 손으로 고쳐도** 통과한다. 그러면 다음 번
       변경에서 또 갈린다. 그래서 `frozenset(ITEMS)` 라는 **형태**를 본다.
     """
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     assert ITEM_CODES == frozenset(ITEMS)
 
-    src = (_APP / "master" / "commitment.py").read_text(encoding="utf-8")
+    src = (_APP / "contracts" / "commitment.py").read_text(encoding="utf-8")
     tree = ast.parse(src)
     calls = [
         node
@@ -99,12 +102,20 @@ def _item_literals(path: Path) -> list[int]:
     return hits
 
 
+#: 🟢 2026-09-29 봉투(`envelope.py`)와 약정 타입(`commitment.py`)이 마스터에서
+#:   `app/contracts/` 로 올라갔다 (재구성 BL-011). 옮긴 코드가 이 규율 밖으로 빠지지 않게
+#:   공용 계약 파일도 본다 — 품목 목록의 주인인 `contracts/core.py` 만 뺀다.
+_OWNER = "contracts/core.py"
+
+
 @pytest.mark.parametrize(
     "rel",
     sorted(
         str(p.relative_to(_APP)).replace("\\", "/")
-        for p in (_APP / "master").rglob("*.py")
+        for folder in ("master", "contracts")
+        for p in (_APP / folder).rglob("*.py")
         if "__pycache__" not in p.parts
+        and str(p.relative_to(_APP)).replace("\\", "/") != _OWNER
     ),
 )
 def test_마스터가_품목을_다시_세지_않는다(rel: str):

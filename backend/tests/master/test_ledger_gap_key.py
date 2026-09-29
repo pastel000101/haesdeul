@@ -42,8 +42,8 @@ from uuid import UUID
 
 import pytest
 
+from app.core.clock import SEOUL
 from app.master import persistence, procurement_boundary, run_repository, scheduler
-from app.master.clock import SEOUL
 from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.procurement_boundary import read_procurement_boundary
 from app.master.run_repository import (

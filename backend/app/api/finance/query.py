@@ -9,8 +9,8 @@ from decimal import Decimal
 from app.api.finance.schema import FinanceTab, FlowCell, StateOption
 from app.api.primitives import CalendarAxis, Card, Chart, Column, Note, Series, Source, Stat, Table
 from app.api.shown_run import SHOWN_SIM_RUN_ID
+from app.core.text import format_manwon, format_won
 from app.finance.dashboard import get_finance_cashflow, get_finance_dashboard
-from app.finance.db import read_connection_scope
 from app.finance.schemas import FinanceClosingItem, FinanceDashboardResponse, FinanceStateView
 
 STATES = ("base", "loan")
@@ -24,12 +24,11 @@ _MILLION = Decimal(1_000_000)
 
 
 def build(as_of: date, state: str) -> FinanceTab:
-    #  🔵 **이 두 조회가 커넥션 하나를 나눠 쓴다** (2026-09-17). 종전에는 안쪽
-    #     `fetch_all` 이 호출마다 새로 열어 **한 판에 12개**였다 (원격 DB · 개당
-    #     14~22ms). 읽기뿐이라 되는 일이고, 규칙과 경고는 저쪽 docstring 에 있다.
-    with read_connection_scope():
-        dash = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
-        flow = get_finance_cashflow(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, days=30)
+    #  🔵 두 조회 안의 `fetch_*` 는 공통 풀에서 연결을 빌려 쓴다 (2026-09-29 풀 전환).
+    #     종전(2026-09-17)에는 재무 읽기 범위로 한 판의 연결을 하나로 묶었다 — 조회마다
+    #     새로 열면 한 판에 12개였다(원격 DB · 개당 14~22ms). 이제 그 재사용을 풀이 한다.
+    dash = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+    flow = get_finance_cashflow(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, days=30)
     selected_key, selected = _select_state(dash, state)
     state_as_of = None if selected is None else selected.state_date
     latest_closing_as_of = max((row.close_date for row in dash.recent_closings), default=None)
@@ -37,7 +36,7 @@ def build(as_of: date, state: str) -> FinanceTab:
     payables = dash.ledger_summary["payables"]
     receivable_detail = (
         f"남은 받을 돈 {receivables.count}건 · "
-        f"이미 받은 돈 {_won(receivables.received_amount_krw)}"
+        f"이미 받은 돈 {format_won(receivables.received_amount_krw)}"
     )
 
     return FinanceTab(
@@ -52,7 +51,7 @@ def build(as_of: date, state: str) -> FinanceTab:
         stats=[] if selected is None else [
             Stat(
                 label="운영 여유",
-                value=_manwon(selected.operating_cash_buffer_krw),
+                value=format_manwon(selected.operating_cash_buffer_krw),
                 unit="만원",
                 detail=_buffer_detail(selected.operating_cash_buffer_krw),
                 tone=_buffer_tone(selected.operating_cash_buffer_krw),
@@ -60,7 +59,7 @@ def build(as_of: date, state: str) -> FinanceTab:
             ),
             Stat(
                 label="현재 보유 현금",
-                value=_manwon(selected.current_cash_krw),
+                value=format_manwon(selected.current_cash_krw),
                 unit="만원",
                 detail=_date_detail(as_of, state_as_of),
                 tone="good" if selected.current_cash_krw >= 0 else "bad",
@@ -68,7 +67,7 @@ def build(as_of: date, state: str) -> FinanceTab:
             ),
             Stat(
                 label="아직 못 받은 판매대금",
-                value=_manwon(receivables.outstanding_amount_krw),
+                value=format_manwon(receivables.outstanding_amount_krw),
                 unit="만원",
                 detail=receivable_detail,
                 tone="warn" if receivables.outstanding_amount_krw > 0 else "good",
@@ -76,7 +75,7 @@ def build(as_of: date, state: str) -> FinanceTab:
             ),
             Stat(
                 label="현재 차입 잔액",
-                value=_manwon(selected.current_debt_krw),
+                value=format_manwon(selected.current_debt_krw),
                 unit="만원",
                 detail="현재 남아 있는 차입금",
                 tone="warn" if selected.current_debt_krw > 0 else "good",
@@ -96,7 +95,7 @@ def build(as_of: date, state: str) -> FinanceTab:
         balances=[] if selected is None else [
             Stat(
                 label="아직 받을 돈",
-                value=_manwon(receivables.outstanding_amount_krw),
+                value=format_manwon(receivables.outstanding_amount_krw),
                 unit="만원",
                 detail=(
                     f"완료 {receivables.collected_count} · 일부 {receivables.partial_count} · "
@@ -107,14 +106,14 @@ def build(as_of: date, state: str) -> FinanceTab:
             ),
             Stat(
                 label="이미 받은 돈",
-                value=_manwon(receivables.received_amount_krw),
+                value=format_manwon(receivables.received_amount_krw),
                 unit="만원",
                 detail="현재까지 받은 판매대금",
                 raw=_raw(receivables.received_amount_krw),
             ),
             Stat(
                 label="아직 지급할 매입대금",
-                value=_manwon(payables.outstanding_amount_krw),
+                value=format_manwon(payables.outstanding_amount_krw),
                 unit="만원",
                 detail=f"아직 지급하지 않은 매입대금 {payables.count}건",
                 tone="warn" if payables.outstanding_amount_krw > 0 else "good",
@@ -122,7 +121,7 @@ def build(as_of: date, state: str) -> FinanceTab:
             ),
             Stat(
                 label="판매대금 총액",
-                value=_manwon(receivables.original_amount_krw),
+                value=format_manwon(receivables.original_amount_krw),
                 unit="만원",
                 detail="확정된 판매대금 원금",
                 raw=_raw(receivables.original_amount_krw),
@@ -133,7 +132,7 @@ def build(as_of: date, state: str) -> FinanceTab:
             text=(
                 "**현재 미지급 매입대금은 없습니다.** 정산할 매입대금이 남아 있지 않습니다."
                 if payables.outstanding_amount_krw == 0
-                else f"남은 매입대금은 {_won(payables.outstanding_amount_krw)}입니다."
+                else f"남은 매입대금은 {format_won(payables.outstanding_amount_krw)}입니다."
             ),
         ),
         closings=(
@@ -163,10 +162,7 @@ def dashboard_cash(axis: CalendarAxis) -> Chart:
     """
     as_of = date.fromisoformat(axis.as_of)
     run = SHOWN_SIM_RUN_ID
-    #  🔵 여기는 조회가 하나뿐이라 범위가 아껴 주는 것은 없다. 그래도 **여는 자리를
-    #     같게** 둬서, 나중에 조회가 늘어도 커넥션은 안 늘게 한다.
-    with read_connection_scope():
-        flow = get_finance_cashflow(sim_run_id=run, as_of=as_of, days=len(axis.days))
+    flow = get_finance_cashflow(sim_run_id=run, as_of=as_of, days=len(axis.days))
     by_date = {row.close_date: row for row in flow.cashflow if row.close_date <= as_of}
     rows = [by_date.get(date.fromisoformat(day.date)) for day in axis.days]
 
@@ -312,21 +308,21 @@ def _action_card(dash: FinanceDashboardResponse, state: FinanceStateView) -> Car
     stats = [
         Stat(
             label="운영자금 부족" if state.operating_cash_buffer_krw < 0 else "운영자금 여유",
-            value=_manwon(abs(state.operating_cash_buffer_krw)),
+            value=format_manwon(abs(state.operating_cash_buffer_krw)),
             unit="만원",
             detail=_buffer_detail(state.operating_cash_buffer_krw),
             tone=_buffer_tone(state.operating_cash_buffer_krw),
         ),
         Stat(
             label="연체 미수금",
-            value=_manwon(receivables.overdue_amount_krw),
+            value=format_manwon(receivables.overdue_amount_krw),
             unit="만원",
             detail="수금 예정일이 지난 판매대금",
             tone="bad" if receivables.overdue_amount_krw > 0 else "good",
         ),
         Stat(
             label="남은 매입대금",
-            value=_manwon(payables.outstanding_amount_krw),
+            value=format_manwon(payables.outstanding_amount_krw),
             unit="만원",
             detail="아직 지급하지 않은 매입대금",
             tone="warn" if payables.outstanding_amount_krw > 0 else "good",
@@ -367,26 +363,26 @@ def _state_cards(states: list[FinanceStateView]) -> list[Card]:
             stats=[
                 Stat(
                     label="현금 잔액",
-                    value=_manwon(state.current_cash_krw),
+                    value=format_manwon(state.current_cash_krw),
                     unit="만원",
                     raw=_raw(state.current_cash_krw),
                 ),
                 Stat(
                     label="최소 운영자금",
-                    value=_manwon(state.minimum_operating_cash_krw),
+                    value=format_manwon(state.minimum_operating_cash_krw),
                     unit="만원",
                     raw=_raw(state.minimum_operating_cash_krw),
                 ),
                 Stat(
                     label="운영자금 여유",
-                    value=_manwon(state.operating_cash_buffer_krw),
+                    value=format_manwon(state.operating_cash_buffer_krw),
                     unit="만원",
                     tone=_buffer_tone(state.operating_cash_buffer_krw),
                     raw=_raw(state.operating_cash_buffer_krw),
                 ),
                 Stat(
                     label="현재 차입 잔액",
-                    value=_manwon(state.current_debt_krw),
+                    value=format_manwon(state.current_debt_krw),
                     unit="만원",
                     tone="warn" if state.current_debt_krw > 0 else "good",
                     raw=_raw(state.current_debt_krw),
@@ -519,20 +515,20 @@ def _closings_table(rows: list[FinanceClosingItem]) -> Table:
         rows=[
             {
                 "d": row.close_date.isoformat(),
-                "buy": _won(row.purchase_cash_out_krw),
-                "log": _won(row.logistics_cash_out_krw),
-                "pay": _won(row.payroll_interest_cash_out_krw),
+                "buy": format_won(row.purchase_cash_out_krw),
+                "log": format_won(row.logistics_cash_out_krw),
+                "pay": format_won(row.payroll_interest_cash_out_krw),
                 #  🔴 **기록하지 않은 날을 0원이라고 적지 않는다.** 그 실행이 이 축을
                 #     세지 않았다는 사실과 세어 보니 없었다는 사실은 다르다.
                 "ope": (
                     "기록 없음"
                     if row.operating_expense_cash_out_krw is None
-                    else _won(row.operating_expense_cash_out_krw)
+                    else format_won(row.operating_expense_cash_out_krw)
                 ),
-                "sale": _won(row.sales_recognized_krw),
-                "col": _won(row.collection_cash_in_krw),
-                "base": _won(row.base_cash_balance_krw),
-                "loan": _won(row.loan_cash_balance_krw),
+                "sale": format_won(row.sales_recognized_krw),
+                "col": format_won(row.collection_cash_in_krw),
+                "base": format_won(row.base_cash_balance_krw),
+                "loan": format_won(row.loan_cash_balance_krw),
             }
             for row in rows
         ],
@@ -540,18 +536,10 @@ def _closings_table(rows: list[FinanceClosingItem]) -> Table:
     )
 
 
-def _won(value: Decimal) -> str:
-    return f"{value.quantize(Decimal(1)):,.0f}원"
-
-
-def _manwon(value: Decimal) -> str:
-    return f"{(value / Decimal(10000)).quantize(Decimal(1)):,.0f}"
-
-
 def _manwon_with_unit(value: Decimal) -> str:
     if value == 0:
         return "0원"
-    return f"{_manwon(value)}만원"
+    return f"{format_manwon(value)}만원"
 
 
 def _raw(value: Decimal) -> float:
@@ -565,7 +553,7 @@ def _to_manwon(value: Decimal | None) -> float | None:
 
 
 def _buffer_summary(value: Decimal) -> str:
-    amount = _manwon(abs(value))
+    amount = format_manwon(abs(value))
     if value > 0:
         return f"최소 운영자금보다 {amount}만원 여유가 있습니다."
     if value < 0:

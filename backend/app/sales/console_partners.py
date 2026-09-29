@@ -13,6 +13,7 @@ from psycopg import sql
 from pydantic import BaseModel
 
 from app.contracts.aging import AgingBucket, classify_receivable_aging
+from app.core.text import decimal_or_zero
 from app.sales.db import fetch_all, get_db_schema
 from app.sales.receivable_history import history_columns, history_join, projected_status
 
@@ -109,10 +110,6 @@ class ConsolePartnerDetailResponse(BaseModel):
     #: a second formula here would quietly become a second credit policy.
     credit: None = None
     credit_status: str = "UNSUPPORTED"
-
-
-def _decimal(value: object) -> Decimal:
-    return _ZERO if value is None else Decimal(str(value))
 
 
 def _optional_decimal(value: object) -> Decimal | None:
@@ -216,10 +213,10 @@ def get_console_partners(
             partner_name=None if raw["partner_name"] is None else str(raw["partner_name"]),
             partner_type=None if raw["partner_type"] is None else str(raw["partner_type"]),
             status="ACTIVE" if raw["active"] else "INACTIVE",
-            total_sales_krw=_decimal(raw["total_sales_krw"]),
+            total_sales_krw=decimal_or_zero(raw["total_sales_krw"]),
             total_sales_count=int(raw["total_sales_count"]),
-            receivable_balance_krw=_decimal(raw["receivable_balance_krw"]),
-            overdue_balance_krw=_decimal(raw["overdue_balance_krw"]),
+            receivable_balance_krw=decimal_or_zero(raw["receivable_balance_krw"]),
+            overdue_balance_krw=decimal_or_zero(raw["overdue_balance_krw"]),
             latest_sale_date=raw["latest_sale_date"],
         )
         for raw in load_partner_rows(
@@ -343,8 +340,8 @@ def get_console_partner_detail(
     if basic_raw is None:
         return None
     totals = _load_totals(sim_run_id=sim_run_id, as_of=as_of, partner_id=partner_id)
-    total_sales = _decimal(totals["total_sales_krw"])
-    profit = _decimal(totals["contribution_profit_krw"])
+    total_sales = decimal_or_zero(totals["total_sales_krw"])
+    profit = decimal_or_zero(totals["contribution_profit_krw"])
     summary = ConsolePartnerSummary(
         total_sales_krw=total_sales,
         sales_count=int(totals["sales_count"]),
@@ -370,15 +367,15 @@ def get_console_partner_detail(
                 receivable_id=str(raw["receivable_id"]),
                 sale_id=str(raw["sale_id"]),
                 due_date=raw["due_date"],
-                original_amount_krw=_decimal(raw["original_amount_krw"]),
-                received_amount_krw=_decimal(raw["received_amount_krw"]),
+                original_amount_krw=decimal_or_zero(raw["original_amount_krw"]),
+                received_amount_krw=decimal_or_zero(raw["received_amount_krw"]),
                 outstanding_amount_krw=amount,
                 days_overdue=overdue,
                 aging_bucket=bucket,
                 #  🔴 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
                 status=projected_status(
-                    original_amount_krw=_decimal(raw["original_amount_krw"]),
-                    received_amount_krw=_decimal(raw["received_amount_krw"]),
+                    original_amount_krw=decimal_or_zero(raw["original_amount_krw"]),
+                    received_amount_krw=decimal_or_zero(raw["received_amount_krw"]),
                 ),
             )
         )
@@ -388,9 +385,9 @@ def get_console_partner_detail(
             sale_date=raw["sale_date"],
             item=None if raw["item_id"] is None else str(raw["item_id"]),
             item_name=None if raw.get("item_name") is None else str(raw["item_name"]),
-            quantity_kg=_decimal(raw["total_quantity_kg"]),
+            quantity_kg=decimal_or_zero(raw["total_quantity_kg"]),
             unit_price_krw=_optional_decimal(raw["unit_price_krw_per_kg"]),
-            sales_amount_krw=_decimal(raw["total_amount_krw"]),
+            sales_amount_krw=decimal_or_zero(raw["total_amount_krw"]),
             contribution_profit_krw=_optional_decimal(raw["contribution_profit_krw"]),
         )
         for raw in _load_sales(
@@ -401,9 +398,9 @@ def get_console_partner_detail(
         ConsolePartnerItemRow(
             item=str(raw["item_id"]),
             item_name=None if raw.get("item_name") is None else str(raw["item_name"]),
-            quantity_kg=_decimal(raw["quantity_kg"]),
-            sales_amount_krw=_decimal(raw["sales_amount_krw"]),
-            contribution_profit_krw=_decimal(raw["contribution_profit_krw"]),
+            quantity_kg=decimal_or_zero(raw["quantity_kg"]),
+            sales_amount_krw=decimal_or_zero(raw["sales_amount_krw"]),
+            contribution_profit_krw=decimal_or_zero(raw["contribution_profit_krw"]),
         )
         for raw in _load_items(sim_run_id=sim_run_id, as_of=as_of, partner_id=partner_id)
     ]
