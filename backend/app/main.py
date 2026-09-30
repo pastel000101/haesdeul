@@ -19,7 +19,7 @@ from app.master.registry.bootstrap import wire_registries
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """앱이 떠 있는 동안 DB 연결 풀을 쓴다 — 시작 때 열고, 끝날 때 닫는다 (2026-09-29).
 
-    ★ **풀만 다룬다.** 테이블을 만들거나 고치지 않는다(정의는 `database/*.sql` 하나다).
+    ★ **풀만 다룬다.** 테이블을 만들거나 고치지 않는다(정의는 `database/**/*.sql` 하나다).
     ★ DB 설정이 없으면 미리 열지 않고 뜬다 — `/health` 와 DB 를 안 쓰는 경로는 그대로 돌고,
       DB 경로는 첫 대여에서 종전 문구로 실패한다 (`app/core/db.py::pool_lifespan`).
     """

@@ -29,7 +29,7 @@ outbound_flow.py — **하루의 출고를 조립한다. 순서만 정하고 Lot
 🔴 **`sales.sale_date` 가 납품일의 정본이다.** DDL 주석이 그렇게 정의한다.
 
 ```text
-database/10_domain_schema.sql
+database/schema/sales/sales.sql
   COMMENT ON COLUMN haetdeul.sales.sale_date IS '판매/납품 기준일.';
 ```
 

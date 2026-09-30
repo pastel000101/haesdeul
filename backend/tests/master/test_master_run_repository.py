@@ -201,7 +201,11 @@ def test_조회_사이클을_적을_수_있다():
       `ask_service` 가 조회를 적재하기 시작하면 그때 관통으로 확인한다.
     """
     ddl = (
-        __import__("pathlib").Path(__file__).parents[3] / "database" / "master_agent_runs.sql"
+        __import__("pathlib").Path(__file__).parents[3]
+        / "database"
+        / "schema"
+        / "master"
+        / "master_agent_runs.sql"
     ).read_text(encoding="utf-8")
 
     assert "'STATUS'" in ddl, "cycle 어휘에 STATUS 가 없다 — 표를 나눈 이유가 사라진다"

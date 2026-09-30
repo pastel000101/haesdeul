@@ -21,7 +21,6 @@ import re
 from collections.abc import Iterator
 from datetime import date, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any, NamedTuple
 
 import psycopg
@@ -43,7 +42,7 @@ from app.logistics.readmodel.status_tools import (
     get_policy,
     get_sales_commitments,
 )
-from app.logistics.repository import rows
+from app.logistics.repository import outbound_schedules, rows
 from app.logistics.repository import turnover as turnover_repository
 from app.logistics.repository.exceptions import (
     live_exceptions_at,
@@ -64,6 +63,7 @@ from app.logistics.schemas.snapshot import (
     OutboundCommitment,
     ScheduledQuantity,
 )
+from tests.logistics.logistics_schema_files import AGENT, WMS, migration_sql, schema_sql
 
 pytestmark = pytest.mark.db
 
@@ -89,7 +89,6 @@ D7 = date(2026, 1, 7)
 D8 = date(2026, 1, 8)
 D10 = date(2026, 1, 10)
 
-DB_DIR = Path(__file__).resolve().parents[3] / "database"
 
 STUBS = f"""
 CREATE TABLE {TMP_SCHEMA}.items (item_id text PRIMARY KEY, item_name text);
@@ -97,23 +96,11 @@ CREATE TABLE {TMP_SCHEMA}.partners (partner_id text PRIMARY KEY);
 CREATE TABLE {TMP_SCHEMA}.sim_runs (sim_run_id text PRIMARY KEY);
 CREATE TABLE {TMP_SCHEMA}.purchase_items (
     purchase_item_id text PRIMARY KEY, purchase_id text, item_id text);
-CREATE TABLE {TMP_SCHEMA}.sales (sale_id text PRIMARY KEY, sale_date date, order_date date);
-CREATE TABLE {TMP_SCHEMA}.sale_items (sale_item_id text PRIMARY KEY);
+CREATE TABLE {TMP_SCHEMA}.sales (
+    sale_id text PRIMARY KEY, sale_date date, order_date date, sim_run_id text, order_status text);
+CREATE TABLE {TMP_SCHEMA}.sale_items (
+    sale_item_id text PRIMARY KEY, sale_id text, item_id text, quantity_kg numeric);
 """
-
-
-def _repo_block(table: str) -> str:
-    text = (DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
-    match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
-    assert match is not None, table
-    parts = [match.group(0)]
-    parts += re.findall(rf"ALTER TABLE ONLY haetdeul\.{table}\s+ADD CONSTRAINT [^;]+;", text)
-    return "\n".join(parts)
-
-
-def _file(name: str) -> str:
-    text = (DB_DIR / name).read_text(encoding="utf-8")
-    return re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", text)
 
 
 @pytest.fixture
@@ -124,15 +111,21 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
             with connection.cursor() as cur:
                 cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
                 cur.execute(STUBS)
-                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                for name in (
-                    "30_logistics_wms_schema.sql",
-                    "logistics_inventory_lots_nullable.sql",
-                ):
-                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                agent_ddl = _file("40_logistics_agent_schema.sql")
-                cur.execute(agent_ddl.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                cur.execute(
+                    schema_sql(
+                        TMP_SCHEMA,
+                        (
+                            "inventory_lots",
+                            "inventory_moves",
+                            "item_storage_policies",
+                            *WMS,
+                            *AGENT,
+                        ),
+                    )
+                )
+                cur.execute(
+                    migration_sql(TMP_SCHEMA, "logistics/logistics_inventory_lots_nullable.sql")
+                )
 
                 for run in (SIM, OTHER_SIM):
                     cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (run,))
@@ -160,7 +153,10 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
                 )
             # ★ 2026-09-30 재구성 BL-015: 회전 SQL 은 `repository/turnover` 가, 이력 · 문제 장부 ·
             #   일정 SQL 은 `rows.schema_identifier` 로 스키마를 읽는다.
-            for module in (turnover_repository, rows):
+            # ★ 2026-09-30 BL-021: 확정 출고 조회(`repository/outbound_schedules`)도 임시 스키마를
+            #   읽게 한다 — 빠져 있으면 실제 `haetdeul.sales` 를 읽어, 그 표가 없는 빈 DB 에서
+            #   7건이 실패했다(재구성 전 `516449c` 에서도 이 모듈은 빠져 있었다).
+            for module in (turnover_repository, rows, outbound_schedules):
                 monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
             yield connection
         finally:

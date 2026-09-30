@@ -39,7 +39,7 @@ def lock_lot_row(
 
     ⚠️ **전역 직렬화가 있으니 이 행 잠금이 남아도는 것은 아니다.** 원장 잠금은 이 모듈을
        지나는 쓰기만 세우고, `inventory_lots` 는 원장 밖에서도 갱신될 수 있는 표다
-       (`database/mvp_demo_remove_pimanul.sql` 같은 직접 UPDATE 가 실제로 있었다).
+       (`database/seed/demo/mvp_demo_remove_pimanul.sql` 같은 직접 UPDATE 가 실제로 있었다).
        행 잠금이 없으면 그런 경로와 겹칠 때 두 쪽이 같은 잔량을 읽고 각자 빼서, 각각은
        검사를 통과하는데 합쳐 놓으면 음수가 된다 — DB CHECK 이 마지막에 잡더라도 그때는
        어느 쪽이 틀렸는지 알 수 없다.

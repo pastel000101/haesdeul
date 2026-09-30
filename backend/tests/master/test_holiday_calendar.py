@@ -8,7 +8,7 @@
 next_execution_day(2025-12-31) = 2026-01-01   신정이다
 ```
 
-★ **이제 달력이 저장소에 있다.** `#264` 로 ML 이 `database/ml_calendar_days.sql` 을
+★ **이제 달력이 저장소에 있다.** `#264` 로 ML 이 `database/schema/ml/ml_calendar_days.sql` 을
   넣었고 실 DB 에 표와 뷰가 있다.
 
 🔴 **읽는 것은 표다** (`#298`). 처음에는 `v_ml_batch_days` 를 읽었는데 그 뷰가

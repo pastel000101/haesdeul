@@ -14,7 +14,7 @@ haetdeul.receivables   15행
 🔴 수금 사건 표        **없었다** (%collect% · %cash% · %payment% 전수 0건)
 ```
 
-★ 그래서 `database/master_collection_events.sql` 이 그 칸을 담을 표를 세웠고, 이
+★ 그래서 `database/schema/master/master_collection_events.sql` 이 그 칸을 담을 표를 세웠고, 이
   모듈이 그 표를 읽는다. **`receivables` 에 칸을 더하지 않은 이유**는 `PARTIAL` 이
   실제로 2건 있어서다 — 한 채권이 여러 번 나눠 들어오고, 그것은 한 칸에 못 적는다.
 

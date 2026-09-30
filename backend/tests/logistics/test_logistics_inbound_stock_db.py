@@ -16,15 +16,14 @@ Lot NOT NULL 열 칸 · CHECK 넷 · FK 넷
 처리가 끝난 건만 도착 대상·미래 점유에서 빠지는가   (inbound_schedules Reader)
 ```
 
-★ **이관판을 임시 스키마에 적용해서 돈다.** `database/logistics_inventory_lots_nullable.sql`
-  이 그것이고, 공유 DB 에는 **적용하지 않는다** (통합 실행 전 별도 적용 필요).
+★ **이관판을 임시 스키마에 적용해서 돈다.**
+  `database/migrations/logistics/logistics_inventory_lots_nullable.sql` 이 그것이고,
+  공유 DB 에는 **적용하지 않는다** (통합 실행 전 별도 적용 필요).
 """
 
 from __future__ import annotations
 
 import ast
-import json
-import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
@@ -61,6 +60,7 @@ from app.logistics.service import inbound_stock
 from app.logistics.service.inbound_stock import materialize_inspected_inbound
 from app.logistics.service.inspections import record_inspection
 from app.logistics.service.receipts import create_arrived_receipt
+from tests.logistics.logistics_schema_files import WMS, migration_sql, schema_sql
 
 pytestmark = pytest.mark.db
 
@@ -82,7 +82,6 @@ UNIT_COST = Decimal("854.000000")
 #: 🟢 `item_storage_policies` 가 이 칸의 주인이다 (실측: 기존 80 Lot 이 품목마다 이 값).
 ZONE = "COLD_HUMID_0_3"
 
-_DB_DIR = Path(__file__).resolve().parents[3] / "database"
 
 _STUBS = f"""
 CREATE TABLE {TMP_SCHEMA}.items (item_id text PRIMARY KEY, item_name text);
@@ -111,16 +110,6 @@ def _코드만(source: str) -> str:
     return chr(10).join(line.split("#", 1)[0] for line in 코드.splitlines())
 
 
-def _repo_block(table: str) -> str:
-    """`10_domain_schema.sql` 의 표 하나를 그대로 뜬다 — 손으로 다시 적지 않는다."""
-    text = (_DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
-    match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
-    assert match is not None, f"10_domain_schema.sql 에 {table} 이 없다"
-    parts = [match.group(0)]
-    parts += re.findall(rf"ALTER TABLE ONLY haetdeul\.{table}\s+ADD CONSTRAINT [^;]+;", text)
-    return "\n".join(parts)
-
-
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     """임시 스키마에 입고 파이프라인 표를 전부 세우고, 끝나면 **되돌린다**."""
@@ -130,22 +119,22 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
             with connection.cursor() as cur:
                 cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
                 cur.execute(_STUBS)
-                for table in (
-                    "inventory_lots",
-                    "inventory_moves",
-                    "item_storage_policies",
-                    "logistics_runtime_fixture",
-                ):
-                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-                # ★ 이관판을 여기서만 적용한다. 공유 DB 에는 적용하지 않는다.
-                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                    encoding="utf-8"
+                cur.execute(
+                    schema_sql(
+                        TMP_SCHEMA,
+                        (
+                            "inventory_lots",
+                            "inventory_moves",
+                            "item_storage_policies",
+                            "logistics_runtime_fixture",
+                            *WMS,
+                        ),
+                    )
                 )
-                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                # ★ 이관판을 여기서만 적용한다. 공유 DB 에는 적용하지 않는다.
+                cur.execute(
+                    migration_sql(TMP_SCHEMA, "logistics/logistics_inventory_lots_nullable.sql")
+                )
 
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
@@ -206,42 +195,24 @@ def _detail(*, grade: str | None = None) -> PurchaseDetail:
 
 
 def _일정(conn: psycopg.Connection, *, as_of: date = AS_OF) -> None:
-    """그날 fixture 행을 세운다 — 이번 입고 한 건이 두 칸에 짝으로 들어 있다."""
-    운송 = [
-        {
-            "inbound_id": INBOUND_ID,
-            "item": "배추",
-            "quantity_kg": str(QTY),
-            "expected_arrival_date": ETA.isoformat(),
-        }
-    ]
-    확정 = [
-        {
-            "inbound_id": INBOUND_ID,
-            "item": "배추",
-            "quantity_kg": str(QTY),
-            "date": ETA.isoformat(),
-        }
-    ]
+    """그날 fixture 행을 세운다 — 운송 중 · 확정 입고 두 축을 확인했다(`CONFIRMED`)는 머리 행이다.
+
+    ★ 입고 목록은 이 행이 아니라 `inbound_schedules` 가 든다(`_입고예정`). 입고 JSON 두 칸
+      (`in_transit_json` · `confirmed_inbound_json`)은 새 DB 에 없다 — 2026-09-30 BL-021 보완부터
+      `schema/logistics/logistics_runtime_fixture.sql` 이 처음부터 만들지 않는다.
+    """
     with conn.cursor() as cur:
         cur.execute(
             f"""
             INSERT INTO {TMP_SCHEMA}.logistics_runtime_fixture (
-                fixture_id, sim_run_id, as_of, in_transit_status, in_transit_json,
-                confirmed_inbound_status, confirmed_inbound_json,
+                fixture_id, sim_run_id, as_of, in_transit_status,
+                confirmed_inbound_status,
                 confirmed_outbound_status, confirmed_outbound_json,
                 usage_scope, evidence_grade, source_ref, approved_by, is_active
-            ) VALUES (%s, %s, %s, 'CONFIRMED', %s, 'CONFIRMED', %s,
+            ) VALUES (%s, %s, %s, 'CONFIRMED', 'CONFIRMED',
                       'CONFIRMED_ZERO', '[]'::jsonb, %s, 'SIM_FIXED', 'TEST', 'HUMAN', TRUE)
             """,
-            (
-                "FIX-TEST-1",
-                SIM_RUN_ID,
-                as_of,
-                json.dumps(운송),
-                json.dumps(확정),
-                USAGE_SCOPE,
-            ),
+            ("FIX-TEST-1", SIM_RUN_ID, as_of, USAGE_SCOPE),
         )
 
 

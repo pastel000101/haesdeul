@@ -57,7 +57,8 @@ def _carry_forward_query(schema: sql.Identifier, *, pinned: bool) -> sql.Compose
     ```
 
     ★ **입고 두 JSON 칸을 아예 안 쓴다 (W3-4).** 그 칸은 이제 production 어디에서도
-      업무 사실로 안 읽히고 DROP 대상이라(`database/logistics_drop_inbound_json.sql`),
+      업무 사실로 안 읽히고 DROP 대상이라
+      (`database/migrations/logistics/logistics_drop_inbound_json.sql`),
       여기서 값을 넣으면 그 migration 뒤에 이 INSERT 가 깨진다.
 
     🔴 **`confirmed_outbound_json` 도 안 쓴다 (WP-3).** 미래 확정 출고의 정본이
@@ -79,7 +80,8 @@ def _carry_forward_query(schema: sql.Identifier, *, pinned: bool) -> sql.Compose
           숨긴다** (`domain/snapshot.schedule_source`).
 
     🔴 **`lot_priority` 는 판단이라 물려받지 않는다.** 씨앗 SQL 이 그렇게 적었고
-       (`database/27_...sql` 124행) 그대로 옮긴다. 어제 어느 로트를 먼저 내보내기로
+       (`database/seed/logistics/logistics_runtime_fixture_20260105_20260106.sql` 124행)
+       그대로 옮긴다. 어제 어느 로트를 먼저 내보내기로
        했는지는 어제의 판단이지 오늘의 사실이 아니다.
 
     🔴 **`sim_run_id` 칸은 여전히 `base.sim_run_id` 다.** 마스터 상수를 가져다 쓰지

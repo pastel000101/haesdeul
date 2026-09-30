@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 _CYCLE = "PROCUREMENT"
 
 # 판매 의사결정 (2026-09-07 신설). DB CHECK 가 이미 허용하는 어휘다
-# (`database/master_agent_runs.sql:44`) — 마이그레이션이 필요 없다.
+# (`database/schema/master/master_agent_runs.sql:44`) — 마이그레이션이 필요 없다.
 _SALES_CYCLE = "SALES"
 
 # 조회. 안을 만들지 않지만 예산을 쓰고 부서를 부르므로 이력에 남는다 (2026-09-02).

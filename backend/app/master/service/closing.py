@@ -113,7 +113,7 @@ NOT_ATTEMPTED 단계를 아예 안 탔다 (`DayRunOutcome` 이 든다) — 안 �
 🔴 **`③` 의 근거는 표의 키다** (실측 2026-09-10).
 
 ```text
-database/10_domain_schema.sql:4251
+database/schema/finance/daily_closings.sql:66
   ADD CONSTRAINT daily_closings_pkey PRIMARY KEY (sim_run_id, close_date)
 ```
 

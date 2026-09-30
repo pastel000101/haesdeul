@@ -39,6 +39,7 @@ from tests.fake_core_db import patch_sql_helpers
 _DDL = (
     Path(app.master.__file__).parent.parent.parent.parent
     / "database"
+    / "migrations"
     / "master"
     / "master_decision_revalidation.sql"
 )
@@ -312,7 +313,9 @@ def test_본_DDL_과_ALTER_판이_같은_칸을_든다():
     """
     assert _DDL.exists(), f"{_DDL.name} 이 없다"
 
-    본_DDL = (_DDL.parent.parent / "master_decisions.sql").read_text(encoding="utf-8")
+    본_DDL = (_DDL.parents[2] / "schema" / "master" / "master_decisions.sql").read_text(
+        encoding="utf-8"
+    )
     for 칸 in ("revalidation_request_id", "revalidation_outcome"):
         assert 칸 in 본_DDL, f"본 DDL 에 {칸} 이 없다 — 새로 세운 DB 에는 그 칸이 안 생긴다"
 

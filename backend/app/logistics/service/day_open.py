@@ -8,7 +8,8 @@
 물류    logistics_runtime_fixture 의 그날 행 하나     무엇을 물려받을지는 물류가 안다
 ```
 
-🟢 **새로 짠 SQL 이 아니다.** `database/27_logistics_runtime_fixture_20260105_20260106.sql`
+🟢 **새로 짠 SQL 이 아니다.**
+   `database/seed/logistics/logistics_runtime_fixture_20260105_20260106.sql`
    이 이미 정확히 이 carry-forward INSERT 이고, 여기서는 그 모양과 그 값을 그대로
    옮겼다. 어느 칸을 물려받고 어느 칸을 새로 두는지는 **그 파일이 정한 그대로다.**
 

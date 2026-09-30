@@ -20,7 +20,6 @@ DISPOSE 가 잔량을 줄이고 IN/OUT 경로는 여전히 막히는가
 from __future__ import annotations
 
 import ast
-import re
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -61,6 +60,7 @@ from app.logistics.service import outbound as outbound_service
 from app.logistics.service.disposal import confirm_disposal
 from app.logistics.service.ledger import record_inventory_move
 from app.logistics.service.outbound import allocate_stock, recommend_fefo_candidates, reserve_stock
+from tests.logistics.logistics_schema_files import WMS, migration_sql, schema_sql
 
 pytestmark = pytest.mark.db
 
@@ -77,7 +77,6 @@ AS_OF = date(2026, 1, 20)
 DECIDED_AT = datetime(2026, 1, 20, 9, 0, tzinfo=UTC)
 REASON = "QUALITY_UNSELLABLE"
 
-_DB_DIR = Path(__file__).resolve().parents[3] / "database"
 
 _STUBS = f"""
 CREATE TABLE {TMP_SCHEMA}.items (item_id text PRIMARY KEY, item_name text);
@@ -113,15 +112,6 @@ def _코드만(source: str) -> str:
     return chr(10).join(line.split("#", 1)[0] for line in 코드.splitlines())
 
 
-def _repo_block(table: str) -> str:
-    text = (_DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
-    match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
-    assert match is not None, table
-    parts = [match.group(0)]
-    parts += re.findall(rf"ALTER TABLE ONLY haetdeul\.{table}\s+ADD CONSTRAINT [^;]+;", text)
-    return "\n".join(parts)
-
-
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     with core_db.connection() as connection:
@@ -130,16 +120,15 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
             with connection.cursor() as cur:
                 cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
                 cur.execute(_STUBS)
-                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                    encoding="utf-8"
+                cur.execute(
+                    schema_sql(
+                        TMP_SCHEMA,
+                        ("inventory_lots", "inventory_moves", "item_storage_policies", *WMS),
+                    )
                 )
-                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                cur.execute(
+                    migration_sql(TMP_SCHEMA, "logistics/logistics_inventory_lots_nullable.sql")
+                )
 
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")

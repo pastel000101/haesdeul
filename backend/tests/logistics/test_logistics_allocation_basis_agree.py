@@ -2,8 +2,8 @@
 
 ```text
 app/logistics/outbound.AllocationBasis        Python 이 받는 값
-database/30_logistics_wms_schema.sql          신규 구축 DB 의 CHECK
-database/logistics_allocation_basis_fefo_auto.sql   기존 DB 이관 판의 CHECK
+database/schema/logistics/inventory_allocations.sql                     신규 구축 DB 의 CHECK
+database/migrations/logistics/logistics_allocation_basis_fefo_auto.sql  기존 DB 이관 판의 CHECK
 ```
 
 `database/README.md` §2 가 규약을 적어 뒀다.
@@ -33,8 +33,8 @@ from app.logistics.schemas.outbound import AllocationBasis
 
 _REPO = Path(app.logistics.__file__).parent.parent.parent.parent
 _DB = _REPO / "database"
-_CANONICAL = _DB / "30_logistics_wms_schema.sql"
-_MIGRATION = _DB / "logistics_allocation_basis_fefo_auto.sql"
+_CANONICAL = _DB / "schema" / "logistics" / "inventory_allocations.sql"
+_MIGRATION = _DB / "migrations" / "logistics" / "logistics_allocation_basis_fefo_auto.sql"
 
 #: 🔴 **계약 어휘 셋.** Master ↔ Logistics 합의값이고, 이 튜플이 세 곳의 기준이다.
 _EXPECTED_BASES = ("FEFO_TOOL_CONFIRMED", "HUMAN_OVERRIDE", "FEFO_AUTO_SELECTED")

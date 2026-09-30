@@ -30,7 +30,11 @@ _DB = _REPO / "database"
 
 #: (뷰 이름, 본 DDL 파일, 이관 판 파일)
 _VIEW_PAIRS = [
-    ("v_ml_price_forecast", "10_domain_schema.sql", "ml_forecast_view_gate_reason.sql"),
+    (
+        "v_ml_price_forecast",
+        "schema/ml/v_ml_price_forecast.sql",
+        "migrations/ml/ml_forecast_view_gate_reason.sql",
+    ),
 ]
 
 
@@ -92,7 +96,9 @@ def test_gate_reason_이_daily_에_실린다():
 
 def test_이관판이_CREATE_OR_REPLACE_다():
     """운영 DB 에 거는 것이라 `CREATE VIEW` 면 *"이미 있다"* 로 죽는다."""
-    text = (_DB / "ml_forecast_view_gate_reason.sql").read_text(encoding="utf-8")
+    text = (_DB / "migrations" / "ml" / "ml_forecast_view_gate_reason.sql").read_text(
+        encoding="utf-8"
+    )
 
     assert "CREATE OR REPLACE VIEW" in text
     assert not re.search(r"CREATE VIEW\b", text), (
@@ -105,7 +111,7 @@ def test_이관판이_CREATE_OR_REPLACE_다():
 # ══════════════════════════════════════════════════════════════════════════════
 #
 # 🔴 뷰만 보던 사이에 표가 갈렸다. `master_decisions_decision_check` 가 본 DDL 에서는
-#   3종인데 이관 판(`master/master_decision_cancel.sql`)은 CANCEL 을 더해 4종이었다.
+#   3종인데 이관 판(`migrations/master/master_decision_cancel.sql`)은 CANCEL 을 더해 4종이었다.
 #   운영 DB 는 CANCEL 을 받고 **새 DB 는 CANCEL 결정 저장이 전부 CHECK 로 막힌다.**
 #   코드의 `Decision` 은 4종이다 (`app/master/decision.py`).
 
@@ -117,13 +123,13 @@ def test_이관판이_CREATE_OR_REPLACE_다():
 _CHECK_PAIRS = [
     (
         "master_decisions_decision_check",
-        "master_decisions.sql",
-        "master/master_decision_cancel.sql",
+        "schema/master/master_decisions.sql",
+        "migrations/master/master_decision_cancel.sql",
     ),
     (
         "master_decisions_revalidation_outcome_check",
-        "master_decisions.sql",
-        "master/master_decision_revalidation.sql",
+        "schema/master/master_decisions.sql",
+        "migrations/master/master_decision_revalidation.sql",
     ),
 ]
 
@@ -300,7 +306,9 @@ _DECLARES_CONSTRAINT = re.compile(r"^\s*CONSTRAINT\s+(\w+)", re.MULTILINE)
 
 def _base_constraint_names() -> set[str]:
     """본 DDL(`master_decisions.sql`) 이 선언하는 제약 이름."""
-    text = _ddl_statements((_DB / "master_decisions.sql").read_text(encoding="utf-8"))
+    text = _ddl_statements(
+        (_DB / "schema" / "master" / "master_decisions.sql").read_text(encoding="utf-8")
+    )
     return set(_DECLARES_CONSTRAINT.findall(text))
 
 

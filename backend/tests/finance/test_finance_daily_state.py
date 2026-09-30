@@ -47,7 +47,11 @@ def test_loader_still_fails_closed_if_same_axis_date_is_ambiguous(finance_state)
 
 def test_daily_unique_migration_preflights_and_enforces_the_full_axis():
     migration = (
-        Path(__file__).parents[3] / "database" / "finance" / "finance_state_daily_unique.sql"
+        Path(__file__).parents[3]
+        / "database"
+        / "migrations"
+        / "finance"
+        / "finance_state_daily_unique.sql"
     ).read_text(encoding="utf-8")
 
     assert "HAVING COUNT(*) > 1" in migration

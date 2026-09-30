@@ -360,12 +360,14 @@ def test_daily_closings_의_키가_sim_run_id_와_close_date_다():
     """
     # ★ 2026-09-30 재구성 BL-018: 마감 service 가 한 층 깊어졌다(`app/master/service/closing.py`).
     repo = pathlib.Path(service_closing.__file__).parents[4]
-    ddl = (repo / "database" / "10_domain_schema.sql").read_text(encoding="utf-8")
+    ddl = (repo / "database" / "schema" / "finance" / "daily_closings.sql").read_text(
+        encoding="utf-8"
+    )
 
     match = re.search(
         r"ADD CONSTRAINT daily_closings_pkey PRIMARY KEY \(([^)]*)\)", ddl, re.IGNORECASE
     )
-    assert match is not None, "10_domain_schema.sql 에 daily_closings 의 PK 가 없다"
+    assert match is not None, "daily_closings.sql 에 daily_closings 의 PK 가 없다"
     축들 = tuple(c.strip() for c in match.group(1).split(","))
     assert 축들 == ("sim_run_id", "close_date"), f"마감 키가 바뀌었다: {축들}"
 

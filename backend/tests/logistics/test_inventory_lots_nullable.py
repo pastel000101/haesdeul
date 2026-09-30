@@ -25,8 +25,8 @@ import app.logistics
 
 _REPO = Path(app.logistics.__file__).parent.parent.parent.parent
 _DB = _REPO / "database"
-_CANONICAL = _DB / "10_domain_schema.sql"
-_MIGRATION = _DB / "logistics_inventory_lots_nullable.sql"
+_CANONICAL = _DB / "schema" / "logistics" / "inventory_lots.sql"
+_MIGRATION = _DB / "migrations" / "logistics" / "logistics_inventory_lots_nullable.sql"
 
 #: 이번에 푼 두 칸.
 _NULLABLE_NOW = ("grade", "derivation_status")
@@ -59,7 +59,7 @@ def _canonical_columns() -> dict[str, str]:
     """본 DDL 의 `inventory_lots` CREATE 블록에서 칸 이름 → 정의 줄."""
     text = _CANONICAL.read_text(encoding="utf-8")
     block = re.search(r"CREATE TABLE haetdeul\.inventory_lots\s*\((.*?)\n\);", text, re.DOTALL)
-    assert block is not None, "10_domain_schema.sql 에 inventory_lots CREATE 블록이 없다"
+    assert block is not None, "inventory_lots.sql 에 inventory_lots CREATE 블록이 없다"
     columns: dict[str, str] = {}
     for line in block.group(1).splitlines():
         stripped = line.strip().rstrip(",")

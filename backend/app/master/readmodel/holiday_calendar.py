@@ -23,7 +23,8 @@ holiday_calendar   ml_calendar_days 를 읽는다       여기만 DB 를 안다
 ★ **`has_batch` 는 `#242` 가 이미 따로 본다.** 같은 사실을 두 곳에서 판정하지 않는다.
 
 ▣ **소유는 ML 이다.** 표도 뷰도 ML 이 만들고 ML 이 채운다 — 둘 다
-  `database/ml_calendar_days.sql` 한 파일에 있다. 여기서는 **읽기만** 한다.
+  `database/schema/ml/` 의 `ml_calendar_days.sql` · `ml_batch_day_status.sql` ·
+  `v_ml_batch_days.sql` 에 있다. 여기서는 **읽기만** 한다.
   ML 이 뷰만 보고 있다가 놀라지 않도록 적어 둔다 — **마스터가 읽는 것은 표다.**
 
 ▣ **왜 뷰가 아니라 표인가** (`#298`). 처음에는 `v_ml_batch_days` 를 읽었다.

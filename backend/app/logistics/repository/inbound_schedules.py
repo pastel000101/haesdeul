@@ -15,7 +15,7 @@ Header   logistics_runtime_fixture.*_status      «그 축을 확인했나» 만
 ```
 
    `logistics_runtime_fixture` 의 두 JSON 칸은 더 이상 읽히지도 쓰이지도 않는다 —
-   DROP 대상이다 (`database/logistics_drop_inbound_json.sql`).
+   DROP 대상이다 (`database/migrations/logistics/logistics_drop_inbound_json.sql`).
 
 🔴 **왜 표를 따로 만드는가 — 날짜별 복제가 사고를 냈다.**
 

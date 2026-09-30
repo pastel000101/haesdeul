@@ -202,7 +202,7 @@ def test_두_전이가_다_등록되어_있다() -> None:
 def test_두_하루넘김이_다_등록되어_있다() -> None:
     """🔴 **다른 등록소다.** 전이가 다 서 있어도 하루 넘김이 비면 승인 없는 날 다음이 막힌다.
 
-    ⚠️ 재무를 켜기 전에 `database/finance/finance_state_daily_unique.sql` 이 실 DB 에
+    ⚠️ 재무를 켜기 전에 `database/migrations/finance/finance_state_daily_unique.sql` 이 실 DB 에
        먼저 서야 한다. `#285` 의 `ON CONFLICT (sim_run_id, financing_mode, state_date)`
        가 그 UNIQUE 를 가리키고, 없으면 승인 전이가 거기서 터진다 (2026-09-05 실측).
     """

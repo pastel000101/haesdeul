@@ -11,7 +11,7 @@ haetdeul.receivables   15행
 🔴 수금 사건 표        **없었다** (%collect% · %cash% · %payment% 전수 0건)
 ```
 
-★ `database/master_collection_events.sql` 이 그 자리를 만들었고, 여기서 잠그는 것은
+★ `database/schema/master/master_collection_events.sql` 이 그 자리를 만들었고, 여기서 잠그는 것은
   **그 자리를 읽는 방법**이다.
 
 ---

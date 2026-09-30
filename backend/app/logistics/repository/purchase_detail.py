@@ -36,7 +36,7 @@ DueInbound.purchase_id  →  purchase_items 한 줄  →  purchase_item_id · it
 ★ **읽기만 한다.** INSERT · UPDATE · DELETE · DDL · advisory lock · `FOR UPDATE` 가
   없다. 잠금은 나중의 Receipt 쓰기 트랜잭션이 소유한다.
 
-★ **스키마 실측 (현재 브랜치 `database/10_domain_schema.sql`).**
+★ **스키마 실측 (현재 브랜치 `database/schema/purchase/purchase_items.sql`).**
 
   ```text
   PRIMARY KEY   purchase_items_pkey (purchase_item_id)    단독
