@@ -33,6 +33,7 @@ from typing import Any
 
 from app.master.schemas.outbound_flow import DueSaleItem, OutboundOut, SaleItemOutcome
 from app.master.service import outbound_flow as service_outbound_flow
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 2, 10)
 축 = "SIM-CHAIN-REH-0914"
@@ -371,6 +372,9 @@ def test_하루를_돌리면_출고가_낸_값이_하루_결과에_실린다() -
         collect_fn=_단계("COLLECTED"),
         outbound_fn=lambda as_of, *, sim_run_id: 출고,
         close_fn=_단계("CLOSED"),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+        #   점검을 재지 않는다.
+        inspect_fn=inspection_nothing_due,
         items=(),
     )
 

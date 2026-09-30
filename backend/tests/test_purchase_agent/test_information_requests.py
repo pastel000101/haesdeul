@@ -159,12 +159,15 @@ def test_시장의_사실은_요청이_아니다() -> None:
 
 
 def _제안(*, 켬: bool, monkeypatch: pytest.MonkeyPatch) -> dict:
-    monkeypatch.setattr(
-        features, "enabled", lambda key, default=False: 켬 and key == features.INFORMATION_REQUESTS
-    )
     from app.purchase_agent.service.nodes import self_check as sc
 
-    monkeypatch.setattr(sc, "enabled", lambda key, default=False: 켬)
+    #  ★ 2026-10-01 재구성 BL-022: 전에는 `features.enabled` 도 바꿔 끼웠지만 그 이름을 모듈로 찾는
+    #    코드가 없어(노드들은 `enabled` 를 이름으로 들인다) 아무 효과가 없었다. 플래그를 읽는 자리
+    #    (`self_check.enabled`)에 «구조화 요청만 켬을 따른다»를 건다 — 다른 기능 플래그는 이 폴더
+    #    conftest 가 환경에서 끈다.
+    monkeypatch.setattr(
+        sc, "enabled", lambda key, default=False: 켬 and key == features.INFORMATION_REQUESTS
+    )
     state = build_initial_state(ITEM, AS_OF)
     return build_graph().invoke(state)["proposal"]
 

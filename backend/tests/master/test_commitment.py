@@ -187,28 +187,54 @@ def test_bool_은_숫자가_아니다():
 #:   없다 (`test_master_legacy_cycle_is_gone.py` 가 다시 생기는 것을 막는다).
 #:   없는 모듈을 목록에 남기면 **유령을 가리키는 검사**가 된다 — 아무것도 안 봐 주면서
 #:   봐 주는 인상만 남는다.
+#:
+#: ★ 2026-10-01 재구성 BL-022: 2026-09-30 BL-018 이 옛 최상위 모듈 다섯을 계층 폴더로 옮긴 뒤에도
+#:   이 목록은 옛 이름 그대로여서 바로 위 ★ 가 말한 유령이 돼 있었다. 옮겨 간 자리로 바꿨다 —
+#:   `cycle_schemas` → `schemas/cycle`, `cycle_run_repository` 는 SQL(`repository/cycle_runs`) ·
+#:   조회(`readmodel/cycle_runs`) · 쓰기(`service/cycle_persistence`) 셋으로 나뉘었다.
 _CYCLE_MODULES = (
-    "app.master.band",
-    "app.master.outbound",
-    "app.master.cycle_schemas",
-    "app.master.cycle_persistence",
-    "app.master.cycle_run_repository",
+    "app.master.domain.band",
+    "app.master.domain.outbound",
+    "app.master.schemas.cycle",
+    "app.master.service.cycle_persistence",
+    "app.master.repository.cycle_runs",
+    "app.master.readmodel.cycle_runs",
 )
 
 
+def test_cycle_module_list_names_existing_modules():
+    """★ 목록이 다시 유령이 되면 아래 검사가 아무것도 안 본다 — 이름마다 모듈이 있는지 먼저 잰다."""
+    import importlib.util
+
+    missing = [name for name in _CYCLE_MODULES if importlib.util.find_spec(name) is None]
+    assert missing == [], f"없는 모듈을 가리킨다: {missing}"
+
+
 def test_오케를_import_하지_않는다():
-    """★ ⓐ 의 요지 — 같은 변환을 사이클 모듈에서 가져오지 않는다."""
+    """★ ⓐ 의 요지 — 같은 변환을 사이클 모듈에서 가져오지 않는다.
+
+    ★ 2026-10-01 재구성 BL-022: 사이클 모듈 다수가 이 모듈과 같은 `domain` 패키지에 있어
+      `from app.master.domain import band` 모양이 자연스럽다 — `from` 뒤 이름까지 모듈로 풀어 본다.
+    """
     import ast
     from pathlib import Path
 
     from app.master.domain import commitment as domain_commitment
 
     tree = ast.parse(Path(domain_commitment.__file__).read_text(encoding="utf-8"))
-    modules = {
-        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
-    }
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                package = domain_commitment.__name__.rsplit(".", node.level)[0]
+                base = f"{package}.{base}" if base else package
+            modules.add(base)
+            modules.update(f"{base}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
 
-    assert not any(m in _CYCLE_MODULES for m in modules), modules
+    assert not modules & set(_CYCLE_MODULES), sorted(modules & set(_CYCLE_MODULES))
 
 
 # ---------------------------------------------------------------------------

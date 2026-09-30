@@ -14,7 +14,8 @@ app/api/<부서>/    라우트(HTTP ↔ service · readmodel) · 화면 탭 pres
    여섯은 되살아나지 않는다(재수출 shim 없음).
 2. 화면 · HTTP 입구(`app/api`)에는 SQL 도 DB 드라이버도 없다 — `psycopg` 를 들이지 않고, 커서 ·
    SQL 조립 · 조회 헬퍼를 부르지 않고, 연결을 빌리지 않는다. 연결 모듈에서 들이는 것은 두 자리
-   이름까지 정해 둔다(재무 HTTP 의 `Depends` 연결 · 물류 화면의 실패 분류).
+   이름까지 정해 둔다(재무 HTTP 의 `Depends` 연결 · 물류 화면의 실패 분류). 받은 연결에
+   `commit` · `rollback` 도 부르지 않는다 — 트랜잭션을 끝내는 것은 service 다(2026-10-01 BL-022).
 3. 라우트 모듈을 들이는 곳은 `app/api/router.py` 하나이고, `app/main.py` 는 그 모음 하나만
    등록한다.
 4. 등록된 주소 · 메서드는 옮기기 전(`a2a18fad`)과 같은 순서로 같다 — 74개, 중복 없음.
@@ -112,6 +113,10 @@ _SQL_USES = frozenset(
 )
 #: 연결을 빌리거나 트랜잭션을 여는 연결 모듈 함수 — 화면 · HTTP 입구는 부르지 않는다.
 _BORROW = frozenset({"connection", "read_connection", "transaction", "pool_lifespan"})
+#: 트랜잭션을 끝내는 이름 — ★ 2026-10-01 재구성 BL-022: 재무 HTTP 는 `Depends` 로 연결을 받으므로
+#: 핸들러가 그 연결에 `commit()` · `rollback()` 을 부를 수 있다. 끝내는 자리는 service 다
+#: (백로그 BL-022 ② «`app/api/**` 에 `commit(` 없음»).
+_TRANSACTION_ENDS = frozenset({"commit", "rollback"})
 #: 연결 모듈(`app.core.db`)에서 들여도 되는 것 — 파일 → 쓰는 이름.
 _CORE_DB_ALLOWED = {
     #  요청마다 빌린 연결을 `Depends` 로 받는 자리(재무 쓰기 · 여신한도 이력) — 트랜잭션은 service.
@@ -169,9 +174,11 @@ def test_api_holds_no_sql_or_db_driver() -> None:
         )
     }
     sql = {_rel(path): sorted(_code_names(_read(path)) & _SQL_USES) for path in files}
+    ends = {_rel(path): sorted(_code_names(_read(path)) & _TRANSACTION_ENDS) for path in files}
 
     assert drivers == set()
     assert {path: uses for path, uses in sql.items() if uses} == {}
+    assert {path: uses for path, uses in ends.items() if uses} == {}
 
 
 def test_api_takes_from_the_connection_module_only_the_listed_names() -> None:
@@ -187,6 +194,9 @@ def test_api_scans_catch_planted_shapes() -> None:
     planted_sql = "def f(conn):\n    with conn.cursor() as c:\n        c.execute('x')\n"
     assert _code_names(planted_sql) & _SQL_USES
     assert not _code_names("x = 'conn.cursor() · execute'\n# fetch_all 은 말만 한다\n") & _SQL_USES
+    planted_end = "def handler(conn):\n    service.save(conn)\n    conn.commit()\n"
+    assert _code_names(planted_end) & _TRANSACTION_ENDS == {"commit"}
+    assert not _code_names("# commit 은 service 가 한다\nx = 'rollback'\n") & _TRANSACTION_ENDS
     planted_borrow = (
         "from app.core import db as core_db\nwith core_db.connection() as c:\n    pass\n"
     )

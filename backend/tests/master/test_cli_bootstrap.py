@@ -51,6 +51,7 @@ from app.master.registry import wiring as registry_wiring
 from app.master.registry.bootstrap import wire_registries
 from app.master.report import walk_summary
 from app.master.report.walk_summary import WalkResult
+from tests.master.cli_doubles import record_pool_lifespan
 
 # ── 등록소 여섯을 한 함수로 읽는다 ──────────────────────────────────────
 #
@@ -241,6 +242,7 @@ def test_러너가_걷기_전에_등록소를_채운다(monkeypatch: pytest.Monk
         return WalkResult(start=kwargs["start"], end=kwargs["end"])
 
     monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
+    record_pool_lifespan(monkeypatch, cli_backtest_runner)
     _모두_비운다()
 
     code = cli_backtest_runner.main(
@@ -275,6 +277,7 @@ def test_러너가_걷기_전에_안_채우면_빈_채로_걷는다(monkeypatch:
 
     monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
     monkeypatch.setattr(cli_backtest_runner, "wire_registries", lambda: None)
+    record_pool_lifespan(monkeypatch, cli_backtest_runner)
     _모두_비운다()
 
     cli_backtest_runner.main(

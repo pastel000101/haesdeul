@@ -44,8 +44,10 @@
 """
 
 import pytest
+from psycopg import sql
 
 from app.core.db import read_connection
+from app.core.settings import get_db_schema
 from app.purchase_agent.config import load_constraints
 from app.purchase_agent.repository.quotes import fetch_rows
 
@@ -191,15 +193,19 @@ def test_a_copied_judgment_day_is_always_a_holiday() -> None:
     day = _judgment_day()
     # 매입 조회 경로 그대로 — 조회 연결 하나를 빌려 받은 연결로 실행한다 (2026-09-29 BL-016
     #   전에는 매입 입구 `db.fetch_all`).
+    # ★ 2026-10-01 재구성 BL-022: 스키마를 `haetdeul` 로 박아 두면 `DB_SCHEMA` 를 다른 스키마로
+    #   주어도 늘 `haetdeul` 을 읽는다 — 앱의 ML 조회처럼 설정된 스키마 이름을 붙인다.
     with read_connection() as conn:
         rows = fetch_rows(
             conn,
-            "SELECT f.base_dt, f.item_nm, f.target_dt, f.is_filled, "
-            "       c.holiday_nm, c.is_open "
-            "FROM haetdeul.ml_price_forecasts f "
-            "LEFT JOIN haetdeul.ml_calendar_days c ON c.dt = f.target_dt "
-            "WHERE f.target_kind = %(kind)s AND f.offset_days = %(day)s "
-            "ORDER BY f.base_dt, f.item_nm",
+            sql.SQL(
+                "SELECT f.base_dt, f.item_nm, f.target_dt, f.is_filled, "
+                "       c.holiday_nm, c.is_open "
+                "FROM {schema}.ml_price_forecasts f "
+                "LEFT JOIN {schema}.ml_calendar_days c ON c.dt = f.target_dt "
+                "WHERE f.target_kind = %(kind)s AND f.offset_days = %(day)s "
+                "ORDER BY f.base_dt, f.item_nm"
+            ).format(schema=sql.Identifier(get_db_schema())),
             {"kind": JUDGMENT_TARGET_KIND, "day": day},
         )
     assert rows, (
@@ -234,11 +240,13 @@ def test_the_weekly_cycle_is_what_makes_it_safe() -> None:
     with read_connection() as conn:
         rows = fetch_rows(
             conn,
-            "SELECT offset_days, "
-            "       sum(CASE WHEN is_filled THEN 1 ELSE 0 END) AS copied, "
-            "       count(*) AS total "
-            "FROM haetdeul.ml_price_forecasts "
-            "WHERE target_kind = %(kind)s GROUP BY 1 ORDER BY 1",
+            sql.SQL(
+                "SELECT offset_days, "
+                "       sum(CASE WHEN is_filled THEN 1 ELSE 0 END) AS copied, "
+                "       count(*) AS total "
+                "FROM {schema}.ml_price_forecasts "
+                "WHERE target_kind = %(kind)s GROUP BY 1 ORDER BY 1"
+            ).format(schema=sql.Identifier(get_db_schema())),
             {"kind": JUDGMENT_TARGET_KIND},
         )
     assert rows, "예측 행이 0건이다 — 조회가 빗나갔다"

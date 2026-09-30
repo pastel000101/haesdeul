@@ -24,6 +24,7 @@ from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 from app.master.schemas.pending_transition import RetriedTransition, RetryOut
 from app.master.service import scheduler as service_scheduler
 from app.master.service.scheduler import run_scheduled_day, wake_up
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -232,6 +233,11 @@ def _run(
         "sales_fn": _Sales(),
         # ⚠️ **대역을 안 주면 진짜 `ship_due_sales` 가 DB 를 찾으러 간다.**
         "outbound_fn": _Spy(_Out("NOTHING_DUE")),
+        # ⚠️ **점검 · 마감도 대역이 없으면 진짜가 DB 를 찾으러 간다** (2026-10-01 BL-022 보완 —
+        #   전에는 빠져 있어 두 칸이 늘 «연결을 못 열었다» 가지로 돌았다). 점검 자체는
+        #   `test_logistics_inspection_stage.py`, 마감은 `test_closing.py` 가 잰다.
+        "inspect_fn": inspection_nothing_due,
+        "close_fn": _Spy(_Out("CLOSED")),
         "items": ITEMS,
         "sim_run_id": 축,
     }
@@ -469,6 +475,9 @@ def _order_of_a_day(**kwargs) -> list[str]:
         "sales_fn": sales_noted,
         "outbound_fn": note("출고", _Out("NOTHING_DUE")),
         "close_fn": note("마감", _Out("CLOSED")),
+        # ★ 점검의 자리는 `test_logistics_inspection_stage.py` 가 잰다 — 여기서는 곁 단계라
+        #   순서에 안 적되, 대역 없이 진짜가 DB 를 찾으러 가지 않게 준다(2026-10-01 BL-022 보완).
+        "inspect_fn": inspection_nothing_due,
         "items": ITEMS,
         "sim_run_id": 축,
     }
@@ -888,6 +897,11 @@ def test_wake_up_은_시계를_한_번만_읽는다():
         procure_fn=procure,
         sales_fn=_Sales(),
         outbound_fn=_Spy(_Out("NOTHING_DUE")),
+        inspect_fn=inspection_nothing_due,
+        close_fn=_Spy(_Out("CLOSED")),
+        # ★ 판매 상업 조건을 실행 설정에서 읽는 자리 — «조건 없음» 으로 준다(2026-10-01 BL-022
+        #   보완).
+        terms_of=lambda _sim_run_id: None,
         sim_run_id=축,
     )
 
@@ -906,6 +920,7 @@ def test_wake_up_은_안_잔다():
         procure_fn=_Procure(),
         sales_fn=_Sales(),
         outbound_fn=_Spy(_Out("NOTHING_DUE")),
+        terms_of=lambda _sim_run_id: None,
         sim_run_id=축,
     )
 
@@ -1257,6 +1272,8 @@ def test_wake_up_이_판매를_흘려_준다():
         sales_fn=sales,
         outbound_fn=_Spy(_Out("NOTHING_DUE")),
         close_fn=_Spy(_Out("CLOSED")),
+        inspect_fn=inspection_nothing_due,
+        terms_of=lambda _sim_run_id: None,
         sim_run_id=축,
     )
 

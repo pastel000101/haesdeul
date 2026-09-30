@@ -317,10 +317,15 @@ def test_판매안을_여러_번_만들어도_실판매는_안_생긴다(적재�
     일어난다. 여기서는 그 경로를 **아무도 부르지 않는다**는 것을 본다.
     """
     확정 = []
-    monkeypatch.setattr(
+    #  ★ 2026-10-01 재구성 BL-022: 승인 경로(`master/service/sales_approval.py`)는 `confirm_sale` 을
+    #    **이름으로** 들여와 부른다 — 정의 모듈만 바꿔 끼우면 그 경로의 호출은 이 감시에 안 잡힌다
+    #    (재구성 전 `sales_approval.py` · `sales/persistence.py` 도 같은 모양이었다). 이름을 찾는 두
+    #    자리에 같은 감시를 건다.
+    for target in (
         "app.sales.service.sale_ledger.confirm_sale",
-        lambda *a, **kw: 확정.append((a, kw)),
-    )
+        "app.master.service.sales_approval.confirm_sale",
+    ):
+        monkeypatch.setattr(target, lambda *a, **kw: 확정.append((a, kw)))
     _wire()
 
     run_sales(_request())

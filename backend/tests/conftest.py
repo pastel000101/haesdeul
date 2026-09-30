@@ -181,3 +181,29 @@ def close_pools_after_session() -> Iterator[None]:
     from app.core import db as core_db
 
     core_db.close_pools()
+
+
+# ── 스키마 이름 — 쓰는 검사만 스스로 둔다 (2026-10-01 재구성 BL-022) ─────────────────
+
+
+#: 가짜 연결에 싣는 SQL 의 스키마 이름. `tests/master/conftest.py` 의 검사용 이름과 같은 값이다.
+TEST_DB_SCHEMA = "haetdeul"
+
+
+@pytest.fixture
+def db_schema_env(monkeypatch: pytest.MonkeyPatch) -> str:
+    """`get_db_schema()` 가 읽는 `DB_SCHEMA` 를 **이 검사 동안만** 둔다. 연결은 안 연다.
+
+    🔴 **전에는 두 모듈이 수집 때 `os.environ.setdefault("DB_SCHEMA", ...)` 를 불렀다**
+       (`tests/finance/test_finance_receivable_persistence.py` ·
+       `tests/sales/test_sales_persistence.py`).
+       그 값이 세션 끝까지 남아, SQL 을 짓는 재무 · 물류 검사 198건이 전체 실행에서만 통과하고
+       파일 하나만 돌리면 `MissingDatabaseEnvironment` 로 빨갰다(2026-10-01 파일별 단독 실행).
+
+    ★ **autouse 가 아니다.** 스키마 이름이 필요한 검사 모듈이
+      `pytestmark = pytest.mark.usefixtures("db_schema_env")` 로 스스로 부른다 — 모든 검사에
+      환경변수를 깔면 «이름이 없으면 어떻게 되나» 를 재는 검사까지 조용히 덮는다.
+      끝나면 `monkeypatch` 가 원래 값(없음 포함)으로 되돌린다.
+    """
+    monkeypatch.setenv("DB_SCHEMA", TEST_DB_SCHEMA)
+    return TEST_DB_SCHEMA

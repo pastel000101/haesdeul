@@ -25,6 +25,7 @@ from app.sales.schemas.proposal import SalesProposalInput
 from app.sales.schemas.sale_ledger import SalesConfirmationInput
 from app.sales.service import proposal_generation
 from app.sales.service.proposal import run_proposal
+from tests.sales.sales_fake_connection import lend
 
 PARTNER = "KIMCHI_FACTORY_001"
 
@@ -328,7 +329,20 @@ def _proposal_rows(summary: dict[str, Any]):
     ]
 
 
+def _lend_without_confirmed_sales(monkeypatch) -> None:
+    """읽기 모델이 빌리는 조회 연결을 가짜로 — 확정 판매 조회(`load_sale_statuses`)는 행이 없다.
+
+    ★ 2026-10-01 재구성 BL-022: 이 파일은 판매안 행(`load_proposal_rows`)만 갈아 끼워, 그 뒤에 생긴
+      확정 판매 조회가 실 DB 연결을 빌리다 막혔다(기준선 실패 2건). 같은 읽기 모델의 다른 검사
+      (`test_console_proposals.py::_patch`)처럼 스키마 이름과 조회 연결을 준다 — 확정 판매 SQL 은
+      진짜 repository 코드로 지어진다.
+    """
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch)
+
+
 def test_console_proposals_expose_the_collection_needed_before_the_sale(monkeypatch):
+    _lend_without_confirmed_sales(monkeypatch)
     monkeypatch.setattr(
         console_proposals,
         "load_proposal_rows",
@@ -353,6 +367,7 @@ def test_console_proposals_keep_zero_collection_apart_from_unknown(monkeypatch):
         "required_collection_before_sale_krw": "0",
         "expected_credit_recovery_date": None,
     }
+    _lend_without_confirmed_sales(monkeypatch)
     monkeypatch.setattr(
         console_proposals, "load_proposal_rows", lambda _conn, **_: _proposal_rows(zero)
     )

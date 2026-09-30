@@ -61,6 +61,7 @@ from app.master.service import sales_terms
 from app.master.service import scheduler as service_scheduler
 from app.master.service.sales_terms import apply_sales_terms, read_run_sales_terms, rules_source_ref
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("배추",)
@@ -170,6 +171,9 @@ def _하루(**over: Any) -> _판매:
         "sales_fn": 판매,
         "outbound_fn": _단계(_Out("NOTHING_DUE")),
         "close_fn": _단계(_Out("CLOSED")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+        #   점검을 재지 않는다.
+        "inspect_fn": inspection_nothing_due,
         "sim_run_id": 실행,
         "items": ITEMS,
     }
@@ -547,6 +551,9 @@ def _걷는다(하루: _하루기록, **over: Any) -> None:
         "run_day_fn": 하루,
         "ticks": lambda: 0.0,
         "terms_of": lambda sim_run_id: 조건규칙,
+        # ★ 걷기가 마감행을 읽는 자리 — «마감행 없음»(2026-10-01 BL-022 보완 · 조건은 이 파일이
+        #   잰다).
+        "closings_of": lambda **_kwargs: (),
     }
     인자.update(over)
     walk(**인자)

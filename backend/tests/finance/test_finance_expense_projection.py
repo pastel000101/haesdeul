@@ -17,8 +17,14 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
+
 from app.finance.domain.cash_events import rows_to_events
 from app.finance.repository.cash_events import select_accrued_expenses
+
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
 
 #: 2026-09-29 재구성 BL-014: 운영비 의무 SQL 은 repository 가 받은 연결로 실행한다.
 _DB = "app.finance.repository.cash_events"

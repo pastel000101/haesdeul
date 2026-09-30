@@ -57,6 +57,7 @@ from app.master.schemas.pending_transition import RetryOut
 from app.master.service import scheduler as service_scheduler
 from app.master.service.outbound_flow import ship_due_sales
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 #: 두 실행이 **같은 날짜**로 부딪히는 날. 날짜를 고정해야 축만 재게 된다.
 고른_날 = date(2026, 9, 8)
@@ -446,6 +447,9 @@ def test_하루를_돌리면_출고가_그_실행의_축을_받는다():
         collect_fn=_단계대역("COLLECTED"),
         outbound_fn=출고,
         close_fn=_단계대역("CLOSED"),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+        #   점검을 재지 않는다.
+        inspect_fn=inspection_nothing_due,
         items=(),
     )
 

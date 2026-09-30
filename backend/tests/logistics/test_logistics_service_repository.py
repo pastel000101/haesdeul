@@ -21,6 +21,10 @@ from app.logistics.schemas.agent import LogisticsSalesRequest, PurchaseAgentOutp
 from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
 from app.logistics.service.cycle import run_logistics_procurement, run_logistics_sales
 
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
+
 
 @contextmanager
 def _읽기(**kwargs: object):
@@ -31,8 +35,15 @@ def _읽기(**kwargs: object):
       (`core_db.read_connection`), 실행은 `repository/current` 의 `dict_rows(conn, query, params)`.
       그 두 자리를 함께 바꿔 끼운다. 빌린 연결로는 아무것도 읽지 않으므로 빈 객체를 준다.
 
-    🔴 **일정 목록 · 운송 계약은 바꿔 끼우지 않는다.** 종전 검사도 그 조회는 따로 빌리는 연결
-       (`core_db.connection()`)로 갔다 — 대역이 없으면 종전처럼 그 자리에서 접속 정보를 찾는다.
+    🔴 **일정 목록 · 운송 계약은 따로 빌리는 연결(`core_db.connection()` + `transaction`)로 간다.**
+       2026-10-01 재구성 BL-022 부터 그 자리에 **빈 표 연결**(아래 `_기록하는_연결`)을 준다 — 일정
+       표 · 확정 판매 · 운송 계약 질의가 진짜 repository 코드로 지어져 가짜 커서에 실리고, 행이
+       없으므로 일정 목록은 비고(`CONFIRMED_ZERO` fixture 와 같은 사실) 운송 계약은 `RouteNotFound`
+       로 «계약 없음»이 된다. 전에는 이 자리를 비워 두어(2026-09-30 BL-015 03시 판 — 기준선과
+       같은 실패를 지키려고) 이 헬퍼를 쓰는 검사 19건이 접속 정보를 찾다 실패했다. 이 두 조회는
+       팀이 fixture 행으로 이 검사들을 쓴 뒤에 생겼다(`CI_TEST_FAILURES.md` «Logistics 담당 분석»).
+       대여 · 연결 경계 자체는
+       `test_current_read_without_a_connection_keeps_the_old_borrowing` 이 잰다.
     """
     fetch = MagicMock(**kwargs)
 
@@ -42,6 +53,7 @@ def _읽기(**kwargs: object):
     with (
         patch("app.logistics.repository.current.dict_rows", side_effect=dict_rows),
         patch.object(core_db, "read_connection", lambda: nullcontext(object())),
+        patch.object(core_db, "connection", lambda: _기록하는_연결([], "연결", [])),
     ):
         yield fetch
 

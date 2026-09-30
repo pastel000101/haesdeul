@@ -20,6 +20,10 @@ from app.finance.schemas.data_port import FinanceDataNotReady
 from app.finance.schemas.inventory import InventorySnapshot
 from app.finance.service import closing
 
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
+
 SIM_RUN_ID = "SIM-WALK-202601"
 AS_OF = date(2026, 1, 5)
 

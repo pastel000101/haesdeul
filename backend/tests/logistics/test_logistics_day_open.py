@@ -26,6 +26,7 @@ import json
 from collections.abc import Iterator
 from datetime import date, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Any, Self
 
@@ -49,6 +50,16 @@ from app.master.registry import cancellation, transition
 from app.master.registry import day_open as registry_day_open
 from app.master.registry.sim_run_binding import bind_sim_run
 from app.master.service import day_open as service_day_open
+from tests.master.day_stage_doubles import collection_nothing_due
+
+#: ★ 2026-10-01 재구성 BL-022 보완: 개장 뒤 수금 사건 만들기(`seed_collection` — 기본값은 재무 축을
+#:   DB 에서 읽는 진짜 `seed_day`)는 이 파일이 재지 않는다. 넘기지 않으면 그 조회가 막혀 늘
+#:   «못 만들었다»(`UNREADABLE`) 가지로 돌았다 — 수금 사건은 `test_collection_seed.py` 가 잰다.
+_open_day = partial(service_day_open.open_day, seed_collection=collection_nothing_due)
+
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
 
 CARRY_FROM = date(2026, 1, 6)
 AS_OF = CARRY_FROM + timedelta(days=1)
@@ -781,6 +792,19 @@ def test_open_day_does_not_reuse_the_approval_write_path():
 # ── ⑨ 등록 뒤 마스터가 실제로 부른다 ───────────────────────────────────
 
 
+@pytest.fixture
+def master_day_opening_record_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """마스터 개장 경계가 끝에 남기는 개장 정본 적재(`record_day_opening`)를 DB 대신 받는다.
+
+    ★ 2026-10-01 재구성 BL-022 보완: `tests/master` conftest(`개장_정본_적재를_막는다`)가 같은
+      자리를 막지만 이 파일은 `tests/logistics` 라 안 걸려, 적재가 실 DB 쪽에서 막히고
+      `record_day_opening` 이 그 실패를 삼키고 있었다. 이 파일은 정본을 재지 않는다 —
+      `test_day_opening_repository.py`.
+    """
+    monkeypatch.setattr(service_day_open, "record_day_opening", lambda **_kwargs: True)
+
+
+@pytest.mark.usefixtures("master_day_opening_record_off")
 def test_master_open_day_walks_logistics_after_registration():
     """⑨ 등록하면 마스터 경계가 물류를 실제로 부른다.
 
@@ -794,7 +818,7 @@ def test_master_open_day_walks_logistics_after_registration():
     registry_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM))
 
-    결과 = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
+    결과 = _open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     assert 결과.status == "OPENED"
     assert [part.part for part in 결과.parts] == ["logistics"]
@@ -804,13 +828,14 @@ def test_master_open_day_walks_logistics_after_registration():
     assert conn.commits == 1, "커밋은 마스터가 한 번 한다"
 
 
+@pytest.mark.usefixtures("master_day_opening_record_off")
 def test_master_open_day_is_idempotent_for_an_already_open_day():
     """⑨ 이미 열려 있으면 아무것도 안 한다 — INSERT 자체가 없다."""
     registry_day_open.reset()  # 위와 같은 이유 — 물류만 남기고 잰다
     registry_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM, AS_OF))
 
-    결과 = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
+    결과 = _open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     # 🔴 **`ALREADY_OPENED` 다** (계약 어휘 · 2026-09-06 정정). 멱등 no-op 은 실패가
     #    아니다 — `NOT_OPENED` 로 접으면 매일 도는 정상 상태가 실패로 보인다.
@@ -819,6 +844,7 @@ def test_master_open_day_is_idempotent_for_an_already_open_day():
     assert not [query for query in conn.커서.queries if "INSERT INTO" in query]
 
 
+@pytest.mark.usefixtures("master_day_opening_record_off")
 def test_master_open_day_walks_each_run_on_its_own_row():
     """⑨ 🔴 **주입된 배선은 마스터 경계에서도 자기 실행만 걷는다.**
 
@@ -838,12 +864,12 @@ def test_master_open_day_walks_each_run_on_its_own_row():
     registry_day_open.reset()
     registry_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_A))
     a_conn = 가짜커넥션(dict(열린_날))
-    a결과 = service_day_open.open_day(AS_OF, borrow=lambda: a_conn, sim_run_id=SIM_A)
+    a결과 = _open_day(AS_OF, borrow=lambda: a_conn, sim_run_id=SIM_A)
 
     registry_day_open.reset()
     registry_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_B))
     b_conn = 가짜커넥션(dict(열린_날))
-    b결과 = service_day_open.open_day(AS_OF, borrow=lambda: b_conn, sim_run_id=SIM_B)
+    b결과 = _open_day(AS_OF, borrow=lambda: b_conn, sim_run_id=SIM_B)
 
     assert a결과.status == "ALREADY_OPENED"
     assert not [query for query in a_conn.커서.queries if "INSERT INTO" in query]

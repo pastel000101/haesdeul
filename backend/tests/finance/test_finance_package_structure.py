@@ -9,7 +9,13 @@ import pathlib
 
 import pytest
 
-FINANCE = pathlib.Path("app/finance")
+import app
+
+#: ★ 2026-10-01 재구성 BL-022: 앱 소스 자리는 패키지에서 얻는다. 작업 폴더 기준
+#:   `pathlib.Path("app/finance")` 는 backend 밖에서 돌리면 빈 목록을 훑어 아래 검사들이 아무것도
+#:   안 보고 통과했다(모듈 이름은 backend 기준 상대 경로로 짓는다).
+FINANCE = pathlib.Path(app.__file__).parent / "finance"
+_BACKEND = FINANCE.parent.parent
 
 
 def _modules() -> list[str]:
@@ -17,7 +23,7 @@ def _modules() -> list[str]:
     for path in sorted(FINANCE.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue
-        out.append(".".join(path.with_suffix("").parts))
+        out.append(".".join(path.relative_to(_BACKEND).with_suffix("").parts))
     return out
 
 
@@ -97,8 +103,8 @@ def test_schedule_helpers_live_with_the_capability_that_owns_them():
         assert hasattr(scenario, name), name
 
     importers = sorted(
-        str(path.relative_to(FINANCE.parent.parent)).replace("\\", "/")
-        for path in pathlib.Path("app").rglob("*.py")
+        str(path.relative_to(_BACKEND)).replace("\\", "/")
+        for path in FINANCE.parent.rglob("*.py")
         if "__pycache__" not in path.parts
         and any(
             isinstance(node, ast.ImportFrom) and node.module == "app.finance.domain.scenario"

@@ -27,6 +27,7 @@ from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGa
 from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome, SchedulerAction
 from app.master.report import walk_summary
 from app.master.report.walk_summary import WalkResult, format_summary
+from tests.master.cli_doubles import record_pool_lifespan
 
 ITEMS = ("무", "배추", "양파")
 
@@ -181,6 +182,10 @@ def _walk(
         #    맨 윗줄(*"DB 를 안 탄다"*)이 거짓이 된다 — 현금 축은
         #    `test_cash_identity_visible_in_walk.py` 가 잰다.
         closings_of=lambda **_: (),
+        # 🔴 **판매 상업 조건을 읽는 자리도 대역이다** (2026-10-01 BL-022 보완). 안 꽂으면 걷기
+        #    첫머리가 실행 설정을 DB 에서 읽다 막히고 «조건 없이 간다» 가지로 새, 맨 윗줄이
+        #    거짓이 된다 — 조건 자체는 `test_sales_commercial_terms.py` 가 잰다.
+        terms_of=lambda _sim_run_id: None,
     )
     return result, runner
 
@@ -486,9 +491,10 @@ def test_날짜를_안_주면_막는다():
         cli_backtest_runner.main([])
 
 
-def test_진입점이_walk_에_그대로_넘긴다():
+def test_진입점이_walk_에_그대로_넘긴다(monkeypatch: pytest.MonkeyPatch):
     """★ **진입점에 로직이 없다.** 문자열을 날짜로 바꾸는 것뿐이다."""
     seen: dict[str, object] = {}
+    lifespan = record_pool_lifespan(monkeypatch, cli_backtest_runner)
 
     def _fake(**kwargs):
         seen.update(kwargs)
@@ -516,10 +522,12 @@ def test_진입점이_walk_에_그대로_넘긴다():
     assert seen["end"] == date(2026, 9, 7)
     assert seen["now"] == datetime.fromisoformat("2026-09-07T10:35+09:00")
     assert code == 0
+    assert lifespan == ["enter", "exit"], "진입점이 풀 수명 안에서 돌지 않았다"
 
 
-def test_사고가_있으면_0_이_아니다():
+def test_사고가_있으면_0_이_아니다(monkeypatch: pytest.MonkeyPatch):
     """🔴 **조용히 0 을 내지 않는다.** 자동화가 그 값을 본다."""
+    record_pool_lifespan(monkeypatch, cli_backtest_runner)
 
     def _fake(**kwargs):
         return WalkResult(

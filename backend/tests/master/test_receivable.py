@@ -52,6 +52,7 @@ from app.master.registry import receivable as registry_receivable
 from app.master.schemas.day_gate import DayGate
 from app.master.service import receivable as service_receivable
 from app.master.service.receivable import issue_receivables
+from tests.master.day_stage_doubles import inspection_nothing_due, sales_presented
 
 AS_OF = date(2026, 1, 7)
 
@@ -571,6 +572,12 @@ def _하루(**kwargs) -> Any:
         "collect_fn": _Spy(_Out("COLLECTED")),
         "procure_fn": _Procure(),
         "outbound_fn": _Spy(_Out("NOTHING_DUE")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검 · 판매 · 마감도 대역이 없으면 진짜가 DB 와 부서 어댑터를
+        #   찾으러 간다(판매는 그 순간 등록된 어댑터에 따라 가지가 갈렸다). 이 파일은 그 셋을 재지
+        #   않는다.
+        "inspect_fn": inspection_nothing_due,
+        "sales_fn": sales_presented,
+        "close_fn": _Spy(_Out("CLOSED")),
         # ⚠️ **계약이 아는 품목이어야 한다.** 아무 문자열이나 주면
         #   `ProcurementRunRequest` 가 거절하고, 그 거절이 `FAILED` 로 잡혀
         #   *"판단이 안 돌았다"* 와 구별이 안 된다.

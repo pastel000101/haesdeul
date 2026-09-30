@@ -48,6 +48,7 @@ from app.master.repository.walk_provenance import (
     stamp_walked_now,
 )
 from app.master.service.walk_provenance import record_walked_now
+from tests.master.cli_doubles import record_pool_lifespan
 
 _MASTER = Path(__file__).resolve().parents[2] / "app" / "master"
 
@@ -378,6 +379,7 @@ def test_진입점이_받은_문자열을_그대로_넘긴다(monkeypatch: pytes
 
     monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
     monkeypatch.setattr(cli_backtest_runner, "wire_registries", lambda: None)
+    record_pool_lifespan(monkeypatch, cli_backtest_runner)
 
     cli_backtest_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-01-05", "--end", "2026-01-09", "--now", 마감전]

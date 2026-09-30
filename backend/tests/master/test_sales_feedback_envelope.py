@@ -437,6 +437,10 @@ def 판매가_받은_것(
 
     monkeypatch.setattr(proposal_generation, "run_proposal", 감시)
     monkeypatch.setattr(proposal_generation, "_record_run", lambda *a, **kw: None)
+    # ★ 2026-10-01 BL-022 보완: 거래처 계약 결제일수 조회도 연결을 빌린다 — 막지 않으면 실 DB 쪽에서
+    #   막히고 «못 읽었다»로 삼켜졌다. «등록된 거래처 행이 없다»(`None`)로 준다 — 계약 결제일수는
+    #   `tests/sales/test_sales_credit_turnover.py` 가 잰다.
+    monkeypatch.setattr(proposal_generation, "get_partner_profile", lambda *, partner_id: None)
     registry_wiring.register("inventory", _대역(PRE_SALES_PAYLOAD))
     registry_wiring.register(
         "finance",

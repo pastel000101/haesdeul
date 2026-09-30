@@ -52,6 +52,7 @@ from app.finance.schemas.expenses import ExpenseSettlement
 from app.finance.service.expenses import settle_due_expenses
 from app.master.cli import backtest_runner as cli_backtest_runner
 from app.master.cli.backtest_runner import walk
+from app.master.domain.backfill import BackfillOut
 from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.domain.scheduler import (
     EXPENSE_SETTLEMENT_STATUSES,
@@ -243,6 +244,12 @@ def _인자(순서: list[str], **over: Any) -> dict[str, Any]:
         "sales_fn": _판단(순서, "판매판단", "SL1_PRESENTED"),
         "outbound_fn": _단계(순서, "출고", _Out("NOTHING_DUE")),
         "close_fn": _단계(순서, "마감", _Out("CLOSED")),
+        # ⚠️ 2026-10-01 BL-022 보완: 승인도 대역이 없으면 진짜 백필이 실행 설정을 DB 에서 읽다
+        #   터진다 —
+        #   이 파일은 승인을 재지 않는다. «규칙대로 돌았고 채울 행이 없었다»(`RAN` · 행 0)로 둔다.
+        "approve_fn": lambda *, sim_run_id, start, end, **_kwargs: BackfillOut(
+            sim_run_id=sim_run_id, start=start, end=end, status="RAN"
+        ),
         "sim_run_id": 실행,
         "items": ITEMS,
     }
@@ -683,10 +690,35 @@ def test_그날_지급한_운영비가_마감행의_운영비_칸에_잡힌다()
         closing.register_closing("finance", FinanceClosingAdapter())
         try:
             with conn.cursor() as cur:
+                # ★ 2026-10-01 재구성 BL-022 보완: 전에는 DB 의 아무 실행 행에서
+                #   페르소나를 빌렸다(`LIMIT 1`) — 실행 행이 없는 DB(현재 목록으로 세운
+                #   빈 DB)에서는 IndexError 로 멈췄다. 이 사슬(지급 → 마감)은 페르소나 칸을
+                #   읽지 않는다(`sim_runs` 의 FK 앵커일 뿐이다 — 재무 마감 · 지급 코드에
+                #   `company_personas` 조회가 없다). 그래서 **검사용 예시 회사**를 같은
+                #   되돌림 트랜잭션 안에 둔다. 값은 실제 회사 사실이 아니다.
+                페르소나 = f"TEST-PERSONA-{uuid.uuid4().hex[:8]}"
                 cur.execute(
-                    sql.SQL("SELECT company_persona_id FROM {}.sim_runs LIMIT 1").format(schema)
+                    sql.SQL(
+                        "INSERT INTO {}.company_personas (persona_id, persona_version,"
+                        " company_name, industry, initial_owner_funding_krw, target_runway_months,"
+                        " minimum_cash_buffer_months, purchase_payment_days, sales_collection_days,"
+                        " monthly_labor_cost_krw, note)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    ).format(schema),
+                    [
+                        페르소나,
+                        f"{페르소나}-V",
+                        "검사용 예시 회사",
+                        "검사 예시",
+                        Decimal(0),
+                        1,
+                        0,
+                        0,
+                        0,
+                        Decimal(0),
+                        "BL-022 검사 예시 — 운영 자료가 아니다 · 커밋하지 않는다",
+                    ],
                 )
-                페르소나 = cur.fetchall()[0]["company_persona_id"]
                 cur.execute(
                     sql.SQL(
                         "INSERT INTO {}.sim_runs (sim_run_id, company_persona_id, run_type,"
@@ -695,8 +727,9 @@ def test_그날_지급한_운영비가_마감행의_운영비_칸에_잡힌다()
                     ).format(schema),
                     [
                         축,
-                        # ★ **페르소나를 지어내지 않는다.** `sim_runs` 가 실제 행을 참조하고,
-                        #   이 판은 실행을 하나 더 만드는 것이지 회사를 만드는 것이 아니다.
+                        # ★ 위 검사용 예시 회사다(2026-10-01 BL-022 보완 — 전에는
+                        #   «페르소나를 지어내지 않는다» 며 DB 의 실제 행을 빌렸다).
+                        #   실제 회사 사실로 쓰지 않는다.
                         페르소나,
                         "WALK",
                         date(2026, 1, 1),
@@ -951,6 +984,8 @@ def test_지급이_날마다_터지면_걷기가_연속_사고_상한에_걸려_
         auto_settle_expenses=True,
         closings_of=lambda **kwargs: [],
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정을 읽는 자리 — «조건 없음»(2026-10-01 BL-022 보완).
+        terms_of=lambda _sim_run_id: None,
     )
 
     assert not 결과.completed, "지급이 날마다 터지는데 끝까지 걸었다"
@@ -980,6 +1015,8 @@ def test_걷기가_받은_스위치를_그대로_하루에_넘긴다() -> None:
         auto_settle_expenses=True,
         closings_of=lambda **kwargs: [],
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정을 읽는 자리 — «조건 없음»(2026-10-01 BL-022 보완).
+        terms_of=lambda _sim_run_id: None,
     )
 
     assert 받은것 == [True]

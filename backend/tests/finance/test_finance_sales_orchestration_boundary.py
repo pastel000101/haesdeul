@@ -23,8 +23,12 @@
 import ast
 import pathlib
 
-FINANCE = pathlib.Path("app/finance")
-SALES = pathlib.Path("app/sales")
+import app
+
+#: ★ 2026-10-01 재구성 BL-022: 앱 소스 자리는 패키지에서 얻는다. 작업 폴더 기준 `Path("app/...")` 는
+#:   backend 밖에서 돌리면 빈 목록을 훑어 아래 경계 검사들이 아무것도 안 보고 통과했다.
+FINANCE = pathlib.Path(app.__file__).parent / "finance"
+SALES = pathlib.Path(app.__file__).parent / "sales"
 
 
 def _imported_modules(root: pathlib.Path) -> set[str]:

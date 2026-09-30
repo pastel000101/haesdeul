@@ -105,6 +105,10 @@ def _걷는다(**over: Any) -> tuple[Any, _하루대역]:
         "readiness": _게이트,
         "run_day_fn": 하루,
         "ticks": lambda: 0.0,
+        # ★ 걷기가 실행 설정 · 마감행을 읽는 자리 — «조건 없음» · «마감행 없음»(2026-10-01 BL-022
+        #   보완).
+        "terms_of": lambda _sim_run_id: None,
+        "closings_of": lambda **_kwargs: (),
     }
     인자.update(over)
     return walk(**인자), 하루

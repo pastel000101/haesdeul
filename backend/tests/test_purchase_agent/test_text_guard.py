@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import app
 from app.purchase_agent.llm import text_guard
 from app.purchase_agent.llm.mix import build_mix_context
 from app.purchase_agent.llm.runtime import MixValidationError, validate_interpretation
@@ -104,7 +105,10 @@ def test_runtime_의_밑줄_이름을_빌려_쓰는_모듈이_없다() -> None:
     공개 이름으로 올린 것이 이 판이고, 이 줄이 되돌아가는 것을 막는다.
     """
     빌린_곳 = []
-    for path in Path("app").rglob("*.py"):
+    #  ★ 2026-10-01 재구성 BL-022: 앱 소스 자리는 패키지에서 얻는다 — 작업 폴더 기준
+    #    `Path("app")` 는 backend 밖에서 돌리면 빈 목록을 훑어 이 검사가 아무것도 안 보고
+    #    통과했다.
+    for path in Path(app.__file__).parent.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ImportFrom):

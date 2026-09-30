@@ -48,6 +48,7 @@ from app.logistics.schemas.maintenance import AutoMaintenanceResult, LotMaintena
 from app.logistics.service.maintenance import run_logistics_auto_maintenance
 from app.master.cli import backtest_runner as cli_backtest_runner
 from app.master.cli.backtest_runner import walk
+from app.master.domain.backfill import BackfillOut
 from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
 from app.master.domain.scheduler import DayRunOutcome, ScheduledAction, plan_next_action
 from app.master.report.walk_summary import WalkResult, format_summary
@@ -57,6 +58,7 @@ from app.master.service import maintenance as service_maintenance
 from app.master.service import scheduler as service_scheduler
 from app.master.service.maintenance import AUTO_MAINTENANCE, FRESHNESS_EXPIRED, run_auto_maintenance
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 1, 12)
 ITEMS = ("무", "배추", "양파")
@@ -218,6 +220,14 @@ def _인자(순서: list[str], **over: Any) -> dict[str, Any]:
         "sales_fn": _판단(순서, "판매판단", "SL1_PRESENTED"),
         "outbound_fn": _단계(순서, "출고", _Out("NOTHING_DUE")),
         "close_fn": _단계(순서, "마감", _Out("CLOSED")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검 · 승인도 대역이 없으면 진짜가 DB 를 찾으러 간다(점검은 늘
+        #   «연결을 못 열었다», 승인은 실행 설정을 못 읽고 터졌다). 이 파일은 둘을 재지 않는다 —
+        #   승인은
+        #   «규칙대로 돌았고 채울 행이 없었다»(`RAN` · 행 0)로 둔다.
+        "inspect_fn": inspection_nothing_due,
+        "approve_fn": lambda *, sim_run_id, start, end, **_kwargs: BackfillOut(
+            sim_run_id=sim_run_id, start=start, end=end, status="RAN"
+        ),
         "sim_run_id": 실행,
         "items": ITEMS,
     }
@@ -512,6 +522,10 @@ def test_걷는_날마다_그날의_시각이_간다() -> None:
         run_day_fn=하루,
         auto_maintain=True,
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정 · 마감행을 읽는 자리 — «조건 없음» · «마감행 없음»(2026-10-01 BL-022
+        #   보완).
+        terms_of=lambda _sim_run_id: None,
+        closings_of=lambda **_kwargs: (),
     )
 
     assert [one.date() for one in 받은날] == [
@@ -585,6 +599,10 @@ def test_유지보수가_터진_날도_걷기가_다음_날을_간다() -> None:
         run_day_fn=하루,
         auto_maintain=True,
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정 · 마감행을 읽는 자리 — «조건 없음» · «마감행 없음»(2026-10-01 BL-022
+        #   보완).
+        terms_of=lambda _sim_run_id: None,
+        closings_of=lambda **_kwargs: (),
     )
 
     assert 날들 == [AS_OF, AS_OF + timedelta(days=1), AS_OF + timedelta(days=2)]

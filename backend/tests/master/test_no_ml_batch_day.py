@@ -62,6 +62,7 @@ from app.master.schemas.pending_transition import RetryOut
 from app.master.service import persistence as service_persistence
 from app.master.service.scheduler import run_scheduled_day
 from tests.fake_core_db import patch_sql_helpers
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 _MASTER = Path(__file__).resolve().parents[2] / "app" / "master"
 
@@ -202,6 +203,9 @@ class _하루기록:
             "approve_fn": 승인,
             "outbound_fn": self._단계("출고", _Out("RAN")),
             "close_fn": self._단계("마감", _Out("CLOSED")),
+            # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+            #   점검을 재지 않는다.
+            "inspect_fn": inspection_nothing_due,
             "sim_run_id": 실행축,
             "items": ITEMS,
             "auto_approve": True,

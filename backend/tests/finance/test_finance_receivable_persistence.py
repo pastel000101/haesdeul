@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from datetime import date
 from decimal import Decimal
@@ -8,14 +7,16 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-os.environ.setdefault("DB_SCHEMA", "haetdeul")
-
 from app.finance.domain.receivables import build_receivable_write_plan, receivable_id_for
 from app.finance.domain.state_identity import daily_finance_state_id
 from app.finance.schemas.data_port import FinanceDataNotReady
 from app.finance.schemas.receivables import ReceivablePersistenceConflict
 from app.finance.schemas.sales_validation import ReceivableCreateInput
 from app.finance.service.receivables import confirm_receivable, load_finance_state_id_for_date
+
+#: ★ 2026-10-01 재구성 BL-022: 수집 때 `os.environ.setdefault("DB_SCHEMA", ...)` 를 부르던 것을
+#:   검사 동안만 두는 fixture 로 바꿨다 — 그 값이 세션 끝까지 남아 다른 모듈을 통과시켰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
 
 SALE_ID = "SALE-RUN-1-SCN-1"
 SIM_RUN_ID = "SIM-1"

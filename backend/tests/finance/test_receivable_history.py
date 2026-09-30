@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import app
 from app.contracts import receivable_history as contract_rule
 from app.finance.repository import receivable_history as finance_sql
 from app.sales.repository import receivable_history as sales_sql
@@ -253,7 +254,7 @@ def test_the_two_modules_stay_byte_identical_in_their_rule_bodies():
       이 목록과 **정확히** 같고 글자까지 같아야 한다 — 목록 밖의 정의가 한쪽에 생겨도
       빨간불이다. 상태 규칙은 계약 한 벌에만 있다.
     """
-    root = pathlib.Path("app")
+    root = pathlib.Path(app.__file__).parent  # ★ 2026-10-01 BL-022: 작업 폴더가 아니라 패키지 자리
     finance = _definitions(root / "finance" / "repository" / "receivable_history.py")
     sales = _definitions(root / "sales" / "repository" / "receivable_history.py")
     contract = _definitions(root / "contracts" / "receivable_history.py")
@@ -270,7 +271,7 @@ def test_the_status_rule_does_not_become_two_copies_again():
 
     재무 · 판매 어디에도 `projected_status` 정의가 없고, 쓰는 자리는 계약에서 들여온다.
     """
-    root = pathlib.Path("app")
+    root = pathlib.Path(app.__file__).parent  # ★ 2026-10-01 BL-022: 작업 폴더가 아니라 패키지 자리
     importers: list[str] = []
     for department in ("finance", "sales"):
         for path in sorted((root / department).rglob("*.py")):

@@ -23,6 +23,7 @@ import pytest
 from app.master.readmodel.day_openings import read_day_opening
 from app.master.schemas.day_open import DayOpeningRecord
 from app.master.service.day_open import record_day_opening
+from tests.master.day_stage_doubles import collection_nothing_due
 
 AS_OF = date(2026, 1, 8)
 SIM = "SIM-BURNIN-202512"
@@ -229,7 +230,11 @@ def test_성공한_개장도_정본에_남긴다(monkeypatch: pytest.MonkeyPatch
     registry_day_open.register_day_opening("finance", _이미열린파트())
     registry_day_open.register_day_opening("logistics", _이미열린파트())
     try:
-        out = service_day_open.open_day(AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM)
+        # ★ 2026-10-01 BL-022 보완: 수금 사건 만들기는 이 검사의 대상이 아니다 — 대역이 없으면
+        #   진짜가 재무 축을 DB 에서 읽다 막혀 «못 만들었다» 가지로 돌았다.
+        out = service_day_open.open_day(
+            AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM, seed_collection=collection_nothing_due
+        )
     finally:
         registry_day_open.reset()
 
@@ -255,7 +260,9 @@ def test_open_day_가_파트_트랜잭션_밖에서_남긴다(monkeypatch: pytes
     )
     registry_day_open.reset()
 
-    out = service_day_open.open_day(AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM)
+    out = service_day_open.open_day(
+        AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM, seed_collection=collection_nothing_due
+    )
 
     assert out.status == "NOT_OPENED", "미등록이라 안 열린다"
     assert 남긴것, "🔴 미등록으로 돌아설 때도 남겨야 한다 — 그것도 사실이다"
