@@ -21,11 +21,11 @@ import pytest
 from _injection import inject_arrival_cap
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.classify_situation import compute_allowed_axes, coverage_by_label
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain.classify_situation import compute_allowed_axes, coverage_by_label
+from app.purchase_agent.service.graph import build_initial_state
 from tests.test_purchase_agent._ast_helpers import called_names, references
 
-_NODES = Path(__file__).resolve().parents[2] / "app" / "purchase_agent" / "nodes"
+_PACKAGE = Path(__file__).resolve().parents[2] / "app" / "purchase_agent"
 
 
 def test_uncertain_이면_공격을_뺀다() -> None:
@@ -107,14 +107,21 @@ def test_두_노드가_같은_함수를_쓴다() -> None:
     ★ 그래서 **③이 그 함수를 실제로 부르는지**를 구문으로 본다. ③이 자기 필터를 다시
       쓰면 여기가 운다.
     """
-    draft = _NODES / "draft_plan.py"
+    # 2026-09-29 재구성 BL-016: ③ 은 노드 함수(``service/nodes``)와 판정 · 계산(``domain``)
+    #   두 파일이다 — 부르는 자리는 노드 함수, «공격» 리터럴은 두 파일 다 본다.
+    node = _PACKAGE / "service" / "nodes" / "draft_plan.py"
+    rules = _PACKAGE / "domain" / "draft_plan.py"
 
-    assert "coverage_by_label" in called_names(draft), "③이 ①의 라벨 규칙을 안 부른다"
+    assert "coverage_by_label" in called_names(node), "③이 ①의 라벨 규칙을 안 부른다"
 
     # 🔴 ③ 안에 "공격" 을 직접 거르는 조건이 남아 있으면 두 곳이 다시 갈린 것이다.
     #   docstring·주석에는 그 낱말이 셋 있다 (:127 · :132 · :134) — `_ast_helpers` 가
     #   걷어내므로 여기서는 **코드가 쓰는 것만** 남는다.
-    assert not references(draft, "공격"), "③에 «공격» 리터럴이 남았다 — 라벨 규칙이 두 곳에 있다"
+    for draft in (node, rules):
+        assert not references(draft, "공격"), (
+            f"③({draft.parent.name}/{draft.name})에 «공격» 리터럴이 남았다 — "
+            "라벨 규칙이 두 곳에 있다"
+        )
 
 
 def test_두_노드의_목록이_실제로_같다() -> None:
@@ -123,7 +130,7 @@ def test_두_노드의_목록이_실제로_같다() -> None:
     ③을 통째로 돌려 나온 안의 라벨이 ①이 쓴 목록과 일치하는지 본다 — 그 사이에
     누가 라벨을 더하거나 빼면 여기가 운다.
     """
-    from app.purchase_agent.nodes.draft_plan import draft_plan
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
 
     for as_of, expected in ((date(2026, 8, 21), 3), (date(2026, 9, 4), 2)):
         state = build_initial_state("배추", as_of)

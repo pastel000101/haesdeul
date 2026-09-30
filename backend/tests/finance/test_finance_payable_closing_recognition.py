@@ -16,7 +16,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.closing import FinanceDayClosing
+from app.finance.service.closing import close_finance_day_on
 
 SIM_RUN_ID = "SIM-CONSOLE-A"
 OTHER_RUN = "SIM-CONSOLE-B"
@@ -195,7 +195,7 @@ def _payable(
 
 
 def _close(conn, *, as_of: date = AS_OF, sim_run_id: str = SIM_RUN_ID):
-    return FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=sim_run_id)
+    return close_finance_day_on(conn, as_of=as_of, sim_run_id=sim_run_id)
 
 
 def _cash_out(conn, *, as_of: date = AS_OF, sim_run_id: str = SIM_RUN_ID) -> Decimal:
@@ -211,10 +211,10 @@ def _stub_inventory(monkeypatch):
         inventory_book_value_krw = Decimal(0)
 
     monkeypatch.setattr(
-        "app.finance.closing.load_inventory_snapshot_as_of",
+        "app.finance.service.closing.load_inventory_snapshot_as_of",
         lambda *_a, **_k: _Inventory(),
     )
-    monkeypatch.setattr("app.finance.closing.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.closing.get_db_schema", lambda: "haetdeul")
 
 
 # ---------------------------------------------------------------------------
@@ -405,7 +405,7 @@ def test_recognition_itself_never_settles_the_payable():
     인식 단계(`_recognize_due_payables`)만 돌리면 채무 원장은 그대로여야 한다. 둘을
     합치면 곡선을 다시 그릴 때마다 돈이 또 나간다.
     """
-    from app.finance.closing import _recognize_due_payables
+    from app.finance.service.closing import recognize_due_payables as _recognize_due_payables
 
     conn = _Connection([_payable("PAY-1", due=AS_OF, outstanding="300")])
 

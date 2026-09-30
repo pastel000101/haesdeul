@@ -12,8 +12,8 @@ import copy
 
 import pytest
 
-from app.purchase_agent import allocation as al
 from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain import allocation as al
 
 #: 합성 선언 — 🔴 **승인된 값이 아니다.** 배선을 재려고 세운 것이다.
 합성선언 = {

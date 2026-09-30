@@ -32,8 +32,13 @@ from typing import Any, Self
 
 import pytest
 
-from app.master import ledger, transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg, build_commitment
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
+from app.master.domain import ledger as domain_ledger
+from app.master.domain import purchase_ids as domain_purchase_ids
+from app.master.domain.commitment import build_commitment
+from app.master.registry import transition as registry_transition
+from app.master.repository import ledger as repository_ledger
+from app.master.service import transition as service_transition
 
 AS_OF = date(2025, 12, 31)
 
@@ -44,11 +49,11 @@ AS_OF = date(2025, 12, 31)
 
 @pytest.fixture(autouse=True)
 def 전이_등록소를_비운다() -> Iterator[None]:
-    transition.reset()
+    registry_transition.reset()
     try:
         yield
     finally:
-        transition.reset()
+        registry_transition.reset()
 
 
 def _leg(
@@ -147,7 +152,7 @@ class 가짜커넥션:
         self.log: list[tuple[str, Any]] = []
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
         #: `None` 을 명시로 주면 *"items 표에 없다"* 를 잰다 — 기본값과 갈라 둔다.
         self.item_row = item_row
 
@@ -160,8 +165,12 @@ class 가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class 가짜전이:
@@ -189,12 +198,14 @@ def _params_of(conn: 가짜커넥션, 표: str) -> list[Any]:
     return next(params for text, params in conn.log if "INSERT INTO" in text and 표 in text)
 
 
-def _rows_of(commitment: ApprovedCommitment) -> tuple[ledger.PurchaseWrite, ...]:
+def _rows_of(commitment: ApprovedCommitment) -> tuple[domain_ledger.PurchaseWrite, ...]:
     purchase_ids = {
-        leg.seq: transition.purchase_id_for(commitment, leg.seq)
+        leg.seq: domain_purchase_ids.purchase_id_for(commitment, leg.seq)
         for leg in commitment.arrival_schedule
     }
-    return ledger.build_purchase_rows(commitment, purchase_ids=purchase_ids, sim_run_id=실행축)
+    return domain_ledger.build_purchase_rows(
+        commitment, purchase_ids=purchase_ids, sim_run_id=실행축
+    )
 
 
 # ── ① 회차 하나면 header 한 행 · 품목 한 줄 ─────────────────────────────
@@ -203,7 +214,7 @@ def _rows_of(commitment: ApprovedCommitment) -> tuple[ledger.PurchaseWrite, ...]
 def test_회차_하나가_purchases_한_행과_purchase_items_한_줄이_된다() -> None:
     conn = 가짜커넥션()
 
-    written = ledger.persist_purchases(conn, _rows_of(_commitment()))
+    written = repository_ledger.persist_purchases(conn, _rows_of(_commitment()))
 
     assert written == {"purchases": 1, "purchase_items": 1}
     나간_SQL = [text for text, _ in conn.log]
@@ -228,9 +239,11 @@ def test_채우는_값이_설계대로다() -> None:
     assert row.line_amount_krw == Decimal("3063298.000000")
 
     conn = 가짜커넥션()
-    ledger.persist_purchases(conn, (row,))
+    repository_ledger.persist_purchases(conn, (row,))
     header = _params_of(conn, ".purchases")
-    assert ledger.MASTER_PURCHASE_TYPE in header, "purchase_type 이 MASTER_APPROVAL 이어야 한다"
+    assert repository_ledger.MASTER_PURCHASE_TYPE in header, (
+        "purchase_type 이 MASTER_APPROVAL 이어야 한다"
+    )
     assert "OPEN" in header, "settlement_status 는 OPEN 이다"
 
 
@@ -252,15 +265,15 @@ def test_Line_금액이_DB_CHECK_를_지킨다() -> None:
 def test_원장이_재무_persist_보다_먼저_불린다() -> None:
     """🔴 `payables.purchase_id` 가 `purchases` 를 참조하는 FK 다 — 부모가 먼저다."""
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
     conn = 가짜커넥션()
 
     def _connect() -> 가짜커넥션:
         conn.log = log  # 원장 SQL 과 부서 persist 를 **한 줄에** 세운다
         return conn
 
-    out = transition.apply_approval(_commitment(), connect=_connect, sim_run_id=실행축)
+    out = service_transition.apply_approval(_commitment(), borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "APPLIED"
     순서 = [
@@ -279,12 +292,12 @@ def test_회차가_둘인데_금액이_비면_NOT_APPLIED_이고_커넥션을_�
     """★ 막는 것은 *"회차가 둘"* 이 아니라 **회차 금액이 비었다**는 사실이다.
 
     ⚠️ 전에는 회차가 둘이면 무조건 막았고, 주석은 재무도 그렇다고 적었다. 재무
-      `_payment_legs`(`app/finance/transition.py:207`)는 `len(legs) > 1` 이면서 금액이
+      `_payment_legs`(`app/finance/domain/transition.py`)는 `len(legs) > 1` 이면서 금액이
       비었을 때만 막는 **조건부**다 — 이제 두 곳이 같은 조건으로 막는다.
     """
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
     calls: list[int] = []
 
     두회차 = _commitment(legs=_두회차(amounts=(None, None)))
@@ -293,7 +306,7 @@ def test_회차가_둘인데_금액이_비면_NOT_APPLIED_이고_커넥션을_�
         calls.append(1)
         return 가짜커넥션()
 
-    out = transition.apply_approval(두회차, connect=_connect, sim_run_id=실행축)
+    out = service_transition.apply_approval(두회차, borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED"
     assert "1, 2회차 금액이 없어" in out.reason, "비어 있는 seq 를 이름으로 대야 한다"
@@ -305,12 +318,12 @@ def test_비어_있는_회차만_사유에_이름이_오른다() -> None:
     """🔴 *"회차별 금액이 아직 없다"* 처럼 뭉뚱그리지 않는다. **어느 회차를 채워야
     하는지**를 사유가 말해야 한다 — 채워진 seq1 을 사유가 부르면 안 된다.
     """
-    transition.register_transition("finance", 가짜전이("finance", []))
-    transition.register_transition("logistics", 가짜전이("logistics", []))
+    registry_transition.register_transition("finance", 가짜전이("finance", []))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", []))
 
-    out = transition.apply_approval(
+    out = service_transition.apply_approval(
         _commitment(legs=_두회차(amounts=(1708000.0, None))),
-        connect=lambda: 가짜커넥션(),
+        borrow=lambda: 가짜커넥션(),
         sim_run_id=실행축,
     )
 
@@ -353,16 +366,16 @@ def test_회차_금액이_다_있으면_회차마다_원장_한_행이_된다() 
 def test_다회차가_전이를_지나_purchases_두_행으로_나간다() -> None:
     """★ 계산만 맞고 전이가 앞에서 돌아서면 원장에는 여전히 아무것도 안 남는다."""
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
     conn = 가짜커넥션()
 
     def _connect() -> 가짜커넥션:
         conn.log = log
         return conn
 
-    out = transition.apply_approval(
-        _commitment(legs=_두회차()), connect=_connect, sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(legs=_두회차()), borrow=_connect, sim_run_id=실행축
     )
 
     assert out.status == "APPLIED"
@@ -376,17 +389,17 @@ def test_다회차_지급일이_하나라도_없으면_NOT_APPLIED_다() -> None
     """★ 금액이 다 실려도 지급일이 비면 열지 않는다 —
     `purchases.payment_due_date` 는 NOT NULL 이고 없는 날짜를 지어내지 않는다.
     """
-    transition.register_transition("finance", 가짜전이("finance", []))
-    transition.register_transition("logistics", 가짜전이("logistics", []))
+    registry_transition.register_transition("finance", 가짜전이("finance", []))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", []))
     calls: list[int] = []
 
     def _connect() -> 가짜커넥션:
         calls.append(1)
         return 가짜커넥션()
 
-    out = transition.apply_approval(
+    out = service_transition.apply_approval(
         _commitment(legs=_두회차(payment_due_dates=(AS_OF, None))),
-        connect=_connect,
+        borrow=_connect,
         sim_run_id=실행축,
     )
 
@@ -398,13 +411,13 @@ def test_다회차_지급일이_하나라도_없으면_NOT_APPLIED_다() -> None
 
 def test_다회차_지급일이_없으면_원장_계산_자체가_멈춘다() -> None:
     """★ 전이 앞단을 지나쳐 들어와도 원장이 다시 막는다 — 첫 회차만 조용히 쓰지 않는다."""
-    with pytest.raises(ledger.PurchaseLedgerNotWritable, match="2회차 지급일이 없다"):
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable, match="2회차 지급일이 없다"):
         _rows_of(_commitment(legs=_두회차(payment_due_dates=(AS_OF, None))))
 
 
 def test_다회차_금액이_비면_원장_계산_자체가_멈춘다() -> None:
     """★ 최후 방어. 여기서 총액으로 때우면 회차 하나가 승인 전액을 진다."""
-    with pytest.raises(ledger.PurchaseLedgerNotWritable, match="2회차 금액이 없어"):
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable, match="2회차 금액이 없어"):
         _rows_of(_commitment(legs=_두회차(amounts=(1708000.0, None))))
 
 
@@ -413,16 +426,16 @@ def test_다회차_금액이_비면_원장_계산_자체가_멈춘다() -> None:
 
 def test_지급일이_없으면_NOT_APPLIED_다() -> None:
     """★ **없는 날짜를 지어내지 않는다.** `purchases.payment_due_date` 는 NOT NULL 이다."""
-    transition.register_transition("finance", 가짜전이("finance", []))
-    transition.register_transition("logistics", 가짜전이("logistics", []))
+    registry_transition.register_transition("finance", 가짜전이("finance", []))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", []))
     calls: list[int] = []
 
     def _connect() -> 가짜커넥션:
         calls.append(1)
         return 가짜커넥션()
 
-    out = transition.apply_approval(
-        _commitment(legs=(_leg(payment_due_date=None),)), connect=_connect, sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(legs=(_leg(payment_due_date=None),)), borrow=_connect, sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -432,7 +445,7 @@ def test_지급일이_없으면_NOT_APPLIED_다() -> None:
 
 def test_지급일이_없으면_원장_계산_자체가_멈춘다() -> None:
     """★ 전이 앞단을 지나쳐 들어와도 원장이 다시 막는다 — 0 으로 대체하지 않는다."""
-    with pytest.raises(ledger.PurchaseLedgerNotWritable, match="purchase_payment_days"):
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable, match="purchase_payment_days"):
         _rows_of(_commitment(legs=(_leg(payment_due_date=None),)))
 
 
@@ -443,7 +456,7 @@ def test_item_id_를_items_표에서_조회한다() -> None:
     """🔴 **하드코딩 맵을 만들지 않는다.** 맵이 또 하나의 어휘가 되어 표와 갈린다."""
     conn = 가짜커넥션()
 
-    ledger.persist_purchases(conn, _rows_of(_commitment()))
+    repository_ledger.persist_purchases(conn, _rows_of(_commitment()))
 
     조회 = [(text, params) for text, params in conn.log if "FROM" in text and "items" in text]
     assert len(조회) == 1, "품목마다 items 표를 한 번 읽어야 한다"
@@ -459,8 +472,8 @@ def test_품목을_못_찾으면_멈춘다() -> None:
     """★ 물류가 오늘 같은 자리를 고쳤다 — *"매칭 0건인데 에러가 안 납니다."*"""
     conn = 가짜커넥션(item_row=None)
 
-    with pytest.raises(ledger.PurchaseLedgerNotWritable, match="배추"):
-        ledger.persist_purchases(conn, _rows_of(_commitment()))
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable, match="배추"):
+        repository_ledger.persist_purchases(conn, _rows_of(_commitment()))
 
 
 # ── ⑥ N5 가 지급일을 만든다 ─────────────────────────────────────────────
@@ -534,8 +547,10 @@ def test_SQL_은_ledger_에_있고_transition_에는_없다() -> None:
     ★ `test_전이_모듈에_SQL_이_없다` 가 한쪽을 잠근다. 여기서는 **반대쪽**을 잰다 —
       원장에 SQL 이 없으면 분담을 지킨 것이 아니라 아무 데도 안 쓴 것이다.
     """
-    전이 = Path(transition.__file__).read_text(encoding="utf-8")
-    원장 = Path(ledger.__file__).read_text(encoding="utf-8")
+    전이 = Path(service_transition.__file__).read_text(encoding="utf-8")
+    # ★ 2026-09-30 재구성 BL-018: 원장 SQL 은 적재 자리(`repository/ledger.py`)에 있다 — 행
+    #   짓기(`domain/ledger.py`)와 갈렸다.
+    원장 = Path(repository_ledger.__file__).read_text(encoding="utf-8")
 
     assert "INSERT INTO" not in 전이
     assert "INSERT INTO {}.purchases" in 원장

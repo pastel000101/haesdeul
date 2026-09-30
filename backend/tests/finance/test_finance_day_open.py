@@ -10,8 +10,10 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.day_open import DAY_OPEN_STATE_TYPE, FinanceDayOpening
-from app.finance.db import FinanceDataNotReady, InventorySnapshot
+from app.finance.adapter import FinanceDayOpening
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import DAY_OPEN_STATE_TYPE
+from app.finance.schemas.inventory import InventorySnapshot
 
 CARRY_FROM = date(2026, 1, 5)
 AS_OF = date(2026, 1, 6)
@@ -122,9 +124,9 @@ class _Conn:
 @pytest.fixture(autouse=True)
 def _schema():
     with (
-        patch("app.finance.day_open.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.repository.day_open.get_db_schema", return_value="haetdeul"),
         patch(
-            "app.finance.day_open.load_inventory_snapshot_as_of",
+            "app.finance.service.day_open.load_inventory_snapshot_as_of",
             return_value=InventorySnapshot(Decimal(123), Decimal(456), Decimal(456)),
         ),
     ):
@@ -221,7 +223,8 @@ def test_insert_omits_generated_financial_limit_and_uses_exact_source_date():
 def test_open_day_uses_supplied_connection_and_opens_none_of_its_own():
     conn = _Conn([SOURCE])
 
-    with patch("app.finance.db.get_connection") as opened:
+    # ★ 연결은 공통 풀에서만 빌린다 — 풀의 대여 입구를 막아 두고 한 번도 안 불렸는지 본다.
+    with patch("app.core.db.DatabasePool.connection") as opened:
         FinanceDayOpening().open_day(conn, as_of=AS_OF, carry_from=CARRY_FROM)
 
     opened.assert_not_called()
@@ -249,12 +252,18 @@ def test_duplicate_exact_source_states_fail_closed():
 
 
 def test_implementation_matches_master_structural_protocol_shape():
-    import app.finance.day_open as module
-    from app.master.day_open import DayOpening
+    import app.finance.adapter as adapter_module
+    import app.finance.domain.day_open as rules
+    import app.finance.repository.day_open as statements
+    import app.finance.service.day_open as service
+    from app.master.registry.day_open import DayOpening
 
     implementation = FinanceDayOpening()
     for method in ("is_open", "open_day"):
         expected = inspect.signature(getattr(DayOpening, method)).parameters
         actual = inspect.signature(getattr(implementation, method)).parameters
         assert set(expected) - {"self"} == set(actual)
-    assert "from app.master" not in inspect.getsource(module)
+    #  2026-09-29 재구성 BL-014: 개장이 Protocol 표면(adapter) · 순서(service) · 판정(domain) ·
+    #  SQL(repository) 로 나뉘었다 — 넷 모두 마스터를 들이지 않는다.
+    for module in (adapter_module, service, rules, statements):
+        assert "from app.master" not in inspect.getsource(module), module.__name__

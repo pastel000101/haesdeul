@@ -15,8 +15,8 @@ import pathlib
 
 import pytest
 
-from app.sales.proposal import run_proposal
-from app.sales.schemas import SalesProposalInput
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.proposal import run_proposal
 
 
 def _request(**over):
@@ -91,7 +91,8 @@ def test_only_ready_counts_as_a_satisfied_delivery_check(monkeypatch, status):
 
 def test_sales_gates_on_ready_positively_not_on_absence_of_findings():
     """소비 코드가 **긍정 조건**(status == READY)으로 판정하는지 구조로 확인한다."""
-    source = pathlib.Path("app/sales/proposal.py").read_text(encoding="utf-8")
+    #  ★ 2026-09-29 BL-013: 판정 코어는 `domain/proposal.py` 로 옮겼다.
+    source = pathlib.Path("app/sales/domain/proposal.py").read_text(encoding="utf-8")
 
     # "READY 가 아니면 미충족" 형태가 살아 있어야 한다.
     assert 'status != "READY"' in source or 'status == "READY"' in source
@@ -122,13 +123,24 @@ def test_sales_only_depends_on_the_ml_forecast_type():
         if name.startswith("app.ml")
     }
 
-    # 지금 있는 것은 스키마(타입) 하나뿐이다.
-    assert ml_imports <= {"app.ml.schemas"}, ml_imports
+    # 지금 있는 것은 스키마(타입) 하나뿐이다. 2026-09-29 재구성 BL-017 뒤 ML 스키마는 패키지다
+    # (`app.ml.schemas.forecast` 등) — 그 아래 모듈도 타입이라 허용한다.
+    assert all(
+        name == "app.ml.schemas" or name.startswith("app.ml.schemas.") for name in ml_imports
+    ), ml_imports
 
 
 def test_sales_never_queries_ml_data_directly():
     """Sales 는 받은 ml_context 만 소비한다 — ML 저장소를 직접 읽지 않는다."""
-    forbidden = ("app.ml.db", "app.ml.repository", "app.ml.service", "app.ml.runtime")
+    # 2026-09-29 재구성 BL-017: `app.ml.db` 가 없어지고 ML 조회가 `app.ml.readmodel` 로 나뉘었다 —
+    # 그 층도 «ML 저장소를 직접 읽는» 자리라 같이 막는다.
+    forbidden = (
+        "app.ml.db",
+        "app.ml.repository",
+        "app.ml.readmodel",
+        "app.ml.service",
+        "app.ml.runtime",
+    )
 
     for path in pathlib.Path("app/sales").rglob("*.py"):
         imported = _imports_of(str(path))
@@ -151,7 +163,8 @@ def test_sales_does_not_build_its_own_forecast_fallback():
 
 def test_sales_db_access_is_limited_to_its_own_run_history():
     """Sales 가 여는 DB 경로는 자기 실행이력뿐이다."""
-    source = pathlib.Path("app/sales/runs.py").read_text(encoding="utf-8")
+    #  ★ 2026-09-29 BL-013: 실행이력 SQL 은 `repository/runs.py` 로 옮겼다.
+    source = pathlib.Path("app/sales/repository/runs.py").read_text(encoding="utf-8")
 
     tables = set()
     for line in source.splitlines():

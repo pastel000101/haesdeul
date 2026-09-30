@@ -18,16 +18,13 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import Evidence
-from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
-from app.master.service import _evidence_contract_concerns, _evidences_out
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.domain.run_response import evidences_out as _evidences_out
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.procurement import _evidence_contract_concerns
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 

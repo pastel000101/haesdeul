@@ -31,6 +31,7 @@ SIM-CHAIN-V9 (1~3월) · is_open=t 이고 is_survey=f 인 날 14일
 from __future__ import annotations
 
 import ast
+import inspect
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -40,23 +41,27 @@ from typing import Any, get_args
 
 import pytest
 
-from app.master import ml_batch_calendar, persistence, scheduler
-from app.master.backfill import BackfillOut
-from app.master.backtest_runner import format_summary, walk
-from app.master.clock import SEOUL
-from app.master.execution_day import CalendarNotCovered
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.maintenance import MaintenanceOut
-from app.master.ml_batch_calendar import MlBatchDays
-from app.master.pending_transition import RetryOut
-from app.master.scheduler import (
+from app.core.clock import SEOUL
+from app.master.cli.backtest_runner import walk
+from app.master.domain.backfill import BackfillOut
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import (
     DayRunOutcome,
     ScheduledAction,
     SchedulerAction,
     plan_next_action,
-    run_scheduled_day,
     scope_of,
 )
+from app.master.readmodel import ml_batch_calendar as readmodel_ml_batch_calendar
+from app.master.readmodel.ml_batch_calendar import MlBatchDays
+from app.master.report.walk_summary import format_summary
+from app.master.repository import calendar_days
+from app.master.schemas.maintenance import MaintenanceOut
+from app.master.schemas.pending_transition import RetryOut
+from app.master.service import persistence as service_persistence
+from app.master.service.scheduler import run_scheduled_day
+from tests.fake_core_db import patch_sql_helpers
 
 _MASTER = Path(__file__).resolve().parents[2] / "app" / "master"
 
@@ -217,7 +222,7 @@ class _하루기록:
 def 관문_행_적재를_막는다(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """장부 관문이 막는 날 `record_ledger_gap` 이 실 DB 로 가지 않게 한다."""
     적힌것: list[dict[str, Any]] = []
-    monkeypatch.setattr(persistence, "record_ledger_gap", lambda **kw: 적힌것.append(kw))
+    monkeypatch.setattr(service_persistence, "record_ledger_gap", lambda **kw: 적힌것.append(kw))
     return 적힌것
 
 
@@ -305,7 +310,19 @@ def test_요일로_판정하지_않는다() -> None:
     ★ 배치 축을 읽는 두 모듈이 `weekday` · `isoweekday` 를 부르면 달력이 아니라 요일이
       판정한다.
     """
-    for 파일 in ("scheduler.py", "ml_batch_calendar.py"):
+    # ★ 2026-09-30 재구성 BL-018: 두 모듈이 갈린 조각을 함께 본다 — 스케줄러(service · domain · 키
+    #   짓기 · 비용 정산),
+    #   배치 축(readmodel · 표 SQL). `domain/execution_day.py` 로 간 것은 Protocol 선언뿐이고 그
+    # 파일은
+    #   주말을 거르는 실행일 판정이 제 일이라 여기서 뺀다(`test_execution_day.py` 가 잰다).
+    for 파일 in (
+        "service/scheduler.py",
+        "domain/scheduler.py",
+        "domain/request_ids.py",
+        "service/expenses.py",
+        "readmodel/ml_batch_calendar.py",
+        "repository/calendar_days.py",
+    ):
         나무 = ast.parse((_MASTER / 파일).read_text(encoding="utf-8"))
         부른것 = {
             node.func.attr
@@ -544,9 +561,11 @@ def test_표를_한_번만_읽는다() -> None:
 def test_조회가_is_survey_만_가져온다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 **`SELECT *` 를 안 쓴다.** 안 가져오면 나중에 누가 그 칸으로 판정하지 못한다."""
     잡은질의: list[Any] = []
-    monkeypatch.setattr(ml_batch_calendar, "get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr(
-        ml_batch_calendar, "fetch_all", lambda query: (잡은질의.append(query), [])[1]
+    monkeypatch.setattr(readmodel_ml_batch_calendar, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(
+        monkeypatch,
+        readmodel_ml_batch_calendar,
+        fetch_all=lambda query: (잡은질의.append(query), [])[1],
     )
 
     with pytest.raises(CalendarNotCovered):
@@ -560,7 +579,12 @@ def test_조회가_is_survey_만_가져온다(monkeypatch: pytest.MonkeyPatch) -
 
 def test_개장_축_모듈에_배치_칸이_안_들어갔다() -> None:
     """🔴 **`market_calendar.py` 는 「그날 시장에서 살 수 있는가」 만 답한다.**"""
-    원문 = (_MASTER / "market_calendar.py").read_text(encoding="utf-8")
+    # ★ 2026-09-30 재구성 BL-018: 개장 축의 SELECT 는 `repository/calendar_days.select_market_rows`
+    #   로 옮겼다(같은 표 파일에
+    #   휴일 · 배치 SELECT 가 함께 있다) — 개장 축 모듈과 그 함수 원문을 함께 잰다.
+    원문 = (_MASTER / "readmodel" / "market_calendar.py").read_text(encoding="utf-8") + "\n" + (
+        inspect.getsource(calendar_days.select_market_rows)
+    )
     나무 = ast.parse(원문)
     문자열 = [
         node.value
@@ -576,19 +600,21 @@ def test_개장_축_모듈에_배치_칸이_안_들어갔다() -> None:
 
 def test_검사_안에서는_배치_축이_가짜다() -> None:
     """🔴 **격리가 섰는지 직접 잰다.** 기본값으로 걷는 검사가 실 DB 를 안 친다."""
-    assert not isinstance(ml_batch_calendar.get_ml_batch_calendar(), MlBatchDays)
-    assert ml_batch_calendar.get_ml_batch_calendar().has_ml_batch(토요일) is True
+    assert not isinstance(readmodel_ml_batch_calendar.get_ml_batch_calendar(), MlBatchDays)
+    assert readmodel_ml_batch_calendar.get_ml_batch_calendar().has_ml_batch(토요일) is True
 
 
 def test_기본값이_실제_달력_함수_자체다() -> None:
     """★ `None` 을 안 받는다 (`clock.py` · `verifier.py` 와 같은 규율)."""
     import inspect
 
-    from app.master import backtest_runner
+    from app.master.cli import backtest_runner as cli_backtest_runner
+    from app.master.readmodel import ml_batch_calendar as readmodel_ml_batch_calendar
+    from app.master.service import scheduler as service_scheduler
 
-    for 함수 in (scheduler.wake_up, backtest_runner.walk):
+    for 함수 in (service_scheduler.wake_up, cli_backtest_runner.walk):
         기본 = inspect.signature(함수).parameters["ml_batch"].default
-        assert 기본 is ml_batch_calendar.get_ml_batch_calendar, 함수
+        assert 기본 is readmodel_ml_batch_calendar.get_ml_batch_calendar, 함수
 
 
 def test_DayRunOutcome_기본값은_여전히_NOT_ATTEMPTED_다() -> None:

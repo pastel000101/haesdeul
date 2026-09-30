@@ -25,13 +25,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import persistence, wiring
-from app.master.day_gate import DayGate
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master.router import router
-from app.master.sales_flow import SALES_BUDGET
-from app.master.schemas import ProcurementRunRequest, SalesBusinessMode, SalesRunRequest
-from app.master.service import run_sales
+from app.api.master.flows import router
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.day_gate import DayGate
+from app.master.schemas.procurement import ProcurementRunRequest
+from app.master.schemas.sales import SalesBusinessMode, SalesRunRequest
+from app.master.service import persistence as service_persistence
+from app.master.service.sales import run_sales
+from app.master.service.sales_flow import SALES_BUDGET
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 #: 🔴 **토요일이다.** 매입은 이 날 실행일 관문에서 서고 판매는 그대로 간다.
@@ -75,9 +77,9 @@ def _wire(capture: list | None = None) -> list:
     ★ 루트 `conftest.py` 가 등록을 스냅샷/복원하므로 이 테스트 밖으로 안 샌다.
     """
     called = capture if capture is not None else []
-    wiring.reset()
-    wiring.register("inventory", _port(PRE_SALES_PAYLOAD, called))
-    wiring.register(
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD, called))
+    registry_wiring.register(
         "sales",
         _port(
             {
@@ -96,7 +98,7 @@ def _wire(capture: list | None = None) -> list:
             called,
         ),
     )
-    wiring.register("finance", _port({"verdict": "ok"}, called))
+    registry_wiring.register("finance", _port({"verdict": "ok"}, called))
     return called
 
 
@@ -115,7 +117,7 @@ def _request(**kw) -> SalesRunRequest:
 def 막힌_개장(monkeypatch: pytest.MonkeyPatch) -> None:
     """개장 관문을 `BLOCKED` 로 꽂는다 — conftest 의 통과 fixture 를 덮는다."""
     monkeypatch.setattr(
-        "app.master.service.check_day_gate",
+        "app.master.service.sales.check_day_gate",
         lambda as_of, **kw: DayGate(
             as_of=as_of,
             gate="BLOCKED",
@@ -139,7 +141,7 @@ def 적재를_지켜본다(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, An
         seen.append(kwargs)
         return "RUN-FAKE-SALES"
 
-    monkeypatch.setattr("app.master.persistence.try_save_run", fake)
+    monkeypatch.setattr("app.master.service.persistence.try_save_run", fake)
     return seen
 
 
@@ -184,7 +186,7 @@ def test_영업_모드_어휘가_판매_것과_같다():
 
     ★ 테스트에서는 양쪽을 읽어도 된다 — 런타임 의존이 아니다.
     """
-    from app.sales.schemas import SalesBusinessMode as 판매_어휘
+    from app.sales.schemas.proposal import SalesBusinessMode as 판매_어휘
 
     assert set(get_args(SalesBusinessMode)) == set(get_args(판매_어휘))
 
@@ -291,7 +293,7 @@ def test_SL4_는_미가동으로_적힌다():
     `runtime_status_of` 는 표에 없는 코드에 **기본값 `READY`** 를 준다. 판매 코드를
     거기 넣으면 걸리지 않고 통과해서 *"못 시작한 날"* 이 *"돈 날"* 로 남는다.
     """
-    assert persistence.sales_runtime_status_of("SL4_NOT_STARTED") == "RUNTIME_NOT_READY"
+    assert service_persistence.sales_runtime_status_of("SL4_NOT_STARTED") == "RUNTIME_NOT_READY"
 
 
 def test_매입_매핑을_그대로_쓰면_SL4_가_READY_로_샌다():
@@ -300,12 +302,12 @@ def test_매입_매핑을_그대로_쓰면_SL4_가_READY_로_샌다():
     누가 `sales_runtime_status_of` 를 지우고 `runtime_status_of` 를 부르게 바꾸면
     이 검사가 그 결과를 말한다 — 예외가 아니라 **틀린 값**이 들어간다는 것을.
     """
-    assert persistence.runtime_status_of("SL4_NOT_STARTED") == "READY", (
+    assert service_persistence.runtime_status_of("SL4_NOT_STARTED") == "READY", (
         "매입 매핑이 판매 코드를 알아보기 시작했다면 이 검사의 전제가 바뀐 것이다"
     )
-    assert persistence.sales_runtime_status_of("SL4_NOT_STARTED") != persistence.runtime_status_of(
+    assert service_persistence.sales_runtime_status_of(
         "SL4_NOT_STARTED"
-    )
+    ) != service_persistence.runtime_status_of("SL4_NOT_STARTED")
 
 
 def test_예산_소진은_환경_고장이_아니다():
@@ -316,12 +318,12 @@ def test_예산_소진은_환경_고장이_아니다():
 
     *"판단이 안 끝났다"* 는 사실은 종료 코드가 이미 말한다 — 겹쳐 적지 않는다.
     """
-    assert persistence.sales_runtime_status_of("SL5_BUDGET_EXHAUSTED") == "READY"
+    assert service_persistence.sales_runtime_status_of("SL5_BUDGET_EXHAUSTED") == "READY"
 
 
 @pytest.mark.parametrize("end_code", ["SL1_PRESENTED", "SL2_NO_CANDIDATE", "SL3_ALL_REJECTED"])
 def test_나머지는_돌긴_돈_날이다(end_code):
-    assert persistence.sales_runtime_status_of(end_code) == "READY"
+    assert service_persistence.sales_runtime_status_of(end_code) == "READY"
 
 
 def test_판매_이력은_SALES_사이클로_적재된다(적재를_지켜본다):
@@ -469,7 +471,7 @@ def test_예산은_요청_값으로_선다():
 
 def test_어댑터가_없으면_SL4_로_정확히_말하고_끝난다():
     """★ **미등록은 오류가 아니라 상태다** (§5.3). 배선 전에도 그 사실을 말할 수 있다."""
-    wiring.reset()
+    registry_wiring.reset()
 
     response = run_sales(_request())
 

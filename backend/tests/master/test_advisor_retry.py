@@ -105,7 +105,9 @@ def test_예산이_모자라면_재시도가_예산을_넘기지_않는다():
 
 def test_runner_는_스스로_재시도하지_않는다():
     """★ `retryable` 은 **알려만 준다.** 정하는 것은 `flow` 다."""
-    from app.master import AgentRegistry, CallBudget, MasterRunner
+    from app.master.registry.ports import AgentRegistry
+    from app.master.service.budget import CallBudget
+    from app.master.service.runner import MasterRunner
 
     reg = AgentRegistry()
     reg.register("finance", advisor(runtime="ERROR"))

@@ -8,16 +8,20 @@
 
 **시점은 요청이 준다** (규칙 1). ``context.as_of``만 보고 벽시계를 읽지 않으므로 과거
 날짜로도 그대로 돈다 — 백테스트가 성립하는 근거다.
+
+🟢 **자리 (2026-09-29 · 재구성 BL-016).** 어댑터에는 **번역만** 남았다 — mode 분기, 봉투 회신 ·
+  실행 메타데이터 · LLM 호출 기록. 수신 payload 검사는 `domain/payload.py`, payload → State ·
+  그래프 실행은 `service/scenarios.py`, 공급 가능량의 시세 읽기 · 계산은
+  `service/supply_capacity.py`, 근거 · 설명문은 `domain/evidence.py` · `domain/reasoning.py` ·
+  `domain/supply_capacity.py` 다.
 """
 
 from collections.abc import Mapping
-from datetime import date, timedelta
-from decimal import Decimal
-from math import ceil, floor, isfinite
+from datetime import date
 from typing import Any
 
 from app.contracts.core import Evidence
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionMetadata,
@@ -26,32 +30,21 @@ from app.master.envelope import (
     summarize_llm_calls,
 )
 from app.purchase_agent import AGENT_VERSION, mocks
-from app.purchase_agent.config import (
-    ThresholdNotDeclared,
-    ci_width_threshold,
-    load_constraints,
-    threshold_missing_data_name,
-    threshold_not_declared_reason,
+from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain.evidence import build_evidences
+from app.purchase_agent.domain.payload import not_ready_reason, validate_payload
+from app.purchase_agent.domain.quotes import observed_at, quote_block_reason
+from app.purchase_agent.domain.reasoning import build_reasoning
+from app.purchase_agent.domain.supply_capacity import (
+    supply_capacity_evidences,
+    supply_capacity_reasoning,
 )
-from app.purchase_agent.graph import build_graph
 from app.purchase_agent.llm.runtime import MIX_ROLE, RoleSpec, get_llm_settings
 from app.purchase_agent.llm.split_allocation import ROLE as SPLIT_ROLE
-from app.purchase_agent.nodes.classify_situation import (
-    SplitEntryCap,
-    compute_ci_width,
-    compute_rise_rate_2w,
-    coverage_by_label,
-    estimate_daily_demand,
-    is_gate_excluded,
-    judge_sustained_rise,
-    split_entry_cap,
-    sustained_rise_sentence,
-    volume_gate_holds,
-)
-from app.purchase_agent.quotes import QuoteSource, observed_at, quote_block_reason
-from app.purchase_agent.state import PurchaseAgentState
-from app.purchase_agent.supply_capacity import SupplyCapacity, compute_supply_capacity
-from app.purchase_agent.tracing import ToolRecorder
+from app.purchase_agent.readmodel.quotes import QuoteSource
+from app.purchase_agent.service.scenarios import generate_scenarios
+from app.purchase_agent.service.supply_capacity import read_supply_capacity
+from app.purchase_agent.service.tracing import ToolRecorder
 
 AGENT_NAME = "purchase"
 #: ⑤ 등급 조합 판단자의 역할 이름 — 봉투 ``llm_calls[].role`` 에 그대로 실린다.
@@ -128,7 +121,7 @@ def _observed_at(
     """봉투에 실을 **관측 기준시점** (`#393` · `#626`).
 
     봉투가 이 칸을 *"그 값이 세상에 언제 드러났나"* 로 규정한다 — ``created_at`` 이
-    아니고 ``as_of`` 도 아니다 (``master/envelope.py`` ``AgentReply.observed_at``).
+    아니고 ``as_of`` 도 아니다 (``contracts/envelope.py`` ``AgentReply.observed_at``).
 
     🔴 **모수가 지금 하나다 — 시세뿐이다.** 봉투는 *"계산에 쓴 입력이 여럿이면 그중
       가장 늦은 것"* 이라고 정하는데, 우리 입력 여섯 중 **우리가 직접 관측하는 것은
@@ -164,7 +157,7 @@ def _observed_at(
 
     🔴 **막힌 시세의 날짜는 싣지 않는다** (규칙 3). ``observed_at`` 는 ``max(dates)``
       라 관측일이 여러 날 섞여도 **조용히 값을 낸다.** 그런데 그런 날 우리는 그 시세로
-      판단하지 않는다 — ③이 ``_no_quote_plan`` 으로 0안을 낸다. 안 쓴 값의 관측일을
+      판단하지 않는다 — ③이 ``no_quote_plan`` 으로 0안을 낸다. 안 쓴 값의 관측일을
       실으면 *"우리가 이 시점 기준으로 판단했다"* 가 **거짓**이 된다. 「모른다」를
       날짜로 메우는 것이다.
 
@@ -403,7 +396,7 @@ def _uncalled_status() -> LLMStatus:
       썼네"* 가 한 값이 되고, **사람이 없는 문제를 찾는다** — 2025-12-31 실행이 그랬다.
       등급이 미상이라 ⑤가 후보를 만들기 전에 막혔는데, 설정은 켜져 있었다.
 
-    봉투가 네 값의 뜻을 규정한다 (``master/envelope.py`` ``LLMStatus``)::
+    봉투가 네 값의 뜻을 규정한다 (``contracts/envelope.py`` ``LLMStatus``)::
 
         DISABLED           설정이 꺼져 있다
         SKIPPED_TEMPLATE   켜져 있는데 이번 실행에서는 안 불렀다 — 부를 조건이 아니었다
@@ -420,7 +413,7 @@ def _uncalled_status() -> LLMStatus:
 
 
 def _mix_decision(state: Mapping[str, Any] | None) -> Any:
-    """⑤의 LLM 판단. ⑤가 비율 목록 **첫 줄에 얹어** 보낸다 (``_sourcing_decision``과 같은 자리).
+    """⑤의 LLM 판단. ⑤가 비율 목록 **첫 줄에 얹어** 보낸다 (``sourcing_decision``과 같은 자리).
 
     ``None``인 경우가 둘이다 — ⑤가 아예 안 돈 경로(수신 검증 실패·STATUS_QUERY)와,
     돌았지만 게이팅에 걸려 LLM을 부르지 않은 날. **둘 다 실패가 아니고**, 어느 쪽이든
@@ -431,549 +424,6 @@ def _mix_decision(state: Mapping[str, Any] | None) -> Any:
     ratios = state.get("sourcing_plan") or []
     decision = ratios[0].get("decision", {}) if ratios else {}
     return decision.get("mix")
-
-
-# ── 수신 검증 ─────────────────────────────────────────────────────────────
-
-
-def validate_forecast(forecast: Any, as_of: date) -> list[str]:
-    """받은 예측이 **as_of 이전에 만들어진 것인가**, **날짜 축이 맞는가**.
-
-    마스터가 이미 한 겹 건다 — ``generated_at > as_of``면 아예 싣지 않는다. 그런데
-    **시점 필드가 없으면 판단하지 않고 그대로 싣는다**(필요데이터 §1.3-②). 그 구멍이
-    여기서 막힌다. 누수는 에러를 내지 않고 손익만 좋아지므로 양쪽에서 본다.
-
-    ``daily`` 축을 보는 이유: 판정 기준일이 **D+14 = ``daily[13]``**이라(``ci_judgment_day``)
-    축이 하루만 밀려도 **다른 날을 보게 된다.** 에러가 나지 않아 아무도 모른다.
-
-    돌려주는 것은 ``missing_data``에 실을 이름 목록이다 — 비어 있으면 통과.
-    """
-    if not isinstance(forecast, Mapping):
-        return ["forecast"]
-
-    missing: list[str] = []
-    generated_at = forecast.get("generated_at")
-    if not isinstance(generated_at, str) or not generated_at.strip():
-        missing.append("forecast.generated_at")
-    elif generated_at[:10] > as_of.isoformat():
-        # 마스터가 걸렀어야 하는 값이 왔다 — 통과시키면 look-ahead가 성립한다.
-        missing.append("forecast.generated_at")
-
-    # 그래프가 실제로 꺼내는 최상위 키. 없으면 노드 안에서 KeyError가 난다.
-    for key in ("current_price", "horizon_days", "model_version"):
-        if forecast.get(key) is None:
-            missing.append(f"forecast.{key}")
-
-    daily = forecast.get("daily")
-    horizon = forecast.get("horizon_days")
-    if not isinstance(daily, list) or not daily:
-        missing.append("forecast.daily")
-        return sorted(set(missing))
-
-    if isinstance(horizon, int) and len(daily) != horizon:
-        missing.append("forecast.daily")
-    # **축 전체를 본다.** 처음엔 ``daily[0]``만 D+1인지 봤는데, 첫 행만 맞춰 두고 이후를
-    # 하루씩 밀면 그대로 통과했다 (Codex 교차검증 P1). 판정 기준일을 **배열 인덱스**로
-    # 고르므로(``classify_situation.judgment_row``) 중간부터 밀리면 D+15를 D+14로
-    # 착각한 채 조용히 돈다 — 에러가 나지 않는 look-ahead다.
-    for index, row in enumerate(daily):
-        if not isinstance(row, Mapping):
-            missing.append("forecast.daily")
-            break
-        if row.get("date") != (as_of + timedelta(days=index + 1)).isoformat():
-            missing.append("forecast.daily")
-            break
-        if any(row.get(key) is None for key in ("predicted", "lower", "upper")):
-            missing.append("forecast.daily")
-            break
-
-    if "forecast.daily" not in missing:
-        missing.extend(_unusable_forecast_names(forecast, daily))
-    return sorted(set(missing))
-
-
-#: 값이 **왔는데 쓰지 말라고 표시된** 입력. ``missing_data`` 에 이 이름만 실리면
-#: 사유 문장이 *"없다"* 가 아니라 *"쓰지 말라고 왔다"* 가 된다 (``_generate_scenarios``).
-UNUSABLE_FORECAST_NAMES: tuple[str, ...] = (
-    "forecast.use_recommended",
-    "forecast.daily.gate_reason",
-)
-
-
-def _unusable_forecast_names(forecast: Mapping[str, Any], daily: list[Any]) -> list[str]:
-    """**왔는데 쓰면 안 되는** 예측인가 (#213 · ML 회신 2026-08-27).
-
-    ``missing_data`` 는 원래 *"안 왔다"* 를 담는 칸인데 여기 둔다. **같은 함수에 선례가
-    있다** — ``generated_at > as_of`` 도 값이 왔지만 쓰면 look-ahead 라 ``missing`` 에
-    넣는다. *"쓸 수 없는 입력"* 이라는 점이 같고, 봉투가 ``RUNTIME_NOT_READY`` 에
-    요구하는 것은 **이름**이지 부재의 증명이 아니다.
-
-    ⚠️ **노드에서 예외를 던지지 않는 이유.** 노드가 죽으면 ``missing_data`` 가 비어
-      마스터는 *"매입이 왜 안 돌았는지"* 를 못 받는다. 봉투도 빈 ``missing_data`` 의
-      ``RUNTIME_NOT_READY`` 를 거부한다 (``ContractViolation``).
-
-    거는 것은 둘이다::
-
-        use_recommended is False    ML: "FALSE 면 쓰지 마세요" — 조합 전체가 무효
-        판정일 행이 quality 게이트   ci_width 를 그 행 하나로 재므로 판정이 성립 안 한다
-        가장 짧은 커버 구간이 전부   max_price 를 정할 행이 남지 않는다 (규칙 5 재무 상한)
-          quality 게이트
-
-    ★ **세 번째가 가장 짧은 창인 이유**: 큰 창은 짧은 창을 포함하므로, 짧은 창에 쓸
-      행이 하나라도 있으면 ``usable_forecast_window`` 는 어느 안에서도 안 빈다.
-
-    🔴 **``None`` 은 안 건다** (규칙 3). mock 예측에는 이 칸들이 아예 없고,
-      *"권고가 없다"* 와 *"쓰지 말라고 했다"* 는 다른 사실이다. ``is False`` 로 본다.
-    """
-    names: list[str] = []
-    if forecast.get("use_recommended") is False:
-        names.append("forecast.use_recommended")
-
-    constraints = load_constraints()
-    day = constraints["situation"]["ci_judgment_day"]
-    if len(daily) >= day and is_gate_excluded(daily[day - 1]):
-        names.append("forecast.daily.gate_reason")
-
-    shortest = min(constraints["coverage_days"]["by_label"].values())
-    window = daily[:shortest]
-    if window and all(is_gate_excluded(row) for row in window):
-        names.append("forecast.daily.gate_reason")
-    return names
-
-
-#: 물류가 로트마다 싣는 키 (`master/adapters/logistics.py` · 2026-08-28 실측).
-#: **이름을 바꾸지 않는다** — 물류가 alias 를 만들지 않기로 했고(#78 §6), 매입이
-#: 물류 어휘를 그대로 읽기로 합의했다(#76). 매핑 표를 두면 어긋날 자리가 하나 더 생긴다.
-LOT_REQUIRED_KEYS = ("lot_id", "available_qty_kg")
-
-#: 로트가 어느 품목 것인지 밝히는 키. 없으면 품목을 가려낼 수 없다.
-LOT_ITEM_KEY = "item"
-
-
-def _lot_shape_problems(lots: Any) -> list[str]:
-    """``lots``가 **있을 때** 모양을 본다. 없는 것과 모양이 다른 것은 다르다.
-
-    ``lots``는 여전히 **선택 항목**이다 — 빠지면 등급 배분이 단일 등급으로 내려갈 뿐
-    돌아간다(M-1 제출 §5). 그래서 부재는 잡지 않는다.
-
-    ⚠️ **막으려는 것은 "있는데 모양이 다른" 경우다.** 그 구멍으로 실연동이
-    ``KeyError: 'remaining_kg'`` 로 죽었는데(2026-08-28), 전 스위트는 green 이었다 —
-    선택 항목이라 검사 자체가 없었고 노드 안에서야 터졌다. 어댑터에서 잡으면
-    마스터가 ``missing_data`` 로 **무엇이 어긋났는지** 받는다 (#76).
-    """
-    if lots is None:
-        return []
-    if not isinstance(lots, list):
-        return ["constraints.inventory.lots"]
-    problems: list[str] = []
-    for index, lot in enumerate(lots):
-        if not isinstance(lot, Mapping):
-            problems.append(f"constraints.inventory.lots[{index}]")
-            continue
-        # 값이 ``None``인 것은 통과시킨다 — 물류가 "모른다"를 그렇게 표현한다(§1.2-10).
-        # 여기서 막는 것은 **키 자체가 없는** 경우다.
-        problems.extend(
-            f"constraints.inventory.lots[{index}].{key}"
-            for key in LOT_REQUIRED_KEYS
-            if key not in lot
-        )
-    return sorted(set(problems))
-
-
-def validate_payload(payload: Mapping[str, Any], as_of: date) -> list[str]:
-    """필수 4키와 그 하위 계약. 없는 것의 **이름**을 돌려준다.
-
-    ``missing_data``가 비면 ``RUNTIME_NOT_READY``를 낼 수 없다(봉투가 ``ContractViolation``).
-    무엇이 없는지 이름이 있어야 마스터가 사용자에게 요청할 수 있기 때문이다.
-
-    ⚠️ **조언자가 ``READY``를 못 내면 키 자체가 없다** — 빈 dict가 아니다
-    (필요데이터 §1.3-①). 그래서 ``in`` 으로 존재를 먼저 본다.
-    """
-    missing: list[str] = []
-    item = payload.get("item")
-    if not item:
-        missing.append("item")
-    else:
-        # 🔴 **임계가 품목별이라 품목을 알아야 볼 수 있다.** 그래서 ``item`` 검사 다음이다.
-        #   여기서 안 막으면 ①이 ``ThresholdNotDeclared`` 로 죽는데, **노드가 죽으면
-        #   ``missing_data`` 가 비어** 마스터는 *"매입이 왜 안 돌았는지"* 를 못 받는다
-        #   (봉투가 빈 ``missing_data`` 의 ``RUNTIME_NOT_READY`` 를 거부한다).
-        #   ``_unusable_forecast_names`` 를 노드가 아니라 여기 둔 것과 같은 이유다.
-        #
-        # ⚠️ **다른 ``missing`` 과 성격이 다르다** — 마스터가 다시 보낸다고 풀리지 않는다.
-        #   그 사실은 이름이 말한다 (``ThresholdNotDeclared.missing_data_name``).
-        try:
-            ci_width_threshold(item, load_constraints())
-        except ThresholdNotDeclared as undeclared:
-            missing.append(undeclared.missing_data_name)
-
-    constraints = payload.get("constraints")
-    if not isinstance(constraints, Mapping):
-        missing.append("constraints")
-    else:
-        for dept in ("finance", "inventory"):
-            if not isinstance(constraints.get(dept), Mapping):
-                missing.append(f"constraints.{dept}")
-        # **컨테이너 모양만 보면 안 된다.** ``constraints.finance``가 dict이기만 하면
-        # 통과시켰더니, 안이 비어 있을 때 ``build_state``가 ``KeyError``로 죽었다.
-        # 죽으면 *"무엇이 없는지"*가 ``missing_data``에 남지 않아 마스터가 사용자에게
-        # 요청할 대상을 모른다 — 계약이 막으려는 상태가 그대로 된다.
-        # **여기서 꺼내 쓰는 키만** 적는다. 목록이 실제 참조보다 길면 안 쓰는 값을
-        # 요구하게 되고, 짧으면 다시 KeyError가 난다.
-        finance = constraints.get("finance")
-        if isinstance(finance, Mapping):
-            # ⚠️ **``margin_defense_floor_rate``는 넣지 않는다.** 재무가 ``READY``인 채로
-            # null을 줄 수 있고(Codex 교차검증 P1), 어느 노드도 그 값을 쓰지 않는다 —
-            # 참조값으로 실려만 간다. 필수로 걸면 정상 요청이 어댑터에서 막힌다.
-            #
-            # ``finance_cap_amount_krw``는 **필수다.** 없으면 ``purchase_budget_krw``가
-            # mock 폴백(60% 비율)을 타는데, 어댑터 경로에서 그 길로 가면 B6("같은 목적
-            # 60% 재적용 금지")가 조용히 되살아난다. 실운영에서 재무 경계 미수신은
-            # 애초에 ``RUNTIME_NOT_READY``이므로(M-1 제출 §4) 필수로 두는 것이 맞다.
-            for key in ("base_projected_cash_min", "finance_cap_amount_krw"):
-                if finance.get(key) is None:
-                    missing.append(f"constraints.finance.{key}")
-
-        # 물류도 같다. **필드명이 아직 미확정이라**(물류 미제출 — 필요데이터 §1.3-①)
-        # 이름이 어긋난 payload가 실제로 올 수 있는데, 그때 ``warehouse_cap_kg``가
-        # ``KeyError``로 죽으면 마스터는 *"물류 이름이 다르다"*를 알 길이 없다.
-        # ``lots``는 빠져도 돌아간다 — 등급 배분이 단일 등급으로 내려갈 뿐이라
-        # 필수가 아니다 (M-1 제출 §5).
-        inventory = constraints.get("inventory")
-        if isinstance(inventory, Mapping):
-            missing.extend(_capacity_input_problems(inventory))
-            missing.extend(_lot_shape_problems(inventory.get("lots")))
-            missing.extend(_arrival_input_problems(inventory))
-
-    if "forecast" not in payload:
-        # 마스터가 오염 판정으로 싣지 않은 경우가 여기다 (필요데이터 §1.3-②).
-        missing.append("forecast")
-    else:
-        missing.extend(validate_forecast(payload["forecast"], as_of))
-
-    orders = payload.get("confirmed_orders")
-    if not isinstance(orders, Mapping):
-        missing.append("confirmed_orders")
-    else:
-        # ③이 ``total_kg``으로 일평균 수요를, ⑤가 ``orders[]``로 납품일 매칭을 한다.
-        if orders.get("total_kg") is None:
-            missing.append("confirmed_orders.total_kg")
-        if not isinstance(orders.get("orders"), list):
-            missing.append("confirmed_orders.orders")
-
-    policy = payload.get("policy_values")
-    if not isinstance(policy, Mapping):
-        missing.append("policy_values")
-    elif not policy.get("item_mix_ratio") or not isinstance(policy["item_mix_ratio"], Mapping):
-        # 스칼라로 오면 mix 게이팅의 max()가 성립하지 않는다 (답변 §4-4).
-        # **빈 dict도 거부한다.** 통과시키면 근거가 관측된 적 없는 최대비를 ``0.0``으로
-        # 적고 "0.000 < 0.7 → mix 제외"라는 **스스로 모순된 문장**을 낸다 — 미결을 0으로
-        # 채우지 않는다는 규칙 3 위반이다 (Codex 교차검증 P1).
-        missing.append("policy_values.item_mix_ratio")
-    # ⚠️ ``contract_price_krw``는 **필수가 아니다.** 미수령이면 ``None``이고, 그때
-    # ``margin_warning``·``expected_margin_rate``가 함께 null로 나가는 것이 계약이다
-    # (state.py · IO명세 §2 동기화 규칙). 필수로 걸면 정상 경로가 막힌다
-    # (Codex 교차검증 P1).
-    return sorted(set(missing))
-
-
-def _capacity_input_problems(inventory: Mapping[str, Any]) -> list[str]:
-    """창고 상한 입력의 **부재와 모양을 함께** 본다.
-
-    부재만 보면 ``warehouse_cap_kg``가 값을 받고도 죽거나 조용히 틀린다. 실측:
-
-        True          → 창고 상한 1kg. 전 안이 창고에 눌려 죽는데 사유가 안 남는다
-        '1000' · [1]  → 더하는 자리에서 ``TypeError``. 노드가 죽으면 **사유를 못 낸다**
-        -500          → 상한이 음수. 수량이 음수로 클립된다
-
-    죽으면 마스터는 *"무엇을 다시 달라고 해야 하는지"*를 모른다 — ``RUNTIME_NOT_READY``에
-    ``missing_data``가 있어야 요청이 성립한다. 로트 ``shelf_life_days``·
-    ``inbound_lead_days``와 **같은 종류의 값이라 같은 자리에서 막는다**.
-
-    ``0``은 통과시킨다. ``rental_cap_kg``는 2026-08-27 물류 회신 §1로 **0 확정**이라
-    미결이 아니다 (규칙 3).
-    """
-    problems: list[str] = []
-    for key in ("warehouse_free_kg", "rental_cap_kg"):
-        base = f"constraints.inventory.{key}"
-        value = inventory.get(key)
-        if value is None:
-            problems.append(base)
-        elif isinstance(value, bool) or not isinstance(value, int | float | Decimal):
-            problems.append(f"{base}@수량이어야 한다")
-        elif not isfinite(float(value)):  # NaN · ±Inf
-            problems.append(f"{base}@유한한 수여야 한다")
-        elif float(value) < 0:
-            problems.append(f"{base}@음수일 수 없다 (받은 값 {value})")
-    return problems
-
-
-def _arrival_input_problems(inventory: Mapping[str, Any]) -> list[str]:
-    """도착일 계산 입력의 **모양**을 본다. 부재는 잡지 않는다 — 둘 다 선택 필드다.
-
-    ⚠️ ``inbound_lead_days``를 정수로 강제하는 이유: 2.5가 오면 도착일은
-    ``date + timedelta(days=2.5)``에서 **2일로 잘리는데** ⑤의 소진 창 계산은 2.5를
-    그대로 쓴다. 두 계산이 다른 리드타임을 보게 되고, 결과는 멀쩡해 보인다.
-    조용히 반올림하지 않고 여기서 세운다 — 계약이 "일" 단위이기 때문이다.
-
-    ``bool``을 따로 막는 것은 ``True``가 ``1일``로 통과하기 때문이다
-    (``schemas.py``의 ``_reject_boolean``과 같은 이유).
-    """
-    problems: list[str] = []
-    lead = inventory.get("inbound_lead_days")
-    if lead is not None:
-        base = "constraints.inventory.inbound_lead_days"
-        if isinstance(lead, bool) or not isinstance(lead, int | float):
-            problems.append(f"{base}@정수여야 한다")
-        elif lead != int(lead):
-            problems.append(f"{base}@일 단위 정수여야 한다 (받은 값 {lead})")
-        elif lead < 0:
-            problems.append(f"{base}@음수일 수 없다 (받은 값 {lead})")
-
-    cap = inventory.get("cap_by_date")
-    if cap is not None:
-        base = "constraints.inventory.cap_by_date"
-        if not isinstance(cap, Mapping):
-            problems.append(f"{base}@날짜→수용량 매핑이어야 한다")
-        else:
-            for day, value in cap.items():
-                if not isinstance(day, str):
-                    # 날짜 객체로 오면 ISO 문자열 조회가 **전부 미스**가 되고,
-                    # 값이 와 있는데도 "받지 못했다"로 고지된다.
-                    problems.append(f"{base}@키가 ISO 날짜 문자열이어야 한다")
-                    break
-            for day, value in cap.items():
-                if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
-                    problems.append(f"{base}[{day}]@수량이어야 한다")
-                    break
-                if not isfinite(value):  # NaN · ±Inf
-                    problems.append(f"{base}[{day}]@유한한 수여야 한다")
-                    break
-    return problems
-
-
-# ── 재고 흡수 ─────────────────────────────────────────────────────────────
-
-def absorb_inventory(inventory: Mapping[str, Any], item: str) -> dict[str, Any]:
-    """물류 payload 의 재고를 **이 품목 것만** 남겨 넘긴다.
-
-    ★ **품목 필터가 핵심이다.** 물류는 4품목 로트를 한 목록에 담아 보내는데
-      (`LOT-…-BAECHU` · `-MU` · `-PIMANUL` · `-YANGPA`, 2026-08-28 실측),
-      매입은 품목 하나씩 돈다. 거르지 않고 ``lots[0]`` 을 집으면 **다른 품목의
-      로트를 근거로 삼는다** — 에러가 나지 않아 아무도 모른다. mock 은 품목별로
-      나뉘어 있어 이 구멍이 보이지 않던 자리다.
-
-    ★ ``item`` 키가 없는 로트는 **버리지 않고 남긴다.** 품목 축을 못 밝힌 것과
-      "다른 품목"은 다르다 — 버리면 있는 재고를 없는 것으로 만든다. 판단은
-      노드가 하고, 여기서는 가려낼 수 있는 것만 가려낸다.
-
-    ★ **값을 만들지 않는다.** 없는 키를 기본값으로 채우면 미결이 사실이 된다
-      (규칙 3). 모양 검사는 `validate_payload` 가 하고, 여기서는 옮기기만 한다.
-    """
-    out = dict(inventory)
-    lots = inventory.get("lots")
-    if not isinstance(lots, list):
-        return out
-    out["lots"] = [
-        dict(lot)
-        for lot in lots
-        if isinstance(lot, Mapping) and lot.get(LOT_ITEM_KEY, item) == item
-    ]
-    return out
-
-
-def _approved_commitments(payload: Mapping[str, Any]) -> list[dict[str, Any]] | None:
-    """어제까지 승인된 약정을 State 로 옮긴다. **안 온 것과 0건을 구별한다** (규칙 3).
-
-    ```text
-    키 없음    → None   "마스터가 안 보냈다"
-    []         → []     "보냈는데 어제 승인이 없었다"
-    [{...}]    → 그대로  온 그대로 나른다
-    ```
-
-    ⚠️ **마스터는 지금 ``[]`` 를 보내지 않는다** — `flow.py._commitments_block` 이
-      ``if not self.approved_commitments: return None`` 으로 칸 자체를 안 만든다.
-      그래도 두 갈래를 다 두는 이유는, 그 규칙이 바뀌는 날 **여기가 조용히 틀리지
-      않게** 하기 위해서다. 빈 배열을 ``None`` 으로 접으면 *"승인이 없었다"* 가
-      *"안 왔다"* 로 둔갑한다.
-
-    ★ **모양을 검사하지 않는다.** 이 값은 `missing_data` 대상이 아니다 — 없어도
-      안이 만들어지고, 있으면 근거 문장 하나가 넓어질 뿐이다. 필수로 걸면 마스터가
-      승인 이력 없이 부르는 첫날(어제가 없는 날)이 통째로 `RUNTIME_NOT_READY` 가
-      된다.
-    """
-    raw = payload.get("approved_commitments")
-    if raw is None:
-        return None
-    return [dict(item) for item in raw]
-
-
-# ── payload → State ───────────────────────────────────────────────────────
-
-
-def build_state(request: AgentRequest, *, quotes: QuoteSource | None = None) -> PurchaseAgentState:
-    """수신 payload를 그래프가 아는 State로 편다 (IO명세 §2-B).
-
-    ``build_initial_state``와 **다른 경로**다 — 그쪽은 포트를 호출해 값을 당겨오고,
-    이쪽은 이미 받은 값을 배치한다. 매입 자기 도메인(당일 시세·시장 문서)만 포트가
-    그대로 담당하므로, 그 둘은 여기서도 ``ports``를 거친다.
-
-    ``quotes``는 그 시세의 공급자다 (#70). ``None``이면 mock 이고, 실데이터로 돌리려면
-    ``quotes.auction_quote_source()``를 넘긴다 — 환경변수가 아니라 **명시 주입**이다.
-
-    ⚠️ **#228(2026-09-03) 이후로 이 문장은 pytest 안에서만 참이다.** 운영 경로에서
-    mock 포트를 부르면 ``MockNotAllowed`` 로 막힌다 (``ports.py`` —
-    ``PYTEST_CURRENT_TEST`` 또는 ``sys.modules`` 로 판단). **실운영 등록은
-    ``main.py`` 가 실 공급자를 꽂는다** (#226 ·
-    ``partial(purchase_port, quotes=auction_quote_source())``).
-    """
-    from app.purchase_agent import ports
-
-    payload = request.payload
-    as_of = request.context.as_of
-    finance: Mapping[str, Any] = payload["constraints"]["finance"]
-    inventory: Mapping[str, Any] = payload["constraints"]["inventory"]
-    policy: Mapping[str, Any] = payload["policy_values"]
-    item = payload["item"]
-
-    return {  # type: ignore[return-value]  # 중간·출력 필드는 노드가 채운다
-        "date": as_of.isoformat(),
-        "item": item,
-        "forecast": dict(payload["forecast"]),
-        # 자기 도메인 — 마스터를 거치지 않는다 (정의서 §4.1)
-        "market_quotes": ports.get_market_quotes(item, as_of, source=quotes),
-        "inventory": absorb_inventory(inventory, item),
-        "confirmed_orders": dict(payload["confirmed_orders"]),
-        "item_mix_ratio": dict(policy["item_mix_ratio"]),
-        "contract_price": policy.get("contract_price_krw"),
-        # 마진 방어선은 **재무 Policy 소유**라 policy_values가 아니라 재무 payload에 있다
-        # (v2.3 M-19 해소 · 재무 회신 v2.2.1).
-        # 참조값이라 없어도 돈다 — 어느 노드도 이 값을 쓰지 않는다.
-        "margin_defense_floor_rate": finance.get("margin_defense_floor_rate"),
-        "projected_cash_min": finance["base_projected_cash_min"],
-        "finance_cap_amount_krw": finance.get("finance_cap_amount_krw"),
-        "purchase_payment_days": finance.get("purchase_payment_days"),
-        # N4는 **물류** payload에 있다 (재무가 아니다). ``absorb_inventory``가 통째로
-        # 복사해 ``state["inventory"]`` 안에도 들어가지만, ``pending_value``는 State
-        # 최상위를 보므로 여기서 한 번 더 올려야 값이 실제로 쓰인다.
-        # ``or``를 쓰지 않는다 — 0은 "당일 도착"이라는 확정된 값이라 폴백 대상이 아니다 (규칙 3).
-        "inbound_lead_days": inventory.get("inbound_lead_days"),
-        "critical_payment_dates": list(finance.get("critical_payment_dates") or []),
-        # 🔴 **재무 봉투 열 칸 중 다섯만 읽는다. 안 읽는 다섯을 여기 적어 둔다** (`#630`).
-        #
-        #   ```text
-        #   🟢 읽는다 (5)   base_projected_cash_min · finance_cap_amount_krw ·
-        #                   margin_defense_floor_rate · purchase_payment_days ·
-        #                   critical_payment_dates
-        #   🔴 안 읽는다 (5) **payment_pressure** · available_cash ·
-        #                   minimum_cash_balance_krw · payroll_payment_day ·
-        #                   policy_version_used
-        #   ```
-        #
-        #   ⚠️ **다섯 중 하나만 계약이 「우리 행동을 바꾼다」고 적고 있다** —
-        #     ``master/envelope.py`` 의 ``_is_label`` docstring 이
-        #     *"`payment_pressure: "MEDIUM"` 은 숫자가 아니지만 **매입의 행동을 바꾼다**"*
-        #     라고 이름 걸고 적어 뒀는데, ``purchase_agent`` 전수에서 그 이름이 **0곳**이다.
-        #
-        # 🟡 **그래도 지금은 안 읽는다** (2026-09-14 · `#630` 갈래 ㉢).
-        #
-        #   재무가 정의를 확인해 줬다 — 그 칸은 *"거래처 여신 노출도를 직접 평가하는
-        #   신호가 아니다"*. 그리고 **읽었어도 그 열흘을 안 막았다**: 실측에서 그 구간
-        #   내내 ``LOW`` 였다. ⇒ **지금 읽으면 판정이 바뀌는데, 바뀔 근거가 없다.**
-        #
-        #   ★ 그 대신 **읽을 근거가 생기는 조건**을 적어 둔다 —
-        #     ``payment_pressure`` 가 ``LOW`` 가 아닌 날이 실행에 나타나면 그때 연다.
-        #     그날이 오기 전까지 읽는 것은 «압력이 늘 낮은 축» 을 판정에 얹는 것이다.
-        #
-        # 🔴 **여신·미수금 칸은 열 칸 중 0개다.** 그건 우리가 안 읽는 것이 아니라
-        #   **봉투에 없는 것**이다 (마스터가 여신 통보 §7 에서 *"칸을 안 연 것은 제 몫"*
-        #   이라고 적었다). ⚠️ 「AR 이 아무 곳에도 안 들어간다」는 **아니다** — 수금은
-        #   재무 현금 투영에 들어가고, 봉투에 없는 것은 **그 칸**이다.
-        "feedback": dict(payload.get("prior_feedback") or {}) or None,
-        # 🔴 **``or {}`` 로 접지 않는다.** 마스터는 지평을 다 못 덮으면 봉투를 **통째로
-        #   안 싣고** 그 사유를 자기 ``skipped_checks`` 에 남긴다. 여기서 빈 dict 로
-        #   메우면 «안 서는 날이 없다» 는 없는 사실이 되고, ⑦ 이 «검사했다» 로 지난다.
-        #   ``None`` 이면 ⑦ 이 미검사로 고지한다 (규칙 3 · `#300`).
-        "execution_calendar": payload.get("execution_calendar"),
-        # 🔴 **``feedback`` 과 다른 슬롯이다** (되먹임 계약 v0.2 §2 · state.py 주석 참조).
-        #   저쪽은 사람이 준 조건이고 이쪽은 조언자가 준 조정안이다 — 수명·모양·권위가
-        #   달라 한 칸에 담으면 받는 쪽이 타입으로 갈라야 한다.
-        #
-        # ★ **받아서 반영까지 한다 — 읽는 자리가 셋이다.**
-        #
-        #       ③ draft_plan.split_adjustments  쓸 수 있는 것을 골라 ``adjustment_cap_kg``
-        #                                       로 kg 환산해 ``caps`` 에 건다 — **수량 상한**
-        #       ⑥ package_scenarios._adjustment_risks  못 쓴 것을 사유와 함께 risks 에
-        #       ⑦ self_check._assemble                 받은 건수를 meta.received_adjustments 에
-        #
-        #   ⇒ ③ 만 반영이고 ⑥⑦ 은 고지다. **셋을 한 낱말로 묶지 않는다** — 묶으면
-        #     "받았다" 와 "썼다" 가 같아지고, 보내는 쪽이 자기 제안이 수량을 움직인 줄 안다.
-        #
-        # 🔴 **이 자리는 두 번 낡았다. 둘 다 "쓴 뒤에 바뀐" 것이 아니라 "안 보고 쓴" 것이다.**
-        #
-        #   2026-09-03   *"어느 노드도 아직 안 읽는다"* — ⑥⑦ 을 **같은 판(#177)에서**
-        #                넣고 이 문장을 남겼다. 쓴 순간부터 틀렸다
-        #   2026-09-09   *"받되 반영은 안 한다 · 읽기는 두 곳"* — `E3-6` 이 같은 날 ③ 을
-        #                넣었다. ③ 은 읽기가 아니라 **수량 상한에 쓰는 반영**이다
-        #
-        #   ⚠️ 그때 근거로 적었던 *"``target_value`` 가 지시값인지 상한인지 미확정"* 도
-        #     함께 풀렸다 — 마스터 IO Contract §4.4 가 **"그 값 이하"** 로 확정했고,
-        #     ``adjustment_cap_kg`` docstring 이 그 조항을 들고 있다.
-        #
-        # ★ **그래도 반영과 독해는 다른 말이다.** 뭉치면 "값을 실어 주고 안 쓰는" 자리가
-        #   다시 열린다.
-        #
-        # 🟢 ``state.py`` 의 같은 설명은 **E3-6 때 같이 고쳐졌다** — 거른다/반영한다/말한다
-        #   셋으로 갈라 적고 §4.4 확정도 들고 있다. 🔴 **낡은 것은 이 자리 하나였다.**
-        #   ⇒ 한 사실을 두 곳에 적으면 한쪽만 고쳐지는 날이 온다. 고칠 때 **둘 다 연다.**
-        "adjustments": [dict(item) for item in payload.get("adjustments") or []],
-        "feedback_context": dict(payload.get("feedback_context") or {}) or None,
-        # 🔴 **바로 위와 달리 ``or []`` 로 접지 않는다** (`#310` · 마스터 `#312`).
-        #   마스터가 *"없으면 칸을 안 만든다 — 빈 배열은 «어제 승인이 없었다» 와
-        #   «마스터가 안 보낸다» 를 구별할 수 없다"* 로 보내는 값이라, 여기서 ``[]`` 로
-        #   접으면 **보내는 쪽이 지킨 구분이 받는 쪽에서 사라진다** (규칙 3).
-        #
-        # ★ **온 그대로 나른다.** 마스터가 승인 이력을 해석하지 않고 실어 보내듯
-        #   (`flow.py` — *"온 그대로 나른다"*), 우리도 여기서 고르거나 접지 않는다.
-        "approved_commitments": _approved_commitments(payload),
-        "context_docs": [],
-        "context_loop_count": 0,
-        "rejected_reasons": [],
-        "proposal": None,
-    }
-
-
-# ── 출력 ──────────────────────────────────────────────────────────────────
-
-
-def build_reasoning(proposal: Mapping[str, Any]) -> str:
-    """문장 3개 이하 · **3자리 이상 연속 숫자 금지** (M-1 §5.4).
-
-    숫자를 **아예 넣지 않는 쪽**을 택했다. 봉투의 검사가 ``\\d[\\d,]{2,}``라 세 자리부터
-    걸리는데, 안 개수·커버일수 같은 값은 한두 자리라 통과한다 — 그래도 서술문에 숫자를
-    실으면 **출처를 붙일 수 없다.** 숫자는 payload와 Evidence가 싣는다.
-
-    ``"2안"``·``"D+7"``은 통과하지만, 그 통과에 기대지 않고 라벨만 쓴다.
-    """
-    labels = [s["label"] for s in proposal.get("scenarios", [])]
-    if not labels:
-        # 🔴 **원인을 단정하지 않는다.** 전에는 *"제약 조합 하에"* 로 시작했는데, #70 이후
-        #   0안 원인이 셋으로 늘었다 — 규격 미확정 · 적재 정지는 **제약 때문이 아니다.**
-        #   화면은 이 문장을 1행으로 그대로 옮기므로(`ProcurementResult.tsx`), 거기까지만
-        #   읽는 사람은 창고·현금에 걸린 줄 안다. 원인은 아래 두 줄이 말한다 —
-        #   ``no_proposal_reason`` 과 ``rejected_reasons``.
-        return "유효한 안이 없어 제안을 내지 못했다."
-    head = "·".join(labels)
-    # **열린 축을 실제 값에서 읽는다.** 처음엔 stable이면 무조건 "세 축을 모두 열었다"고
-    # 썼는데, 배추는 편중 게이팅으로 mix가 닫혀 있어 두 축뿐이었다 — 서술문이 산출물과
-    # 어긋났다 (Codex 교차검증 P2). 봉투의 숫자·문장 검사는 이 종류의 불일치를 못 잡는다.
-    axes = "·".join(proposal.get("allowed_axes") or []) or "없음"
-    tail = (
-        "예측 구간이 넓어 공격안은 만들지 않았다."
-        if proposal.get("situation") == "uncertain"
-        else "예측 구간이 안정 범위다."
-    )
-    return f"{head} 안을 냈다. {tail} 열린 전략축은 {axes}이다."
 
 
 def build_payload(state: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict[str, Any]:
@@ -990,374 +440,6 @@ def build_payload(state: Mapping[str, Any], proposal: Mapping[str, Any]) -> dict
     그때 옮긴다 (프로세스 기준 8/26 — 스키마에 닿으면 합의 후).
     """
     return {**proposal, "allowed_axes": list(state.get("allowed_axes") or [])}
-
-
-def _relation(value: float, threshold: float, comparison: str) -> str:
-    """근거 문장에 쓸 부등호. **판정에 쓴 연산과 같은 방향**을 돌려준다.
-
-    ①이 ``ci_width_comparison``(설정값)으로 임계를 비교하므로 여기서도 그 문자열을 받아
-    쓴다. 경계값에서 "0.080 > 0.08"처럼 **거짓인 문장**이 나오지 않게, 성립하지 않을 때는
-    반대 방향을 적는다.
-    """
-    holds = value >= threshold if comparison == ">=" else value > threshold
-    if holds:
-        return "≥" if comparison == ">=" else ">"
-    return "<" if comparison == ">=" else "≤"
-
-
-def _volume_gate_sentence(estimated_total_kg: float, cap: SplitEntryCap) -> str:
-    """총량 게이트(``by_volume``)의 근거 한 문장. **세 갈래**다 (`#308`).
-
-    ★ 갈래가 셋인 이유는 ⑦ ``ARRIVAL_SKIP_REASONS`` 와 같다 — *"안 걸렸다"* 와
-      *"못 봤다"* 는 둘 다 «축이 안 열렸다» 이지만 **왜** 가 다르고, 하나로 적으면
-      물류가 값을 안 보낸 날과 여유가 넉넉한 날이 화면에서 같은 문장이 된다.
-
-    ⚠️ 판정과 **같은 함수**(``split_entry_cap``)가 낸 값만 인용한다. 여기서 다시 세면
-      근거가 실제 판정과 다른 수치를 주장하게 된다 — 이 파일이 방금 그 병을 앓았다.
-    """
-    # 🔴 **게이트가 «실제로 비교하는» 수를 적는다** (2026-09-12). ① 은 ③ 이 만들 수 있는
-    #   최대치(``round`` 가 올림으로 떨어질 수 있어 ``ceil``)를 여유와 견주는데, 문장이
-    #   ``round`` 를 적으면 1kg 미만 경계에서 **「8,607kg > 여유 8,608kg → 충족」** 처럼
-    #   눈으로 거짓인 줄이 나간다 — ``_relation`` docstring 이 막는 그 병이다.
-    total = f"추정 총량 {ceil(estimated_total_kg):,}kg"
-    if cap.cap_kg is None:
-        where = f"{cap.arrival_date} 도착" if cap.arrival_date else "도착일"
-        return f"{total} — {where} 창고 여유를 못 봐 총량 진입 조건을 판정하지 않았다"
-    # 🔴 **판정과 같은 술어를 부른다** (2026-09-12). 전에는 여기서 부등호를 다시 적었고,
-    #   ① 이 ``volume_gate_holds`` 로 옮겨 가면 근거 문장만 옛 방향에 남는다 — 이 함수의
-    #   docstring 이 경고한 바로 그 병이다.
-    holds = volume_gate_holds(estimated_total_kg, cap)
-    # 🔴 **여유는 내림해 적는다** (2026-09-12). 물류가 보내는 여유는 소수다 — 원장
-    #   실측에서 ``cap_by_date`` 값 79,291개 중 16,861개가 소수이고 대표값이 7,636.72 다.
-    #   ``:,.0f`` 는 **반올림**이라 7,637 로 적히고, 게이트가 성립한 날 화면이
-    #   *"7,637kg > 여유 7,637kg → 충족"* 이라는 **눈으로 거짓인 줄**을 내보낸다.
-    #
-    #   ★ 내림이 임의 선택이 아니다 — ⑦ ``check_arrival_capacity`` 가 ``int(cap)`` 으로
-    #     같은 값을 읽고, ``draft_plan.warehouse_cap_kg`` 도 *"이 값은 상한이라 올리면
-    #     못 넣는 양을 계획하게 된다"* 며 내린다. **쓰는 쪽과 적는 쪽이 같은 수를 본다.**
-    return (
-        f"{total} {'>' if holds else '≤'} {cap.arrival_date} 도착 여유 "
-        f"{floor(cap.cap_kg):,}kg → 총량 진입 조건 {'충족' if holds else '미달'}"
-    )
-
-
-def build_evidences(state: Mapping[str, Any], payload: Mapping[str, Any]) -> tuple[Evidence, ...]:
-    """payload의 **숫자·판정·비어 있지 않은 배열**에 근거를 붙인다 (정의서 §1.2-5).
-
-    봉투는 최상위 값 중 ``_needs_evidence``인 것 전부에 ``claim``이 같은 Evidence를
-    요구하고, 반대로 payload에 없는 claim은 ``E-EVIDENCE-ORPHAN``으로 잡는다. 즉
-    **양방향**이라 넘쳐도 모자라도 걸린다.
-
-    ⚠️ **그 규칙을 여기서 재구현하지 않는다.** 어느 값이 근거를 요구하는지는 봉투가
-    정하고, 우리는 아는 키에 대해 만든다. 규칙이 바뀌면 재구현이 조용히 어긋나므로,
-    대신 **실제 ``validate_reply``를 돌려 findings가 0인지 보는 테스트**로 잠근다.
-
-    ``allowed_axes``는 **게이트마다 한 건**이다 (신뢰도·총량·편중 셋). 축 목록 하나에
-    근거가 여럿인 이유는 축을 여닫는 조건이 여럿이기 때문이고, 하나로 합치면 나머지
-    게이트의 수치가 사라진다.
-    """
-    constraints = load_constraints()
-    # 🔴 **``item`` 을 먼저 읽는다** — 임계가 품목별이라 품목 없이는 못 뽑는다.
-    #   전에는 ``threshold`` 가 위에 있었다. 순서만 남겨두면 ``item`` 이 정의되기 전에
-    #   쓰는 ``NameError`` 라 바로 걸리지만, 근거 문장이 **판정과 다른 임계를 인용하는**
-    #   길로도 갈 수 있어서 ①과 **같은 함수**로 뽑는다.
-    item = payload["meta"]["item"]
-    threshold = ci_width_threshold(item, constraints)
-    judgment_day = constraints["situation"]["ci_judgment_day"]
-    as_of = payload["meta"]["as_of"]
-    # ① 노드가 ``situation``·``allowed_axes``만 돌려주고 판정 **수치**는 남기지 않는다.
-    # 여기서 같은 함수로 다시 구한다 — 값을 State에 얹으면 노드 계약이 바뀌고 949건이
-    # 그 변화를 받는다. 같은 입력·같은 함수라 두 값이 갈릴 수 없다.
-    ci_width = compute_ci_width(state["forecast"], judgment_day)
-    axes = list(payload.get("allowed_axes") or [])
-    # 편중 게이트가 보는 값 — **호출 품목이 아니라 전 품목의 최대비**다.
-    # mix 축은 품목을 조합하는 전략이라 "어느 품목이든 편중됐나"를 묻는다
-    # (``classify_situation.compute_allowed_axes``와 같은 계산).
-    ratios = (state.get("item_mix_ratio") or {}).values()
-    top_mix_ratio = max(ratios) if ratios else 0.0
-    mix_threshold = constraints["concentration"]["item_threshold"]
-    # **부등호를 하드코딩하지 않는다** (규칙 7). ①이 임계와 **비교 방향을 둘 다** 파일에서
-    # 읽으므로(``ci_width_comparison``), 근거 문장이 방향을 따로 적으면 설정을 ``>``로
-    # 바꾼 날 문장만 옛 방향으로 남는다.
-    comparison = constraints["situation"]["ci_width_comparison"]
-    # 총량 게이트가 보는 값 — ①과 **같은 계산**이다. 여기서 따로 세면 근거가 실제 판정과
-    # 다른 수치를 주장하게 된다.
-    #
-    # 🔴 **말만 그랬고 실제로는 달랐다** (`#308` 에서 고침 · 2026-09-12). ①은 `#342` 로
-    #   ``coverage_by_label(situation, …)`` 를 쓰게 됐는데 — uncertain 인 날은 공격 라벨을
-    #   빼므로 최대 D 가 12 가 아니라 5다 — **이 줄만 옛 ``max(by_label)``(늘 12)에 남아
-    #   있었다.** 그래서 화면의 근거가 판정보다 **2.4배 큰 수**를 인용했다::
-    #
-    #       판정(①)   717.3 × 5  = 3,587kg
-    #       근거(여기) 717.3 × 12 = 8,608kg     ← 원장 2,747건 중 2,674건이 이 상태였다
-    #
-    #   ★ **규칙 8 이 못 잡는 방향이다** — 선언을 바꾸면 둘 다 따라 움직이므로 변이가
-    #     안 문다. `#342` 와 `#379` 가 같은 병의 양쪽이었고, 이것이 세 번째다.
-    estimated_total_kg = estimate_daily_demand(state["confirmed_orders"], constraints) * max(
-        coverage_by_label(payload.get("situation"), constraints).values()
-    )
-    # 기준값도 ①과 같은 함수로 뽑는다 — 고정 임계가 아니라 **도착일 창고 여유**다 (`#308`).
-    arrival_cap = split_entry_cap(state, constraints)
-    # 가격 경로가 보는 두 값 — ①·④ 와 **같은 함수**로 다시 구한다 (위 ``ci_width`` 와 같은 이유).
-    rise_rate = compute_rise_rate_2w(state["forecast"], judgment_day)
-    rise_threshold = constraints["triggers"]["pre_purchase_rise_rate"]
-    trend = judge_sustained_rise(state["forecast"], constraints)
-
-    def ref(kind: str) -> tuple[str, ...]:
-        return (f"{item}-{kind}-{as_of}",)
-
-    out = [
-        Evidence(
-            claim="situation",
-            source="tool_calc",
-            ref_ids=ref("CI"),
-            value=round(ci_width, 6),
-            unit="ratio",
-            evidence_grade="SIM_FIXED",
-            evidence_detail=(
-                f"D+{judgment_day} 구간폭을 임계 {threshold}와 비교해 "
-                f"{_situation_josa(payload.get('situation'))} 판정"
-            ),
-        ),
-        # ── allowed_axes는 **게이트마다 한 건**이다 (현서님 회신 8/27) ──────────
-        #
-        # 처음엔 "열린 축 개수"(2.0)를 실었는데, 그건 **답의 길이를 세어 답이라고 적은
-        # 것**이라 감사 가치가 없다. 나중에 *"왜 그날 timing이 열렸나"*를 보는 사람에게
-        # 2.0은 아무것도 말하지 않는다. ``Evidence.value``의 용도는 **판정을 만든 근거
-        # 수치**다.
-        #
-        # 축을 여닫는 게이트가 둘이라 근거도 둘이다. 하나로 합치면 한쪽 수치가 사라진다.
-        Evidence(
-            claim="allowed_axes",
-            source="tool_calc",
-            # **``situation``과 같은 ``ref_id``다.** §4.2.2가 "하나의 신뢰도 판정이
-            # 개수·허용 축·분할 진입 셋을 동시에 결정한다"로 정했으므로 판정이 하나면
-            # 근거도 하나다 — 추적하면 한 곳으로 모인다.
-            ref_ids=ref("CI"),
-            value=round(ci_width, 6),
-            unit="ratio",
-            evidence_grade="SIM_FIXED",
-            # ⚠️ **"→ 허용 축 [...]"이라고 쓰지 않는다.** 구간폭이 정하는 것은 ``situation``
-            # 이고, 축에 대해서는 **선매입 궤적 조건(by_trend)만** 연다·닫는다.
-            # timing은 총량 게이트로도 열리므로(아래 VOL 근거), uncertain인데 timing이
-            # 열린 날이 실재한다 — 그때 이 문장이 "uncertain → timing 열림"으로 읽히면
-            # **없는 인과를 주장하게 된다** (Codex 교차검증 P1, 합성 입력으로 재현).
-            evidence_detail=(
-                f"구간폭 {ci_width:.3f} {_relation(ci_width, threshold, comparison)} {threshold}"
-                f" → {_situation_ko(payload.get('situation'))} → 선매입 궤적 "
-                f"{'차단' if payload.get('situation') == 'uncertain' else '허용'}"
-            ),
-        ),
-        Evidence(
-            claim="allowed_axes",
-            source="tool_calc",
-            # **세 번째 게이트다.** 현서님 회신이 *"축을 닫는 다른 게이트가 있다면 그
-            # 게이트의 값을 쓰는 게 맞다 — 그런 게이트가 있습니까?"*라고 물었는데,
-            # 있다: timing은 ``by_volume OR by_trend``로 열리고 **by_volume은 situation과
-            # 무관하다**. 이 근거가 없으면 uncertain인데 timing이 열린 날을 설명할 수 없다.
-            ref_ids=ref("VOL"),
-            # 문장과 **같은 수**여야 한다 — ``_volume_gate_sentence`` 참조.
-            value=float(ceil(estimated_total_kg)),
-            unit="kg",
-            evidence_grade="SIM_FIXED",
-            # 🔴 **세 갈래다 — 「못 봤다」를 「미달」로 적지 않는다** (규칙 3 · `#308`).
-            #   여유를 못 받은 날에 *"미달"* 이라고 쓰면 판정하지 않은 것이 판정한 것으로
-            #   읽히고, 읽는 사람은 그날 축이 왜 닫혔는지 되물을 수 없다.
-            evidence_detail=_volume_gate_sentence(estimated_total_kg, arrival_cap),
-        ),
-        Evidence(
-            claim="allowed_axes",
-            source="tool_calc",
-            # **네 번째 게이트 — 가격 경로의 상승률 · 궤적** (2026-09-17). 전에는 이 게이트의
-            # 근거가 따로 없어, 안정인 날 timing 이 닫혀도 «상승률이 모자랐나 · 예측이
-            # 내려갔나 · 판정을 못 했나» 를 기록에서 가를 수 없었다.
-            # 🔴 stable 여부는 위 CI 근거가 말한다 — 여기서 겹쳐 적지 않는다.
-            ref_ids=ref("TREND"),
-            value=round(rise_rate, 6),
-            unit="ratio",
-            evidence_grade="SIM_FIXED",
-            evidence_detail=(
-                f"D+{judgment_day} 예측 상승률 {rise_rate:+.1%} "
-                f"{_relation(rise_rate, rise_threshold, '>=')} 임계 {rise_threshold:.0%} · "
-                + sustained_rise_sentence(
-                    trend.verdict, trend.withheld_reason, trend.first_decline
-                )
-            ),
-        ),
-        Evidence(
-            claim="allowed_axes",
-            source="tool_calc",
-            # 편중은 **다른 게이트**라 ref_id도 다르다. 신뢰도와 같은 id를 쓰면
-            # 서로 다른 두 판정이 한 근거를 가리키게 된다.
-            ref_ids=ref("MIX"),
-            value=round(top_mix_ratio, 6),
-            unit="ratio",
-            evidence_grade="SIM_FIXED",
-            # **열린 날에도 싣는다.** 닫힘만 기록하면 "왜 열렸나"의 근거가 없어지고,
-            # 편중이 완화돼 mix가 부활한 날을 설명할 수 없다.
-            # ⑤ 게이트 조건은 ``max(ratios) < threshold``면 개방이다. 부등호를 그 조건에서
-            # 이끌어내 **경계값에서도 참인 문장**이 되게 한다 — 예전엔 0.70에서 "0.700 > 0.7"
-            # 이라고 적었는데 그건 거짓이었다(판정은 맞고 문장만 틀린 상태).
-            evidence_detail=(
-                f"품목 편중 최대 {top_mix_ratio:.3f} "
-                f"{'<' if top_mix_ratio < mix_threshold else '≥'} {mix_threshold} → "
-                f"등급 구성 {'개방' if 'mix' in axes else '제외'}"
-            ),
-        ),
-        Evidence(
-            claim="scenarios",
-            source="tool_calc",
-            ref_ids=ref("SCEN"),
-            value=float(len(payload.get("scenarios") or [])),
-            unit="count",
-            evidence_grade="SIM_FIXED",
-            # 개수는 독립 파라미터가 아니라 **상황 판정의 파생값**이다 (변경요청 1).
-            evidence_detail=(
-                f"{_situation_ko(payload.get('situation'))} 판정에서 파생 — "
-                "예측이 불확실하면 공격안을 만들지 않아 두 안이 된다"
-            ),
-        ),
-        *_scenario_evidences(payload, ref),
-    ]
-
-
-    # 아래 둘은 **비어 있으면 근거를 요구받지 않는다** (빈 Sequence는 대상 밖).
-    # 그런데도 붙이면 넘치는 쪽이라 ORPHAN은 아니지만 의미 없는 근거가 된다.
-    if payload.get("context_docs_used"):
-        out.append(
-            Evidence(
-                claim="context_docs_used",
-                source="documents",
-                ref_ids=tuple(payload["context_docs_used"]),
-                value=float(len(payload["context_docs_used"])),
-                unit="count",
-                evidence_grade="SIM_FIXED",
-                evidence_detail=(
-                    # ★ ⑥ ``_context_risks`` 와 **같은 사실**이다. 한쪽만 고치면 화면과
-                    #   봉투가 다른 말을 한다 — 문면을 바꿀 때 둘을 같이 본다.
-                    "정해진 우선순위 순서대로 읽었다 — 어느 문서가 더 맞는지도, "
-                    "이만하면 충분한지도 판정하지 않았다"
-                ),
-            )
-        )
-    if payload.get("rejected_reasons"):
-        out.append(
-            Evidence(
-                claim="rejected_reasons",
-                source="tool_calc",
-                ref_ids=ref("CUT"),
-                value=float(len(payload["rejected_reasons"])),
-                unit="count",
-                evidence_grade="SIM_FIXED",
-                evidence_detail="자기 검증에서 컷된 안의 수 — 사유는 항목마다 실려 있다",
-            )
-        )
-    return tuple(out)
-
-
-#: 안 안쪽에서 **근거를 요구받는 숫자**와 그 값이 어디서 왔는지.
-#: 봉투 v0.4가 배열을 **한 겹 파고들어** ``scenarios[i].<필드>`` 경로로 요구한다
-#: (M-1 §7.1 — 매입 요청으로 신설된 규칙이다. 재무 payload는 평면이라 1:1이 성립하지만
-#: 우리는 같은 이름의 필드가 안마다 2~3벌이라 위치가 필요하다).
-#:
-#: **라벨은 면제다** — ``label``·``strategy_type``까지 요구하면 안마다 근거를 만들어야
-#: 해서 과하다. 숫자만 다르다: 어디서 왔는지 없으면 **LLM이 만든 값과 구분되지 않는다.**
-_SCENARIO_NUMERIC_SOURCES: dict[str, str] = {
-    "coverage_days": "안별 커버일수 설정",
-    # 🔴 **이 문장이 남에게 나간다.** 전에 *"일평균 확정수요 × 커버일수"* 라고만 적어
-    #    두었고, 마스터가 그대로 읽어 ``total_qty_kg ÷ coverage_days`` 로 일수요를
-    #    되잡았다 — 배추가 **359** 로 나왔다 (정본 717.3 · 2026-09-12 회신). 차감이
-    #    빠진 문장이 남의 계산을 반으로 만들었다.
-    "total_qty_kg": (
-        "일평균 확정수요 × 커버일수에서 **보유 재고를 뺀** 양, 그 뒤 하드 제약"
-        "(창고·현금·신선도)의 상한에 맞춰 줄임 — 이 값으로 일수요를 되잡지 말 것"
-    ),
-    "total_amount_krw": "등급별 수량 × 단가의 합 — 등급 배분에서 파생",
-    "max_price": "커버 구간 예측 상단의 최대값 — 재무 STRESS 로 나간다",
-    "cut_unit_price": "커버 구간 예측 상단의 최대값 — 매입 컷 기준 (STRESS 상한과 지금은 같다)",
-    "expected_margin_rate": "(계약단가 − 가중 매입단가) ÷ 계약단가",
-}
-
-
-#: ``situation`` 의 **화면 표기**. 계약 값(``stable``/``uncertain``)은 그대로 두고
-#: 사람이 읽는 문장에서만 이 표기를 쓴다 — 근거는 H1 화면과 Critic 이 읽는다.
-#: 🔴 여기서 값을 바꾸면 안 된다. `payload["situation"]` 은 계약이고 이건 표기일 뿐이다.
-_SITUATION_KO: dict[str, str] = {
-    "stable": "예측이 안정적",
-    "uncertain": "예측이 불확실",
-}
-
-
-def _situation_josa(situation: Any) -> str:
-    """``_situation_ko`` 에 ``으로``/``로`` 를 붙여 돌려준다.
-
-    🔴 **조사를 문자열에 고정할 수 없다.** 같은 자리에 두 값이 들어오는데 받침이 다르다 —
-      "안정적" 은 ㄱ 받침이라 *안정적으로* 이고 "불확실" 은 ㄹ 받침이라 *불확실로* 다.
-      ``…으로`` 로 박아두었더니 uncertain 인 날마다 **"예측이 불확실으로 판정"** 이
-      나갔다 (12-31 관통 4품목 중 3품목 · 2026-09-03 실측).
-
-    받침이 없거나 ㄹ 이면 ``로``, 그 밖의 받침이면 ``으로`` — 한글 음절이 아니면
-    (``_situation_ko`` 가 모르는 값을 그대로 흘리는 경우) ``로`` 로 둔다.
-    """
-    word = _situation_ko(situation)
-    if not word:
-        return "로"
-    code = ord(word[-1])
-    if not 0xAC00 <= code <= 0xD7A3:
-        return f"{word}로"
-    jongseong = (code - 0xAC00) % 28
-    return f"{word}로" if jongseong in (0, 8) else f"{word}으로"
-
-
-def _situation_ko(situation: Any) -> str:
-    """근거 문장에 쓰는 표기. 모르는 값이면 **그대로 둔다** (숨기지 않는다)."""
-    return _SITUATION_KO.get(str(situation), str(situation))
-
-
-def _scenario_evidences(payload: Mapping[str, Any], ref: Any) -> list[Evidence]:
-    """안별 숫자 근거. **경로 표기**로 어느 안의 값인지 가리킨다.
-
-    ``scenarios[0].total_amount_krw`` 형태다. 번호 대신 ``scenarios[공격]``처럼 이름으로도
-    가리킬 수 있지만(봉투 ``canonical_claim``), **번호를 쓴다** — 라벨은 안 구성이 바뀌면
-    사라질 수 있고 번호는 배열이 있는 한 항상 유효하다.
-
-    ``None``인 값은 건너뛴다. ``expected_margin_rate``는 ``contract_price`` 미수령이면
-    ``null``로 나가는데(IO명세 §2 동기화 규칙), 그때 봉투는 근거를 **요구하지 않는다.**
-
-    ⚠️ **다만 봉투가 막아 주지는 않는다.** 처음엔 *"없는 값에 근거를 붙이면 고아 근거가
-    된다"*고 적었는데 **틀렸다** — ``canonical_claim``은 값이 ``None``이어도 **필드가
-    존재하면** 경로를 인정하므로, 여기서 ``0.0``을 지어내 붙여도 ``validate_reply``는
-    깨끗하다 (Codex 교차검증 P2, 강제 삽입으로 재현). 즉 **미결을 0으로 채우지 않는 것은
-    이 ``continue`` 한 줄이 유일한 방어**이고, 그래서 테스트로 따로 잠근다.
-    """
-    out: list[Evidence] = []
-    for index, scenario in enumerate(payload.get("scenarios") or []):
-        for field, origin in _SCENARIO_NUMERIC_SOURCES.items():
-            value = scenario.get(field)
-            if value is None:
-                continue
-            out.append(
-                Evidence(
-                    claim=f"scenarios[{index}].{field}",
-                    source="tool_calc",
-                    ref_ids=ref(f"SC{index}"),
-                    value=float(value),
-                    unit=_SCENARIO_UNITS[field],
-                    evidence_grade="SIM_FIXED",
-                    evidence_detail=f"{scenario.get('label')}안 — {origin}",
-                )
-            )
-    return out
-
-
-_SCENARIO_UNITS: dict[str, str] = {
-    "coverage_days": "days",
-    "total_qty_kg": "kg",
-    "total_amount_krw": "KRW",
-    "max_price": "KRW/kg",
-    "cut_unit_price": "KRW/kg",
-    "expected_margin_rate": "ratio",
-}
 
 
 def purchase_port(
@@ -1473,11 +555,10 @@ def _supply_capacity_query(
       마스터가 실어 줄 남의 값인데(`master/procurement_boundary.py`), 그쪽이
       *"라우팅이 열리는 날 같이 한다"* 로 미뤘다. 그동안은 못 읽었다고 답한다 —
       `0` 으로 채우지 않는다 (규칙 3).
-    """
-    # ``build_state`` 와 같은 자리에서 늦게 들여온다 — 모듈 최상단으로 올리면
-    # ``ports`` ↔ ``adapter`` 가 서로를 import 한다.
-    from app.purchase_agent import ports
 
+    ★ 시세를 읽고 경계를 잡는 것은 ``service/supply_capacity.py`` 다 (2026-09-29 BL-016).
+      여기서는 어느 품목을 묻는지 가리고, 결과를 회신으로 옮긴다.
+    """
     payload = request.payload
     items = payload.get("items")
     item = payload.get("item")
@@ -1499,15 +580,17 @@ def _supply_capacity_query(
         return reply, _metadata(request, None)
 
     constraints = load_constraints()
-    # ★ **지역 변수로 뺀다** — 같은 시세를 ``_observed_at`` 도 봐야 한다. 두 번 읽으면
-    #   그 사이에 적재가 들어와 **경계와 관측일이 다른 조회에서 나온다.**
-    market_quotes = ports.get_market_quotes(item, request.context.as_of, source=quotes)
-    capacity = compute_supply_capacity(
-        quotes=market_quotes,
+    # ★ **한 번 읽은 시세를 둘 다 쓴다** — 같은 시세를 ``_observed_at`` 도 봐야 한다. 두 번
+    #   읽으면 그 사이에 적재가 들어와 **경계와 관측일이 다른 조회에서 나온다.**
+    reading = read_supply_capacity(
+        item,
+        request.context.as_of,
+        constraints,
+        quotes=quotes,
         warehouse_free_kg=_read_optional_number(payload, "warehouse_free_kg"),
         finance_cap_amount_krw=_read_optional_number(payload, "finance_cap_amount_krw"),
-        constraints=constraints,
     )
+    market_quotes, capacity = reading.market_quotes, reading.capacity
 
     #  🔴 **묻는 이름과 답하는 이름이 다르다. 일부러 그렇다.**
     #
@@ -1543,8 +626,8 @@ def _supply_capacity_query(
         runtime_status="READY",
         business_status="ok",
         payload=body,
-        evidences=_supply_capacity_evidences(body, capacity),
-        reasoning=_supply_capacity_reasoning(item, capacity),
+        evidences=supply_capacity_evidences(body, capacity),
+        reasoning=supply_capacity_reasoning(item, capacity),
         # 🔴 **이 경로는 시세를 실제로 읽으므로 관측일을 싣는다** (`#393`).
         observed_at=_observed_at(
             market_quotes, item, request.context.as_of, constraints
@@ -1568,106 +651,14 @@ def _read_optional_number(payload: Mapping[str, Any], key: str) -> float | None:
     return value
 
 
-def _supply_capacity_reasoning(item: str, capacity: SupplyCapacity) -> str:
-    """⚠️ **수량·단가를 문장에 안 적는다.** 봉투가 설명문의 숫자를 막는다
-    (`E-REASONING-NUMERIC` — *"숫자가 필요하면 Evidence 를 추가한다"*). 값은
-    payload 와 Evidence 에 있고, 여기서는 **무엇이 상한을 정했는지**만 말한다.
-    """
-    if capacity.procurable_quantity_kg is None:
-        return f"{item} 은 지금 받은 것만으로는 댈 수 있는 양을 정할 수 없다."
-    what = {"warehouse": "창고 여유", "finance": "매입 가능액", "unknown": "알 수 없음"}
-    return f"{item} 은 {what[capacity.basis]}이 정하는 양까지 댈 수 있다."
-
-
-def _supply_capacity_evidences(
-    body: Mapping[str, Any], capacity: SupplyCapacity
-) -> tuple[Evidence, ...]:
-    """봉투가 근거를 요구하는 최상위 값에 하나씩 단다.
-
-    🔴 **`risks` 는 셀 수밖에 없다.** 봉투는 *비어 있지 않은 스칼라 배열*에 근거를
-      요구하는데(`envelope.required_claims`), `Evidence.value` 가 `float` 라 문장에
-      붙일 수 있는 것이 **개수뿐**이다. 그것은 근거가 아니라 세어 본 것이다.
-
-      ⚠️ 마스터가 물류 `soft_warnings` 를 **정확히 그 이유로** 규칙에서 뺐다 —
-      *"만족시킬 수 없는 검사는 기준이 아니라 결함이다."* `risks` 도 같은 성질이라
-      `ENVELOPE_META_KEYS` 에 넣어 달라고 청했다. 답이 오기 전까지는 개수를 단다.
-    """
-    out = [
-        Evidence(
-            claim="risks",
-            source="tool_calc",
-            ref_ids=("SUPPLY-CAP-RISKS",),
-            value=float(len(body["risks"])),
-            unit="건",
-            evidence_grade="MEASURED",
-        )
-    ]
-    if capacity.expected_unit_price_krw is not None:
-        out.append(
-            Evidence(
-                claim="expected_unit_price_krw",
-                source="tool_calc",
-                ref_ids=("AUCTION-QUOTE",),
-                value=float(capacity.expected_unit_price_krw),
-                unit="원/kg",
-                evidence_grade="MEASURED",
-                evidence_detail=f"그날 최고가 등급 「{capacity.unit_price_grade}」",
-            )
-        )
-    if capacity.procurable_quantity_kg is not None:
-        out.append(
-            Evidence(
-                claim="procurable_quantity_kg",
-                source="tool_calc",
-                ref_ids=("SUPPLY-CAP-MIN",),
-                value=float(capacity.procurable_quantity_kg),
-                unit="kg",
-                evidence_grade="MEASURED",
-                evidence_detail=f"{capacity.basis} 가 상한을 정했다",
-            )
-        )
-    if "requested_quantity_kg" in body:
-        out.append(
-            Evidence(
-                claim="requested_quantity_kg",
-                source="sales",
-                ref_ids=("SALES-SHORTFALL",),
-                value=float(body["requested_quantity_kg"]),
-                unit="kg",
-                evidence_grade="MEASURED",
-            )
-        )
-    return tuple(out)
-
-
-def _not_ready_reason(missing: list[str], item: Any) -> str:
-    """``RUNTIME_NOT_READY`` 의 **사람이 읽는 사유.** 이름 목록으로는 못 가르는 것을 가른다.
-
-    ``missing_data`` 는 어느 쪽이든 이름을 싣지만, 사유가 같으면 **마스터가 누구에게
-    무엇을 요청해야 하는지** 가 사라진다. 셋이 서로 다르다::
-
-        임계 미선언   우리가 값을 정해야 풀린다      다시 보내도 그대로다
-        쓰지 말라고 왔다  ML 이 표시한 것             예측을 다시 내야 풀린다
-        그 밖          마스터가 값을 안 보냈다        다시 보내면 풀린다
-
-    ★ **각각 "그것만이 사유일 때"만 말한다.** 임계도 없고 예측도 없으면 임계 문장만
-      내보내는 것이 거짓이 된다 — 그때는 일반 문장으로 내리고, 무엇이 없는지는
-      ``missing_data`` 가 전부 싣는다. 앞의 둘이 같은 모양(``len(...) == len(missing)``)인
-      것은 우연이 아니라 같은 규칙이다.
-    """
-    if item and missing == [threshold_missing_data_name(item)]:
-        return threshold_not_declared_reason(item)
-    unusable = [name for name in missing if name in UNUSABLE_FORECAST_NAMES]
-    if unusable and len(unusable) == len(missing):
-        return "예측을 만든 쪽이 오늘 값을 쓰지 말라고 표시해 시나리오를 만들지 않았다."
-    return "필수 입력이 없어 시나리오를 만들지 못했다."
-
-
 def _generate_scenarios(
     request: AgentRequest, *, quotes: QuoteSource | None = None
 ) -> tuple[AgentReply, ExecutionMetadata]:
     as_of = request.context.as_of
-    missing = validate_payload(request.payload, as_of)
+    # 부서 선언을 **요청마다 한 번** 읽어 수신 검사 · 근거 · 관측일에 같이 넘긴다 — domain 은
+    # 파일을 읽지 않는다 (2026-09-29 · BL-016 보완). 노드는 각자 읽는다(``service/nodes``).
+    constraints = load_constraints()
+    missing = validate_payload(request.payload, as_of, constraints)
     if missing:
         # 제약이 하나라도 빠진 시나리오는 만들지 않는다 (M-1 §11-6 · 제출 §4).
         # 재시도해도 같은 결과이므로 ERROR가 아니라 RUNTIME_NOT_READY다.
@@ -1686,7 +677,7 @@ def _generate_scenarios(
         #   없는지는 ``missing_data``가, 왜인지는 ``reasoning``이 말한다 — 봉투는
         #   ``RUNTIME_NOT_READY``에 ``missing_data``가 비지 않을 것만 요구한다.
         #
-        # 🔴 **사유를 무엇으로 쓸지는 ``_not_ready_reason`` 이 정한다** (#213 · #67).
+        # 🔴 **사유를 무엇으로 쓸지는 ``not_ready_reason`` 이 정한다** (#213 · #67).
         #   ``missing_data`` 이름은 어느 쪽이든 실리지만, 사람이 읽는 사유가 같으면
         #   *"ML 이 이 예측을 쓰지 말라고 했다"* 가 *"마스터가 값을 안 보냈다"* 로
         #   읽힌다 — 마스터가 사용자에게 요청할 대상이 서로 다르다.
@@ -1695,14 +686,13 @@ def _generate_scenarios(
             request,
             runtime_status="RUNTIME_NOT_READY",
             business_status="skipped",
-            reasoning=_not_ready_reason(missing, request.payload.get("item")),
+            reasoning=not_ready_reason(missing, request.payload.get("item")),
             missing_data=tuple(missing),
         )
         return reply, _metadata(request, None)
 
     recorder = ToolRecorder()
-    state = build_state(request, quotes=quotes)
-    final = build_graph(recorder=recorder).invoke(state)
+    final = generate_scenarios(request, quotes=quotes, recorder=recorder)
     proposal = final["proposal"]
 
     payload = build_payload(final, proposal)
@@ -1712,14 +702,12 @@ def _generate_scenarios(
         # 안이 없는 것은 **사실**이지 오류가 아니다. E5 판정은 마스터가 한다.
         business_status="ok" if payload.get("scenarios") else "skipped",
         payload=payload,
-        evidences=build_evidences(final, payload),
+        evidences=build_evidences(final, payload, constraints),
         reasoning=build_reasoning(payload),
         judgment_fields=JUDGMENT_FIELDS,
         # 🔴 **그래프가 본 시세를 그대로 본다** (`#393`). ``final`` 에서 꺼내야
         #   ③·⑤가 판정에 쓴 것과 같은 조회다 — 여기서 다시 읽으면 그 사이 적재가
         #   들어와 노드가 안 본 관측일이 계보에 실릴 수 있다.
-        observed_at=_observed_at(
-            final["market_quotes"], final["item"], as_of, load_constraints()
-        ),
+        observed_at=_observed_at(final["market_quotes"], final["item"], as_of, constraints),
     )
     return reply, _metadata(request, recorder, state=final)

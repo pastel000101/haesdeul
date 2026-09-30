@@ -56,12 +56,16 @@ import pytest
 
 import app.master
 from app.contracts.core import ContractViolation, SuggestedAdjustment
-from app.master.answer import _scope
-from app.master.envelope import wire_adjustment
+from app.contracts.envelope import wire_adjustment
+from app.master.domain.answer import _scope
 
 _BACKEND = Path(app.master.__file__).parent.parent.parent
-_LOGISTICS = _BACKEND / "app" / "logistics" / "adapter.py"
-_FINANCE = _BACKEND / "app" / "finance" / "execution.py"
+#: 2026-09-30 재구성 BL-015: 물류 조정 제안을 세우는 자리는 `logistics/adapter.py` 에서
+#: `logistics/service/scenario_validation.py` 로 옮겼다(몸통 그대로).
+_LOGISTICS = _BACKEND / "app" / "logistics" / "service" / "scenario_validation.py"
+#: 2026-09-29 재구성 BL-014: 재무 조정 제안을 세우는 자리는 `finance/execution.py` 에서
+#: `finance/domain/evidence.py` 로 옮겼다(몸통 그대로).
+_FINANCE = _BACKEND / "app" / "finance" / "domain" / "evidence.py"
 
 
 def _kwargs_of_construction(path: Path) -> tuple[str, ...]:

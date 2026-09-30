@@ -31,19 +31,20 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from app.logistics import inspections, receipts
-from app.logistics.arrival import DueInbound
-from app.logistics.db import get_connection
-from app.logistics.inspections import (
+from app.core import db as core_db
+from app.logistics.domain.arrival import DueInbound
+from app.logistics.repository import inspections as inspections_repository
+from app.logistics.repository import receipts as receipts_repository
+from app.logistics.schemas.inspections import (
     InspectionConflict,
     InspectionIntegrityError,
     InspectionOutcome,
     InvalidInspectionOutcome,
-    record_inspection,
 )
-from app.logistics.purchase_detail import PurchaseDetail
-from app.logistics.receipts import check_receipt_state, create_arrived_receipt
-from app.logistics.schemas import InTransitItem
+from app.logistics.schemas.purchase_detail import PurchaseDetail
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.service.inspections import record_inspection
+from app.logistics.service.receipts import check_receipt_state, create_arrived_receipt
 
 pytestmark = pytest.mark.db
 
@@ -87,28 +88,30 @@ def _repo_block(table: str) -> str:
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     """임시 스키마에 입고 표를 세우고, 끝나면 **되돌린다**."""
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s)", (PURCHASE_ITEM_ID,))
-        monkeypatch.setattr(receipts, "get_db_schema", lambda: TMP_SCHEMA)
-        monkeypatch.setattr(inspections, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
-        connection.rollback()
-        connection.close()
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s)", (PURCHASE_ITEM_ID,)
+                )
+            # ★ 2026-09-30 재구성 BL-015: Receipt · 검수 SQL 은 repository 두 파일에 있다.
+            monkeypatch.setattr(receipts_repository, "get_db_schema", lambda: TMP_SCHEMA)
+            monkeypatch.setattr(inspections_repository, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
+            connection.rollback()
 
 
 def _due(*, eta: date = ETA, inbound_id: str = INBOUND_ID) -> DueInbound:

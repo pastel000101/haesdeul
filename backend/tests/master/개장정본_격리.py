@@ -30,15 +30,19 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 
-from app.master import day_gate as _개장_관문_저장소
-from app.master import day_opening_repository as _개장_정본_저장소
+from app.master.readmodel import day_openings as _개장_정본_조회
+from app.master.service import day_gate as _개장_관문_저장소
+from app.master.service import day_open as _개장_정본_적재
 
 #: 개장 정본 저장소에서 **실 DB 를 치는 함수들.** 이름을 가져간 자리를 전부 막아야 한다.
 개장_정본_실_DB_함수 = ("read_day_opening", "record_day_opening")
 
 #: 막기 전에 잡아 둔 **진짜 함수.** 이 모듈은 fixture 보다 먼저 import 되므로 여기
 #: 담기는 것은 언제나 원본이다. `test_db_isolation.py` 가 이것과 비교해 격리를 잰다.
-진짜_개장_정본_함수 = {이름: getattr(_개장_정본_저장소, 이름) for 이름 in 개장_정본_실_DB_함수}
+#: ★ 2026-09-30 재구성 BL-018: 두 함수의 자리가 갈렸다 — 조회는 `readmodel/day_openings.py`,
+#:   적재는 `service/day_open.py`(옛 `day_opening_repository` 한 모듈). 막는 이름과 방법은 그대로다.
+_개장_정본_자리 = {"read_day_opening": _개장_정본_조회, "record_day_opening": _개장_정본_적재}
+진짜_개장_정본_함수 = {이름: getattr(_개장_정본_자리[이름], 이름) for 이름 in 개장_정본_실_DB_함수}
 
 
 def 개장_정본_이름을_가져간_모듈들(이름: str) -> list[ModuleType]:

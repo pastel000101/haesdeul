@@ -27,18 +27,19 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import SuggestedAdjustment
-from app.master import (
-    AgentRegistry,
+from app.contracts.envelope import (
+    CAPABILITY_ROUTING,
     AgentReply,
     AgentRequest,
-    CallBudget,
     ExecutionContext,
     ExecutionMetadata,
-    MasterRunner,
+    agent_allowed_modes,
 )
-from app.master.envelope import CAPABILITY_ROUTING, agent_allowed_modes
-from app.master.procurement_boundary import ProcurementBoundary
-from app.master.sales_flow import (
+from app.master.registry.ports import AgentRegistry
+from app.master.schemas.procurement_boundary import ProcurementBoundary
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import (
     BOUNDARY_FIELDS,
     MAX_FEEDBACK_ATTEMPTS,
     SALES_BUDGET,

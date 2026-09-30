@@ -33,7 +33,7 @@ from __future__ import annotations
 from datetime import date
 
 from app.contracts.core import Evidence
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     canonical_claim,
     check_evidence_coverage,

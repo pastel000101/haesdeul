@@ -231,10 +231,10 @@ reply = self.runner.call(agent, "STATUS_QUERY", payload={"question": utterance})
 
 **읽는 표** (전부 원본 창고 · `SELECT` 만): `batch_run` · `batch_run_stage` ·
 `agent_report` · `prediction_log` · `model_cutover`. 성능 아홉 칸은 표가 아니라
-**상수**입니다 (`qa_tools.SEALED_ACCURACY`) — `prediction_log` 로 다시 재지
+**상수**입니다 (`config.SEALED_ACCURACY`) — `prediction_log` 로 다시 재지
 않습니다 (실험용 모델이 섞여 있습니다).
 
-★ **«현재 모델» 의 출처는 둘입니다** (`qa_tools.current_models()`). 이름·만든 날은
+★ **«현재 모델» 의 출처는 둘입니다** (`readmodel/qa_reads.current_models()`). 이름·만든 날은
 `prediction_log` 의 **최신 기준일 행**(`model_ver` · `model_created_at`), 학습 끝·최근
 교체는 `model_cutover` 의 `kind` 별 최신 행(`new_train_end` · `swapped_at` · `note`)
 입니다. **`model_cutover` 가 아직 없어도 죽지 않습니다** — 그때 «최근 교체» 칸에

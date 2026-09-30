@@ -1,6 +1,7 @@
 """판매 후보 입력이 공용 품목 정본을 사용하는지 검증한다."""
 
-from app.sales.console_items import get_console_items
+from app.sales.readmodel.console_items import get_console_items
+from tests.sales.sales_fake_connection import lend
 
 
 def test_console_items_reads_only_active_master_items_in_stored_order(monkeypatch):
@@ -24,8 +25,8 @@ def test_console_items_reads_only_active_master_items_in_stored_order(monkeypatc
             },
         ]
 
-    monkeypatch.setattr("app.sales.console_items.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.sales.console_items.fetch_all", fetch_all)
+    monkeypatch.setattr("app.sales.repository.console_items.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, fetch_all)
 
     response = get_console_items()
 

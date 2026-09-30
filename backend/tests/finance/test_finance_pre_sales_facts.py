@@ -19,16 +19,18 @@ from typing import ClassVar
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, agent_allowed_modes
 from app.finance import adapter
-from app.finance.capabilities.pre_sales import (
+from app.finance.domain.pre_sales import (
     build_obligation_facts,
     build_partner_credit_facts,
     partner_credit_limit_ref,
 )
-from app.finance.db import FinanceDataNotReady
-from app.finance.schemas import CashEvent
-from app.finance.tools import summarize_partner_receivables
-from app.master.envelope import AgentRequest, ExecutionContext, agent_allowed_modes
+from app.finance.domain.tools import summarize_partner_receivables
+from app.finance.schemas.agent import CashEvent
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service import agent_replies, pre_sales_facts
+from tests.finance.finance_runtime_wiring import wire_context
 
 AS_OF = date(2026, 9, 16)
 
@@ -179,7 +181,7 @@ def test_판정_mode_와_나뉘어_있다():
 
 def test_사실_조회는_실행이력을_쓰지_않는다():
     """🔴 `_CONTROLLER_MODES` 에 없다 — `STATUS_QUERY` 와 같은 자리다."""
-    assert "PRE_SALES_FACTS" not in adapter._CONTROLLER_MODES
+    assert "PRE_SALES_FACTS" not in agent_replies._CONTROLLER_MODES
 
 
 # ---------------------------------------------------------------------------
@@ -245,14 +247,14 @@ def _facts_request(partner_id: str | None = "CUST-1") -> AgentRequest:
 @pytest.fixture
 def wired(monkeypatch):
     """DB 를 안 탄다. 거래처 조회만 막아 그 축을 따로 본다."""
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
     monkeypatch.setattr(
-        adapter,
+        pre_sales_facts,
         "load_partner_receivables",
         lambda **_kwargs: [],  # 빈 목록은 «채권 0원» 이라는 사실이다
     )
     monkeypatch.setattr(
-        adapter, "load_partner_credit_limit", lambda **_kwargs: Decimal(10_000_000)
+        pre_sales_facts, "load_partner_credit_limit", lambda **_kwargs: Decimal(10_000_000)
     )
 
 
@@ -280,7 +282,7 @@ def test_어댑터가_내는_사실_전부(wired):
 
 def test_모든_최상위_숫자에_근거가_붙는다(wired):
     """봉투 규칙 — 최상위 숫자는 근거 없이 나갈 수 없다."""
-    from app.master.envelope import check_evidence_coverage
+    from app.contracts.envelope import check_evidence_coverage
 
     reply, _meta = adapter.finance_port(_facts_request())
 
@@ -299,7 +301,7 @@ def test_거래처를_안_밝히면_여신_칸이_통째로_없다(wired):
 def test_거래처_조회가_실패하면_0_으로_메우지_않는다(monkeypatch, wired):
     """🔴 «못 읽었다» 와 «0원이다» 가 같은 값이 되면 안 된다."""
     monkeypatch.setattr(
-        adapter,
+        pre_sales_facts,
         "load_partner_receivables",
         lambda **_kwargs: (_ for _ in ()).throw(FinanceDataNotReady("partner_receivables")),
     )
@@ -338,7 +340,12 @@ def test_사실_조회는_어떤_write_도_하지_않는다(wired, monkeypatch):
     """★ 장부도 실행 이력도 건드리지 않는다."""
     쓴것: list = []
     monkeypatch.setattr(
-        "app.finance.execution.save_finance_execution",
+        "app.finance.service.run_history.save_finance_execution",
+        lambda **kwargs: 쓴것.append(kwargs),
+    )
+    #  2026-09-29 재구성 BL-014: 어댑터가 직접 답하는 경로의 이력 저장 자리(`recorded_reply`).
+    monkeypatch.setattr(
+        "app.finance.service.agent_replies.save_finance_execution",
         lambda **kwargs: 쓴것.append(kwargs),
     )
 

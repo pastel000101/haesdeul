@@ -12,16 +12,18 @@
    깨끗한 거래처가 되고, 아무도 그 사실을 눈치채지 못한다.
 """
 
+from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
 
-from app.finance import db
-from app.finance.db import FinanceDataNotReady, load_partner_receivables
-from app.finance.sales_validation import PartnerReceivable
-from app.finance.tools import summarize_partner_receivables
+from app.finance.domain.tools import summarize_partner_receivables
+from app.finance.readmodel.partner_credit import load_partner_receivables
+from app.finance.repository import partner_credit as partner_credit_repository
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.sales_validation import PartnerReceivable
 
 AS_OF = date(2025, 12, 31)
 
@@ -39,16 +41,19 @@ def _load(rows, *, sim_run_id="SIM-1", partner_id="P-1", as_of=AS_OF):
     """실 조회 자리에 행을 놓고 loader 를 그대로 돌린다."""
     captured: dict[str, object] = {}
 
-    def _fetch(query, params):
+    def _fetch(_conn, query, params):
         captured["query"] = query.as_string(None)
         captured["params"] = params
         if isinstance(rows, Exception):
             raise rows
         return rows
 
+    #  2026-09-29 재구성 BL-014: loader 가 조회 연결을 빌리고, SQL 은 repository 가
+    #  그 연결로 실행한다. 조회 실패는 여전히 loader 의 `try` 안에서 난다.
     with (
-        patch.object(db, "fetch_all", _fetch),
-        patch.object(db, "get_db_schema", return_value="haetdeul"),
+        patch("app.core.db.read_connection", return_value=nullcontext(None)),
+        patch.object(partner_credit_repository, "fetch_all", _fetch),
+        patch.object(partner_credit_repository, "get_db_schema", return_value="haetdeul"),
     ):
         loaded = load_partner_receivables(
             sim_run_id=sim_run_id, as_of=as_of, partner_id=partner_id

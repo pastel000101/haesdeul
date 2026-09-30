@@ -16,7 +16,7 @@ import copy
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.supply_capacity import (
+from app.purchase_agent.domain.supply_capacity import (
     SupplyCapacity,
     compute_supply_capacity,
     pick_unit_price,

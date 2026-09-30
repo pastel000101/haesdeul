@@ -16,25 +16,24 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance import console_credit
-from app.finance.capabilities.sales import (
-    _summary_payload,
-    evaluate_receivable_capacity,
-)
-from app.finance.collection import build_collection_transition
-from app.finance.rules import evaluate_sales_payment_term_rule
-from app.finance.sales_policy import load_finance_sales_mvp_policy
-from app.finance.sales_validation import (
-    OpenReceivableDue,
-    PartnerReceivable,
-    SalesFinancialSummary,
-)
-from app.finance.tools import (
+from app.finance.domain.collections import build_collection_transition
+from app.finance.domain.rules import evaluate_sales_payment_term_rule
+from app.finance.domain.sales_policy import load_finance_sales_mvp_policy
+from app.finance.domain.sales_validation import _summary_payload, evaluate_receivable_capacity
+from app.finance.domain.tools import (
     calculate_available_credit,
     calculate_credit_utilization_rate,
     estimate_credit_recovery_date,
     summarize_partner_receivables,
 )
+from app.finance.readmodel import console_credit
+from app.finance.repository import console_credit as console_credit_repository
+from app.finance.schemas.sales_validation import (
+    OpenReceivableDue,
+    PartnerReceivable,
+    SalesFinancialSummary,
+)
+from tests.finance.finance_fake_connection import lend
 
 AS_OF = date(2026, 1, 8)
 LIMIT = Decimal(10_000_000)
@@ -289,10 +288,12 @@ def test_a_recorded_collection_restores_available_credit():
 
 
 def _console(monkeypatch, *, limit, receivables, days=7):
+    #  2026-09-29 재구성 BL-014: 화면 조회는 조회 연결을 한 번 빌려 세 조회에 넘긴다.
+    conn = lend(monkeypatch)
     monkeypatch.setattr(
         console_credit,
         "load_credit_partner_rows",
-        lambda **_: [
+        lambda _conn, **_: [
             {
                 "partner_id": "KIMCHI_FACTORY_001",
                 "partner_name": "김치제조공장",
@@ -301,9 +302,13 @@ def _console(monkeypatch, *, limit, receivables, days=7):
             }
         ],
     )
-    monkeypatch.setattr(console_credit, "load_partner_receivables_as_of", lambda **_: receivables)
-    monkeypatch.setattr(console_credit, "load_partner_credit_limit", lambda **_: limit)
-    return console_credit.get_console_credit(sim_run_id="SIM-T", as_of=AS_OF)
+    monkeypatch.setattr(
+        console_credit, "load_partner_receivables_as_of", lambda _conn, **_: receivables
+    )
+    monkeypatch.setattr(console_credit, "partner_credit_limit_on", lambda _conn, **_: limit)
+    response = console_credit.get_console_credit(sim_run_id="SIM-T", as_of=AS_OF)
+    assert conn.borrows == ["read"]
+    return response
 
 
 def test_console_credit_answers_how_much_more_can_be_sold(monkeypatch):
@@ -356,7 +361,7 @@ def test_console_credit_reads_receivables_as_of_the_day(monkeypatch):
     """🔴 기준일 뒤의 수금이 과거 화면에 섞이지 않는다 — 복원 JOIN 과 날짜 인자를 함께 쓴다."""
     captured: dict[str, object] = {}
 
-    def fake_fetch_all(query, params):
+    def fake_fetch_all(_conn, query, params):
         captured["sql"] = query.as_string(None) if hasattr(query, "as_string") else str(query)
         captured["params"] = params
         return [
@@ -369,10 +374,10 @@ def test_console_credit_reads_receivables_as_of_the_day(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(console_credit, "fetch_all", fake_fetch_all)
-    monkeypatch.setattr(console_credit, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(console_credit_repository, "fetch_all", fake_fetch_all)
+    monkeypatch.setattr(console_credit_repository, "get_db_schema", lambda: "haetdeul")
     rows = console_credit.load_partner_receivables_as_of(
-        sim_run_id="SIM-T", as_of=AS_OF, partner_id="KIMCHI_FACTORY_001"
+        None, sim_run_id="SIM-T", as_of=AS_OF, partner_id="KIMCHI_FACTORY_001"
     )
 
     assert "master_collection_events" in captured["sql"]

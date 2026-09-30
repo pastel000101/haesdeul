@@ -23,9 +23,9 @@ import pytest
 
 from app.purchase_agent import ports
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes.draft_plan import FreeStock, free_stock_for, usable_holdings_kg
-from app.purchase_agent.schemas import PurchaseProposal
+from app.purchase_agent.domain.draft_plan import FreeStock, free_stock_for, usable_holdings_kg
+from app.purchase_agent.schemas.proposal import PurchaseProposal
+from app.purchase_agent.service.graph import run_purchase_agent
 
 ITEM = "배추"
 #: mock_rising 앵커. 3안이 다 서는 날이라 차감이 안별로 어떻게 갈리는지 보인다.
@@ -38,8 +38,8 @@ def _daily_demand() -> float:
       적어 두면 mock 주문이 바뀌는 날 이 파일만 조용히 틀린다 — 차감의 분모가 일평균이라
       그 오차가 전 단언에 실린다.
     """
-    from app.purchase_agent.nodes.classify_situation import estimate_daily_demand
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.domain.classify_situation import estimate_daily_demand
+    from app.purchase_agent.service.graph import build_initial_state
 
     state = build_initial_state(ITEM, AS_OF)
     return estimate_daily_demand(state["confirmed_orders"], load_constraints())
@@ -280,9 +280,9 @@ def test_holdings_never_appear_as_a_hard_cap(monkeypatch: pytest.MonkeyPatch) ->
     ③의 ``clipped_by`` 를 **직접** 본다. 문장으로만 보면 *"보유"* 라는 낱말이 다른 고지에도
     쓰이므로(리드타임 고지가 그렇다) 새는 자리를 못 짚는다.
     """
-    from app.purchase_agent.nodes.classify_situation import classify_situation
-    from app.purchase_agent.nodes.draft_plan import draft_plan
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.nodes.classify_situation import classify_situation
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
 
     _with_lots(monkeypatch, [_lot(500, 30)])
     state = build_initial_state(ITEM, AS_OF)
@@ -754,3 +754,53 @@ def test_the_disclosure_says_nothing_about_internals(monkeypatch: pytest.MonkeyP
         "lots[",
     ):
         assert internal not in disclosure, internal
+
+
+# ── ⑧ 보유를 끄는 도구가 두 경로에 다 닿는다 (2026-09-29 재구성 BL-016) ───────────────
+
+
+def test_the_holdings_switch_reaches_both_state_builders(monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 ``drop_holdings``(``no_holdings``)가 **포트 경로와 봉투 경로 둘 다**에서 보유를 뗀다.
+
+    같은 폴더의 검사 21개가 이 도구로 보유 축을 끈다. 도구가 한 경로에서 빗나가면 그 검사들은
+    보유가 실린 채로 돌면서도 초록으로 지나간다 — 갈아 끼우는 자리가 **이름을 찾는 모듈**
+    (``_injection._HOLDINGS_SOURCES``)이라, 봉투를 State 로 펴는 함수가 옮겨 가면(2026-09-29 에
+    어댑터 → ``service/scenarios.py``) 그 자리도 같이 옮겨야 한다. 그 짝을 여기서 잰다.
+    """
+    from _injection import drop_holdings
+
+    from app.contracts.envelope import AgentRequest, ExecutionContext
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.scenarios import build_state
+
+    inventory = ports.get_inventory(ITEM, AS_OF)  # 끄기 **전**에 봉투에 실을 재고를 받아 둔다
+    assert any(lot["available_qty_kg"] > 0 for lot in inventory["lots"]), "전제 — 보유가 있다"
+    extras = ports.get_snapshot_extras(ITEM, AS_OF)
+    request = AgentRequest(
+        context=ExecutionContext("R-HOLD-SWITCH", AS_OF, "ML_COMPLETE", "v2.3"),
+        agent="purchase",
+        mode="GENERATE_SCENARIOS",
+        payload={
+            "item": ITEM,
+            "constraints": {
+                "finance": {"base_projected_cash_min": ports.get_projected_cash_min(AS_OF, 30)},
+                "inventory": inventory,
+            },
+            "forecast": ports.get_forecast(ITEM, AS_OF),
+            "confirmed_orders": ports.get_confirmed_orders(ITEM, AS_OF, days=14),
+            "policy_values": {
+                "contract_price_krw": extras["contract_price"],
+                "item_mix_ratio": extras["item_mix_ratio"],
+            },
+        },
+    )
+
+    drop_holdings(monkeypatch)
+
+    for path, state in (
+        ("포트(단독 실행)", build_initial_state(ITEM, AS_OF)),
+        ("봉투(어댑터)", build_state(request)),
+    ):
+        lots = state["inventory"]["lots"]
+        assert lots, f"{path}: 로트를 지우면 안 된다 — 보유만 0 으로 내린다"
+        assert all(lot["available_qty_kg"] == 0 for lot in lots), f"{path}: 보유가 남았다"

@@ -23,7 +23,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.contracts.core import ITEMS
-from app.master.schemas import ProcurementRunRequest
+from app.master.schemas.procurement import ProcurementRunRequest
 
 
 def _request(**kw):
@@ -68,7 +68,7 @@ def test_품목을_안_주는_것은_막지_않는다():
 
 def test_ML_과_같은_목록을_쓴다():
     """★ 두 문이 다른 목록을 보면 한쪽만 고쳐지는 날이 온다."""
-    from app.ml.schemas import ITEMS as ML_ITEMS
+    from app.ml.schemas.forecast import ITEMS as ML_ITEMS
 
     assert set(ITEMS) <= set(ML_ITEMS)
 

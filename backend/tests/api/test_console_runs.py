@@ -6,7 +6,8 @@
 
 from datetime import UTC, date, datetime
 
-from app.api.console.runs import get_console_runs
+from app.master.readmodel.console_runs import get_console_runs
+from tests.fake_core_db import patch_sql_helpers
 
 _NOW = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
 
@@ -40,8 +41,8 @@ class _Capture:
 
 def test_runs_are_listed_with_their_stored_facts(monkeypatch):
     capture = _Capture([_row("SIM-CONSOLE-A"), _row("SIM-CONSOLE-B")])
-    monkeypatch.setattr("app.api.console.runs.fetch_all", capture)
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.console_runs", fetch_all=capture)
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     rows = get_console_runs().rows
 
@@ -54,8 +55,8 @@ def test_runs_are_listed_with_their_stored_facts(monkeypatch):
 def test_the_order_is_deterministic_and_keeps_idle_runs(monkeypatch):
     """🔴 활동이 없는 실행도 목록에 남는다 — 아직 안 걸은 실행을 고를 수 있어야 한다."""
     capture = _Capture([_row("SIM-CONSOLE-A"), _row("SIM-CONSOLE-B", activity=None)])
-    monkeypatch.setattr("app.api.console.runs.fetch_all", capture)
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.console_runs", fetch_all=capture)
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     rows = get_console_runs().rows
     statement, params = capture.queries[0]
@@ -70,8 +71,8 @@ def test_the_order_is_deterministic_and_keeps_idle_runs(monkeypatch):
 def test_no_run_is_listed_twice(monkeypatch):
     """LATERAL 집계라 실행 하나가 여러 줄로 불어나지 않는다."""
     capture = _Capture([_row("SIM-CONSOLE-A")])
-    monkeypatch.setattr("app.api.console.runs.fetch_all", capture)
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.console_runs", fetch_all=capture)
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     rows = get_console_runs().rows
     identifiers = [row.sim_run_id for row in rows]
@@ -82,16 +83,16 @@ def test_no_run_is_listed_twice(monkeypatch):
 
 
 def test_an_empty_database_is_an_empty_list_not_an_error(monkeypatch):
-    monkeypatch.setattr("app.api.console.runs.fetch_all", _Capture([]))
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.console_runs", fetch_all=_Capture([]))
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     assert get_console_runs().rows == []
 
 
 def test_the_limit_reaches_sql(monkeypatch):
     capture = _Capture([])
-    monkeypatch.setattr("app.api.console.runs.fetch_all", capture)
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.console_runs", fetch_all=capture)
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     get_console_runs(limit=7)
 
@@ -100,8 +101,12 @@ def test_the_limit_reaches_sql(monkeypatch):
 
 def test_the_list_never_invents_a_policy_version(monkeypatch):
     """🔴 `sim_runs` 에 정책 버전 칸이 없다. 칸 자체를 두지 않는다 — `null` 도 아니다."""
-    monkeypatch.setattr("app.api.console.runs.fetch_all", _Capture([_row("SIM-CONSOLE-A")]))
-    monkeypatch.setattr("app.api.console.runs.get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(
+        monkeypatch,
+        "app.master.readmodel.console_runs",
+        fetch_all=_Capture([_row("SIM-CONSOLE-A")]),
+    )
+    monkeypatch.setattr("app.master.readmodel.console_runs.get_db_schema", lambda: "haetdeul")
 
     row = get_console_runs().rows[0]
 

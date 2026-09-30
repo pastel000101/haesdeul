@@ -32,11 +32,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.api.dashboard import query as dashboard_query
+from app.api.dashboard import presenter as dashboard_presenter
 from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
 from app.contracts.core import ITEMS
-from app.master.purchase_record_repository import RecordedTotals
+from app.master.readmodel.purchase_record import RecordedTotals
 
 AS_OF = date(2026, 4, 13)
 
@@ -86,39 +86,41 @@ def screen(monkeypatch):
     }
 
     monkeypatch.setattr(
-        dashboard_query.forecast_q, "build",
+        dashboard_presenter.forecast_presenter, "build",
         lambda as_of, item: SimpleNamespace(
             cards=[_card(i) for i in (CABBAGE, RADISH, ONION)], source=_source("ML")),
     )
     monkeypatch.setattr(
-        dashboard_query.purchase_q, "build",
+        dashboard_presenter.purchase_presenter, "build",
         #  ⚠️ `**_` 다. 대시보드가 `window_days=0` 도 넘긴다 (2026-09-16).
         lambda as_of, sim_run_id=None, **_: SimpleNamespace(
             plans=state["plans"], source=_source("매입")),
     )
     monkeypatch.setattr(
-        dashboard_query.finance_q, "build",
+        dashboard_presenter.finance_presenter, "build",
         lambda as_of, s: SimpleNamespace(
             stats=[Stat(label="운영 여유", value="1", raw=1)],
             states=[SimpleNamespace(key="base", label="대출 제외")],
             selected="base", source=_source("재무")),
     )
     monkeypatch.setattr(
-        dashboard_query.logistics_q, "build",
+        dashboard_presenter.logistics_presenter, "build",
         lambda as_of, pane: SimpleNamespace(
             panes=[SimpleNamespace(key="stock", stats=[Stat(label="재고", value="1", raw=1)])],
             source=_source("물류")),
     )
     monkeypatch.setattr(
-        dashboard_query.sales_q, "build",
+        dashboard_presenter.sales_presenter, "build",
         lambda as_of: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
                                       source=_source("판매")),
     )
-    monkeypatch.setattr(dashboard_query.finance_q, "dashboard_cash", lambda axis: _chart())
-    monkeypatch.setattr(dashboard_query.logistics_q, "dashboard_stock",
+    monkeypatch.setattr(
+        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis: _chart()
+    )
+    monkeypatch.setattr(dashboard_presenter.logistics_presenter, "dashboard_stock",
                         lambda n, at, as_of: _chart())
     #  🔴 실매입 기록도 대역이다 — 표가 아니라 **읽어 온 값을 어떻게 쓰는가**를 잰다.
-    monkeypatch.setattr(dashboard_query, "recorded_totals_by_plan",
+    monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan",
                         lambda **_: state["records"])
     return state
 
@@ -131,7 +133,7 @@ def _row(screen, item: str, label: str = "기본", *, approved: bool, recorded: 
         if recorded
         else {}
     )
-    return dashboard_query.build(AS_OF).purchase.rows[0]
+    return dashboard_presenter.build(AS_OF).purchase.rows[0]
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -193,7 +195,7 @@ def test_단가가_정수로_안_떨어지면_지어내지_않는다(screen):
         (CABBAGE, "기본"): RecordedTotals(qty_kg=300.0, amount_krw=271_000, unit_price=None)
     }
 
-    row = dashboard_query.build(AS_OF).purchase.rows[0]
+    row = dashboard_presenter.build(AS_OF).purchase.rows[0]
 
     assert row["unit_qty"].startswith("—"), row["unit_qty"]
     assert row["amount"] == "271,000", "금액은 사람이 실제로 낸 돈 그대로다"
@@ -218,7 +220,7 @@ def test_다른_안의_기록을_이_안에_붙이지_않는다(screen):
                                           unit_price=기록_단가)
     }
 
-    row = dashboard_query.build(AS_OF).purchase.rows[0]
+    row = dashboard_presenter.build(AS_OF).purchase.rows[0]
 
     assert row["state"] == "승인됨"
     assert row["amount"] == f"{제안_금액:,}"
@@ -240,12 +242,12 @@ def test_화면에_상태_코드를_쓰지_않는다(screen):
                                           unit_price=기록_단가)
     }
 
-    states = [r["state"] for r in dashboard_query.build(AS_OF).purchase.rows]
+    states = [r["state"] for r in dashboard_presenter.build(AS_OF).purchase.rows]
 
     assert states == ["후보", "승인됨", "매입 기록됨"]
-    assert set(states) <= set(dashboard_query.PLAN_STATES)
+    assert set(states) <= set(dashboard_presenter.PLAN_STATES)
 
 
 def test_상태_어휘는_네_낱말이다():
     """낱말을 늘리면 같은 사실을 화면마다 다른 이름으로 부르게 된다."""
-    assert dashboard_query.PLAN_STATES == ("후보", "승인됨", "매입 기록됨", "반려")
+    assert dashboard_presenter.PLAN_STATES == ("후보", "승인됨", "매입 기록됨", "반려")

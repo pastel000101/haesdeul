@@ -5,7 +5,7 @@
 🔴 **매입이 채우는데 마스터가 안 읽고 있었다.**
 
 ```text
-app/purchase_agent/nodes/self_check.py:722
+app/purchase_agent/service/nodes/self_check.py  (_assemble)
     "received_adjustments": len(state.get("adjustments") or [])
 ```
 
@@ -28,15 +28,11 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import SuggestedAdjustment
-from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 SCN = [{"scenario_id": "SCN-1", "total_amount_krw": 30_000_000}]

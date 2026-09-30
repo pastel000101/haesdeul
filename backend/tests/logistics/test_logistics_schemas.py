@@ -4,14 +4,13 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.logistics.schemas import (
-    InTransitItem,
+from app.logistics.schemas.agent import (
     LogisticsProcurementResponse,
     LogisticsSalesRequest,
     PurchaseAgentOutput,
     ScenarioAdjustment,
-    ScheduledQuantity,
 )
+from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
 
 
 def _procurement_response(**overrides) -> LogisticsProcurementResponse:

@@ -20,7 +20,7 @@ from fixtures_cycle_b import (
     make_sales_facts,
 )
 
-from app.master.band import clip_all, combine_band, detect_deadlock
+from app.master.domain.band import clip_all, combine_band, detect_deadlock
 
 BAR = "=" * 78
 

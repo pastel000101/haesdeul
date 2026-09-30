@@ -19,7 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import LLMStatus
 
 # 클리핑 강도를 숫자 대신 3구간 라벨로 준다 — Context 에서 숫자를 지우기 위한 것이다.
 ClipMagnitude = Literal["FULL", "MINOR_CLIP", "MAJOR_CLIP"]

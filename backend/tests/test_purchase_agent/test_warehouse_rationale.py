@@ -16,7 +16,7 @@
   나온 문장의 숫자를 직접 단언한다 — 식을 바꾸면 여기가 운다.
 """
 
-from app.purchase_agent.nodes.package_scenarios import _warehouse_rationale
+from app.purchase_agent.domain.package_scenarios import _warehouse_rationale
 
 AS_OF = "2026-01-06"
 
@@ -121,10 +121,10 @@ def test_the_sentence_does_not_claim_a_cause_without_commitments() -> None:
 
 
 def test_the_item_actually_reaches_the_rationale_list() -> None:
-    """🔴 **`_rationale` 을 통과하는지 잰다** (규칙 8).
+    """🔴 **`rationale` 을 통과하는지 잰다** (규칙 8).
 
     앞의 검사들은 ``_warehouse_rationale`` 을 직접 부른다. 그것만으로는 **그 함수가
-    호출되는지**를 증명하지 못한다 — 실측으로 확인했다: ``_rationale`` 에서 호출 한 줄을
+    호출되는지**를 증명하지 못한다 — 실측으로 확인했다: ``rationale`` 에서 호출 한 줄을
     지워도 `tests/test_purchase_agent` 1,191건이 **전부 통과했다** (2026-09-06 변이 ③).
 
     mock 재고에 세 키가 없어 mock 산출물에는 이 항목이 안 실리므로, **합성 재고를 얹어**
@@ -133,14 +133,14 @@ def test_the_item_actually_reaches_the_rationale_list() -> None:
     from datetime import date
 
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.package_scenarios import _rationale
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.domain.package_scenarios import rationale
+    from app.purchase_agent.service.graph import build_initial_state
 
     state = build_initial_state("배추", date(2026, 8, 21))
     state["inventory"] = {**state["inventory"], **LIVE}  # type: ignore[typeddict-item]
     draft = {"daily_demand_kg": 717.0, "coverage_days": 5}
 
-    items = _rationale(state, draft, load_constraints(), "AUC-2026-08-21")
+    items = rationale(state, draft, load_constraints(), "AUC-2026-08-21")
     refs = [row["ref_id"] for row in items]
     assert "CAP-2026-08-21" in refs, f"창고 근거가 rationale 에 안 실렸다 — {refs}"
 
@@ -250,23 +250,23 @@ def test_shrinkage_words_are_never_allowed() -> None:
 
 
 def test_the_cause_actually_reaches_the_rationale_list() -> None:
-    """🔴 **`_rationale` 을 통과하는지 잰다** (규칙 8).
+    """🔴 **`rationale` 을 통과하는지 잰다** (규칙 8).
 
     위 검사들은 ``_warehouse_rationale`` 을 직접 부른다 — 그것만으로는 **승인 이력이
-    거기까지 전달되는지**를 증명하지 못한다. ``_rationale`` 이 ``state`` 에서 약정을
+    거기까지 전달되는지**를 증명하지 못한다. ``rationale`` 이 ``state`` 에서 약정을
     꺼내 넘기는 그 줄을 지우면 여기가 운다.
     """
     from datetime import date
 
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.package_scenarios import _rationale
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.domain.package_scenarios import rationale
+    from app.purchase_agent.service.graph import build_initial_state
 
     state = build_initial_state("배추", date(2026, 8, 21))
     state["inventory"] = {**state["inventory"], **LIVE}  # type: ignore[typeddict-item]
     state["approved_commitments"] = [COMMITMENT]
     draft = {"daily_demand_kg": 717.0, "coverage_days": 5}
 
-    items = _rationale(state, draft, load_constraints(), "AUC-2026-08-21")
+    items = rationale(state, draft, load_constraints(), "AUC-2026-08-21")
     cap = next(row for row in items if row["ref_id"] == "CAP-2026-08-21")
     assert "어제 승인분 3,587kg" in cap["claim"], cap["claim"]

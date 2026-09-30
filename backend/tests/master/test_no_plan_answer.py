@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 
-from app.master.answer import facts_from_procurement
+from app.master.domain.answer import facts_from_procurement
 
 
 class _Response:

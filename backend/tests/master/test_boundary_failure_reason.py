@@ -23,18 +23,19 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.master.answer import facts_from_procurement
-from app.master.budget import CallBudget
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentFailure,
     AgentReply,
     AgentRequest,
     ExecutionContext,
     ExecutionMetadata,
 )
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
-from app.master.service import _to_response
+from app.master.domain.answer import facts_from_procurement
+from app.master.domain.run_response import to_response as _to_response
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 from tests.master.test_flow import advisor, purchaser
 
 AS_OF = date(2025, 12, 31)

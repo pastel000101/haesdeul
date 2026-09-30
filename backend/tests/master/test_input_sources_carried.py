@@ -31,15 +31,11 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 SOURCES = {
@@ -113,7 +109,7 @@ def test_출처가_매입_payload_에_실린다():
 
 def test_응답과_같은_이름을_쓴다():
     """★ 화면에서 본 것과 payload 를 대조할 때 이름이 갈리면 안 된다 (매입 A-1)."""
-    from app.master.schemas import ProcurementRunResponse
+    from app.master.schemas.procurement import ProcurementRunResponse
 
     assert "input_sources" in ProcurementRunResponse.model_fields
 
@@ -205,10 +201,10 @@ def test_service_가_출처를_flow_에_넘긴다(monkeypatch):
     ★ `#202` · `#206` 에 이어 **세 번째로 같은 모양**이다. 옮기는 쪽을 재는
       검사를 짝으로 두지 않으면 배선이 끊겨도 초록불이다.
     """
-    from app.master import wiring
-    from app.master.inputs import MasterInputs, SourcedInput
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.registry import wiring as registry_wiring
+    from app.master.schemas.inputs import MasterInputs, SourcedInput
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     # ⚠️ 등급이 `MEASURED` 다. 전에는 `MOCK` 이었는데, 2026-09-03 부터 mock 입력은
     #   부서를 부르기 전에 실행을 세운다 — 그러면 이 검사가 재려는 것(출처가 매입까지
@@ -218,14 +214,14 @@ def test_service_가_출처를_flow_에_넘긴다(monkeypatch):
         confirmed_orders=SourcedInput("confirmed_orders", {"total_kg": 1.0}, "DERIVED", "뷰", ""),
         policy_values=SourcedInput("policy_values", {"contract_price_krw": 1}, "DERIVED", "표", ""),
     )
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: loaded)
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", lambda *a, **k: loaded)
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
 
     got, purchase = _seen()
-    wiring.reset()
-    wiring.register("finance", _port())
-    wiring.register("inventory", _port())
-    wiring.register("purchase", purchase)
+    registry_wiring.reset()
+    registry_wiring.register("finance", _port())
+    registry_wiring.register("inventory", _port())
+    registry_wiring.register("purchase", purchase)
 
     run_procurement(
         ProcurementRunRequest(
@@ -249,24 +245,24 @@ def test_service_가_mock_차단도_flow_에_넘긴다(monkeypatch):
     ★ 재는 것은 **부서를 안 부른다**는 것이다. 한 번이라도 부르면 그 회신이 이력에
       남고, 나중에 읽는 사람이 *"돌긴 돌았다"* 로 읽는다.
     """
-    from app.master import wiring
-    from app.master.inputs import MasterInputs, SourcedInput
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.registry import wiring as registry_wiring
+    from app.master.schemas.inputs import MasterInputs, SourcedInput
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     loaded = MasterInputs(
         forecast=SourcedInput("forecast", {"horizon_days": 18}, "MOCK", "mocks", ""),
         confirmed_orders=SourcedInput("confirmed_orders", {"total_kg": 1.0}, "DERIVED", "뷰", ""),
         policy_values=SourcedInput("policy_values", {"contract_price_krw": 1}, "DERIVED", "표", ""),
     )
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: loaded)
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", lambda *a, **k: loaded)
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
 
     got, purchase = _seen()
-    wiring.reset()
-    wiring.register("finance", _port())
-    wiring.register("inventory", _port())
-    wiring.register("purchase", purchase)
+    registry_wiring.reset()
+    registry_wiring.register("finance", _port())
+    registry_wiring.register("inventory", _port())
+    registry_wiring.register("purchase", purchase)
 
     response = run_procurement(
         ProcurementRunRequest(
@@ -291,7 +287,7 @@ def test_use_recommended_가_예측_payload_에_실린다():
     use_recommended        조합별  여기서 버리고 있었다
     ```
     """
-    from app.master.inputs import _forecast_payload
+    from app.master.domain.inputs import forecast_payload as _forecast_payload
 
     row = {
         # 🔴 **뷰가 주는 둘이다** (2026-09-11). 대역이 뷰보다 좁으면 *"버리고 있다"* 를
@@ -316,7 +312,7 @@ def test_use_recommended_가_예측_payload_에_실린다():
 
 def test_행별_플래그는_daily_안에_그대로_있다():
     """★ `daily` 는 뷰가 만든 그대로 나른다 — 마스터가 손대지 않는다."""
-    from app.master.inputs import _forecast_payload
+    from app.master.domain.inputs import forecast_payload as _forecast_payload
 
     daily = [{"date": "2026-01-02", "predicted": 1700, "is_filled": True, "is_gated": True}]
     out = _forecast_payload(

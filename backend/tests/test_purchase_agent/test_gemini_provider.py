@@ -20,6 +20,7 @@ import urllib.error
 
 import pytest
 
+from app.core.llm.providers import GEMINI_BASE_URL, gemini_response_schema
 from app.purchase_agent.llm import runtime as rt
 from app.purchase_agent.llm.review_schemas import ReviewOutput
 from app.purchase_agent.llm.schemas import GradeMixInterpretation
@@ -82,7 +83,7 @@ def _키를_훑는다(node, 찾을_키):
 
 @pytest.mark.parametrize("이름", sorted(역할_스키마))
 def test_세_역할_스키마가_전부_gemini_모양으로_낮춰진다(이름: str) -> None:
-    변환 = rt._to_gemini_schema(역할_스키마[이름].model_json_schema())
+    변환 = gemini_response_schema(역할_스키마[이름].model_json_schema())
     남은 = sorted(set(_키를_훑는다(변환, 금지_키)))
     assert not 남은, f"{이름} 에 Gemini 가 못 먹는 키가 남았다: {남은}"
 
@@ -94,7 +95,7 @@ def test_참조가_실제로_펼쳐진다() -> None:
     ``{}`` 로 비고 모델은 아무 모양이나 내도 된다. 그래서 **들어 있어야 할 필드가 그
     자리에 있는지**를 따로 본다.
     """
-    변환 = rt._to_gemini_schema(ReviewOutput.model_json_schema())
+    변환 = gemini_response_schema(ReviewOutput.model_json_schema())
     항목 = 변환["properties"]["findings"]["items"]
     필드 = set(항목.get("properties") or {})
     assert 항목.get("type") == "object"
@@ -104,7 +105,8 @@ def test_참조가_실제로_펼쳐진다() -> None:
 
 def test_널_허용은_nullable_로_바뀐다() -> None:
     """``anyOf[str, null]`` 은 Gemini 의 표현이 아니다 — 그쪽 말로 옮긴다."""
-    항목 = rt._to_gemini_schema(ReviewOutput.model_json_schema())["properties"]["findings"]["items"]
+    변환 = gemini_response_schema(ReviewOutput.model_json_schema())
+    항목 = 변환["properties"]["findings"]["items"]
     대상 = 항목["properties"]["target_ref_id"]
     assert 대상["type"] == "string"
     assert 대상["nullable"] is True
@@ -117,21 +119,21 @@ def test_설명은_남는다() -> None:
     여기서 ``description`` 을 빼면 판단이 달라져도 그게 모델 탓인지 우리 탓인지 못 가른다.
     """
     원본 = ReviewOutput.model_json_schema()
-    변환 = rt._to_gemini_schema(원본)
+    변환 = gemini_response_schema(원본)
     assert list(_키를_훑는다(변환, {"description"})) == list(_키를_훑는다(원본, {"description"}))
 
 
 def test_못_푸는_참조는_조용히_넘어가지_않는다() -> None:
     """정의가 없는 ``$ref`` 를 빈 dict 로 두면 **아무 모양이나 받는 스키마**가 된다."""
     with pytest.raises(KeyError):
-        rt._to_gemini_schema({"$ref": "#/$defs/없는것"})
+        gemini_response_schema({"$ref": "#/$defs/없는것"})
 
 
 def test_변환이_같은_입력에_같은_결과를_낸다() -> None:
     """두 번 부르면 같아야 한다 — ``$defs`` 를 집는 자리가 입력을 고치면 어긋난다."""
     원본 = ReviewOutput.model_json_schema()
-    첫판 = json.dumps(rt._to_gemini_schema(원본), sort_keys=True)
-    둘째 = json.dumps(rt._to_gemini_schema(원본), sort_keys=True)
+    첫판 = json.dumps(gemini_response_schema(원본), sort_keys=True)
+    둘째 = json.dumps(gemini_response_schema(원본), sort_keys=True)
     assert 첫판 == 둘째
     # 🔴 원본을 안 건드렸나 — 같은 스키마 객체를 다른 프로바이더도 읽는다.
     assert "$defs" in 원본
@@ -192,7 +194,7 @@ def test_키가_없어도_그래프_조립은_선다(monkeypatch: pytest.MonkeyP
     monkeypatch.delenv(f"{rt.ENV_PREFIX}GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv(f"{rt.ENV_PREFIX}LLM_PROVIDER", "gemini")
-    from app.purchase_agent.graph import build_graph
+    from app.purchase_agent.service.graph import build_graph
 
     assert build_graph() is not None
     assert isinstance(rt.build_provider(rt.get_llm_settings()), rt.GeminiProvider)
@@ -245,7 +247,7 @@ def test_주소가_ollama_기본값을_쓰지_않는다(monkeypatch: pytest.Monk
     with pytest.raises(RuntimeError):
         rt.GeminiProvider(rt.get_llm_settings()).generate(_컨텍스트())
     assert "127.0.0.1" not in 주소["url"]
-    assert 주소["url"].startswith(rt._GEMINI_BASE_URL)
+    assert 주소["url"].startswith(GEMINI_BASE_URL)
 
 
 def _컨텍스트():

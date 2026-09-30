@@ -49,8 +49,11 @@ from typing import Any, Self
 
 import pytest
 
-from app.master import ledger, transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
+from app.master.domain import ledger as domain_ledger
+from app.master.domain import transition as domain_transition
+from app.master.registry import transition as registry_transition
+from app.master.service import transition as service_transition
 
 AS_OF = date(2026, 1, 13)
 
@@ -92,7 +95,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
 
     def cursor(self) -> _가짜커서:
         return _가짜커서()
@@ -103,8 +106,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _전이:
@@ -163,19 +170,19 @@ def _commitment(*, 도착=2) -> ApprovedCommitment:
 
 @pytest.fixture(autouse=True)
 def _빈_등록소() -> Any:
-    before = dict(transition.registered())
-    transition.reset()
+    before = dict(registry_transition.registered())
+    registry_transition.reset()
     yield
-    transition.reset()
+    registry_transition.reset()
     for part, impl in before.items():
-        transition.register_transition(part, impl)
+        registry_transition.register_transition(part, impl)
 
 
 @pytest.fixture
 def _배선() -> tuple[_재무전이, _전이]:
     재무, 물류 = _재무전이(), _전이()
-    transition.register_transition("finance", 재무)
-    transition.register_transition("logistics", 물류)
+    registry_transition.register_transition("finance", 재무)
+    registry_transition.register_transition("logistics", 물류)
     return 재무, 물류
 
 
@@ -190,7 +197,7 @@ class _개장정본_감시:
         self.days = days
         self.호출: list[date] = []
 
-    def __call__(self, *, after: date, sim_run_id: str, connect: Any = None) -> tuple[date, ...]:
+    def __call__(self, *, after: date, sim_run_id: str, borrow: Any = None) -> tuple[date, ...]:
         self.호출.append(after)
         return tuple(d for d in self.days if d > after)
 
@@ -208,7 +215,7 @@ def test_정방향이면_다음날_하나뿐이다(_배선: tuple[_재무전이,
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert out.status == "APPLIED"
@@ -236,7 +243,9 @@ def test_이미_열린_날들에는_안_싣는다(_배선: tuple[_재무전이, 
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=9), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(
+        _commitment(도착=9), borrow=_가짜커넥션, sim_run_id=실행축
+    )
     assert out.status == "APPLIED", out.reason
 
     assert 물류.dates == [다음날], f"전방 전파가 되살아났다: {물류.dates}"
@@ -249,7 +258,7 @@ def test_따라잡은_날이_없다고_결과에_적는다(_배선: tuple[_재�
     ② 2026-09-10 — 전에는 *"따라잡은 날을 적는다"* 였다. 지금은 따라잡을 것이
       없으므로 **비어 있는 것이 정직한 답**이고, `UNREADABLE` 이 아니다.
     """
-    out = transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
     assert out.status == "APPLIED", out.reason
 
     assert out.carried_forward == []
@@ -264,7 +273,7 @@ def test_물류에_한_묶음만_준다(_배선: tuple[_재무전이, _전이]) 
     """
     _, 물류 = _배선
 
-    transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert 물류.persisted == [f"row@{다음날}"], f"묶음이 여럿 나갔다: {물류.persisted}"
 
@@ -286,7 +295,7 @@ def test_재무는_다음날_하나만_받는다(_배선: tuple[_재무전이, _
     """
     재무, _ = _배선
 
-    transition.apply_approval(_commitment(), connect=_가짜커넥션, sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert 재무.dates == [다음날], "마스터가 재무 다일 의미를 대신 정했다"
 
@@ -320,9 +329,11 @@ def test_개장_정본을_아예_안_읽는다(
     """
     _, 물류 = _배선
     감시 = _개장정본_감시(다음날 + timedelta(days=1), 다음날 + timedelta(days=2))
-    monkeypatch.setattr("app.master.day_opening_repository.opened_days_after", 감시)
+    monkeypatch.setattr("app.master.readmodel.day_openings.opened_days_after", 감시)
 
-    out = transition.apply_approval(_commitment(도착=9), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(
+        _commitment(도착=9), borrow=_가짜커넥션, sim_run_id=실행축
+    )
     assert out.status == "APPLIED", out.reason
 
     assert 감시.호출 == [], f"승인 전이가 개장 정본을 다시 읽었다: {감시.호출}"
@@ -355,11 +366,11 @@ def test_도착일이_지난_날에는_그_회차를_안_싣는다() -> None:
     지난뒤 = [도착일 + timedelta(days=n) for n in (1, 5, 6)]
     약정 = _commitment(도착=2)
 
-    assert transition._still_incoming_on(약정, 도착일) is not None, (
+    assert domain_transition.still_incoming_on(약정, 도착일) is not None, (
         "도착일 당일은 아직 안 온 것으로 센다"
     )
     for 날 in 지난뒤:
-        assert transition._still_incoming_on(약정, 날) is None, (
+        assert domain_transition.still_incoming_on(약정, 날) is None, (
             f"도착일이 지난 {날} 에 그 회차가 남았다 — 유령 확정입고다"
         )
 
@@ -374,7 +385,7 @@ def test_실을_회차가_없으면_빈_묶음이_아니라_None_이다() -> Non
     도착일 = 다음날 + timedelta(days=1)
     약정 = _commitment(도착=2)
 
-    좁힌것 = transition._still_incoming_on(약정, 도착일 + timedelta(days=1))
+    좁힌것 = domain_transition.still_incoming_on(약정, 도착일 + timedelta(days=1))
 
     assert 좁힌것 is None, f"실을 회차가 없는데 사본을 만들었다: {좁힌것}"
 
@@ -390,7 +401,9 @@ def test_carried_forward_는_열린_날이_아니라_실제로_쓴_날이다(
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=2), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(
+        _commitment(도착=2), borrow=_가짜커넥션, sim_run_id=실행축
+    )
     assert out.status == "APPLIED", out.reason
 
     assert out.carried_forward == [d for d in 물류.dates if d != 다음날], (
@@ -439,7 +452,7 @@ def _두회차() -> ApprovedCommitment:
 
 def _실린회차(약정: ApprovedCommitment, 날: date) -> tuple[int, ...] | None:
     """그 날 「앞으로 올 도착분」으로 남는 회차 번호들. 하나도 없으면 `None`."""
-    좁힌것 = transition._still_incoming_on(약정, 날)
+    좁힌것 = domain_transition.still_incoming_on(약정, 날)
     return None if 좁힌것 is None else tuple(leg.seq for leg in 좁힌것.arrival_schedule)
 
 
@@ -462,8 +475,8 @@ def test_좁힌_사본은_남긴_회차의_합으로_선다() -> None:
     사이 = AS_OF + timedelta(days=3)
     약정 = _두회차()
 
-    안좁힌것 = transition._still_incoming_on(약정, 다음날)
-    좁힌것 = transition._still_incoming_on(약정, 사이)
+    안좁힌것 = domain_transition.still_incoming_on(약정, 다음날)
+    좁힌것 = domain_transition.still_incoming_on(약정, 사이)
 
     assert 안좁힌것 is not None and 안좁힌것.total_qty_kg == 100.0
     assert 좁힌것 is not None
@@ -500,7 +513,7 @@ def test_회차_금액이_비면_총액을_지어내지_않는다() -> None:
         ),
     )
 
-    좁힌것 = transition._still_incoming_on(금액없음, 사이)
+    좁힌것 = domain_transition.still_incoming_on(금액없음, 사이)
 
     assert 좁힌것 is not None
     assert tuple(leg.seq for leg in 좁힌것.arrival_schedule) == (2,)
@@ -512,7 +525,7 @@ def test_회차_금액이_비면_총액을_지어내지_않는다() -> None:
 # 7. 🔴 **리드타임 0 은 미정 상태다 — 조용히 지나가지 않는다**
 #
 #    `inbound_lead_days` 는 계약상 `ge=0` 이라 **0 이 허용되는 값**이다
-#    (`app/logistics/schemas.py:283`). 그런데 0 이면 `arrival_date == as_of` 이고
+#    (`app/logistics/schemas/snapshot.py`). 그런데 0 이면 `arrival_date == as_of` 이고
 #    목표 상태일은 그 **다음 날**이라 `_still_incoming_on` 이 `None` 을 돌려준다 —
 #    물류 `build` 를 한 번도 안 부르고 `persist(conn, ())` 로 아무것도 안 쓴다.
 #
@@ -559,12 +572,12 @@ def test_리드타임0이면_NOT_APPLIED_이고_커넥션을_안_연다(
         열린횟수.append(1)
         return _가짜커넥션()
 
-    out = transition.apply_approval(_리드타임0(), connect=_connect, sim_run_id=실행축)
+    out = service_transition.apply_approval(_리드타임0(), borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED", f"물류만 빠진 채 {out.status} 가 나갔다"
     # 🔴 **걷기 요약이 이 갈래로 센다** (2026-09-16). 문장은 여기가 짓고 **이름은
     #    `ledger` 것을 가져다 쓴다** — 이름까지 여기서 지으면 세는 갈래가 둘이 된다.
-    assert out.block_kind == ledger.BLOCK_NO_ARRIVAL
+    assert out.block_kind == domain_ledger.BLOCK_NO_ARRIVAL
     assert 열린횟수 == [], "쓸 수 없는데 커넥션을 열었다"
     assert 재무.persisted == [] and 물류.persisted == [], "물류만 빠진 채 다른 파트를 썼다"
     assert 물류.dates == [] and 재무.dates == [], "막았는데 build 를 불렀다"
@@ -574,7 +587,7 @@ def test_사유가_도착일과_목표_상태일을_숫자로_적는다(
     _배선: tuple[_재무전이, _전이],
 ) -> None:
     """★ *"도착일이 목표 상태일보다 이르다"* 를 사람이 바로 알아보게 적는다."""
-    out = transition.apply_approval(_리드타임0(), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(_리드타임0(), borrow=_가짜커넥션, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED"
     assert AS_OF.isoformat() in out.reason, "회차 도착일이 사유에 없다"
@@ -595,7 +608,9 @@ def test_도착일이_목표_상태일과_같으면_지나간다(
     """
     _, 물류 = _배선
 
-    out = transition.apply_approval(_commitment(도착=1), connect=_가짜커넥션, sim_run_id=실행축)
+    out = service_transition.apply_approval(
+        _commitment(도착=1), borrow=_가짜커넥션, sim_run_id=실행축
+    )
 
     assert out.status == "APPLIED", out.reason
     assert 물류.dates == [다음날], f"경계 승인이 안 실렸다: {물류.dates}"

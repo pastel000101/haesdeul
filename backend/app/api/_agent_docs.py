@@ -241,11 +241,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -280,7 +280,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 띄우게 되고, 그건 **틀린 줄도 모르는** 오류입니다.
 급하면 ㉰ 로 두고 `Note` 에 «어느 실행을 보고 있는지» 를 적으세요.
 
-**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/api/shown_run.py`.**
+**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/core/settings.py` 의 두 값.**
 화면이 읽는 실행은 `SHOWN_SIM_RUN_ID`, 기준일은 `SHOWN_AS_OF` 한 자리에서만 정합니다.
 재무 · 물류 · 판매 · 대시보드와 매입 라우터(쿼리에 축이 없을 때)가 이 값을 씁니다.
 각 탭 `Source.note` 에 「보고 있는 실행: 실행 이름」 을 적습니다.
@@ -314,6 +314,117 @@ schema = get_db_schema()
 rows = fetch_all(f'SELECT * FROM {{schema}}.{table} WHERE as_of = %s', (as_of,))
 ```
 
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: 마스터 DB 안내 (2026-09-30 BL-018). `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 마스터
+#: 계층으로 — 조회 헬퍼 입구(`app.master.db`)는 없어졌다.
+MASTER_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+마스터 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+마스터는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/master/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/master/readmodel/` 입니다.
+
+```text
+app/master/repository/<자원>.py   SQL. 연결과 스키마 이름을 인자로 받고 commit 하지 않는다
+app/master/readmodel/<자원>.py    스키마 이름을 읽고 조회 연결을 빌려 repository 를 부른다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: 판매 DB 안내. `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 판매 계층 구조로 바꾼다.
+SALES_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+판매는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/sales/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/sales/readmodel/` 입니다.
+
+```text
+app/sales/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/sales/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: ML DB 안내 (2026-09-29 BL-017). `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 ML 계층으로.
+ML_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+ML 은 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/ml/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/ml/readmodel/` 입니다. 창고가 둘이라 풀도 둘입니다.
+
+```text
+app/ml/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/ml/readmodel/<자원>.py    창고에 맞는 풀에서 조회 연결을 빌려 repository 를 부른다
+                             (서비스 창고 app.core.db.read_connection() · 원본 창고 ML_SOURCE_POOL)
+```
+
+이 탭이 읽는 원본 창고 조회는 `app/ml/readmodel/forecast_tab.py` 에 있습니다.
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: 재무 DB 안내 (2026-09-29 재구성 BL-014). `sim_run_id` 절은 `DB_HELP` 와 같고,
+#: DB 절만 재무 계층으로.
+FINANCE_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+재무는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/finance/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/finance/readmodel/` 입니다.
+
+```text
+app/finance/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/finance/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
+#: 물류 DB 안내. `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 물류 계층 구조로 바꾼다
+#: (2026-09-30 재구성 BL-015 — `app/logistics/db.py` 를 지웠다).
+LOGISTICS_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+물류는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/logistics/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/logistics/readmodel/` 입니다.
+
+```text
+app/logistics/repository/<기능>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/logistics/readmodel/<기능>.py    조회 연결을 빌려 repository 를 부르고 화면 값으로 편다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.logistics.repository.rows.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 """
 
@@ -400,7 +511,7 @@ CHECKLIST = """\
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `{query_path}` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `{presenter_path}` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다
@@ -429,24 +540,27 @@ class Part(typing.NamedTuple):
     signature: str
     tables: str
     notes: str
+    #: 판매처럼 `db_module` 의 조회 헬퍼가 없는 부서는 DB 안내를 따로 준다 (2026-09-29 BL-013).
+    #: 2026-09-30 BL-018 에 마스터 입구도 없어져 여섯 파트가 모두 따로 준다.
+    db_help: str | None = None
 
 
 PARTS = [
     Part(
         key="dashboard", owner="마스터", title="대시보드",
         route="/api/dashboard?as_of=2026-01-06", screen="/console",
-        db_module="app.finance.db", table="daily_closings",
+        db_module="app.master.repository", table="daily_closings", db_help=MASTER_DB_HELP,
         model=DashboardTab,
         signature="def build(as_of: date) -> DashboardTab:",
         tables="""\
 **이 탭은 DB 를 직접 읽지 않습니다.** 다른 다섯 파트의 `build()` 를 부릅니다.
 
 ```python
-from app.api.finance import query as finance_q
-from app.api.forecast import query as forecast_q
-from app.api.logistics import query as logistics_q
-from app.api.purchase import query as purchase_q
-from app.api.sales import query as sales_q
+from app.api.finance import presenter as finance_presenter
+from app.api.forecast import presenter as forecast_presenter
+from app.api.logistics import presenter as logistics_presenter
+from app.api.purchase import presenter as purchase_presenter
+from app.api.sales import presenter as sales_presenter
 ```
 """,
         notes="""\
@@ -461,8 +575,8 @@ from app.api.sales import query as sales_q
 골라 담기만 합니다. 그래프도 마찬가지입니다 — 주인 부서가 만든 것을 받습니다.
 
 ```python
-cash = finance_q.dashboard_cash(n, at)        # 재무가 만든다
-stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
+cash = finance_presenter.dashboard_cash(n, at)        # 재무가 만든다
+stock = logistics_presenter.dashboard_stock(n, at)    # 물류가 만든다
 ```
 
 **어긴 적이 있고, 실제로 갈라졌습니다** — 요약은 재고 4,550kg 인데
@@ -479,7 +593,7 @@ stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
     Part(
         key="forecast", owner="ML", title="가격 예측",
         route="/api/forecast?as_of=2026-01-06&item=배추", screen="/console/forecast",
-        db_module="app.ml.db", table="ml_price_forecasts",
+        db_module="app.ml.repository", table="ml_price_forecasts", db_help=ML_DB_HELP,
         model=ForecastTab,
         signature="def build(as_of: date, item: str) -> ForecastTab:",
         tables="""\
@@ -488,7 +602,7 @@ stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
 품질 게이트가 거기 들어 있습니다.
 
 ```python
-from app.ml.service import get_forecast
+from app.ml.readmodel.forecasts import get_forecast
 fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 ```
 """,
@@ -517,7 +631,7 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
     Part(
         key="purchase", owner="매입", title="매입",
         route="/api/purchase?as_of=2026-01-22", screen="/console/purchase",
-        db_module="app.finance.db", table="purchases",
+        db_module="app.master.repository", table="purchases", db_help=MASTER_DB_HELP,
         model=PurchaseTab,
         signature="def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:",
         tables="""\
@@ -528,12 +642,12 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** `app.purchase_agent.db` 에는
-`get_db_schema` 가 **없습니다** — 일부러 뺐고 (그 파일 머리말) 이유는
-*"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
-에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
-`.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
-이유로 같은 선택을 했습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
+🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
+(2026-09-30 — SQL 은 `app/master/repository/purchase_tab.py`, 조회 연결은 그 readmodel 이
+빌린다). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
+안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
+스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
 """,
         notes="""\
 ## ★ 이 파트만의 규칙
@@ -550,7 +664,7 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 
 ```text
 max_price       재무 STRESS 로 나간다 — 남이 등식을 검사한다
-                finance/capabilities/scenario.py   amount_max_krw 등식
+                finance/service/capabilities/scenario.py   amount_max_krw 등식
                 master/verifier.py                 검사 이름 L-PAYSCHED-MAX
 cut_unit_price  우리 컷 (self_check.check_max_price)
 ```
@@ -595,13 +709,13 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 그 상수 주석이 *"여러 개가 되면 요청 파라미터로 올린다"* 이므로 매입이
 **먼저 그 자리에 간 것**입니다.
 
-**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `_read` 는 전부 읽고
-`_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
+**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
+`pick_runs`(같은 마스터 readmodel) · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
    WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 됩니다
-② 검사가 `_read` 를 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
+② 검사가 `read_purchase_tab` 을 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
    필터를 건너뛰어 축이 도는지를 못 잽니다
 ```
 
@@ -613,14 +727,14 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
     Part(
         key="finance", owner="재무", title="재무",
         route="/api/finance?as_of=2025-12-31&state=base", screen="/console/finance",
-        db_module="app.finance.db", table="finance_states",
+        db_module="app.finance.repository", table="finance_states", db_help=FINANCE_DB_HELP,
         model=FinanceTab,
         signature="def build(as_of: date, state: str) -> FinanceTab:",
         tables="""\
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.finance.dashboard import get_finance_dashboard, get_finance_cashflow
+from app.finance.readmodel.dashboard import get_finance_dashboard, get_finance_cashflow
 dash = get_finance_dashboard(sim_run_id=..., as_of=as_of)
 flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
 ```
@@ -628,7 +742,7 @@ flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
 `GET /finance/dashboard` · `/finance/dashboard/cashflow` 가 쓰는 함수입니다.
 **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Chart`)에 담습니다.
 
 원래 표: `finance_states` · `daily_closings` · `receivables` · `payables` ·
@@ -659,40 +773,36 @@ flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
     Part(
         key="logistics", owner="물류", title="재고 · 물류",
         route="/api/logistics?as_of=2026-01-06&pane=summary", screen="/console/inventory",
-        db_module="app.logistics.db", table="inventory_lots",
+        db_module="app.logistics.repository", table="inventory_lots",
+        db_help=LOGISTICS_DB_HELP,
         model=LogisticsTab,
         signature="def build(as_of: date, pane: str) -> LogisticsTab:",
         tables="""\
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요** (#415).
 
-**★ 커넥션은 한 판에 하나입니다** (2026-09-15). `build()` 가 커넥션 하나를 열어
-콘솔 함수에 `conn=` 으로 넘기고, Runtime 읽기(판매가능량 축)는 `load_console_runtime`
-한 번으로 재고·입고 콘솔이 나눠 씁니다.
+**★ 커넥션은 한 판에 하나입니다** (2026-09-15). 2026-09-30 부터 `build()` 는
+`read_console_page` 하나를 부르고, 그 함수가 연결 하나를 빌려 트랜잭션 하나로 그날 재료를 다
+읽습니다(종전 `build()` 의 경계 그대로). Runtime 읽기(판매가능량 축)는 한 번 읽어 재고·입고
+콘솔이 나눠 씁니다.
 
 ```python
-from app.logistics.console_service import (
-    get_inbound_console,
-    get_inventory_console,
-    get_outbound_console,
-    load_console_runtime,
-)
-from app.logistics.db import get_connection
+from app.logistics.readmodel.console import read_console_page
+from app.logistics.schemas.historical import RuntimeSnapshotCoverage
 
-with get_connection() as conn:
-    runtime = load_console_runtime(conn=conn, sim_run_id=..., as_of=as_of)
-    inv = get_inventory_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    inb = get_inbound_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    ob = get_outbound_console(conn=conn, sim_run_id=..., as_of=as_of)
+page = read_console_page(sim_run_id=..., as_of=as_of)
+if isinstance(page, RuntimeSnapshotCoverage):
+    ...  # 그날 Runtime Snapshot 이 없다 — 0 이 아니라 «모르는 날»
+inv, inb, ob = page.inventory, page.inbound, page.outbound
 ```
 
-`app/logistics/console_service.py` 에 `/logistics/inventory` · `/inbound` ·
-`/outbound` 가 쓰는 함수가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
-한 번 묻습니다 (`get_fefo_candidates_by_item(conn=, sim_run_id=, item_ids=, as_of=)`).
-물류 문제 장부는 `app/logistics/monitoring/exceptions.py` 가 주인입니다
-(`live_exceptions_at` · `resolved_exceptions_on`). **같은 쿼리를 두 벌 두면 언젠가
-값이 갈라집니다.**
+`app/logistics/readmodel/console.py` 에 `/logistics/inventory` · `/inbound` ·
+`/outbound` 가 쓰는 조회가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
+한 번 묻습니다 (`get_fefo_candidates_by_item(lots=, reservations=, item_ids=)`).
+물류 문제 장부 SQL 은 `app/logistics/repository/exceptions.py` 가 주인입니다
+(`live_exceptions_at` · `resolved_exceptions_on` — 한 판에서는 `read_console_page` 가
+함께 읽습니다). **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Card`)에 담습니다.
 
 원래 표를 직접 봐야 하면: `inventory_lots` · `inventory_reservations` ·
@@ -738,21 +848,21 @@ with get_connection() as conn:
     Part(
         key="sales", owner="판매", title="판매",
         route="/api/sales?as_of=2025-12-31", screen="/console/sales",
-        db_module="app.sales.db", table="sales",
+        db_module="app.sales.repository", table="sales", db_help=SALES_DB_HELP,
         model=SalesTab,
         signature="def build(as_of: date) -> SalesTab:",
         tables="""\
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.sales.dashboard import get_sales_dashboard
+from app.sales.readmodel.dashboard import get_sales_dashboard
 dash = get_sales_dashboard(sim_run_id=..., as_of=as_of)
 ```
 
 `GET /sales/dashboard` 가 쓰는 함수입니다. **같은 쿼리를 두 벌 두면
 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
 
 원래 표: `sales` · `sale_items` · `receivables`.
 """,
@@ -799,7 +909,7 @@ TEMPLATE = """\
 
 ## 할 일 한 줄
 
-`{query_path}` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`{presenter_path}` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -829,16 +939,16 @@ TEMPLATE = """\
 
 ```
 app/api/{key}/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# {query_path}
+# {presenter_path}
 {signature}
 ```
 
@@ -900,24 +1010,24 @@ app/api/{key}/
 
 
 def render(part: Part) -> str:
-    query_path = f"backend/app/api/{part.key}/query.py"
+    presenter_path = f"backend/app/api/{part.key}/presenter.py"
     return TEMPLATE.format(
         title=part.title,
         owner=part.owner,
         key=part.key,
-        query_path=query_path,
+        presenter_path=presenter_path,
         signature=part.signature,
         route_line=f"API     GET {part.route}",
         screen_line=f"화면    http://localhost:3000{part.screen}",
         tables=part.tables,
-        db_help=DB_HELP.format(db_module=part.db_module, table=part.table),
+        db_help=part.db_help or DB_HELP.format(db_module=part.db_module, table=part.table),
         contract=contract(part.model, SHARED),
         primitives=PRIMITIVES,
         notes=part.notes,
         rules=RULES,
         verify=VERIFY.format(route=part.route, screen=part.screen),
         dont=DONT,
-        checklist=CHECKLIST.format(query_path=query_path, screen=part.screen),
+        checklist=CHECKLIST.format(presenter_path=presenter_path, screen=part.screen),
     )
 
 

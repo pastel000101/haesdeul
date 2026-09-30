@@ -4,7 +4,7 @@
 #
 #   누가 쓰나
 #     판매   `app/sales/outbound.py`      확정 판매를 봉투로 만든다 (보내는 쪽)
-#     물류   `app/logistics/sales_outbound.py`  봉투를 받아 예약 코어를 부른다 (받는 쪽)
+#     물류   `app/logistics/service/outbound.py`  봉투를 받아 예약 코어를 부른다 (받는 쪽)
 #
 #   🔴 **납품일 칸을 두지 않는다** (2026-09-08 · 물류·판매 합의).
 #      `sales.sale_date` 가 납품일의 **정본**이고, DDL 주석이 그렇게 정의한다
@@ -50,7 +50,7 @@ class SalesOutboundReservationRequest:
       sales.sale_date    '판매/납품 기준일.'        ← 납품 기준일이 여기다
     ```
 
-    그리고 수금일이 그것에서 파생된다 — `app/sales/persistence.py` 가
+    그리고 수금일이 그것에서 파생된다 — `app/sales/domain/sale_ledger.py` 가
     `request.sale_date + timedelta(days=payment_days)` 로 만든다.
     **납품일이 뿌리이고 수금일이 가지다.** 그래서 물류가 자기 날짜를 지어내지
     않고 판매가 준 것을 받는다.

@@ -20,7 +20,7 @@ from datetime import date
 
 import pytest
 
-from app.purchase_agent.graph import run_purchase_agent
+from app.purchase_agent.service.graph import run_purchase_agent
 
 #: 사람이 읽는 문장에 나오면 안 되는 낱말. **뜻이 아니라 표기**를 막는다.
 #:

@@ -4,12 +4,12 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.finance.capabilities.scenario import _scenario_schedule
-from app.finance.db import _build_finance_policy
-from app.finance.execution import _indexed_verdict_evidence
-from app.finance.rules import classify_base_stress
-from app.finance.schemas import CashEvent
-from app.finance.tools import build_payroll_schedule, derive_critical_payment_dates
+from app.finance.domain.evidence import indexed_verdict_evidence
+from app.finance.domain.policy_rules import build_finance_policy
+from app.finance.domain.rules import classify_base_stress
+from app.finance.domain.scenario import scenario_schedule
+from app.finance.domain.tools import build_payroll_schedule, derive_critical_payment_dates
+from app.finance.schemas.agent import CashEvent
 
 
 def policy_rows(*, payroll_date: Decimal | None = Decimal(10)) -> list[dict[str, object]]:
@@ -39,7 +39,7 @@ def policy_rows(*, payroll_date: Decimal | None = Decimal(10)) -> list[dict[str,
 
 
 def test_payroll_date_is_required_db_policy_with_source_and_drives_event():
-    policy = _build_finance_policy(policy_rows(payroll_date=Decimal(17)))
+    policy = build_finance_policy(policy_rows(payroll_date=Decimal(17)))
     assert policy.payroll_date == 17
     assert policy.source_refs["payroll_date"] == "db-policy:payroll_date"
     event = build_payroll_schedule(
@@ -52,7 +52,7 @@ def test_payroll_date_is_required_db_policy_with_source_and_drives_event():
 
 @pytest.mark.parametrize("missing_key", ["monthly_labor_cost_krw", "payroll_date"])
 def test_payroll_lineage_source_ref가_없으면_실패한다(missing_key):
-    policy = _build_finance_policy(policy_rows())
+    policy = build_finance_policy(policy_rows())
     source_refs = dict(policy.source_refs)
     source_refs.pop(missing_key)
     policy = policy.model_copy(update={"source_refs": source_refs})
@@ -64,11 +64,11 @@ def test_payroll_lineage_source_ref가_없으면_실패한다(missing_key):
 
 def test_missing_or_non_integer_payroll_date_fails_closed():
     with pytest.raises((LookupError, ValueError, ValidationError)):
-        _build_finance_policy(
+        build_finance_policy(
             [row for row in policy_rows() if row["policy_key"] != "payroll_date"]
         )
     with pytest.raises(ValueError, match="integer"):
-        _build_finance_policy(policy_rows(payroll_date=Decimal("10.5")))
+        build_finance_policy(policy_rows(payroll_date=Decimal("10.5")))
 
 
 def outflow(day: int, amount: int, *, direction: str = "OUTFLOW") -> CashEvent:
@@ -124,7 +124,7 @@ def test_split_payment_schedule_contract_rejects_mismatches(mutation, message):
     scenario = split_scenario()
     mutation(scenario)
     with pytest.raises(ValueError, match=message):
-        _scenario_schedule(
+        scenario_schedule(
             scenario=scenario, as_of=date(2026, 8, 27), horizon=date(2026, 9, 30),
             default_payment_days=7,
         )
@@ -133,7 +133,7 @@ def test_split_payment_schedule_contract_rejects_mismatches(mutation, message):
 def test_h1_authoritative_payment_date_and_amount_are_preserved():
     scenario = split_scenario(authoritative_h1_payment_data=True)
     scenario["payment_schedule"][0].update(payment_date="2026-09-08", amount_max_krw=111)
-    schedule = _scenario_schedule(
+    schedule = scenario_schedule(
         scenario=scenario, as_of=date(2026, 8, 27), horizon=date(2026, 9, 30),
         default_payment_days=7,
     )
@@ -163,7 +163,7 @@ def evidence(claim: str, value: float | None) -> dict[str, object]:
 
 @pytest.mark.parametrize("results", [[], [{"scenario_id": "S1", "evidences": []}]])
 def test_indexed_verdict_evidence_supports_zero_and_one_item(results):
-    assert _indexed_verdict_evidence(results) == []
+    assert indexed_verdict_evidence(results) == []
 
 
 def test_indexed_verdict_evidence_uses_paths_and_skips_none_without_orphans():
@@ -172,5 +172,5 @@ def test_indexed_verdict_evidence_uses_paths_and_skips_none_without_orphans():
          "evidences": [evidence("finance_cap_amount_krw", 0)]},
         {"candidate_amount_krw": 25, "evidences": [evidence("candidate_amount_krw", 25)]},
     ]
-    claims = [item.claim for item in _indexed_verdict_evidence(results)]
+    claims = [item.claim for item in indexed_verdict_evidence(results)]
     assert claims == ["verdicts[0].finance_cap_amount_krw", "verdicts[1].candidate_amount_krw"]

@@ -56,7 +56,9 @@ def test_sales_never_imports_finance_runtime():
     """Sales는 실행 계층을 부르지 않고 immutable 판매 정책만 읽을 수 있다."""
     offenders = {name for name in _imported_modules(SALES) if name.startswith("app.finance")}
 
-    assert offenders == {"app.finance.sales_policy"}, offenders
+    #  2026-09-29 재구성 BL-014: 판매 정책 규칙은 `app/finance/domain/sales_policy.py` 로 옮겼다
+    #  (몸통 그대로). 판매가 들이는 재무 모듈은 여전히 그 하나다.
+    assert offenders == {"app.finance.domain.sales_policy"}, offenders
 
 
 def test_finance_touches_master_only_through_shared_contract_modules():
@@ -65,24 +67,25 @@ def test_finance_touches_master_only_through_shared_contract_modules():
     #382 는 Sales → Finance persistence 경계를 닫은 작업이다. 기존 production 의
     Envelope/Critic 계약 import 와 새 CollectionSource 계약까지 한 번에 0화하는 것은
     별도 리팩터링이어야 하므로, 여기서는 허용 계약을 명시해 타입 복제를 막는다.
-    """
-    master_modules = {
-        name for name in _imported_modules(FINANCE) if name.startswith("app.master")
-    }
 
-    assert master_modules == {
-        "app.master.closing",
-        "app.master.collection",
-        "app.master.critic_bridge",
-        "app.master.envelope",
-    }
+    ★ 2026-09-29 그 리팩터링을 했다 (재구성 BL-011). 허용하던 넷(`closing` · `collection` ·
+      `critic_bridge` · `envelope`)에서 재무가 가져가던 것은 전부 계약 — `ClosingPartOut` ·
+      `CollectionPartOut` · `DEPT_CAP_CHECK_ID` · 봉투 — 이었고, 그것을 `app/contracts/` 로
+      올려 재무가 마스터를 읽는 자리가 없어졌다. 타입 복제를 막는 뜻은 그대로다 — 같은
+      타입을 공용 계약 한 자리에서 가져오는지 함께 잰다.
+    """
+    imported = _imported_modules(FINANCE)
+    master_modules = {name for name in imported if name.startswith("app.master")}
+
+    assert master_modules == set()
+    assert {"app.contracts.envelope", "app.contracts.parts"} <= imported
 
 
 def test_the_sales_capability_takes_a_payload_not_a_sales_client():
     """판매 Capability 는 payload 를 받는다 — 영업을 부르지 않는다."""
     import inspect
 
-    from app.finance.capabilities import sales
+    from app.finance.service.capabilities import sales
 
     signature = inspect.signature(sales.evaluate_sales_scenario)
     assert next(iter(signature.parameters)) == "payload"
@@ -101,7 +104,7 @@ def test_master_has_sales_vocabulary_without_claiming_routing_is_complete():
     """Sales 호출 어휘는 존재하지만 그것만으로 실제 routing 완료를 뜻하지 않는다."""
     from typing import get_args
 
-    from app.master.envelope import AgentName
+    from app.contracts.envelope import AgentName
 
     assert "sales" in set(get_args(AgentName))
 
@@ -122,11 +125,7 @@ def test_master_routes_financial_validation_to_the_finance_mode():
     """
     from typing import get_args
 
-    from app.master.envelope import (
-        CAPABILITY_ROUTING,
-        Mode,
-        agent_allowed_modes,
-    )
+    from app.contracts.envelope import CAPABILITY_ROUTING, Mode, agent_allowed_modes
 
     assert "SALES_VALIDATION" in get_args(Mode)
     assert "SALES_VALIDATION" in agent_allowed_modes("finance")
@@ -137,7 +136,7 @@ def test_master_routes_financial_validation_to_the_finance_mode():
 
 
 def test_sales_validation_is_not_opened_to_other_agents():
-    from app.master.envelope import agent_allowed_modes
+    from app.contracts.envelope import agent_allowed_modes
 
     assert "SALES_VALIDATION" not in agent_allowed_modes("inventory")
     assert "SALES_VALIDATION" not in agent_allowed_modes("purchase")
@@ -145,13 +144,13 @@ def test_sales_validation_is_not_opened_to_other_agents():
 
 def test_finance_side_of_the_contract_is_nevertheless_complete():
     """재무 쪽 절반은 다 되어 있다 — 막힌 것은 공통 계약이지 재무가 아니다."""
-    from app.finance.adapter import (
+    from app.finance.domain.sales_validation import (
         SALES_VERDICT_TO_BUSINESS_STATUS,
         build_sales_validation_payload,
+        evaluate_sales_scenario,
         map_sales_finance_verdict,
     )
-    from app.finance.application.harness import SALES_VALIDATION_TOOLS
-    from app.finance.capabilities.sales import evaluate_sales_scenario
+    from app.finance.service.harness import SALES_VALIDATION_TOOLS
 
     assert callable(evaluate_sales_scenario)
     assert callable(map_sales_finance_verdict)

@@ -22,25 +22,23 @@ from datetime import date
 from typing import get_args
 
 from app.contracts.core import EndCode, SuggestedAdjustment
-from app.master import (
-    AgentRegistry,
+from app.contracts.envelope import (
+    CAPABILITY_ROUTING,
     AgentReply,
     AgentRequest,
-    CallBudget,
+    Capability,
     ExecutionContext,
     ExecutionMetadata,
-    MasterRunner,
-)
-from app.master.envelope import (
-    CAPABILITY_ROUTING,
-    Capability,
     agent_allowed_modes,
     route_capability,
 )
-from app.master.sales_flow import (
+from app.master.registry.ports import AgentRegistry
+from app.master.schemas.sales import SalesEndCode
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import (
     MAX_FEEDBACK_ATTEMPTS,
     SALES_BUDGET,
-    SalesEndCode,
     SalesFlow,
     sales_call_budget,
 )
@@ -224,7 +222,7 @@ def test_마스터_capability_어휘가_판매_것과_같다():
 
     ★ 테스트에서는 양쪽을 읽어도 된다 — 런타임 의존이 아니다.
     """
-    from app.sales.schemas import SalesCapability
+    from app.sales.schemas.proposal import SalesCapability
 
     assert set(get_args(Capability)) == set(get_args(SalesCapability))
 
@@ -425,7 +423,7 @@ def test_물류_컨텍스트가_판매_칸_이름으로_간다():
       세우는 것이 맞다 — 여기서 재는 것은 *"칸 이름이 맞는가"* 이지
       *"아무거나 받아 주는가"* 가 아니다.
     """
-    from app.sales.schemas import SalesLogisticsContext, SalesProposalInput
+    from app.sales.schemas.proposal import SalesLogisticsContext, SalesProposalInput
 
     보낸것: list[dict] = []
     happy(sales=seller([[scenario("SCN-1")]], capture=보낸것)).run()
@@ -477,7 +475,7 @@ def test_business_mode_는_최상위로_나간다():
     저쪽 `SalesUserRequest` 는 `extra="forbid"` 라 안에 넣으면 요청 전체가 문 앞에서
     거부되고, 안 실으면 `validation_errors=['business_mode']` 로 되돌아온다 (실측).
     """
-    from app.sales.schemas import SalesProposalInput
+    from app.sales.schemas.proposal import SalesProposalInput
 
     보낸것: list[dict] = []
     happy(business_mode="SPOT_SALES", sales=seller([[scenario("SCN-1")]], capture=보낸것)).run()
@@ -710,7 +708,7 @@ def test_판매가_못_돌면_SL2_이고_사유가_실린다():
 
 def test_판매_예산은_매입_기본값과_다르다():
     """🔴 매입 12 를 건드리지 않는다. 올리면 매입이 안 쓰는 상한이 매입 쪽에서 풀린다."""
-    from app.master.schemas import ProcurementRunRequest
+    from app.master.schemas.procurement import ProcurementRunRequest
 
     assert SALES_BUDGET == 25
     assert ProcurementRunRequest.model_fields["budget"].default == 12

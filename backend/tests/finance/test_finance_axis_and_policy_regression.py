@@ -18,14 +18,14 @@ from typing import get_args
 import pytest
 
 from app.contracts.core import AdjustAxis, SuggestedAdjustment
-from app.finance.execution import _adjustment_from_dict
-from app.finance.rules import (
+from app.finance.domain.evidence import adjustment_from_dict
+from app.finance.domain.rules import (
     evaluate_collection_risk_rule,
     evaluate_receivable_capacity_rule,
     evaluate_sales_margin_rule,
     evaluate_sales_payment_term_rule,
 )
-from app.finance.sales_policy import load_finance_sales_mvp_policy
+from app.finance.domain.sales_policy import load_finance_sales_mvp_policy
 
 POLICY = load_finance_sales_mvp_policy()
 
@@ -38,7 +38,7 @@ def _adjustment(**over):
         "ref_ids": ["FIN-AGENT:req-1:1:S2:validate_amount_adjustment"],
     }
     payload.update(over)
-    return _adjustment_from_dict(payload)
+    return adjustment_from_dict(payload)
 
 
 # ---------------------------------------------------------------------------

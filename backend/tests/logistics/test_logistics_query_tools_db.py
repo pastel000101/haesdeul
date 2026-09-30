@@ -27,24 +27,11 @@ from typing import Any, NamedTuple
 import psycopg
 import pytest
 
-from app.logistics import historical_repository, inbound_schedules, turnover
-from app.logistics import tools as calc
-from app.logistics.db import get_connection
-from app.logistics.monitoring import exceptions as exception_repo
-from app.logistics.monitoring.exceptions import (
-    live_exceptions_at,
-    open_exception,
-    resolve_exception,
-    touch_exception,
-)
-from app.logistics.monitoring.schemas import (
-    COMMITMENT_OBSERVED_AS_OF,
-    FRESHNESS_PRESSURE,
-    ExceptionEvidence,
-    ExceptionRow,
-)
-from app.logistics.query import tools as agent_tools
-from app.logistics.query.tools import (
+from app.core import db as core_db
+from app.logistics.domain import tools as calc
+from app.logistics.domain.tools import commitment_axes, sellable_lot_contributions
+from app.logistics.readmodel import status_tools as agent_tools
+from app.logistics.readmodel.status_tools import (
     EXCEPTION_DETAIL_UNRESOLVED,
     ITEM_NOT_FOUND,
     LOT_NOT_FOUND,
@@ -56,14 +43,27 @@ from app.logistics.query.tools import (
     get_policy,
     get_sales_commitments,
 )
-from app.logistics.schemas import (
+from app.logistics.repository import rows
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository.exceptions import (
+    live_exceptions_at,
+    open_exception,
+    resolve_exception,
+    touch_exception,
+)
+from app.logistics.schemas.monitoring import (
+    COMMITMENT_OBSERVED_AS_OF,
+    FRESHNESS_PRESSURE,
+    ExceptionEvidence,
+    ExceptionRow,
+)
+from app.logistics.schemas.snapshot import (
     POLICY_VERSION,
     InventoryLogisticsSnapshot,
     LogisticsPolicy,
     OutboundCommitment,
     ScheduledQuantity,
 )
-from app.logistics.tools import _commitment_axes, _sellable_lot_contributions
 
 pytestmark = pytest.mark.db
 
@@ -118,49 +118,53 @@ def _file(name: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            for name in ("30_logistics_wms_schema.sql", "logistics_inventory_lots_nullable.sql"):
-                cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            agent_ddl = _file("40_logistics_agent_schema.sql")
-            cur.execute(agent_ddl.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                for name in (
+                    "30_logistics_wms_schema.sql",
+                    "logistics_inventory_lots_nullable.sql",
+                ):
+                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                agent_ddl = _file("40_logistics_agent_schema.sql")
+                cur.execute(agent_ddl.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            for run in (SIM, OTHER_SIM):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (run,))
-            for item_id, item_name in ((BAECHU, "배추"), (MU, "무")):
+                for run in (SIM, OTHER_SIM):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (run,))
+                for item_id, item_name in ((BAECHU, "배추"), (MU, "무")):
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item_id, item_name)
+                    )
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, 'PO-1', %s)",
+                        (f"PI-{item_id}", item_id),
+                    )
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item_id, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 배추에만 — 정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다.
                 cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item_id, item_name)
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (BAECHU, PRIORITY_DAYS),
                 )
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s, 'PO-1', %s)",
-                    (f"PI-{item_id}", item_id),
-                )
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item_id, ZONE, LIMIT_DAYS),
-                )
-            # 🔴 회전 정책은 배추에만 — 정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다.
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (BAECHU, PRIORITY_DAYS),
-            )
-        for module in (turnover, historical_repository, exception_repo, inbound_schedules):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+            # ★ 2026-09-30 재구성 BL-015: 회전 SQL 은 `repository/turnover` 가, 이력 · 문제 장부 ·
+            #   일정 SQL 은 `rows.schema_identifier` 로 스키마를 읽는다.
+            for module in (turnover_repository, rows):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────
@@ -928,9 +932,9 @@ def test_uncommitted_matches_the_existing_sellable_calculation(
             ]
         }
     )
-    axes = _commitment_axes(snapshot)
+    axes = commitment_axes(snapshot)
     assert axes is not None
-    existing = {lot.lot_id: share for lot, share in _sellable_lot_contributions(snapshot, axes[0])}
+    existing = {lot.lot_id: share for lot, share in sellable_lot_contributions(snapshot, axes[0])}
 
     assert result.lot.committed_kg == Decimal(400)
     assert result.lot.uncommitted_kg == existing["LOT-BAECHU"] == Decimal(100)

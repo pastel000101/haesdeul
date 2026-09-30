@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady, load_inventory_snapshot_as_of
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service.inventory import load_inventory_snapshot_as_of
 
 
 class _Cursor:
@@ -35,7 +36,7 @@ class _Conn:
 
 def _snapshot(rows):
     conn = _Conn(rows)
-    with patch("app.finance.db.get_db_schema", return_value="haetdeul"):
+    with patch("app.finance.repository.inventory.get_db_schema", return_value="haetdeul"):
         result = load_inventory_snapshot_as_of(
             conn,
             sim_run_id="SIM-BURNIN-202512",

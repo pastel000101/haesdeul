@@ -3,20 +3,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.logistics.rules import (
+from app.logistics.domain.rules import (
     derive_logistics_verdict,
     evaluate_procurement_rules,
     evaluate_sales_rules,
 )
-from app.logistics.schemas import (
-    InTransitItem,
-    InventoryByItem,
-    InventoryLotSnapshot,
-    LogisticsSalesRequest,
-    PurchaseAgentOutput,
-    ScheduledQuantity,
-)
-from app.logistics.tools import (
+from app.logistics.domain.tools import (
     build_inventory_by_item,
     build_lot_constraints,
     calculate_cap_by_date,
@@ -27,6 +19,8 @@ from app.logistics.tools import (
     is_inbound_schedule_complete,
     overlay_approved_purchase,
 )
+from app.logistics.schemas.agent import InventoryByItem, LogisticsSalesRequest, PurchaseAgentOutput
+from app.logistics.schemas.snapshot import InTransitItem, InventoryLotSnapshot, ScheduledQuantity
 
 AS_OF = date(2026, 8, 21)
 ARRIVAL = date(2026, 8, 23)

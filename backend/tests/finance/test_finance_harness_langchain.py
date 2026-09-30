@@ -23,13 +23,29 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import user_messages as messages
-from app.finance.application import harness as harness_module
-from app.finance.application.harness import (
+from app.contracts.envelope import AgentRequest, ExecutionContext
+from app.finance.domain import messages
+from app.finance.domain.messages import explanation_keys
+from app.finance.llm.planner import LangChainFinancePlanner, finance_chat_model
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.planner import (
     CAPABILITY_OWNER,
+    FINALIZE_TOOL_NAME,
+    FinancePlannerContractViolation,
+    ToolAction,
+)
+from app.finance.service import harness as harness_module
+from app.finance.service.agent import FinanceAgentController
+from app.finance.service.capabilities.procurement import (
+    FinancePreconditionMissing,
+    analyze_payment_pressure,
+    calculate_purchase_finance_cap,
+)
+from app.finance.service.harness import (
     DEPENDENCY_NOT_SATISFIED,
     DUPLICATE_UNRESOLVED_TOOL_CALL,
-    FINALIZE_TOOL_NAME,
     TOOL_BUDGET_EXHAUSTED,
     TOOL_DEPENDENCIES,
     TOOL_PERMISSION_DENIED,
@@ -39,23 +55,6 @@ from app.finance.application.harness import (
     build_planner_tool_adapter,
     validate_planner_tool_arguments,
 )
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.capabilities.procurement import (
-    FinancePreconditionMissing,
-    analyze_payment_pressure,
-    calculate_purchase_finance_cap,
-)
-from app.finance.db import FinanceDataNotReady
-from app.finance.llm.planner import (
-    FinancePlannerContractViolation,
-    LangChainFinancePlanner,
-    ToolAction,
-    finance_chat_model,
-)
-from app.finance.schemas import FinancePolicy
-from app.finance.state import FinanceAgentState
-from app.finance.user_messages import explanation_keys
-from app.master.envelope import AgentRequest, ExecutionContext
 
 
 @contextmanager
@@ -82,7 +81,7 @@ def two_explanation_candidates():
         return [first[0], second]
 
     with patch(
-        "app.finance.application.orchestration.explanation_keys", side_effect=two_keys
+        "app.finance.service.agent.explanation_keys", side_effect=two_keys
     ):
         yield
 
@@ -234,7 +233,7 @@ def pre_purchase_plan():
 
 @pytest.fixture(autouse=True)
 def _no_persistence():
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         yield
 
 
@@ -638,7 +637,7 @@ def test_langchain_planner_drives_the_finance_tools_end_to_end(monkeypatch):
     transport = _tool_call_transport(
         [(name, {}) for name in PRE_ORDER] + [(FINALIZE_TOOL_NAME, {})]
     )
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     reply, metadata = FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -657,7 +656,7 @@ def test_langchain_planner_only_sees_currently_executable_tools(monkeypatch):
     transport = _tool_call_transport(
         [(name, {}) for name in PRE_ORDER] + [(FINALIZE_TOOL_NAME, {})]
     )
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -676,7 +675,7 @@ def test_tool_observations_reach_the_next_langchain_planner_step(monkeypatch):
     transport = _tool_call_transport(
         [(name, {}) for name in PRE_ORDER] + [(FINALIZE_TOOL_NAME, {})]
     )
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -693,7 +692,7 @@ def test_langchain_planner_over_ollama_uses_the_same_tool_set(monkeypatch):
     transport = _tool_call_transport(
         [(name, {}) for name in PRE_ORDER] + [(FINALIZE_TOOL_NAME, {})]
     )
-    monkeypatch.setattr("app.finance.llm.planner._ollama_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.ollama_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("ollama", model="gemma3:4b"))
 
     reply, metadata = FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -713,7 +712,7 @@ def test_langchain_free_text_answer_is_a_recoverable_contract_violation(monkeypa
         del model, system_prompt, user_payload, tool_declarations
         return []
 
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     reply, metadata = FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -728,7 +727,7 @@ def test_provider_outage_is_not_hidden_by_a_replan(monkeypatch):
         del model, system_prompt, user_payload, tool_declarations
         raise TimeoutError("provider is down")
 
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     reply, metadata = FinanceAgentController(Port(), planner, Finalizer()).run(request())
@@ -750,7 +749,7 @@ def test_langchain_tool_call_outside_the_exposed_set_never_executes(monkeypatch)
             ("calculate_purchase_finance_cap", {}),
         ]
     )
-    monkeypatch.setattr("app.finance.llm.planner._gemini_tool_call", transport)
+    monkeypatch.setattr("app.finance.llm.planner.gemini_tool_call", transport)
     planner = LangChainFinancePlanner(finance_chat_model("gemini", model="gemini-test"))
 
     reply, metadata = FinanceAgentController(Port(), planner, Finalizer()).run(request())

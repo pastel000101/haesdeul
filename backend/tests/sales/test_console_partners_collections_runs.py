@@ -3,9 +3,10 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from app.sales.console_collections import get_console_collections
-from app.sales.console_partners import get_console_partner_detail, get_console_partners
-from app.sales.console_runs import get_console_sales_runs
+from app.sales.readmodel.console_collections import get_console_collections
+from app.sales.readmodel.console_partners import get_console_partner_detail, get_console_partners
+from app.sales.readmodel.console_runs import get_console_sales_runs
+from tests.sales.sales_fake_connection import lend
 
 AS_OF = date(2026, 1, 9)
 RUN_A = "SIM-CONSOLE-A"
@@ -27,8 +28,10 @@ class _Capture:
 
 
 def _patch(monkeypatch, module: str, capture) -> None:
-    monkeypatch.setattr(f"app.sales.{module}.fetch_all", capture)
-    monkeypatch.setattr(f"app.sales.{module}.get_db_schema", lambda: "haetdeul")
+    #  ★ 2026-09-29 BL-013: SQL 은 `repository/<module>.py` 가 readmodel 이 빌린 조회 연결로
+    #    실행한다 — 가짜 연결이 그 커서에 `capture` 를 답한다.
+    monkeypatch.setattr(f"app.sales.repository.{module}.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, capture)
 
 
 # ---------------------------------------------------------------------------

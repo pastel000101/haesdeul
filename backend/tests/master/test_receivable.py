@@ -47,9 +47,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.master import receivable
-from app.master.day_gate import DayGate
-from app.master.receivable import ReceivablePartOut, issue_receivables
+from app.contracts.parts import ReceivablePartOut
+from app.master.registry import receivable as registry_receivable
+from app.master.schemas.day_gate import DayGate
+from app.master.service import receivable as service_receivable
+from app.master.service.receivable import issue_receivables
 
 AS_OF = date(2026, 1, 7)
 
@@ -63,7 +65,7 @@ class _가짜커넥션:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -71,8 +73,12 @@ class _가짜커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _재무:
@@ -97,7 +103,7 @@ def _세움(*ids: str, created: int | None = None) -> ReceivablePartOut:
     )
 
 
-def _막힌_Gate(as_of: date, *, connect: Any = None, sim_run_id: str = "") -> DayGate:
+def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> DayGate:
     return DayGate(
         as_of=as_of,
         gate="BLOCKED",
@@ -118,9 +124,9 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
     ⚠️ **Gate 자체는 아래 `⑤` 절이 잰다.** 거기서는 이 fixture 를 다시 덮어쓴다.
     """
     monkeypatch.setattr(
-        receivable,
+        service_receivable,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
@@ -129,12 +135,12 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
 @pytest.fixture(autouse=True)
 def _등록소를_되돌린다() -> Any:
     """검사가 등록한 대역이 다음 검사로 새지 않게 한다."""
-    before = dict(receivable.registered())
-    receivable.reset()
+    before = dict(registry_receivable.registered())
+    registry_receivable.reset()
     yield
-    receivable.reset()
+    registry_receivable.reset()
     for part, impl in before.items():
-        receivable.register_receivable(part, impl)
+        registry_receivable.register_receivable(part, impl)
 
 
 # ── ① 앞의 다섯 등록소와 섞이지 않는다 ────────────────────────────────────
@@ -145,28 +151,33 @@ def test_여섯째_등록소는_앞의_다섯과_따로다():
 
     ★ **지금이 정확히 그 상태다** — 수금 배선은 `#427` 로 섰고 채권 배선은 없었다.
     """
-    from app.master import cancellation, collection, day_open, inbound, transition
+    from app.master.registry import cancellation as registry_cancellation
+    from app.master.registry import collection as registry_collection
+    from app.master.registry import day_open as registry_day_open
+    from app.master.registry import inbound as registry_inbound
+    from app.master.registry import receivable as registry_receivable
+    from app.master.registry import transition as registry_transition
 
-    receivable.register_receivable("finance", _재무())
+    registry_receivable.register_receivable("finance", _재무())
 
-    assert "finance" in receivable.registered()
-    assert receivable.missing() == ()
+    assert "finance" in registry_receivable.registered()
+    assert registry_receivable.missing() == ()
     # 앞의 등록소들은 이 등록에 영향받지 않는다
-    assert set(day_open.PARTS) == {"finance", "logistics"}
-    assert set(inbound.PARTS) == {"logistics"}
-    assert set(collection.PARTS) == {"finance"}
-    assert set(receivable.PARTS) == {"finance"}
-    assert "finance" not in inbound.registered(), "입고 등록소에 재무가 새어 들어갔다"
+    assert set(registry_day_open.PARTS) == {"finance", "logistics"}
+    assert set(registry_inbound.PARTS) == {"logistics"}
+    assert set(registry_collection.PARTS) == {"finance"}
+    assert set(registry_receivable.PARTS) == {"finance"}
+    assert "finance" not in registry_inbound.registered(), "입고 등록소에 재무가 새어 들어갔다"
     # 🔴 **여섯이 여섯 개의 다른 사전이다.** 채권을 등록해도 앞의 다섯에는 안 뜬다 —
     #    한 사전이면 여기 등록한 대역이 저쪽 `missing()` 을 조용히 채운다.
     앞의_다섯 = {
-        "transition": transition.registered(),
-        "day_open": day_open.registered(),
-        "cancellation": cancellation.registered_cancellations(),
-        "inbound": inbound.registered(),
-        "collection": collection.registered(),
+        "transition": registry_transition.registered(),
+        "day_open": registry_day_open.registered(),
+        "cancellation": registry_cancellation.registered_cancellations(),
+        "inbound": registry_inbound.registered(),
+        "collection": registry_collection.registered(),
     }
-    대역 = receivable.registered()["finance"]
+    대역 = registry_receivable.registered()["finance"]
     for 이름, 등록 in 앞의_다섯.items():
         assert 대역 not in 등록.values(), f"{이름} 등록소에 채권 대역이 새어 들어갔다"
 
@@ -174,7 +185,7 @@ def test_여섯째_등록소는_앞의_다섯과_따로다():
 def test_채권_발행_파트는_재무_하나다():
     """★ 판매는 확정 사실의 원천이지 채권 원장을 갖지 않는다."""
     with pytest.raises(ValueError, match="채권 발행 파트가 아니다"):
-        receivable.register_receivable("sales", _재무())  # type: ignore[arg-type]
+        registry_receivable.register_receivable("sales", _재무())  # type: ignore[arg-type]
 
 
 # ── ② 미등록과 "확정 판매 없음" 은 다른 사실이다 ──────────────────────────
@@ -184,7 +195,7 @@ def test_미등록이면_사유가_남는다():
     """⚠️ 뭉치면 배선이 빠진 날 매일 *"오늘은 판 게 없었다"* 로 보인다."""
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == ["finance"]
@@ -194,10 +205,10 @@ def test_미등록이면_사유가_남는다():
 
 def test_확정_판매가_없는_것은_미등록이_아니다():
     """★ 둘 다 `NOTHING_DUE` 지만 `missing` 과 `reason` 이 가른다."""
-    receivable.register_receivable("finance", _재무())
+    registry_receivable.register_receivable("finance", _재무())
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOTHING_DUE"
     assert out.missing == [], "등록은 돼 있다"
@@ -210,30 +221,30 @@ def test_확정_판매가_없는_것은_미등록이_아니다():
 
 
 def test_채권을_세우면_한_번_커밋한다():
-    receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
+    registry_receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "ISSUED"
     assert out.parts[0].issued == ["AR-SALE-1"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_터지면_통째로_롤백한다():
     """🔴 반쯤 서면 **채권은 늘었는데 `finance_states` 는 그대로인** 장부가 된다."""
-    receivable.register_receivable("finance", _재무(raises=RuntimeError("축이 안 맞는다")))
+    registry_receivable.register_receivable("finance", _재무(raises=RuntimeError("축이 안 맞는다")))
     conn = _가짜커넥션()
 
-    out = issue_receivables(AS_OF, connect=lambda: conn, sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "FAILED"
     assert "축이 안 맞는다" in out.reason
     assert conn.committed == 0
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ④ 예외를 밖으로 안 낸다 ───────────────────────────────────────────────
@@ -241,9 +252,9 @@ def test_터지면_통째로_롤백한다():
 
 def test_실패해도_예외가_안_오른다():
     """⚠️ *"예외를 안 올린다"* 가 *"그러니 판단을 계속한다"* 는 아니다 — `⑦` 이 그 답이다."""
-    receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
+    registry_receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "FAILED"
     assert out.parts == [], "실패했으면 파트 결과를 내지 않는다"
@@ -253,11 +264,11 @@ def test_실패해도_예외가_안_오른다():
 
 
 def test_안_열린_날은_채권을_세우지_않는다(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
+    monkeypatch.setattr(service_receivable, "check_day_gate", _막힌_Gate)
     재무 = _재무()
-    receivable.register_receivable("finance", 재무)
+    registry_receivable.register_receivable("finance", 재무)
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "NOT_OPENED"
     assert 재무.calls == [], "장부가 안 열렸는데 파트를 불렀다"
@@ -271,10 +282,10 @@ def test_안_열린_것을_BLOCKED_로_접지_않는다(monkeypatch: pytest.Monk
     NOT_OPENED   **아직 아무것도 안 봤다** — 장부가 없어 물어보지도 못했다
     ```
     """
-    monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
-    receivable.register_receivable("finance", _재무())
+    monkeypatch.setattr(service_receivable, "check_day_gate", _막힌_Gate)
+    registry_receivable.register_receivable("finance", _재무())
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status != "NOTHING_DUE"
     assert out.status != "BLOCKED", "안 열린 것을 BLOCKED 로 접었다"
@@ -288,7 +299,7 @@ def test_채권_발행이_하루를_열지_않는다() -> None:
     import ast
     import inspect as _inspect
 
-    src = _inspect.getsource(receivable.issue_receivables)
+    src = _inspect.getsource(service_receivable.issue_receivables)
     tree = ast.parse(src.lstrip())
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
@@ -304,9 +315,15 @@ def test_판단_경로가_채권_발행을_부작용으로_돌리지_않는다()
     import ast
     import inspect as _inspect
 
-    from app.master import service
+    # ★ 2026-09-30 재구성 BL-018: 판단 경로가 매입(`service/procurement.py`) ·
+    #   판매(`service/sales.py`)
+    #   둘로 갈렸다 — 둘을 한 트리로 잇어 잰다.
+    from app.master.service import procurement, sales
 
-    tree = ast.parse(_inspect.getsource(service))
+    tree = ast.Module(
+        body=[n for m in (procurement, sales) for n in ast.parse(_inspect.getsource(m)).body],
+        type_ignores=[],
+    )
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
         for node in ast.walk(tree)
@@ -319,7 +336,7 @@ def test_실행일_달력을_안_쓴다() -> None:
     """🔴 **원문을 잠근다.** `sales.sale_date` 가 정본이고 마스터가 그 날짜를 밀지 않는다."""
     import pathlib
 
-    원문 = pathlib.Path(receivable.__file__).read_text(encoding="utf-8")
+    원문 = pathlib.Path(service_receivable.__file__).read_text(encoding="utf-8")
     코드 = "\n".join(
         line for line in 원문.splitlines() if not line.strip().startswith(("#", "*", "```"))
     )
@@ -332,9 +349,9 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
     """★ 토요일에 확정된 판매의 채권이 월요일 장부에 서면 안 된다."""
     assert 토요일.weekday() == 5
     재무 = _재무(out=_세움("AR-SAT-1"))
-    receivable.register_receivable("finance", 재무)
+    registry_receivable.register_receivable("finance", 재무)
 
-    out = issue_receivables(토요일, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(토요일, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "ISSUED"
     assert 재무.calls == [토요일], "실행일 달력으로 밀었다"
@@ -352,35 +369,35 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     본_것: set[str] = set()
 
     # ① NOT_OPENED — 장부가 안 열렸다
-    monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
-    receivable.register_receivable("finance", _재무())
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    monkeypatch.setattr(service_receivable, "check_day_gate", _막힌_Gate)
+    registry_receivable.register_receivable("finance", _재무())
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     monkeypatch.setattr(
-        receivable,
+        service_receivable,
         "check_day_gate",
-        lambda as_of, connect=None, sim_run_id="": DayGate(
+        lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
     # ② NOTHING_DUE — 그날 확정된 판매가 없다
-    receivable.register_receivable("finance", _재무())
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    registry_receivable.register_receivable("finance", _재무())
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ③ ISSUED — 대상이 있었고 채권이 서 있다
-    receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    registry_receivable.register_receivable("finance", _재무(out=_세움("AR-SALE-1")))
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ④ BLOCKED — 대상은 있는데 못 세운다
-    receivable.register_receivable(
+    registry_receivable.register_receivable(
         "finance",
         _재무(out=ReceivablePartOut(part="finance", status="BLOCKED", reason="기일이 없다")),
     )
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     # ⑤ FAILED — 세워 보다 터졌다
-    receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
-    본_것.add(issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축).status)
+    registry_receivable.register_receivable("finance", _재무(raises=RuntimeError("boom")))
+    본_것.add(issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축).status)
 
     assert 본_것 == {"ISSUED", "NOTHING_DUE", "BLOCKED", "NOT_OPENED", "FAILED"}, (
         f"어휘 다섯 중 길이 없는 것이 있다: 나온 것 {sorted(본_것)}"
@@ -400,9 +417,9 @@ def test_BLOCKED_를_NOTHING_DUE_로_접지_않는다():
     막힘 = ReceivablePartOut(
         part="finance", status="BLOCKED", reason="SALE-1: collection_due_date 가 비어 있다"
     )
-    receivable.register_receivable("finance", _재무(out=막힘))
+    registry_receivable.register_receivable("finance", _재무(out=막힘))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
     assert out.status != "NOTHING_DUE", "세울 게 있는데 없다고 말했다"
@@ -415,9 +432,9 @@ def test_세운_것이_있어도_막힌_것이_있으면_BLOCKED_다():
     둘 = ReceivablePartOut(
         part="finance", status="BLOCKED", issued=["AR-SALE-1"], created=1, reason="한 건이 막혔다"
     )
-    receivable.register_receivable("finance", _재무(out=둘))
+    registry_receivable.register_receivable("finance", _재무(out=둘))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "BLOCKED"
     assert out.parts[0].issued == ["AR-SALE-1"], "선 것까지 지우지는 않는다"
@@ -431,16 +448,16 @@ def test_ISSUED_인데_새로_만든_건수가_0_일_수_있다():
       매일 *"아무것도 안 했다"* 로 읽힌다.
     """
     두번째_걸음 = _세움("AR-SALE-1", "AR-SALE-2", created=0)
-    receivable.register_receivable("finance", _재무(out=두번째_걸음))
+    registry_receivable.register_receivable("finance", _재무(out=두번째_걸음))
 
-    out = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    out = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
     assert out.status == "ISSUED", "이미 서 있는 것을 NOTHING_DUE 로 접었다"
     assert out.parts[0].created == 0
     assert len(out.parts[0].issued) == 2, "서 있는 채권을 안 실었다"
     # 🔴 대상이 없던 날과 **다른 값**이어야 한다.
-    receivable.register_receivable("finance", _재무())
-    없던_날 = issue_receivables(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=축)
+    registry_receivable.register_receivable("finance", _재무())
+    없던_날 = issue_receivables(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert 없던_날.status != out.status, "두 사실이 같은 status 로 나간다"
 
 
@@ -449,7 +466,7 @@ def test_ISSUED_인데_새로_만든_건수가_0_일_수_있다():
 
 def test_채권_발행_엔드포인트가_있다() -> None:
     """🔴 **없으면 판매 확정일에 아무도 안 부른다** — `confirm_receivable` 이 그랬다."""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/issue-receivables" in paths, (
@@ -464,7 +481,7 @@ def test_장부를_바꾸는_사건_넷이_다_다른_엔드포인트다() -> No
     개장 성공 · 입고 BLOCKED · 채권 ISSUED · 수금 NOTHING_DUE ← 한 status 로 어떻게 적나
     ```
     """
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/open" in paths
@@ -477,23 +494,24 @@ def test_엔드포인트가_부르는_함수가_하루_실행이_부르는_함�
     """🔴 **둘이 갈리면 손으로 부른 결과와 걷기 결과가 다른 코드를 지난다.**"""
     import inspect as _inspect
 
-    from app.master import router as router_module
-    from app.master import scheduler
+    from app.api.master import days as router_module
+    from app.master.service import receivable as service_receivable
+    from app.master.service import scheduler as service_scheduler
 
     사람_경로 = _inspect.getsource(router_module.master_issue_receivables)
     assert "run_issue_receivables(as_of, sim_run_id=_walk_axis(sim_run_id))" in 사람_경로
 
-    assert router_module.run_issue_receivables is receivable.issue_receivables
+    assert router_module.run_issue_receivables is service_receivable.issue_receivables
     assert (
-        _inspect.signature(scheduler.run_scheduled_day).parameters["issue_fn"].default
-        is receivable.issue_receivables
+        _inspect.signature(service_scheduler.run_scheduled_day).parameters["issue_fn"].default
+        is service_receivable.issue_receivables
     ), "하루 실행이 다른 함수를 부른다"
 
 
 def test_엔드포인트가_실패도_200_으로_낸다(monkeypatch: pytest.MonkeyPatch) -> None:
     """★ 막힌 것은 오류가 아니라 **그날의 사실**이다."""
-    monkeypatch.setattr(receivable, "check_day_gate", _막힌_Gate)
-    receivable.register_receivable("finance", _재무())
+    monkeypatch.setattr(service_receivable, "check_day_gate", _막힌_Gate)
+    registry_receivable.register_receivable("finance", _재무())
 
     import app.main
 
@@ -543,7 +561,8 @@ class _Procure:
 
 
 def _하루(**kwargs) -> Any:
-    from app.master.scheduler import ScheduledAction, run_scheduled_day
+    from app.master.domain.scheduler import ScheduledAction
+    from app.master.service.scheduler import run_scheduled_day
 
     defaults: dict[str, Any] = {
         "open_day_fn": _Spy(_Out("OPENED")),
@@ -561,7 +580,7 @@ def _하루(**kwargs) -> Any:
     defaults.update(kwargs)
     from datetime import datetime
 
-    from app.master.clock import SEOUL
+    from app.core.clock import SEOUL
 
     action = ScheduledAction(
         as_of=AS_OF,
@@ -649,8 +668,8 @@ def test_채권이_수금보다_앞이다() -> None:
 
 def test_성적표가_채권_분포를_적는다() -> None:
     """🔴 **다섯 값을 접지 않고 그대로 센다.**"""
-    from app.master.backtest_runner import WalkResult, format_summary
-    from app.master.scheduler import DayRunOutcome
+    from app.master.domain.scheduler import DayRunOutcome
+    from app.master.report.walk_summary import WalkResult, format_summary
 
     def _날(as_of: date, status: str) -> DayRunOutcome:
         return DayRunOutcome(
@@ -680,8 +699,8 @@ def test_성적표가_채권_분포를_적는다() -> None:
 
 def test_성적표_사유가_채권_상태를_적는다() -> None:
     """★ 판단 단계를 안 탄 날, 어느 단계가 막았는지가 사유에 있어야 한다."""
-    from app.master.backtest_runner import _incident_reason
-    from app.master.scheduler import DayRunOutcome
+    from app.master.cli.backtest_runner import _incident_reason
+    from app.master.domain.scheduler import DayRunOutcome
 
     사유 = _incident_reason(
         DayRunOutcome(

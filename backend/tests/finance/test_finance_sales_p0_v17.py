@@ -4,18 +4,19 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.capabilities.sales import evaluate_sales_scenario, parse_sales_validation_input
-from app.finance.collection import (
-    FinanceCollectionConflict,
-    apply_cumulative_collection,
-    build_collection_transition,
+from app.finance.domain.collections import build_collection_transition
+from app.finance.domain.sales_validation import (
+    evaluate_sales_scenario,
+    parse_sales_validation_input,
 )
-from app.finance.sales_validation import (
+from app.finance.domain.tools import compose_sales_cost_basis
+from app.finance.schemas.collections import FinanceCollectionConflict
+from app.finance.schemas.sales_validation import (
     ConditionalSupplyCostBasis,
     InventoryCostBasis,
     VerifiedDirectCost,
 )
-from app.finance.tools import compose_sales_cost_basis
+from app.finance.service.collections import apply_cumulative_collection
 
 
 def _payload(*, conditional_cost=...):
@@ -242,7 +243,7 @@ class _Connection:
 
 
 def test_f11_cumulative_collection_is_idempotent_in_caller_transaction(monkeypatch):
-    monkeypatch.setattr("app.finance.collection.get_db_schema", lambda: "test_schema")
+    monkeypatch.setattr("app.finance.repository.collections.get_db_schema", lambda: "test_schema")
     conn = _Connection()
     first = apply_cumulative_collection(
         conn,

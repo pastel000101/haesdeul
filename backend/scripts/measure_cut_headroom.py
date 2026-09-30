@@ -74,7 +74,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.finance.db import fetch_all, get_db_schema
+from app.core import db as core_db
+from app.core.settings import get_db_schema
 
 #: 커버일수. `constraints.yaml` 의 `coverage_days` 와 같은 셋이지만 **여기서 판정하지
 #: 않는다** — 표의 열 이름일 뿐이다.
@@ -112,6 +113,16 @@ SELECT auction_date AS dt, item_name AS item_nm,
         OR (item_name = '양파' AND unit_weight_kg = 15))
  GROUP BY 1, 2
 """
+
+
+def fetch_all(query: Any, params: Any = None) -> list[dict[str, Any]]:
+    """조회 연결 하나를 빌려 한 문장을 읽는다.
+
+    2026-09-30 재구성 BL-018 에 없앤 `app.master.db.fetch_all` 과 같은 대여 · 실행이다.
+    """
+    with core_db.read_connection() as conn, conn.cursor() as cursor:
+        cursor.execute(query, params)
+        return cursor.fetchall()
 
 
 def load_actuals() -> dict[tuple[dt.date, str], float]:
@@ -357,4 +368,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with core_db.pool_lifespan():
+        main()

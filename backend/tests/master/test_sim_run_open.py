@@ -32,9 +32,9 @@ from typing import Any, Self
 import pytest
 from psycopg.errors import ForeignKeyViolation
 
-from app.finance.db import get_db_schema
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_open import (
+from app.core.settings import get_db_schema
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.repository.sim_run_open import (
     LOGISTICS_FIXTURE_TABLE,
     RUN_TABLE,
     BaselineLineage,
@@ -883,7 +883,7 @@ def test_usage_scope_를_원문이_안_든다() -> None:
       마스터가 놓은 씨앗을 물류가 못 읽고, 개장은 다시 거절한다. 물류 상수를
       import 해 오는 것도 같은 이유로 안 된다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
     for 금지 in (쓰임, "USAGE_SCOPE", "LOGISTICS_POLICY_USAGE_SCOPE", "app.logistics"):
         assert 금지 not in 원문, f"물류 어휘를 마스터에 박았다: {금지}"
@@ -1091,7 +1091,7 @@ def test_축_없는_자식_목록을_손으로_안_적는다() -> None:
 
     ★ 칸 이름도 마찬가지다. 복합 FK 의 칸을 손으로 적으면 짝이 하나 바뀌는 날 틀린다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
     for 표 in (*_축없는자식, "market_quotes", "purchase_items", "inventory_move_lines"):
         assert 표 not in 원문, f"축 없는 자식 이름을 원문에 박았다: {표}"
@@ -1303,7 +1303,7 @@ def test_CASCADE_로_풀지_않는다() -> None:
       것은 막을 일이 아니다 — 조각으로 재면 그 문장이 잡혀 검사가 코드가 아니라
       설명을 재게 된다.
     """
-    원문 = _NFC(_벗긴_원문(_MASTER / "sim_run_open.py"))
+    원문 = _NFC(_벗긴_원문(_MASTER / "repository" / "sim_run_open.py"))
 
     for 금지 in (
         "ON DELETE CASCADE",
@@ -1343,9 +1343,12 @@ def test_이름을_안_파싱한다() -> None:
     """🔴 **이름은 사람이 읽는 것**이다. `LOAN` / `BASE` 를 읽어 판정하는 순간
     이름이 사실의 주인이 되고, 그 뒤로 이름을 못 바꾼다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
-    for 금지 in (".split(", ".rsplit(", ".partition(", ".startswith(", ".endswith(", "re."):
+    # ★ 2026-09-30 재구성 BL-018: `re` 모듈 사용은 단어 경계로 잰다 — 글자 `re.` 는
+    #   `app.core.settings` 의 «co`re.`» 에도 걸린다.
+    assert not re.search(r"\bre\.", 원문), "이름을 정규식으로 되읽는다"
+    for 금지 in (".split(", ".rsplit(", ".partition(", ".startswith(", ".endswith("):
         assert 금지 not in 원문, f"이름을 되읽는다: {금지}"
 
 
@@ -1353,7 +1356,7 @@ def test_조달_방식_이름을_원문이_안_든다() -> None:
     """🔴 **한 값을 보고 다른 값을 추측하지 않는다.** 호출자가 `financing_mode` 와
     `baseline` 을 **함께** 명시한다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
     for 금지 in ("LOAN_BASELINE", "BASE_NO_LOAN", "FIN-DAY30", "DAY30"):
         assert 금지 not in 원문, f"값을 원문에 박았다: {금지}"
@@ -1365,7 +1368,7 @@ def test_표_목록을_원문이_안_든다() -> None:
     ⚠️ `sim_runs` 와 `finance_states` 는 예외다 — 각각 **안 지우는 표**와
       **시작 상태를 심는 표**로, 이 절차가 이름으로 지목해야 하는 자리다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
     for 금지 in ("deliveries", "payables", "purchases", "inventory_lots", "receivables"):
         assert 금지 not in 원문, f"표 목록을 손으로 적었다: {금지}"
@@ -1375,9 +1378,15 @@ def test_커넥션을_스스로_안_연다() -> None:
     """🔴 **커넥션은 인자다.** 안에서 열면 이 검사들이 실 DB 로 나가고, 이 판이
     *"DB 에 한 행도 안 쓰고 안 지운다"* 를 못 지킨다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
-    for 금지 in ("get_connection", "execute_query", "fetch_one", "fetch_all"):
+    # ★ 2026-09-30 재구성 BL-018: 막는 것은 연결 대여다. 스키마 이름은 설정
+    #   원천(`app.core.settings`)에서
+    #   받는 것이 제자리라 `app.core` 글자 대신 `app.core.db` · `from app.core import db` 를 막는다.
+    for 금지 in (
+        "get_connection", "core_db", "app.core.db", "from app.core import db", "execute_query",
+        "fetch_one", "fetch_all",
+    ):
         assert 금지 not in 원문, f"여는 절차가 커넥션을 스스로 연다: {금지}"
 
 
@@ -1385,7 +1394,7 @@ def test_시계를_안_읽는다() -> None:
     """★ `state_date` 도 인자다 — 여기서 시계를 읽으면 같은 실행을 두 번 열 때
     출발 날짜가 갈리고, 그 사실이 어디에도 안 남는다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run_open.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_run_open.py")
 
     for 금지 in ("now(", "utcnow(", "today(", "seoul_now"):
         assert 금지 not in 원문, f"여는 절차가 시계를 읽는다: {금지}"

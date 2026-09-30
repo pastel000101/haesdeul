@@ -17,20 +17,22 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
-from app.finance.db import _fetch_accrued_expense_rows, _rows_to_events
+from app.finance.domain.cash_events import rows_to_events
+from app.finance.repository.cash_events import select_accrued_expenses
 
-_DB = "app.finance.db"
+#: 2026-09-29 재구성 BL-014: 운영비 의무 SQL 은 repository 가 받은 연결로 실행한다.
+_DB = "app.finance.repository.cash_events"
 AS_OF = date(2026, 9, 16)
 HORIZON = date(2026, 10, 16)
 
 
 def _query():
     with patch(f"{_DB}.fetch_all", return_value=[]) as fetched:
-        rows = _fetch_accrued_expense_rows(
-            sim_run_id="SIM-1", as_of=AS_OF, horizon_end=HORIZON
+        rows = select_accrued_expenses(
+            None, sim_run_id="SIM-1", as_of=AS_OF, horizon_end=HORIZON
         )
     assert rows == []
-    query, params = fetched.call_args.args
+    _conn, query, params = fetched.call_args.args
     return " ".join(query.as_string(None).split()), params
 
 
@@ -70,7 +72,7 @@ def test_the_expense_query_is_scoped_to_one_run():
 
 def test_rows_become_committed_outflow_events_on_their_due_date():
     """★ 이름이 `COMMITTED_OUTFLOW` 다 — `PURCHASE_PAYABLE` 과 합치지 않는다."""
-    events = _rows_to_events(
+    events = rows_to_events(
         [
             {
                 "expense_id": "EXP-1",
@@ -94,7 +96,7 @@ def test_rows_become_committed_outflow_events_on_their_due_date():
 
 def test_an_expense_arising_today_but_due_later_lands_on_the_later_day():
     """발생 9/16 · 지급 예정 9/20 이면 현금 Event 는 **9/20** 이다."""
-    events = _rows_to_events(
+    events = rows_to_events(
         [
             {
                 "expense_id": "EXP-RENT",
@@ -122,9 +124,9 @@ def test_an_accrued_expense_reaches_sales_as_a_committed_outflow_not_a_payable()
     둘 다 유출이지만 매입 대금과 운영비는 다른 사실이다. 판매가 합친 값 하나만 받으면
     어느 쪽이 큰지 되짚을 수 없고, 되짚을 수 없으면 무엇을 줄여야 할지도 모른다.
     """
-    from app.finance.capabilities.pre_sales import build_obligation_facts
+    from app.finance.domain.pre_sales import build_obligation_facts
 
-    expense_events = _rows_to_events(
+    expense_events = rows_to_events(
         [
             {
                 "expense_id": "EXP-RENT",

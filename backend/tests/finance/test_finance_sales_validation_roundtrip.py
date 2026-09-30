@@ -22,10 +22,13 @@ from uuid import UUID
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance.adapter import finance_port
-from app.master.envelope import AgentRequest, ExecutionContext
+from tests.finance.finance_fake_connection import lent
 
-_EXECUTION = "app.finance.execution"
+#: 2026-09-29 재구성 BL-014: 실행이력 SQL 은 `repository/runs.py` 가 짓고, 저장은
+#: `service/run_history.py` 가 자기 연결 하나 · 트랜잭션 하나로 한다(가짜 연결은 `lent`).
+_EXECUTION = "app.finance.repository.runs"
 
 
 def _request(payload=None, *, mode="SALES_VALIDATION"):
@@ -72,20 +75,21 @@ def _run(request, finance_context):
     """
     saved: dict[str, object] = {}
 
-    def _capture(query, params):
+    def _capture(_conn, query, params):
         saved["params"] = params
         return {"run_id": UUID("00000000-0000-0000-0000-000000000009")}
 
     with (
         patch(
-            "app.finance.adapter.get_current_finance_runtime_context",
+            "app.finance.service.agent_run.get_current_finance_runtime_context",
             return_value=finance_context,
         ),
-        patch("app.finance.adapter.load_partner_receivables", return_value=[]),
+        patch("app.finance.service.agent_run.load_partner_receivables", return_value=[]),
         patch("app.finance.llm.planner.finance_llm_enabled", return_value=False),
-        patch("app.finance.adapter.finance_llm_enabled", return_value=False),
+        patch("app.finance.service.agent_replies.finance_llm_enabled", return_value=False),
         patch(f"{_EXECUTION}.get_db_schema", return_value="haetdeul"),
-        patch(f"{_EXECUTION}.execute_returning_one", side_effect=_capture),
+        patch(f"{_EXECUTION}.returning_one", side_effect=_capture),
+        lent(reads=False),  # 이력 저장의 쓰기 연결만 — 조회는 종전처럼 막힌다
     ):
         reply, metadata = finance_port(request)
     return reply, metadata, saved
@@ -245,6 +249,6 @@ def test_sales_tools_are_the_only_tools_used_in_sales_mode(finance_context):
 
 @pytest.mark.parametrize("mode", ["PRE_PURCHASE", "SCENARIO_VALIDATION", "SALES_VALIDATION"])
 def test_every_controller_mode_is_accepted_by_run_history(mode):
-    from app.finance.adapter import _CONTROLLER_MODES
+    from app.finance.service.agent_replies import _CONTROLLER_MODES
 
     assert mode in _CONTROLLER_MODES

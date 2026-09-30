@@ -13,15 +13,12 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.adapter import (
+from app.finance.domain.sales_validation import (
     SALES_VERDICT_TO_BUSINESS_STATUS,
     build_sales_validation_payload,
     map_sales_finance_verdict,
 )
-from app.finance.sales_validation import (
-    SalesFinancialSummary,
-    SalesValidationResult,
-)
+from app.finance.schemas.sales_validation import SalesFinancialSummary, SalesValidationResult
 
 
 def _summary(**overrides):

@@ -14,7 +14,7 @@
 from datetime import date
 
 from app.contracts.core import SuggestedAdjustment
-from app.finance.execution import _adjustment_from_dict
+from app.finance.domain.evidence import adjustment_from_dict
 
 
 def _dict(**over):
@@ -36,20 +36,20 @@ def _dict(**over):
 
 
 def test_scenario_labels_survive_the_conversion():
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=("기본", "공격")))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=("기본", "공격")))
 
     assert adjustment.scenario_labels == ("기본", "공격")
 
 
 def test_scenario_labels_become_a_tuple_even_when_given_as_a_list():
     # payload 는 JSON 을 왕복하므로 list 로 돌아온다 — 계약은 tuple 이다.
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=["기본"]))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=["기본"]))
 
     assert adjustment.scenario_labels == ("기본",)
 
 
 def test_a_single_label_is_not_split_into_characters():
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=["보수"]))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=["보수"]))
 
     assert adjustment.scenario_labels == ("보수",)
 
@@ -60,13 +60,13 @@ def test_a_single_label_is_not_split_into_characters():
 
 
 def test_missing_scenario_labels_stay_empty():
-    adjustment = _adjustment_from_dict(_dict())
+    adjustment = adjustment_from_dict(_dict())
 
     assert adjustment.scenario_labels == ()
 
 
 def test_explicit_empty_scenario_labels_stay_empty():
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=[]))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=[]))
 
     assert adjustment.scenario_labels == ()
 
@@ -78,7 +78,7 @@ def test_no_scenario_label_vocabulary_is_invented_when_absent():
     날 조용히 어긋난다 — 게다가 그것은 **재무가 판정하지 않은 안**에 조정을
     붙이는 일이 된다.
     """
-    adjustment = _adjustment_from_dict(_dict())
+    adjustment = adjustment_from_dict(_dict())
 
     assert adjustment.scenario_labels == ()
     for invented in ("보수", "기본", "공격", "CONSERVATIVE", "BALANCED", "AGGRESSIVE"):
@@ -91,14 +91,14 @@ def test_no_scenario_label_vocabulary_is_invented_when_absent():
 
 
 def test_finance_amount_adjustment_has_no_split_date():
-    adjustment = _adjustment_from_dict(_dict())
+    adjustment = adjustment_from_dict(_dict())
 
     # 재무 amount 축에는 회차 개념이 없다 — None 이 정상이고, 날짜를 지어내지 않는다.
     assert adjustment.split_date is None
 
 
 def test_split_date_is_carried_when_upstream_actually_has_one():
-    adjustment = _adjustment_from_dict(_dict(split_date=date(2026, 1, 5)))
+    adjustment = adjustment_from_dict(_dict(split_date=date(2026, 1, 5)))
 
     assert adjustment.split_date == date(2026, 1, 5)
 
@@ -109,7 +109,7 @@ def test_split_date_is_carried_when_upstream_actually_has_one():
 
 
 def test_the_six_original_fields_are_unchanged():
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=["기본"]))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=["기본"]))
 
     assert adjustment.dept == "finance"
     assert adjustment.axis == "amount"
@@ -120,7 +120,7 @@ def test_the_six_original_fields_are_unchanged():
 
 
 def test_finance_still_owns_only_the_amount_axis():
-    adjustment = _adjustment_from_dict(_dict(scenario_labels=["기본"]))
+    adjustment = adjustment_from_dict(_dict(scenario_labels=["기본"]))
 
     # 라벨을 싣는다고 축이 늘어나지 않는다.
     assert isinstance(adjustment, SuggestedAdjustment)

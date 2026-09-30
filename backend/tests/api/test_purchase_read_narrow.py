@@ -6,12 +6,17 @@
     ① 결정 조회에 좁힌 조건이 실리나 — 문면 · 파라미터를 보고, 실행을 바꿔 따라오나
     ② 실행 조회가 본문을 통째로 안 끌어오나 — 문면
     ③ 🔴 **쓰는 칸을 빠뜨리지 않았나** — 이 모듈 소스에서 `payload` 로 읽는 `.get("…")` 을
-       전부 모아 `_RUN_PAYLOAD` 와 **양쪽으로** 맞춘다
+       전부 모아 `RUN_PAYLOAD` 와 **양쪽으로** 맞춘다
 
 ★ ③ 이 가장 위험한 자리다. 칸을 빠뜨리면 예외 없이 `None` 이 오고, 안별 컷 사유 · 사유
   문장이 「사유를 남긴 실행이 없습니다」로 **조용히** 바뀐다.
 
 실측 (REH-0914 08-31) — 결정 11,427행 · 1.6MB 전부 → 그날 요청만 · 실행 본문 1.6MB → 96KB.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -23,7 +28,10 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
+from app.master.readmodel.purchase_tab import read_purchase_tab
+from app.master.repository import purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 
@@ -52,13 +60,11 @@ def _run(request_id: str | None) -> dict[str, Any]:
 
 @pytest.fixture
 def install(monkeypatch: pytest.MonkeyPatch):
-    import app.finance.db as finance_db
-
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
 
     def _install(runs: list[dict[str, Any]]) -> _Recorder:
         rec = _Recorder(runs)
-        monkeypatch.setattr(finance_db, "fetch_all", rec)
+        patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=rec)
         return rec
 
     return _install
@@ -71,9 +77,9 @@ def install(monkeypatch: pytest.MonkeyPatch):
 def test_결정_조회가_그날_실행의_요청으로_좁혀_나간다(install) -> None:
     """★ 규칙 8 — **실행을 바꿔** 조건이 따라오는지 본다. 상수와 대 보지 않는다."""
     앞 = install([_run("REQ-B"), _run("REQ-A"), _run("REQ-A"), _run(None)])
-    purchase_query._read(AS_OF)
+    read_purchase_tab(AS_OF)
     뒤 = install([_run("REQ-C")])
-    purchase_query._read(AS_OF)
+    read_purchase_tab(AS_OF)
 
     ((text_a, params_a),) = 앞.only("master_decisions")
     ((_text_b, params_b),) = 뒤.only("master_decisions")
@@ -92,7 +98,7 @@ def test_그날_실행이_없어도_결정_조회는_빈_목록으로_좁혀_나
     """
     rec = install([])
 
-    data = purchase_query._read(AS_OF)
+    data = read_purchase_tab(AS_OF)
 
     ((text, params),) = rec.only("master_decisions")
     assert "request_id = ANY(%(request_ids)s)" in text
@@ -107,12 +113,12 @@ def test_그날_실행이_없어도_결정_조회는_빈_목록으로_좁혀_나
 def test_실행_조회가_본문을_통째로_안_끌어온다(install) -> None:
     rec = install([])
 
-    purchase_query._read(AS_OF)
+    read_purchase_tab(AS_OF)
 
     ((text, _params),) = rec.only("run_id, request_id")
     assert "response_payload AS payload" not in text
     assert "jsonb_build_object" in text
-    for key, sub in purchase_query._RUN_PAYLOAD.items():
+    for key, sub in purchase_tab.RUN_PAYLOAD.items():
         assert f"response_payload->'{key}'" in text, key
         for inner in sub:
             assert f"response_payload->'{key}'->'{inner}'" in text, (key, inner)
@@ -157,7 +163,7 @@ def _get_key(node: ast.AST) -> tuple[ast.expr, str] | None:
 
 def _payload_reads() -> dict[str, set[str]]:
     """이 모듈이 `payload` 에서 읽는 칸 — `{최상위 칸: {그 안에서 읽는 칸}}`."""
-    tree = ast.parse(inspect.getsource(purchase_query))
+    tree = ast.parse(inspect.getsource(purchase_presenter))
     reads: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         got = _get_key(node)
@@ -174,9 +180,9 @@ def _payload_reads() -> dict[str, set[str]]:
 
 
 def test_payload_에서_읽는_칸이_전부_뽑혀_온다() -> None:
-    """🔴 **빠뜨린 칸이 있으면 여기서 운다.** 새 칸을 읽으면 `_RUN_PAYLOAD` 에 먼저 적는다."""
+    """🔴 **빠뜨린 칸이 있으면 여기서 운다.** 새 칸을 읽으면 `RUN_PAYLOAD` 에 먼저 적는다."""
     reads = _payload_reads()
-    spec = {k: set(v) for k, v in purchase_query._RUN_PAYLOAD.items()}
+    spec = {k: set(v) for k, v in purchase_tab.RUN_PAYLOAD.items()}
 
     #  ★ 모으는 쪽이 고장 나 빈 집합이면 아래 비교가 거짓으로 초록이 된다 — 먼저 막는다
     assert reads, "소스에서 payload 읽기를 하나도 못 찾았다 — 스캐너가 낡았다"
@@ -190,6 +196,6 @@ def test_뽑아_오는_칸은_전부_실제로_쓰인다() -> None:
     """반대 방향 — 안 쓰는 칸을 뽑으면 좁힌 뜻이 조용히 흐려진다."""
     reads = _payload_reads()
 
-    assert set(purchase_query._RUN_PAYLOAD) <= set(reads)
-    for key, sub in purchase_query._RUN_PAYLOAD.items():
+    assert set(purchase_tab.RUN_PAYLOAD) <= set(reads)
+    for key, sub in purchase_tab.RUN_PAYLOAD.items():
         assert set(sub) <= reads[key], (key, sub, reads[key])

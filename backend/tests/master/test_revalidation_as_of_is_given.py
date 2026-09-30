@@ -41,8 +41,13 @@ from typing import Any
 
 import pytest
 
-from app.master import ask_service, revalidation, router, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.api.master import decision as router
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.domain import revalidation as domain_revalidation
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas import revalidation as schemas_revalidation
+from app.master.service import ask
+from app.master.service import revalidation as service_revalidation
 
 #: 이 검사가 고르는 "고른 날". 🔴 **오늘일 리 없는 값으로 둔다** — 벽시계가 어딘가에
 #: 남아 있으면 그 자리에서 값이 갈린다.
@@ -83,14 +88,14 @@ class 부서:
 @pytest.fixture
 def 부서들() -> dict[str, 부서]:
     """필수 capability 둘이 라우팅되는 물류·재무를 등록한다."""
-    wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
+    registry_wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
     등록 = {"inventory": 부서(), "finance": 부서()}
     for 이름, 포트 in 등록.items():
-        wiring.register(이름, 포트)
+        registry_wiring.register(이름, 포트)
     return 등록
 
 
-def _재검증(**kw: Any) -> revalidation.Revalidation:
+def _재검증(**kw: Any) -> schemas_revalidation.Revalidation:
     base: dict[str, Any] = {
         "scenario": {"label": "기본"},
         "original_conditions": frozenset(),
@@ -101,7 +106,7 @@ def _재검증(**kw: Any) -> revalidation.Revalidation:
         "sim_run_id": 실행축,
     }
     base.update(kw)
-    return revalidation.revalidate_scenario(**base)
+    return service_revalidation.revalidate_scenario(**base)
 
 
 # ---------------------------------------------------------------------------
@@ -125,7 +130,7 @@ def test_as_of_없이_부르면_터진다(부서들):
     "함수",
     #: 🔴 **`record_decision` 은 여기 없다** (2026-09-09). 그 함수는 as_of 를 **안 받고**
     #: 실행 이력 행에서 읽는다 — 받으면 부르는 쪽이 아무 날이나 넣을 수 있다.
-    [revalidation.revalidate_scenario],
+    [service_revalidation.revalidate_scenario],
     ids=["revalidate_scenario"],
 )
 def test_as_of_는_기본값_없는_키워드다(함수):
@@ -171,7 +176,7 @@ def test_넘긴_날이_재검증_업무_키를_만든다(부서들):
     결과 = _재검증(as_of=고른_날)
 
     assert 결과.request_id == f"REV-{실행축}-20260310-0001"
-    assert 결과.request_id == revalidation.make_revalidation_request_id(실행축, 고른_날, 1)
+    assert 결과.request_id == domain_revalidation.make_revalidation_request_id(실행축, 고른_날, 1)
 
     쓴_키 = {rid for 부 in 부서들.values() for (_as_of, rid) in 부.호출}
     assert 쓴_키 == {결과.request_id}, "부서가 받은 업무 키가 결과의 키와 다르다"
@@ -215,9 +220,9 @@ def test_발화문_승인도_날짜를_안_넘긴다(monkeypatch):
     from datetime import UTC, datetime
     from uuid import uuid4
 
-    from app.master.ask_schemas import AskExecuteRequest
-    from app.master.decision import DecisionOut
     from app.master.llm.schemas import Intent
+    from app.master.schemas.ask import AskExecuteRequest
+    from app.master.schemas.decision import DecisionOut
 
     받은: list[Any] = []
 
@@ -235,9 +240,9 @@ def test_발화문_승인도_날짜를_안_넘긴다(monkeypatch):
             created_at=datetime.now(UTC),
         )
 
-    monkeypatch.setattr(ask_service, "record_decision", _대역)
+    monkeypatch.setattr(ask, "record_decision", _대역)
 
-    ask_service._record_selection(
+    ask._record_selection(
         AskExecuteRequest(
             intent=Intent(action="SELECT_SCENARIO", scenario_label="기본", confidence="HIGH"),
             as_of=고른_날,

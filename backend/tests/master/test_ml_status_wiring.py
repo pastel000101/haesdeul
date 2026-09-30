@@ -24,14 +24,21 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.ask import router
 from app.contracts.core import ContractViolation
-from app.master import AgentReply, AgentRequest, ExecutionMetadata, wiring
-from app.master.ask_schemas import AskRequest
-from app.master.ask_service import ask
-from app.master.envelope import ExecutionContext, agent_allowed_modes, agent_dept
+from app.contracts.envelope import (
+    AgentReply,
+    AgentRequest,
+    ExecutionContext,
+    ExecutionMetadata,
+    agent_allowed_modes,
+    agent_dept,
+)
 from app.master.llm.runtime import IntentService, LLMSettings, validate_intent
 from app.master.llm.schemas import NarrativeResult
-from app.master.router import router
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.ask import AskRequest
+from app.master.service.ask import ask
 
 AS_OF = "2026-08-27"
 질문 = "내일 배추 경락가 얼마야?"
@@ -116,11 +123,11 @@ _ML_PAYLOAD: dict[str, Any] = {
 
 @pytest.fixture(autouse=True)
 def clean_wiring(monkeypatch: pytest.MonkeyPatch):
-    wiring.reset()
+    registry_wiring.reset()
     # 조회 적재는 DB 를 친다 — 여기서는 막는다.
-    monkeypatch.setattr("app.master.ask_service.persistence.record_status", lambda **kw: None)
+    monkeypatch.setattr("app.master.service.persistence.record_status", lambda **kw: None)
     yield
-    wiring.reset()
+    registry_wiring.reset()
 
 
 def _ask(utterance: str, response: str, narrator=None):
@@ -174,9 +181,9 @@ def test_ml_은_질문과_품목을_물류는_질문만_받고_나머지는_빈_
     맡으면서 원문이 물류에도 실린다 — 대신 **품목은 안 실린다**를 여기서 잠근다.
     """
     seen: list[AgentRequest] = []
-    wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
-    wiring.register("finance", _recording_port(seen, {"available_cash": 7}))
-    wiring.register("inventory", _recording_port(seen, {"warehouse_free_kg": 10}))
+    registry_wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
+    registry_wiring.register("finance", _recording_port(seen, {"available_cash": 7}))
+    registry_wiring.register("inventory", _recording_port(seen, {"warehouse_free_kg": 10}))
 
     result = _ask(질문, _intent_json(agents=["ml", "finance", "inventory"], item="배추"))
 
@@ -196,7 +203,7 @@ def test_원문이_없어도_물류는_빈_payload_로_그대로_부른다():
     통째로 `unavailable` 이 된다.
     """
     seen: list[AgentRequest] = []
-    wiring.register("inventory", _recording_port(seen, {"warehouse_free_kg": 10}))
+    registry_wiring.register("inventory", _recording_port(seen, {"warehouse_free_kg": 10}))
     app = FastAPI()
     app.include_router(router)
 
@@ -214,7 +221,7 @@ def test_매입_재무_판매_payload_는_그대로_비어_있다():
     """원문이 있어도 이 셋은 종전 그대로다 — 수신 계약을 건드리지 않았다."""
     seen: list[AgentRequest] = []
     for name in ("finance", "purchase", "sales"):
-        wiring.register(name, _recording_port(seen, {"ok": True}))
+        registry_wiring.register(name, _recording_port(seen, {"ok": True}))
 
     _ask(질문, _intent_json(agents=["finance", "purchase", "sales"], item="배추"))
 
@@ -225,7 +232,7 @@ def test_매입_재무_판매_payload_는_그대로_비어_있다():
 
 def test_품목이_없으면_item_키를_빼고_보낸다():
     seen: list[AgentRequest] = []
-    wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
+    registry_wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
 
     _ask("내일 경락가 전망 알려줘", _intent_json(agents=["ml"]))
 
@@ -237,7 +244,7 @@ def test_품목이_없으면_item_키를_빼고_보낸다():
 
 def test_answer_markdown_은_본문_그대로_나가고_사실_줄로_펴지_않는다():
     seen: list[AgentRequest] = []
-    wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
+    registry_wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
     narrator = _CountingNarrator()
 
     result = _ask(질문, _intent_json(agents=["ml"], item="배추"), narrator=narrator)
@@ -257,7 +264,7 @@ def test_answer_markdown_은_본문_그대로_나가고_사실_줄로_펴지_않
 
 def test_다른_부서_조회는_종전대로_마크다운이_없다():
     seen: list[AgentRequest] = []
-    wiring.register("finance", _recording_port(seen, {"available_cash": 7}))
+    registry_wiring.register("finance", _recording_port(seen, {"available_cash": 7}))
 
     result = _ask("지금 자금 상황 알려줘", _intent_json(agents=["finance"]))
 
@@ -285,7 +292,7 @@ def _execute_body(**kw: Any) -> dict[str, Any]:
 
 def test_확인한_조회는_화면이_돌려준_원문을_ml_에_싣는다():
     seen: list[AgentRequest] = []
-    wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
+    registry_wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
     app = FastAPI()
     app.include_router(router)
 
@@ -297,7 +304,7 @@ def test_확인한_조회는_화면이_돌려준_원문을_ml_에_싣는다():
 
 def test_원문이_없으면_ml_을_부르지_않고_못_답했다고_밝힌다():
     seen: list[AgentRequest] = []
-    wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
+    registry_wiring.register("ml", _recording_port(seen, _ML_PAYLOAD))
     app = FastAPI()
     app.include_router(router)
 
@@ -312,16 +319,16 @@ def test_원문이_없으면_ml_을_부르지_않고_못_답했다고_밝힌다(
 
 
 def test_ml_이_없어도_매입_판매_필수_어댑터_검사는_통과한다():
-    assert "ml" not in wiring.REQUIRED_FOR_PROCUREMENT
-    assert "ml" not in wiring.REQUIRED_FOR_SALES
+    assert "ml" not in registry_wiring.REQUIRED_FOR_PROCUREMENT
+    assert "ml" not in registry_wiring.REQUIRED_FOR_SALES
 
     seen: list[AgentRequest] = []
     for name in ("finance", "inventory", "purchase", "sales"):
-        wiring.register(name, _recording_port(seen, {}))
+        registry_wiring.register(name, _recording_port(seen, {}))
 
-    assert not wiring.registry().has("ml")
-    assert wiring.missing(wiring.REQUIRED_FOR_PROCUREMENT) == ()
-    assert wiring.missing(wiring.REQUIRED_FOR_SALES) == ()
+    assert not registry_wiring.registry().has("ml")
+    assert registry_wiring.missing(registry_wiring.REQUIRED_FOR_PROCUREMENT) == ()
+    assert registry_wiring.missing(registry_wiring.REQUIRED_FOR_SALES) == ()
 
 
 # ── (f) 조립 뿌리가 ml 을 건다 ──────────────────────────────────────────
@@ -334,33 +341,53 @@ def test_조립_뿌리를_부르면_ml_이_등록된다():
       다른 등록소도 채우므로 그것들은 `test_cli_bootstrap.py` 와 같은 방식으로 떠 두고
       끝나면 되돌린다.
     """
-    from app.master import (
-        cancellation,
-        closing,
-        collection,
-        day_open,
-        inbound,
-        receivable,
-        transition,
-    )
-    from app.master.bootstrap import wire_registries
+    from app.master.registry import cancellation as registry_cancellation
+    from app.master.registry import closing as registry_closing
+    from app.master.registry import collection as registry_collection
+    from app.master.registry import day_open as registry_day_open
+    from app.master.registry import inbound as registry_inbound
+    from app.master.registry import receivable as registry_receivable
+    from app.master.registry import transition as registry_transition
+    from app.master.registry import wiring as registry_wiring
+    from app.master.registry.bootstrap import wire_registries
 
     되돌릴_것 = (
-        (transition, transition.registered, transition.register_transition),
-        (day_open, day_open.registered, day_open.register_day_opening),
-        (cancellation, cancellation.registered_cancellations, cancellation.register_cancellation),
-        (inbound, inbound.registered, inbound.register_inbound),
-        (collection, collection.registered, collection.register_collection),
-        (closing, closing.registered, closing.register_closing),
-        (receivable, receivable.registered, receivable.register_receivable),
+        (
+            registry_transition,
+            registry_transition.registered,
+            registry_transition.register_transition,
+        ),
+        (registry_day_open, registry_day_open.registered, registry_day_open.register_day_opening),
+        (
+            registry_cancellation,
+            registry_cancellation.registered_cancellations,
+            registry_cancellation.register_cancellation,
+        ),
+        (registry_inbound, registry_inbound.registered, registry_inbound.register_inbound),
+        (
+            registry_collection,
+            registry_collection.registered,
+            registry_collection.register_collection,
+        ),
+        (registry_closing, registry_closing.registered, registry_closing.register_closing),
+        (
+            registry_receivable,
+            registry_receivable.registered,
+            registry_receivable.register_receivable,
+        ),
     )
     저장 = [dict(read()) for _, read, _ in 되돌릴_것]
     try:
-        assert not wiring.registry().has("ml")
+        assert not registry_wiring.registry().has("ml")
 
         wire_registries()
 
-        assert wiring.registry().has("ml")
+        assert registry_wiring.registry().has("ml")
+        # ★ 2026-09-29 부터 조립 뿌리가 `ml_port` 를 직접 건다 (재구성 BL-011 — 전에는
+        #   `app/ml/wiring.py` 가 스스로 붙었다). 걸린 것이 그 포트인지까지 본다.
+        from app.ml.adapter import ml_port
+
+        assert registry_wiring.registry().get("ml") is ml_port
     finally:
         for (module, _, register), saved in zip(되돌릴_것, 저장):
             module.reset()

@@ -15,13 +15,18 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import AgentReply, AgentRequest, ExecutionMetadata, decision_service, wiring
-from app.master.ask_schemas import AskRequest
-from app.master.ask_service import ask
-from app.master.decision import DecisionOut, mark_current
+from app.api.master.ask import router
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.domain.decision import mark_current
 from app.master.llm.runtime import IntentService, LLMSettings
-from app.master.router import router
-from app.master.schemas import ProcurementRunResponse
+from app.master.readmodel import approvals, logistics_report
+from app.master.registry import wiring as registry_wiring
+from app.master.report import chat_reports
+from app.master.schemas.ask import AskRequest
+from app.master.schemas.decision import DecisionOut
+from app.master.schemas.procurement import ProcurementRunResponse
+from app.master.service import decision
+from app.master.service.ask import ask
 
 AS_OF = "2026-08-27"
 #: 결정 대상 실행의 업무 키. **발화문에 없으므로 화면이 싣는다.**
@@ -101,10 +106,11 @@ def decisions(monkeypatch):
             raise LookupError(f"실행 이력이 없다: {run_id}")
         return _row()
 
-    monkeypatch.setattr(decision_service, "list_decisions", list_decisions)
-    monkeypatch.setattr(decision_service, "save_decision", save_decision)
-    monkeypatch.setattr(decision_service, "get_run_by_request_id", get_run)
-    monkeypatch.setattr(decision_service, "get_run", get_run_by_uuid)
+    monkeypatch.setattr(approvals, "list_decisions", list_decisions)
+    monkeypatch.setattr(decision, "list_decisions", list_decisions)
+    monkeypatch.setattr(decision, "save_decision", save_decision)
+    monkeypatch.setattr(approvals, "get_run_by_request_id", get_run)
+    monkeypatch.setattr(approvals, "get_run", get_run_by_uuid)
     return rows
 
 
@@ -139,9 +145,9 @@ def _port(payload=None, **kw):
 
 @pytest.fixture(autouse=True)
 def clean_wiring():
-    wiring.reset()
+    registry_wiring.reset()
     yield
-    wiring.reset()
+    registry_wiring.reset()
 
 
 @pytest.fixture
@@ -168,7 +174,7 @@ def run(utterance: str, response: str):
 
 
 def test_상태_조회는_확인_없이_돌고_답을_담는다():
-    wiring.register("finance", _port({"available_cash": 31_993_913}))
+    registry_wiring.register("finance", _port({"available_cash": 31_993_913}))
     result = run(
         "지금 자금 상황 알려줘",
         intent_json(action="STATUS_QUERY", agents=["finance"], confidence="HIGH"),
@@ -182,8 +188,8 @@ def test_상태_조회는_확인_없이_돌고_답을_담는다():
 
 def test_두_부서_중_하나가_못_답하면_부분이다():
     """**빈 답과 못 받은 답은 다르다.** 조용히 빼지 않는다."""
-    wiring.register("finance", _port({"available_cash": 1}))
-    wiring.register(
+    registry_wiring.register("finance", _port({"available_cash": 1}))
+    registry_wiring.register(
         "inventory",
         _port(
             {},
@@ -208,8 +214,8 @@ def test_어댑터가_터진_것과_값이_없는_것을_구분한다():
     def boom(request):
         raise RuntimeError("payload 조립 실패")
 
-    wiring.register("finance", boom)
-    wiring.register(
+    registry_wiring.register("finance", boom)
+    registry_wiring.register(
         "inventory",
         _port(
             {},
@@ -246,7 +252,7 @@ def test_어댑터가_없으면_미등록으로_밝힌다():
 
 def test_매입_실행은_분류만_하고_되묻는다():
     """오분류 비용이 비대칭이라 예산을 태우기 전에 확인받는다."""
-    wiring.register("finance", _port({}))
+    registry_wiring.register("finance", _port({}))
     result = run(
         "오늘 배추 얼마나 사야 해?",
         intent_json(action="PROCUREMENT_RUN", item="배추", confidence="HIGH"),
@@ -267,7 +273,7 @@ def test_못_알아들으면_실행하지_않고_되묻는다():
 
 
 def test_확신이_낮으면_조회도_확인을_받는다():
-    wiring.register("finance", _port({}))
+    registry_wiring.register("finance", _port({}))
     result = run(
         "돈 어때?",
         intent_json(action="STATUS_QUERY", agents=["finance"], confidence="LOW"),
@@ -299,7 +305,7 @@ def test_LLM_이_죽어도_200_으로_되묻는다():
 
 
 def test_확인한_의도는_재분류_없이_실행된다(client):
-    wiring.register("finance", _port({"available_cash": 7}))
+    registry_wiring.register("finance", _port({"available_cash": 7}))
     body = {
         "intent": {
             "action": "STATUS_QUERY",
@@ -451,8 +457,8 @@ def rerun(monkeypatch, decisions):
             request_id=request.request_id, as_of=request.as_of, end_code="E2_HELD", reason="..."
         )
 
-    monkeypatch.setattr("app.master.ask_service.run_procurement", fake_run)
-    monkeypatch.setattr("app.master.ask_service.link_follow_up", lambda **kw: True)
+    monkeypatch.setattr("app.master.service.ask.run_procurement", fake_run)
+    monkeypatch.setattr("app.master.service.ask.link_follow_up", lambda **kw: True)
     return seen
 
 
@@ -517,8 +523,8 @@ def test_채팅_매입_실행은_화면_실행으로_판단한다(client, rerun)
     2026-09-15 실측: 화면은 다른 실행을 보는데 채팅 매입이 번인 실행에 판단 22행을 쌓았다.
     매입 실행 · 조건부 재요청 두 경로 모두 화면이 보는 실행을 싣는다.
     """
-    from app.api.shown_run import SHOWN_SIM_RUN_ID
-    from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+    from app.core.settings import SHOWN_SIM_RUN_ID
+    from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 
     body = {
         "intent": {"action": "PROCUREMENT_RUN", "agents": [], "item": "배추", "confidence": "HIGH"},
@@ -548,7 +554,7 @@ def test_조건이_비면_거절한다(client, rerun):
 def test_품목을_안_말하면_직전_실행에서_가져온다(client, rerun, monkeypatch):
     """*"예산 줄여서 다시 해줘"* 에는 품목이 없다. **지어내지 않고 이력을 본다.**"""
     monkeypatch.setattr(
-        "app.master.ask_service.get_run_history",
+        "app.master.service.ask.get_run_history",
         lambda rid: SimpleNamespace(request_payload={"item": "무"}),
     )
     body = rerun_body()
@@ -584,12 +590,12 @@ def test_선택_응답에는_새_실행이_없다(client, decisions):
 
 
 def test_DOMAIN_ACTION_조회는_확인없이_실행한다(monkeypatch):
-    from app.master import ask_service
-    from app.master.ask_schemas import DomainActionAnswer
+    from app.master.schemas.ask import DomainActionAnswer
+    from app.master.service import ask as service_ask
 
     monkeypatch.setattr(
-        ask_service,
-        "_run_domain_action",
+        service_ask,
+        "run_domain_action",
         lambda *args, **kwargs: DomainActionAnswer(
             domain="finance",
             action="FINANCE_SUMMARY_GET",
@@ -613,7 +619,7 @@ def test_DOMAIN_ACTION_조회는_확인없이_실행한다(monkeypatch):
 
 
 def test_DOMAIN_ACTION_쓰기는_확인전_실행하지_않는다(monkeypatch):
-    from app.master import ask_service
+    from app.master.service import ask as service_ask
 
     called = False
 
@@ -622,10 +628,10 @@ def test_DOMAIN_ACTION_쓰기는_확인전_실행하지_않는다(monkeypatch):
         called = True
         raise AssertionError("확인 전에 write가 실행되면 안 된다")
 
-    monkeypatch.setattr(ask_service, "_run_domain_action", should_not_run)
+    monkeypatch.setattr(service_ask, "run_domain_action", should_not_run)
     monkeypatch.setattr(
-        ask_service,
-        "_domain_preview",
+        service_ask,
+        "domain_preview",
         lambda *args, **kwargs: "300만원 입금을 기록합니다. 진행할까요?",
     )
     result = run(
@@ -660,12 +666,12 @@ def test_DOMAIN_ACTION_필수슬롯이_없으면_되묻고_실행하지_않는�
 def test_finance_report_domain_action_returns_structured_facts_without_markdown(monkeypatch):
     from datetime import date
 
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask_domain_actions
 
     facts = {"kind": "FINANCE", "sim_run_id": "SIM-1", "start_date": "2026-09-01"}
-    monkeypatch.setattr(ask_service, "render_finance_chat_report", lambda **_kwargs: facts)
-    result = ask_service._domain_read(
+    monkeypatch.setattr(ask_domain_actions, "render_finance_chat_report", lambda **_kwargs: facts)
+    result = ask_domain_actions._domain_read(
         Intent(
             action="DOMAIN_ACTION",
             agents=[],
@@ -681,7 +687,7 @@ def test_finance_report_domain_action_returns_structured_facts_without_markdown(
 
 
 def test_finance_report_without_period_asks_before_generating(monkeypatch):
-    from app.master import ask_service
+    from app.master.service import ask_domain_actions
 
     called = False
 
@@ -690,7 +696,7 @@ def test_finance_report_without_period_asks_before_generating(monkeypatch):
         called = True
         return {}
 
-    monkeypatch.setattr(ask_service, "render_finance_chat_report", report)
+    monkeypatch.setattr(ask_domain_actions, "render_finance_chat_report", report)
     result = run(
         "재무 보고서 만들어줘",
         intent_json(
@@ -710,12 +716,12 @@ def test_finance_report_without_period_asks_before_generating(monkeypatch):
 def test_sales_report_domain_action_returns_structured_facts_without_markdown(monkeypatch):
     from datetime import date
 
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask_domain_actions
 
     facts = {"kind": "SALES", "sim_run_id": "SIM-1", "start_date": "2026-09-01"}
-    monkeypatch.setattr(ask_service, "render_sales_chat_report", lambda **_kwargs: facts)
-    result = ask_service._domain_read(
+    monkeypatch.setattr(ask_domain_actions, "render_sales_chat_report", lambda **_kwargs: facts)
+    result = ask_domain_actions._domain_read(
         Intent(
             action="DOMAIN_ACTION",
             agents=[],
@@ -733,12 +739,12 @@ def test_sales_report_domain_action_returns_structured_facts_without_markdown(mo
 def test_logistics_report_domain_action_returns_structured_facts_without_markdown(monkeypatch):
     from datetime import date
 
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask_domain_actions
 
     facts = {"kind": "LOGISTICS", "sim_run_id": "SIM-1", "start_date": "2026-09-01"}
-    monkeypatch.setattr(ask_service, "render_logistics_chat_report", lambda **_kwargs: facts)
-    result = ask_service._domain_read(
+    monkeypatch.setattr(ask_domain_actions, "render_logistics_chat_report", lambda **_kwargs: facts)
+    result = ask_domain_actions._domain_read(
         Intent(
             action="DOMAIN_ACTION",
             agents=[],
@@ -758,8 +764,9 @@ def test_logistics_report_passes_existing_period_to_renderer(monkeypatch):
     """기간은 **기존 `_period()`** 가 만든다 — 보고서가 날짜 파서를 새로 두지 않는다."""
     from datetime import date
 
-    from app.master import ask_service
+    from app.master.domain import ask_parsers
     from app.master.llm.schemas import DomainSlots, Intent
+    from app.master.service import ask_domain_actions
 
     seen: dict[str, object] = {}
 
@@ -767,9 +774,9 @@ def test_logistics_report_passes_existing_period_to_renderer(monkeypatch):
         seen.update(kwargs)
         return {"kind": "LOGISTICS"}
 
-    monkeypatch.setattr(ask_service, "render_logistics_chat_report", _record)
+    monkeypatch.setattr(ask_domain_actions, "render_logistics_chat_report", _record)
     as_of = date(2026, 9, 17)  # 목요일
-    ask_service._domain_read(
+    ask_domain_actions._domain_read(
         Intent(
             action="DOMAIN_ACTION",
             agents=[],
@@ -780,7 +787,7 @@ def test_logistics_report_passes_existing_period_to_renderer(monkeypatch):
         ),
         as_of=as_of,
     )
-    assert (seen["start_date"], seen["end_date"]) == ask_service._period(
+    assert (seen["start_date"], seen["end_date"]) == ask_parsers.period_of(
         Intent(
             action="DOMAIN_ACTION",
             agents=[],
@@ -798,16 +805,16 @@ def test_logistics_report_passes_existing_period_to_renderer(monkeypatch):
 
 def test_logistics_report_is_a_read_action_not_a_write():
     """보고서 생성은 조회다. 쓰기 목록에 들어가면 확인 절차가 붙는다."""
-    from app.master import ask_service
+    from app.master.service import ask_domain_actions
 
-    assert "LOGISTICS_REPORT_GENERATE" in ask_service._DOMAIN_READ_ACTIONS
-    assert "LOGISTICS_REPORT_GENERATE" not in ask_service._DOMAIN_WRITE_ACTIONS
+    assert "LOGISTICS_REPORT_GENERATE" in ask_domain_actions.DOMAIN_READ_ACTIONS
+    assert "LOGISTICS_REPORT_GENERATE" not in ask_domain_actions.DOMAIN_WRITE_ACTIONS
 
 
 def _logistics_item(item_id, name, *, on_hand, available, reserved, unallocated=0):
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInventoryItem
+    from app.logistics.schemas.console import ConsoleInventoryItem
 
     return ConsoleInventoryItem(
         item_id=item_id,
@@ -839,7 +846,7 @@ def _logistics_receipt(
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInboundReceipt
+    from app.logistics.schemas.console import ConsoleInboundReceipt
 
     return ConsoleInboundReceipt(
         inbound_id=f"INB-{receipt_id}",
@@ -867,7 +874,7 @@ def _logistics_reservation(reservation_id, item, *, status, unallocated, due=Non
     from datetime import UTC, date, datetime
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleAllocation, ConsoleReservation
+    from app.logistics.schemas.console import ConsoleAllocation, ConsoleReservation
 
     allocations = ()
     if shipped:
@@ -903,7 +910,7 @@ def _logistics_lot(lot_id, item, received, *, fresh, sell_priority=False, dispos
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics.schemas import ConsoleInventoryLot
+    from app.logistics.schemas.console import ConsoleInventoryLot
 
     return ConsoleInventoryLot(
         lot_id=lot_id,
@@ -928,8 +935,8 @@ def logistics_report_stubs(monkeypatch):
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics import console_service, db, historical_repository
-    from app.logistics.schemas import (
+    from app.core import db as core_db
+    from app.logistics.schemas.console import (
         ConsoleArrivalSummary,
         ConsoleCapacity,
         ConsoleInboundResponse,
@@ -946,6 +953,12 @@ def logistics_report_stubs(monkeypatch):
         def __exit__(self, *_exc):
             return False
 
+        def commit(self) -> None:
+            return None
+
+        def rollback(self) -> None:
+            return None
+
     def _connect():
         calls["connection"] += 1
         return _Conn()
@@ -954,11 +967,11 @@ def logistics_report_stubs(monkeypatch):
         calls["reservations"] += 1
         return ()
 
-    monkeypatch.setattr(db, "get_connection", _connect)
-    monkeypatch.setattr(historical_repository, "reservation_state_at", _reservations)
-    monkeypatch.setattr(console_service, "load_console_runtime", lambda **_kwargs: None)
+    monkeypatch.setattr(core_db, "connection", _connect)
+    monkeypatch.setattr(logistics_report, "reservation_state_at", _reservations)
+    monkeypatch.setattr(logistics_report, "load_console_runtime", lambda **_kwargs: None)
     monkeypatch.setattr(
-        console_service,
+        logistics_report,
         "get_inventory_console",
         lambda **_kwargs: ConsoleInventoryResponse(
             sim_run_id="SIM-1",
@@ -986,7 +999,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        console_service,
+        logistics_report,
         "get_inbound_console",
         lambda **_kwargs: ConsoleInboundResponse(
             sim_run_id="SIM-1",
@@ -1014,7 +1027,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        console_service,
+        logistics_report,
         "get_outbound_console",
         lambda **_kwargs: ConsoleOutboundResponse(
             sim_run_id="SIM-1",
@@ -1039,7 +1052,7 @@ def logistics_report_stubs(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        historical_repository,
+        logistics_report,
         "onhand_total_by_day",
         lambda _conn, **_kwargs: {
             date(2026, 9, 1): Decimal(30),
@@ -1049,7 +1062,7 @@ def logistics_report_stubs(monkeypatch):
     )
     # 9/2 는 이 실행이 **열지 않은 날**이다 — 원장 누계 0 을 재고 0kg 으로 그리면 안 된다.
     monkeypatch.setattr(
-        historical_repository,
+        logistics_report,
         "snapshot_days_between",
         lambda _conn, **_kwargs: frozenset({date(2026, 9, 1), date(2026, 9, 3)}),
     )
@@ -1059,7 +1072,7 @@ def logistics_report_stubs(monkeypatch):
 def test_logistics_report_facts_keep_none_and_unopened_days(logistics_report_stubs):
     from datetime import date
 
-    from app.master.report import render_logistics_chat_report
+    from app.master.report.chat_reports import render_logistics_chat_report
 
     facts = render_logistics_chat_report(
         sim_run_id="SIM-1",
@@ -1095,7 +1108,7 @@ def test_logistics_report_uses_one_connection_and_one_reservation_read(logistics
     """한 보고서 = 커넥션 1개 · `reservation_state_at` 1회 (화면과 같은 조립)."""
     from datetime import date
 
-    from app.master.report import render_logistics_chat_report
+    from app.master.report.chat_reports import render_logistics_chat_report
 
     render_logistics_chat_report(
         sim_run_id="SIM-1",
@@ -1109,7 +1122,7 @@ def test_logistics_report_uses_one_connection_and_one_reservation_read(logistics
 def _logistics_facts(start="2026-09-01", end="2026-09-03"):
     from datetime import date
 
-    from app.master.report import render_logistics_chat_report
+    from app.master.report.chat_reports import render_logistics_chat_report
 
     return render_logistics_chat_report(
         sim_run_id="SIM-1",
@@ -1177,9 +1190,8 @@ def test_logistics_report_available_range_is_none_when_no_day_is_open(
     logistics_report_stubs, monkeypatch
 ):
     """추이가 전부 `null` 이면 범위는 `None` 이다 — 0 일짜리 범위를 지어내지 않는다."""
-    from app.logistics import historical_repository
 
-    monkeypatch.setattr(historical_repository, "snapshot_days_between", lambda *a, **k: set())
+    monkeypatch.setattr(logistics_report, "snapshot_days_between", lambda *a, **k: set())
 
     facts = _logistics_facts()
     assert all(row["on_hand_qty_kg"] is None for row in facts["trend"])
@@ -1196,8 +1208,9 @@ def test_logistics_report_takes_the_period_the_user_picked_on_screen(monkeypatch
     """
     from datetime import date
 
-    from app.master import ask_service
-    from app.master.ask_schemas import AskRequest
+    from app.master.schemas.ask import AskRequest
+    from app.master.service import ask as service_ask
+    from app.master.service import ask_domain_actions
 
     seen: dict[str, object] = {}
 
@@ -1205,8 +1218,8 @@ def test_logistics_report_takes_the_period_the_user_picked_on_screen(monkeypatch
         seen.update(kwargs)
         return {"kind": "LOGISTICS"}
 
-    monkeypatch.setattr(ask_service, "render_logistics_chat_report", _record)
-    result = ask_service.ask(
+    monkeypatch.setattr(ask_domain_actions, "render_logistics_chat_report", _record)
+    result = service_ask.ask(
         AskRequest(
             utterance="재고·물류 보고서 만들어줘",
             as_of=AS_OF,
@@ -1230,9 +1243,9 @@ def test_logistics_report_takes_the_period_the_user_picked_on_screen(monkeypatch
 
 def test_screen_picked_period_still_reaches_finance_and_sales(monkeypatch):
     """물류를 더하면서 **재무·판매가 떨어지지 않았는가** — 같은 집합 하나가 셋을 태운다."""
-    from app.master import ask_service
+    from app.master.service import ask as service_ask
 
-    assert ask_service._REPORT_DATE_RANGE_ACTIONS == {
+    assert service_ask._REPORT_DATE_RANGE_ACTIONS == {
         "FINANCE_REPORT_GENERATE",
         "SALES_REPORT_GENERATE",
         "LOGISTICS_REPORT_GENERATE",
@@ -1251,7 +1264,7 @@ def test_logistics_report_empty_period_is_a_normal_answer(logistics_report_stubs
 
 
 def test_logistics_report_shows_only_reservations_still_working(logistics_report_stubs):
-    """🔴 전량 출고가 끝난 과거 예약을 본문에 늘어놓지 않는다 (`_still_working` 기준)."""
+    """🔴 전량 출고가 끝난 과거 예약을 본문에 늘어놓지 않는다 (물류 domain `still_working` 기준)."""
     facts = _logistics_facts()
     outbound = facts["outbound"]
 
@@ -1292,7 +1305,7 @@ def test_logistics_arrival_display_state_only_reads_the_promised_date():
     """🔴 도착 «자격» 판정을 흉내 내지 않는다 — 예정일이 지났나 하나만 본다."""
     from datetime import date
 
-    from app.master.report import _logistics_arrival_display_state
+    from app.master.report.chat_reports import _logistics_arrival_display_state
 
     as_of = date(2026, 9, 3)
     assert _logistics_arrival_display_state(date(2026, 9, 5), as_of) == "SCHEDULED"
@@ -1308,8 +1321,7 @@ def test_logistics_report_marks_pending_arrivals_for_display(logistics_report_st
     from datetime import date
     from decimal import Decimal
 
-    from app.logistics import console_service
-    from app.logistics.schemas import (
+    from app.logistics.schemas.console import (
         ConsoleArrivalSummary,
         ConsoleInboundResponse,
         ConsoleInTransitItem,
@@ -1325,7 +1337,7 @@ def test_logistics_report_marks_pending_arrivals_for_display(logistics_report_st
         )
 
     monkeypatch.setattr(
-        console_service,
+        logistics_report,
         "get_inbound_console",
         lambda **_kwargs: ConsoleInboundResponse(
             sim_run_id="SIM-1",
@@ -1366,24 +1378,17 @@ def test_finance_report_facts_keep_null_operating_expense(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
 
-    from app.finance import (
-        console_credit,
-        console_expenses,
-        console_payables,
-        console_receivables,
-        dashboard,
-    )
-    from app.master.report import render_finance_chat_report
+    from app.master.report.chat_reports import render_finance_chat_report
 
     dump = lambda **kwargs: SimpleNamespace(model_dump=lambda **_kwargs: kwargs, **kwargs)
     closing = dump(close_date=date(2026, 9, 1), operating_expense_cash_out_krw=None)
     monkeypatch.setattr(
-        dashboard,
+        chat_reports,
         "get_finance_dashboard",
         lambda **_kwargs: dump(states=[], recent_closings=[closing]),
     )
     monkeypatch.setattr(
-        dashboard, "get_finance_cashflow", lambda **_kwargs: dump(cashflow=[closing])
+        chat_reports, "get_finance_cashflow", lambda **_kwargs: dump(cashflow=[closing])
     )
     empty_receivable = dump(
         total_outstanding_krw=0, days_1_7_krw=0, days_8_30_krw=0, days_30_plus_krw=0
@@ -1391,19 +1396,19 @@ def test_finance_report_facts_keep_null_operating_expense(monkeypatch):
     empty_payable = dump(total_outstanding_krw=0, due_today_krw=0, due_next_7d_krw=0, overdue_krw=0)
     empty_expense = dump(accrued_krw=0, accrued_count=0, paid_krw=0, cancelled_krw=0)
     monkeypatch.setattr(
-        console_receivables,
+        chat_reports,
         "get_console_receivables",
         lambda **_kwargs: dump(summary=empty_receivable),
     )
     monkeypatch.setattr(
-        console_payables, "get_console_payables", lambda **_kwargs: dump(summary=empty_payable)
+        chat_reports, "get_console_payables", lambda **_kwargs: dump(summary=empty_payable)
     )
     monkeypatch.setattr(
-        console_expenses,
+        chat_reports,
         "get_console_expenses",
         lambda **_kwargs: dump(summary=empty_expense, rows=[]),
     )
-    monkeypatch.setattr(console_credit, "get_console_credit", lambda **_kwargs: dump(partners=[]))
+    monkeypatch.setattr(chat_reports, "get_console_credit", lambda **_kwargs: dump(partners=[]))
     facts = render_finance_chat_report(
         sim_run_id="SIM-1",
         as_of=date(2026, 9, 1),
@@ -1418,14 +1423,7 @@ def test_finance_report_cash_trend_uses_full_requested_range(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
 
-    from app.finance import (
-        console_credit,
-        console_expenses,
-        console_payables,
-        console_receivables,
-        dashboard,
-    )
-    from app.master.report import render_finance_chat_report
+    from app.master.report.chat_reports import render_finance_chat_report
 
     dump = lambda **kwargs: SimpleNamespace(model_dump=lambda **_kwargs: kwargs, **kwargs)
     preview = dump(close_date=date(2026, 6, 12), base_net_cash_krw=12)
@@ -1433,25 +1431,25 @@ def test_finance_report_cash_trend_uses_full_requested_range(monkeypatch):
     last = dump(close_date=date(2026, 6, 12), base_net_cash_krw=12)
     seen: dict[str, object] = {}
     monkeypatch.setattr(
-        dashboard,
+        chat_reports,
         "get_finance_dashboard",
         lambda **_kwargs: dump(states=[], recent_closings=[preview]),
     )
     monkeypatch.setattr(
-        dashboard,
+        chat_reports,
         "get_finance_cashflow",
         lambda **kwargs: (seen.update(kwargs) or dump(cashflow=[first, last])),
     )
     monkeypatch.setattr(
-        console_receivables, "get_console_receivables", lambda **_kwargs: dump(summary=dump())
+        chat_reports, "get_console_receivables", lambda **_kwargs: dump(summary=dump())
     )
     monkeypatch.setattr(
-        console_payables, "get_console_payables", lambda **_kwargs: dump(summary=dump())
+        chat_reports, "get_console_payables", lambda **_kwargs: dump(summary=dump())
     )
     monkeypatch.setattr(
-        console_expenses, "get_console_expenses", lambda **_kwargs: dump(summary=dump(), rows=[])
+        chat_reports, "get_console_expenses", lambda **_kwargs: dump(summary=dump(), rows=[])
     )
-    monkeypatch.setattr(console_credit, "get_console_credit", lambda **_kwargs: dump(partners=[]))
+    monkeypatch.setattr(chat_reports, "get_console_credit", lambda **_kwargs: dump(partners=[]))
 
     facts = render_finance_chat_report(
         sim_run_id="SIM-1",
@@ -1468,17 +1466,16 @@ def test_sales_report_facts_include_actual_confirmed_sales_only(monkeypatch):
     from datetime import date
     from types import SimpleNamespace
 
-    from app.master.report import render_sales_chat_report
-    from app.sales import console_partners, console_proposals, console_trend, dashboard
+    from app.master.report.chat_reports import render_sales_chat_report
 
     dump = lambda **kwargs: SimpleNamespace(model_dump=lambda **_kwargs: kwargs, **kwargs)
     confirmed, presentable = (
         dump(scenario_id="C", sale_status="CONFIRMED"),
         dump(scenario_id="P", sale_status=None),
     )
-    monkeypatch.setattr(dashboard, "get_sales_dashboard", lambda **_kwargs: dump())
+    monkeypatch.setattr(chat_reports, "get_sales_dashboard", lambda **_kwargs: dump())
     monkeypatch.setattr(
-        console_proposals,
+        chat_reports,
         "get_console_sales_proposals",
         lambda **_kwargs: dump(
             rows=[confirmed, presentable],
@@ -1489,8 +1486,8 @@ def test_sales_report_facts_include_actual_confirmed_sales_only(monkeypatch):
             rejected_count=0,
         ),
     )
-    monkeypatch.setattr(console_trend, "get_console_sales_trend", lambda **_kwargs: dump(rows=[]))
-    monkeypatch.setattr(console_partners, "get_console_partners", lambda **_kwargs: dump(rows=[]))
+    monkeypatch.setattr(chat_reports, "get_console_sales_trend", lambda **_kwargs: dump(rows=[]))
+    monkeypatch.setattr(chat_reports, "get_console_partners", lambda **_kwargs: dump(rows=[]))
     facts = render_sales_chat_report(
         sim_run_id="SIM-1",
         as_of=date(2026, 9, 1),

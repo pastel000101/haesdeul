@@ -52,11 +52,9 @@ from app.contracts.core import (
     EndCode,
     PipelineState,
     T0Snapshot,
-    compute_has_unmet_obligation,
-    is_bankrupt,
-    resolve_end_code,
 )
-from app.master.band import (
+from app.contracts.rules import compute_has_unmet_obligation, is_bankrupt, resolve_end_code
+from app.master.domain.band import (
     check_occupancy_detailed,
     clip_all,
     combine_band,
@@ -64,7 +62,7 @@ from app.master.band import (
     detect_variant_collapse,
     is_structurally_narrow,
 )
-from app.master.outbound import (
+from app.master.domain.outbound import (
     clip_allocations,
     combine_outbound_band,
     detect_allocation_collapse,

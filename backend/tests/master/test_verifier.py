@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.master.plan import ExecutionPlan
-from app.master.verifier import MasterVerifier
+from app.master.domain.plan import ExecutionPlan
+from app.master.service.verifier import MasterVerifier
 
 AS_OF = date(2026, 9, 4)
 

@@ -46,8 +46,8 @@ class Plan(BaseModel):
     """
 
     #  🔴 설명이 낡았었다 (2026-09-17) — 「보수 · 기본 · 공격」이라 적혀 있었는데 실제 값은
-    #     `query._plan` 이 품목을 앞에 붙인 「배추 · 보수」다. 대시보드 `plan_state.plan_label`
-    #     과 말로 한 승인(`MasterConsole.planLabel`)이 그 모양을 쪼개 읽는다.
+    #     `presenter._plan` 이 품목을 앞에 붙인 「배추 · 보수」다. `presenter.plan_label`(대시보드도
+    #     이것을 부른다)과 말로 한 승인(`MasterConsole.planLabel`)이 그 모양을 쪼개 읽는다.
     key: str = Field(description="품목 · 안 이름 (예: 배추 · 보수)")
     coverage: str = Field(description="며칠치인가")
     knob: str = Field(description="무엇으로 조절한 안인가")
@@ -71,7 +71,7 @@ class Plan(BaseModel):
     )
     approved: bool = Field(default=False, description="이미 승인된 안인가")
     #  🔴 **`approved` 를 안 지운다** — 읽는 자리가 있다: 대시보드 서버
-    #     (`api/dashboard/query.py` `_state` → `plan_state.state_of(approved=…)`).
+    #     (`api/dashboard/presenter.py` `_state` → `master/domain/plan_state.state_of(approved=…)`).
     #     ~~쓰는 화면이 있다 (`console/purchase/page.tsx`)~~ — **낡았다** (2026-09-17).
     #     매입 화면은 이제 `state` 를 읽고 이 칸은 안 읽는다.
     #     `state` 는 그것이 못 가르는 것(승인 vs 실매입 기록됨)을 마저 가른다.
@@ -79,7 +79,7 @@ class Plan(BaseModel):
         default="후보",
         description=(
             "이 안이 실제로 어느 상태인가 — 후보 · 승인됨 · 매입 기록됨 · 반려. "
-            "🔴 낱말과 가르는 규칙의 주인은 `app/api/plan_state.py` 하나다 "
+            "🔴 낱말과 가르는 규칙의 주인은 `app/master/domain/plan_state.py` 하나다 "
             "(대시보드도 같은 것을 쓴다). 화면이 이 넷 밖의 말을 만들지 않는다."
         ),
     )

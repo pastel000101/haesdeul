@@ -9,7 +9,7 @@ dependencies = [
   "langchain-core>=1.6.0",
   "langgraph>=1.2.11",
   "openai>=3.3.1",
-  "psycopg[binary]",
+  "psycopg[binary,pool]",
   "python-dotenv",
   "pyyaml>=6.0.3",
   "uvicorn[standard]==0.52.1",

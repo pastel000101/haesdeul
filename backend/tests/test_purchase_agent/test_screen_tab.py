@@ -22,7 +22,7 @@ from datetime import date
 
 import pytest
 
-from app.api.purchase import query as tab
+from app.api.purchase import presenter as tab
 from app.api.purchase.schema import Plan
 
 AS_OF = date(2026, 1, 6)
@@ -57,7 +57,7 @@ def _run(request_id: str, *scenarios: dict, **over: object) -> dict:
         "end_code": "E1_APPROVED",
         "runtime_status": "READY",
         "created_at": f"2026-09-05 10:0{len(request_id) % 10}",
-        #  🔴 조회가 이 칸을 늘 실어 온다 (`query._read`). 픽스처가 빼면 «걷기 밖»
+        #  🔴 조회가 이 칸을 늘 실어 온다 (`read_purchase_tab`). 픽스처가 빼면 «걷기 밖»
         #     으로 읽히는데, 그건 **안 읽어 온 것**과 다른 사실이다. 기본값은 걷기
         #     안으로 두고, 걷기 밖을 재는 검사만 `sim_run_id=None` 을 넘긴다.
         "sim_run_id": "SIM-BURNIN-202512",
@@ -92,7 +92,8 @@ def read(monkeypatch):
                 raise data
             return data
 
-        monkeypatch.setattr(tab, "_read", fake)
+        #  2026-09-29 재구성 BL-014: 조회는 마스터 readmodel `read_purchase_tab` 이 되었다.
+        monkeypatch.setattr(tab, "read_purchase_tab", fake)
 
     return install
 
@@ -306,7 +307,7 @@ def test_지급_계획이_없으면_빈_표에_이유를_적는다(read):
     ⚠️ **빈 표가 흔한 것이 정상**이다. 매입일로 메우지 않는다.
     ~~매입일로 메우면 «그날 냈다» 는 거짓이 된다~~ — **낡았다** (2026-09-17). N5=0 이
     확정돼 그날 내는 것이 맞다. 안 메우는 이유는 이제 **두 벌**이다 — 1회차 줄을 만들면
-    `split_plan[].amount_krw` 와 같은 값이 한 번 더 나간다 (`query._payments` docstring).
+    `split_plan[].amount_krw` 와 같은 값이 한 번 더 나간다 (`presenter._payments` docstring).
     """
     read(_data(runs=[_run("REQ-A", _scenario("보수"))]))
     table = tab.build(AS_OF).plans[0].payments

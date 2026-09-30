@@ -19,7 +19,7 @@ from datetime import date
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
+from app.purchase_agent.domain.allocate_sourcing import build_mix_candidates, evaluate_mid_grade
 from app.purchase_agent.llm.mix import MixDecision, build_mix_context, make_mix_selector
 from app.purchase_agent.llm.runtime import (
     PROVIDERS,
@@ -32,17 +32,13 @@ from app.purchase_agent.llm.runtime import (
     validate_interpretation,
 )
 from app.purchase_agent.llm.schemas import MixCandidate, SanitizedLLMContext
-from app.purchase_agent.nodes.allocate_sourcing import (
-    allocate_sourcing,
-    build_mix_candidates,
-    evaluate_mid_grade,
-)
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import package_scenarios
-from app.purchase_agent.nodes.self_check import self_check
-from app.purchase_agent.nodes.split_plan import split_plan
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 RISING = date(2026, 8, 21)
 FALLING = date(2026, 8, 28)
@@ -123,9 +119,7 @@ def _pin_to_code_defaults(monkeypatch) -> None:
     ⚠️ ``conftest``가 건 차단만 남긴다. 그것까지 쓸어내면 설정이 켜지고 테스트가 실
     프로바이더를 탄다 — 이 파일이 막으려는 것과 정반대다.
     """
-    monkeypatch.setattr(
-        "app.purchase_agent.llm.runtime.load_dotenv", lambda *a, **k: False
-    )
+    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *a, **k: False)
     swept = [
         key
         for key in os.environ
@@ -427,7 +421,7 @@ def 우열표를_끈다(monkeypatch: pytest.MonkeyPatch) -> None:
         "mix_precedence": {**사본["grade"]["mix_precedence"], "status": "PROVISIONAL"},
     }
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.allocate_sourcing.load_constraints", lambda: 사본
+        "app.purchase_agent.service.nodes.allocate_sourcing.load_constraints", lambda: 사본
     )
 
 
@@ -906,7 +900,7 @@ def test_unknown_fraction_still_produces_a_candidate() -> None:
     이름 표를 단일 소스처럼 쓰면 ``0.25``를 넣었을 때 그 후보가 아무 말 없이 사라진다 —
     규칙 7("임계는 YAML 단일 소스")이 막으려는 형태다.
     """
-    from app.purchase_agent.nodes.allocate_sourcing import candidate_label
+    from app.purchase_agent.domain.allocate_sourcing import candidate_label
 
     state = _staged(ITEM, SPREAD_WIDE)
     constraints = load_constraints()
@@ -980,9 +974,14 @@ def test_every_provider_applies_the_output_token_cap() -> None:
     """세 프로바이더가 **같은 설정값**을 쓰는지 — 이름만 다르다.
 
     한 곳이라도 빠지면 설정을 낮춰도 그 프로바이더만 장문을 생성한다 (비용·지연).
+
+    ★ 2026-09-30 BL-020: Anthropic · OpenAI SDK 호출은 `app.core.llm.providers` 로 옮겼다 —
+      매입 프로바이더는 설정값을 ``max_tokens`` 로 넘기고, OpenAI 쪽 이름
+      (``max_completion_tokens``)은 core 가 붙인다. 두 자리를 같이 본다.
     """
     import inspect
 
+    from app.core.llm import providers
     from app.purchase_agent.llm.runtime import (
         AnthropicProvider,
         OllamaProvider,
@@ -991,12 +990,14 @@ def test_every_provider_applies_the_output_token_cap() -> None:
 
     for provider, needle in [
         (AnthropicProvider, "max_tokens"),
-        (OpenAIProvider, "max_completion_tokens"),
+        (OpenAIProvider, "max_tokens"),
         (OllamaProvider, "num_predict"),
     ]:
         source = inspect.getsource(provider.generate)
         assert needle in source, f"{provider.__name__}에 토큰 상한이 없다"
         assert "max_output_tokens" in source
+    assert "max_completion_tokens=max_tokens" in inspect.getsource(providers.openai_json)
+    assert "max_tokens=max_tokens" in inspect.getsource(providers.anthropic_json)
 
 
 def test_load_dotenv_cannot_resurrect_a_cleared_key(monkeypatch, tmp_path) -> None:

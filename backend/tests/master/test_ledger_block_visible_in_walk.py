@@ -29,9 +29,8 @@ from __future__ import annotations
 import unicodedata
 from datetime import date
 
-from app.master.backfill import BackfilledRun, BackfillOut
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.ledger import (
+from app.master.domain.backfill import BackfilledRun, BackfillOut
+from app.master.domain.ledger import (
     BLOCK_GRADES,
     BLOCK_LEG_AMOUNT,
     BLOCK_NO_ARRIVAL,
@@ -39,9 +38,10 @@ from app.master.ledger import (
     LEDGER_BLOCK_KINDS,
     PERMANENT_BLOCK_KINDS,
 )
-from app.master.pending_transition import RetriedTransition, RetryOut
-from app.master.scheduler import DayRunOutcome
-from app.master.transition import purchase_id_prefix_for
+from app.master.domain.purchase_ids import purchase_id_prefix_for
+from app.master.domain.scheduler import DayRunOutcome
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.pending_transition import RetriedTransition, RetryOut
 
 오늘 = date(2026, 1, 7)
 SIM = "SIM-LEDGER-BLOCK-SUMMARY-TEST"

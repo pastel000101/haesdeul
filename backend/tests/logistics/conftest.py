@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.logistics.schemas import InventoryLogisticsSnapshot
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
 
 
 @pytest.fixture

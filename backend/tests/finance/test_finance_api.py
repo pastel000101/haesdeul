@@ -4,9 +4,9 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
+from app.contracts.envelope import AgentReply, ExecutionMetadata
 from app.main import app
-from app.master.envelope import AgentReply, ExecutionMetadata
-from app.master.wiring import registry
+from app.master.registry.wiring import registry
 
 
 def test_finance_agent_api_goes_through_finance_port():
@@ -39,7 +39,7 @@ def test_finance_agent_api_goes_through_finance_port():
         request_id="REQ-FINANCE-API-001",
         agent="finance",
     )
-    with patch("app.finance.router.finance_port", return_value=(reply, metadata)) as port:
+    with patch("app.api.finance.agent.finance_port", return_value=(reply, metadata)) as port:
         response = TestClient(app).post("/finance/agent", json=request_payload)
 
     assert response.status_code == 200
@@ -82,7 +82,7 @@ def test_finance_runs_api_forwards_filters():
         "response_payload": {"runtime_status": "RUNTIME_NOT_READY", "verdict": None},
         "created_at": datetime(2026, 8, 21, tzinfo=UTC),
     }
-    with patch("app.finance.router.list_finance_runs", return_value=[run]) as list_runs:
+    with patch("app.api.finance.runs.list_finance_runs", return_value=[run]) as list_runs:
         response = TestClient(app).get(
             "/finance/runs",
             params={
@@ -118,12 +118,12 @@ def test_finance_run_detail_and_not_found():
         "response_payload": {},
         "created_at": datetime(2026, 8, 21, tzinfo=UTC),
     }
-    with patch("app.finance.router.get_finance_run", return_value=run):
+    with patch("app.api.finance.runs.get_finance_run", return_value=run):
         response = TestClient(app).get(f"/finance/runs/{run_id}")
     assert response.status_code == 200
     assert response.json()["verdict"] is None
 
-    with patch("app.finance.router.get_finance_run", side_effect=LookupError):
+    with patch("app.api.finance.runs.get_finance_run", side_effect=LookupError):
         response = TestClient(app).get("/finance/runs/00000000-0000-0000-0000-000000000002")
     assert response.status_code == 404
 

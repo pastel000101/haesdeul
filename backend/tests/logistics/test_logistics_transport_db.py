@@ -28,20 +28,26 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from app.logistics import ledger, outbound, transport, turnover
-from app.logistics.db import get_connection
-from app.logistics.transport import (
+from app.core import db as core_db
+from app.logistics.domain import transport as transport_domain
+from app.logistics.domain.transport import select_vehicle, trip_count_for
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import outbound as outbound_repository
+from app.logistics.repository import transport as transport_repository
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository.transport import load_vehicle_specs, resolve_fixed_route
+from app.logistics.schemas import outbound as outbound_schemas
+from app.logistics.schemas import transport as transport_schemas
+from app.logistics.schemas.transport import (
     AmbiguousRate,
     AmbiguousRoute,
     InvalidTransportRequest,
     RateNotFound,
     RouteNotFound,
-    load_vehicle_specs,
-    plan_fixed_route_transport,
-    resolve_fixed_route,
-    select_vehicle,
-    trip_count_for,
 )
+from app.logistics.service import outbound as outbound_service
+from app.logistics.service import transport
+from app.logistics.service.transport import plan_fixed_route_transport
 
 pytestmark = pytest.mark.db
 
@@ -77,6 +83,18 @@ CREATE TABLE {TMP_SCHEMA}.company_personas (persona_id text PRIMARY KEY);
 """
 
 
+#: 종전 `transport.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 네 파일이다.
+_운송_모듈 = (transport, transport_repository, transport_domain, transport_schemas)
+
+
+def _운송_코드() -> str:
+    """파일마다 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일부터 모듈
+    docstring 이 남는다)."""
+    return chr(10).join(
+        _코드만(Path(module.__file__).read_text(encoding="utf-8")) for module in _운송_모듈
+    )
+
+
 def _코드만(source: str) -> str:
     tree = ast.parse(source)
     코드 = source
@@ -99,34 +117,39 @@ def _repo_block(table: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in (
-                "inventory_lots",
-                "inventory_moves",
-                "item_storage_policies",
-                "logistics_contracts",
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in (
+                    "inventory_lots",
+                    "inventory_moves",
+                    "item_storage_policies",
+                    "logistics_contracts",
+                ):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
+                )
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                _씨앗(cur)
+            # ★ 2026-09-30 재구성 BL-015: 네 기능의 SQL 은 repository 파일에 있다.
+            for module in (
+                transport_repository,
+                turnover_repository,
+                outbound_repository,
+                ledger_repository,
             ):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            _씨앗(cur)
-        for module in (transport, turnover, outbound, ledger):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 def _씨앗(cur: psycopg.Cursor) -> None:
@@ -221,7 +244,7 @@ def _lot(conn: psycopg.Connection, lot_id: str = "LOT-A", *, qty: str = "1000") 
     return lot_id
 
 
-def _계획(conn: psycopg.Connection, qty: str, **kw: object) -> transport.TransportPlan:
+def _계획(conn: psycopg.Connection, qty: str, **kw: object) -> transport_schemas.TransportPlan:
     return plan_fixed_route_transport(
         conn,
         shipment_qty_kg=Decimal(qty),
@@ -429,7 +452,7 @@ def test_19_소요시간의_정본이_없어_None_이다(conn: psycopg.Connectio
 
 def test_20_거리도_단가도_시간도_코드에_박혀_있지_않다() -> None:
     """🔴 숫자를 코드에 박으면 표를 고쳐도 견적이 안 바뀐다."""
-    본문 = _코드만(Path(transport.__file__).read_text(encoding="utf-8"))
+    본문 = _운송_코드()
 
     숫자들 = set(re.findall(r"\b\d{3,}\b", 본문))
     assert 숫자들 <= {"20260905"}, f"코드에 박힌 숫자가 있다: {sorted(숫자들)}"
@@ -438,8 +461,7 @@ def test_20_거리도_단가도_시간도_코드에_박혀_있지_않다() -> No
 
 
 def test_21_지도_교통_GPS_를_부르지_않는다() -> None:
-    본문 = Path(transport.__file__).read_text(encoding="utf-8")
-    실행부 = _코드만(본문)
+    실행부 = _운송_코드()
 
     for 금지 in ("requests", "httpx", "urllib", "google", "kakao", "naver", "aiohttp"):
         assert 금지 not in 실행부.lower(), f"외부 경로 API 를 부른다: {금지}"
@@ -496,7 +518,7 @@ def test_25_계산만으로_잔량이_안_변한다(conn: psycopg.Connection) ->
 
 def test_26_계산만으로_할당_상태가_안_변한다(conn: psycopg.Connection) -> None:
     _lot(conn, qty="1000")
-    outbound.reserve_stock(
+    outbound_service.reserve_stock(
         conn,
         reservation_id="RSV-1",
         sim_run_id=SIM_RUN_ID,
@@ -505,10 +527,10 @@ def test_26_계산만으로_할당_상태가_안_변한다(conn: psycopg.Connect
         sale_id=SALE_ID,
         as_of=AS_OF,
     )
-    outbound.allocate_stock(
+    outbound_service.allocate_stock(
         conn,
         reservation_id="RSV-1",
-        requests=[outbound.AllocationRequest(lot_id="LOT-A", quantity_kg=Decimal(500))],
+        requests=[outbound_schemas.AllocationRequest(lot_id="LOT-A", quantity_kg=Decimal(500))],
         decided_by="WH-1",
         decided_at=DECIDED_AT,
         allocation_basis="HUMAN_OVERRIDE",
@@ -524,7 +546,7 @@ def test_26_계산만으로_할당_상태가_안_변한다(conn: psycopg.Connect
 
 def test_27_운송_코드가_쓰기를_하지_않는다() -> None:
     """★ 실행 경로뿐 아니라 **소스**로도 못박는다."""
-    본문 = _코드만(Path(transport.__file__).read_text(encoding="utf-8"))
+    본문 = _운송_코드()
 
     for 금지 in ("INSERT INTO", "UPDATE ", "DELETE FROM", ".commit()", ".rollback()"):
         assert 금지 not in 본문, f"운송이 쓰기를 한다: {금지}"
@@ -532,7 +554,7 @@ def test_27_운송_코드가_쓰기를_하지_않는다() -> None:
 
 def test_28_Shipment_표를_새로_만들지_않는다() -> None:
     """🔴 실출고 사실은 여전히 *할당 SHIPPED + 원장 OUT* 이다."""
-    본문 = _코드만(Path(transport.__file__).read_text(encoding="utf-8"))
+    본문 = _운송_코드()
 
     assert "CREATE TABLE" not in 본문
     assert "deliveries" not in 본문, "판매 쪽 표에 물류가 줄을 만들지 않는다"
@@ -544,7 +566,7 @@ def test_29_결정론이다(conn: psycopg.Connection) -> None:
     두번 = _계획(conn, "3500")
 
     assert 첫번 == 두번
-    본문 = _코드만(Path(transport.__file__).read_text(encoding="utf-8"))
+    본문 = _운송_코드()
     for 금지 in ("random", "now()", "datetime.now", "uuid"):
         assert 금지 not in 본문, f"결정론을 깬다: {금지}"
 
@@ -562,7 +584,7 @@ def test_31_0_이하_수량을_거부한다(conn: psycopg.Connection) -> None:
 def test_32_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> None:
     """★ 출고 확정 → 운송계획. 재고는 출고에서만 움직인다."""
     _lot(conn, qty="5000")
-    outbound.reserve_stock(
+    outbound_service.reserve_stock(
         conn,
         reservation_id="RSV-1",
         sim_run_id=SIM_RUN_ID,
@@ -571,16 +593,16 @@ def test_32_전체_시나리오_한_트랜잭션(conn: psycopg.Connection) -> No
         sale_id=SALE_ID,
         as_of=AS_OF,
     )
-    outbound.allocate_stock(
+    outbound_service.allocate_stock(
         conn,
         reservation_id="RSV-1",
-        requests=[outbound.AllocationRequest(lot_id="LOT-A", quantity_kg=Decimal(4500))],
+        requests=[outbound_schemas.AllocationRequest(lot_id="LOT-A", quantity_kg=Decimal(4500))],
         decided_by="WH-1",
         decided_at=DECIDED_AT,
         allocation_basis="HUMAN_OVERRIDE",
         as_of=AS_OF,
     )
-    출고 = outbound.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
+    출고 = outbound_service.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
     assert 출고.shipped_qty_kg == Decimal(4500)
 
     계획 = _계획(conn, "4500")

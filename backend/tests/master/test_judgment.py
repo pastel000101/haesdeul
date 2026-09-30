@@ -19,16 +19,11 @@ from typing import Any
 
 import pytest
 
-from app.master.budget import CallBudget
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
-from app.master.flow import ProcurementFlow
-from app.master.ports import AgentRegistry
-from app.master.runner import MasterRunner
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 from app.purchase_agent.adapter import purchase_port
 from tests.master.judgment_cases import (
     AS_OF,

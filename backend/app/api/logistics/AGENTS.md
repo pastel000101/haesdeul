@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/logistics/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/logistics/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/logistics?as_of=2026-01-06&pane=summary
 
 ```
 app/api/logistics/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/logistics/query.py
+# backend/app/api/logistics/presenter.py
 def build(as_of: date, pane: str) -> LogisticsTab:
 ```
 
@@ -59,34 +59,29 @@ def build(as_of: date, pane: str) -> LogisticsTab:
 
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요** (#415).
 
-**★ 커넥션은 한 판에 하나입니다** (2026-09-15). `build()` 가 커넥션 하나를 열어
-콘솔 함수에 `conn=` 으로 넘기고, Runtime 읽기(판매가능량 축)는 `load_console_runtime`
-한 번으로 재고·입고 콘솔이 나눠 씁니다.
+**★ 커넥션은 한 판에 하나입니다** (2026-09-15). 2026-09-30 부터 `build()` 는
+`read_console_page` 하나를 부르고, 그 함수가 연결 하나를 빌려 트랜잭션 하나로 그날 재료를 다
+읽습니다(종전 `build()` 의 경계 그대로). Runtime 읽기(판매가능량 축)는 한 번 읽어 재고·입고
+콘솔이 나눠 씁니다.
 
 ```python
-from app.logistics.console_service import (
-    get_inbound_console,
-    get_inventory_console,
-    get_outbound_console,
-    load_console_runtime,
-)
-from app.logistics.db import get_connection
+from app.logistics.readmodel.console import read_console_page
+from app.logistics.schemas.historical import RuntimeSnapshotCoverage
 
-with get_connection() as conn:
-    runtime = load_console_runtime(conn=conn, sim_run_id=..., as_of=as_of)
-    inv = get_inventory_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    inb = get_inbound_console(conn=conn, sim_run_id=..., as_of=as_of, runtime=runtime)
-    ob = get_outbound_console(conn=conn, sim_run_id=..., as_of=as_of)
+page = read_console_page(sim_run_id=..., as_of=as_of)
+if isinstance(page, RuntimeSnapshotCoverage):
+    ...  # 그날 Runtime Snapshot 이 없다 — 0 이 아니라 «모르는 날»
+inv, inb, ob = page.inventory, page.inbound, page.outbound
 ```
 
-`app/logistics/console_service.py` 에 `/logistics/inventory` · `/inbound` ·
-`/outbound` 가 쓰는 함수가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
-한 번 묻습니다 (`get_fefo_candidates_by_item(conn=, sim_run_id=, item_ids=, as_of=)`).
-물류 문제 장부는 `app/logistics/monitoring/exceptions.py` 가 주인입니다
-(`live_exceptions_at` · `resolved_exceptions_on`). **같은 쿼리를 두 벌 두면 언젠가
-값이 갈라집니다.**
+`app/logistics/readmodel/console.py` 에 `/logistics/inventory` · `/inbound` ·
+`/outbound` 가 쓰는 조회가 다 있습니다. FEFO 후보는 예약마다가 아니라 품목마다
+한 번 묻습니다 (`get_fefo_candidates_by_item(lots=, reservations=, item_ids=)`).
+물류 문제 장부 SQL 은 `app/logistics/repository/exceptions.py` 가 주인입니다
+(`live_exceptions_at` · `resolved_exceptions_on` — 한 판에서는 `read_console_page` 가
+함께 읽습니다). **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Card`)에 담습니다.
 
 원래 표를 직접 봐야 하면: `inventory_lots` · `inventory_reservations` ·
@@ -127,7 +122,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 띄우게 되고, 그건 **틀린 줄도 모르는** 오류입니다.
 급하면 ㉰ 로 두고 `Note` 에 «어느 실행을 보고 있는지» 를 적으세요.
 
-**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/api/shown_run.py`.**
+**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/core/settings.py` 의 두 값.**
 화면이 읽는 실행은 `SHOWN_SIM_RUN_ID`, 기준일은 `SHOWN_AS_OF` 한 자리에서만 정합니다.
 재무 · 물류 · 판매 · 대시보드와 매입 라우터(쿼리에 축이 없을 때)가 이 값을 씁니다.
 각 탭 `Source.note` 에 「보고 있는 실행: 실행 이름」 을 적습니다.
@@ -139,28 +134,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.logistics.db import fetch_one, fetch_all, get_db_schema
+물류는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/logistics/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/logistics/readmodel/` 입니다.
+
+```text
+app/logistics/repository/<기능>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/logistics/readmodel/<기능>.py    조회 연결을 빌려 repository 를 부르고 화면 값으로 편다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.inventory_lots WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.logistics.repository.rows.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---
@@ -329,11 +316,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -429,7 +416,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/logistics/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/logistics/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

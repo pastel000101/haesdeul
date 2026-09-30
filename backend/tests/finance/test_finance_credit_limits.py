@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import db as core_db
 from app.main import app
 
 CLIENT = TestClient(app)
@@ -48,22 +49,33 @@ class _Cursor:
 
 
 class _Connection:
+    """요청 동안 빌린 연결의 대역. 트랜잭션 끝을 센다 — 반환은 commit 이 아니다."""
+
     def __init__(self, cursor: _Cursor):
         self._cursor = cursor
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *_args):
-        return False
+        self.commits = 0
+        self.rollbacks = 0
 
     def cursor(self):
         return self._cursor
 
+    def commit(self) -> None:
+        self.commits += 1
 
-def _install(monkeypatch, cursor: _Cursor) -> None:
-    monkeypatch.setattr("app.finance.router.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.finance.router.get_connection", lambda: _Connection(cursor))
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+def _install(monkeypatch, cursor: _Cursor) -> _Connection:
+    """HTTP 입구의 연결 의존성(`core_db.db_connection`)을 대역으로 바꾼다 — DB 를 안 탄다."""
+    monkeypatch.setattr("app.finance.repository.credit_limits.get_db_schema", lambda: "haetdeul")
+    connection = _Connection(cursor)
+
+    def _borrowed():
+        yield connection
+
+    monkeypatch.setitem(app.dependency_overrides, core_db.db_connection, _borrowed)
+    return connection
 
 
 def _body(**changes) -> dict:
@@ -85,11 +97,13 @@ def _insert_params(cursor: _Cursor) -> list[object]:
 
 def test_first_credit_limit_is_inserted_with_distinct_source_and_recorder(monkeypatch):
     cursor = _Cursor()
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.post("/finance/credit-limits", json=_body())
 
     assert response.status_code == 201
+    # ★ 한 요청 = 한 트랜잭션 — 핸들러의 트랜잭션이 한 번 commit 한다 (종전 연결 블록과 같다).
+    assert (connection.commits, connection.rollbacks) == (1, 0)
     params = _insert_params(cursor)
     assert params[2] == Decimal(30000000)
     assert params[5] == "CONTRACT-CUST-001-20260916"
@@ -153,11 +167,13 @@ def test_blank_source_reference_is_rejected(monkeypatch):
 
 def test_unknown_partner_is_not_created_implicitly(monkeypatch):
     cursor = _Cursor(partner_exists=False)
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.post("/finance/credit-limits", json=_body())
 
     assert response.status_code == 404
+    # ★ 막힌 요청은 되돌린다 — 요청 끝에 저절로 commit 되지 않는다.
+    assert (connection.commits, connection.rollbacks) == (0, 1)
     assert not any("INSERT INTO" in statement for statement, _params in cursor.calls)
 
 
@@ -244,7 +260,7 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
         is_current=False,
     )
     cursor = _Cursor(history_rows=[newer, older])
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -252,6 +268,8 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
     )
 
     assert response.status_code == 200
+    # 조회도 종전 핸들러처럼 받은 연결에 트랜잭션 블록 하나 — 정상이면 commit 한 번.
+    assert (connection.commits, connection.rollbacks) == (1, 0)
     body = response.json()
     assert [row["partner_credit_limit_id"] for row in body] == ["CREDIT-NEW", "CREDIT-OLD"]
     assert body[0]["credit_limit_krw"] == "0"
@@ -267,7 +285,7 @@ def test_credit_history_returns_stored_fields_in_database_order(monkeypatch):
 
 def test_existing_partner_without_history_returns_empty_list(monkeypatch):
     cursor = _Cursor(history_rows=[])
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -276,11 +294,12 @@ def test_existing_partner_without_history_returns_empty_list(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == []
+    assert (connection.commits, connection.rollbacks) == (1, 0)
 
 
 def test_unknown_partner_history_is_404(monkeypatch):
     cursor = _Cursor(partner_exists=False)
-    _install(monkeypatch, cursor)
+    connection = _install(monkeypatch, cursor)
 
     response = CLIENT.get(
         "/finance/credit-limits",
@@ -288,3 +307,6 @@ def test_unknown_partner_history_is_404(monkeypatch):
     )
 
     assert response.status_code == 404
+    # 없는 거래처는 블록 안의 예외 — 종전처럼 rollback 하고 commit 하지 않는다.
+    assert (connection.commits, connection.rollbacks) == (0, 1)
+    assert not any("AS is_current" in statement for statement, _ in cursor.calls)

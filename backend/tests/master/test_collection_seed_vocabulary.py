@@ -37,11 +37,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal, get_args, get_origin
 
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
-from app.master.collection import CollectionPartOut
-from app.master.collection_seed import SeedStatus, seed_day
-from app.master.finance_collection import FinanceCollectionAdapter
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.contracts.parts import CollectionPartOut
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
+from app.master.adapters.finance_parts import FinanceCollectionAdapter
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.schemas.collection_seed import SeedStatus
+from app.master.service.collection_seed import seed_day
 
 AS_OF = date(2026, 1, 10)
 축_모드 = "LOAN_BASELINE"
@@ -99,7 +101,7 @@ def _두_경로를_태운다(대역: str, 축을_만든다: Any) -> _관측:
     seed = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=_안_불린다,
+        borrow=_안_불린다,
         read_axis=축을_만든다(센다),
     )
     part = FinanceCollectionAdapter(

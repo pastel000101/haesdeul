@@ -25,36 +25,40 @@ from typing import Any, Self, get_args
 
 import pytest
 
-from app.logistics import inbound_execution, inbound_stock, inspections
-from app.logistics.arrival import ArrivalBlockReason, ArrivalUnresolvedReason
-from app.logistics.inbound_execution import (
-    InboundBlockReason,
-    InspectionFact,
-    LogisticsInboundExecution,
-    UnknownReceiptStage,
-)
-from app.logistics.inbound_schedules import ScheduleReferenceBroken
-from app.logistics.inbound_stock import (
+from app.contracts.parts import InboundPartOut
+from app.logistics import adapter as adapter_module
+from app.logistics.adapter import LogisticsInboundExecution
+from app.logistics.domain import inbound_execution as inbound_execution_domain
+from app.logistics.domain.arrival import ArrivalBlockReason, ArrivalUnresolvedReason
+from app.logistics.domain.inbound_execution import InboundBlockReason, InspectionFact
+from app.logistics.repository import inbound_stock as inbound_stock_repository
+from app.logistics.schemas import inbound_execution as inbound_execution_schemas
+from app.logistics.schemas import vocabulary
+from app.logistics.schemas.inbound_execution import UnknownReceiptStage
+from app.logistics.schemas.inbound_schedules import ScheduleReferenceBroken
+from app.logistics.schemas.inbound_stock import (
     InboundStockResult,
     InvalidReceivingAxis,
     LotIntegrityError,
     ScheduleIntegrityError,
-    load_in_transit_for_receiving,
 )
-from app.logistics.inspections import (
+from app.logistics.schemas.inspections import (
     InspectionConflict,
     InspectionOutcome,
     InspectionWriteResult,
 )
-from app.logistics.purchase_detail import (
+from app.logistics.schemas.purchase_detail import (
     PurchaseDetail,
     PurchaseDetailAmbiguous,
     PurchaseDetailMissing,
 )
-from app.logistics.receipts import ReceiptExistence, ReceiptStatus, ReceiptWriteResult
-from app.logistics.schemas import InTransitItem
-from app.logistics.transition import USAGE_SCOPE
-from app.master.inbound import PARTS, InboundPartOut
+from app.logistics.schemas.receipts import ReceiptExistence, ReceiptStatus, ReceiptWriteResult
+from app.logistics.schemas.snapshot import InTransitItem
+from app.logistics.schemas.vocabulary import USAGE_SCOPE
+from app.logistics.service import inbound_execution
+from app.logistics.service import inspections as inspections_service
+from app.logistics.service.inbound_stock import load_in_transit_for_receiving
+from app.master.registry.inbound import PARTS
 
 SIM_RUN_ID = "SIM-BURNIN-202512"
 AS_OF = date(2026, 1, 7)
@@ -355,8 +359,39 @@ def _code_only(source: str) -> str:
     return chr(10).join(line.split("#", 1)[0] for line in code.splitlines())
 
 
+def _sources() -> list[str]:
+    """종전 `inbound_execution.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 네 자리다.
+
+    ```text
+    service/inbound_execution.py   도착 처리 순서(receive_inbound)
+    domain/inbound_execution.py    검수 사실 · provider 계약 · 막힘 어휘
+    schemas/inbound_execution.py   예외
+    adapter.LogisticsInboundExecution   등록소 표면 — 클래스 부분만 본다
+    ```
+    """
+    adapter_source = Path(adapter_module.__file__).read_text(encoding="utf-8")
+    surface = next(
+        ast.get_source_segment(adapter_source, node)
+        for node in ast.parse(adapter_source).body
+        if isinstance(node, ast.ClassDef) and node.name == "LogisticsInboundExecution"
+    )
+    return [
+        *(
+            Path(module.__file__).read_text(encoding="utf-8")
+            for module in (inbound_execution, inbound_execution_domain, inbound_execution_schemas)
+        ),
+        surface,
+    ]
+
+
 def _source() -> str:
-    return Path(inbound_execution.__file__).read_text(encoding="utf-8")
+    return chr(10).join(_sources())
+
+
+def _code() -> str:
+    """자리마다 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일부터 모듈
+    docstring 이 docstring 으로 안 잡힌다)."""
+    return chr(10).join(_code_only(source) for source in _sources())
 
 
 # ── 1~6. 도착 대상 고르기 ───────────────────────────────────────────────
@@ -458,7 +493,7 @@ def test_6c_사유가_둘이면_둘_다_남는다(monkeypatch: pytest.MonkeyPatc
 
 def test_6d_도착일_규칙을_다시_구현하지_않았다():
     """★ `<=` · `>` · `as_of` 비교가 이 파일에 **없어야** 한다 — 판정의 주인은 `arrival` 이다."""
-    code = _code_only(_source())
+    code = _code()
 
     assert "select_due_inbound" in code
     for banned in ("expected_arrival_date <", "expected_arrival_date >", "timedelta", "overdue"):
@@ -600,19 +635,25 @@ def test_14c_재고화에_넘기는_인자가_계약대로다(monkeypatch: pytes
 
 
 def test_14d_검수_단계_구분이_inspections_와_같다():
-    """🔴 갈리면 검수를 못 적는 상태에서 provider 를 부르거나 부를 자리를 건너뛴다."""
-    assert inbound_execution._NEEDS_INSPECTION == inspections._BEFORE_INSPECTION
-    assert inbound_execution._INSPECTION_SETTLED == inspections._INSPECTION_DONE
+    """🔴 갈리면 검수를 못 적는 상태에서 provider 를 부르거나 부를 자리를 건너뛴다.
+
+    ★ 2026-09-30 재구성 BL-015: 두 모듈이 따로 적던 두 집합을 `schemas/vocabulary` 한 벌로
+      모았다. 이제 둘이 **같은 객체**를 쓰는지 본다.
+    """
+    for module in (inbound_execution, inspections_service):
+        assert module.RECEIPT_BEFORE_INSPECTION is vocabulary.RECEIPT_BEFORE_INSPECTION
+        assert module.RECEIPT_INSPECTION_SETTLED is vocabulary.RECEIPT_INSPECTION_SETTLED
     # ★ 둘이 Receipt 상태 어휘를 남김없이 덮는다 — 그래서 UnknownReceiptStage 가 뜰
     #   유일한 경우가 "어휘가 늘었다" 뿐이다.
-    assert inbound_execution._NEEDS_INSPECTION | inbound_execution._INSPECTION_SETTLED == set(
-        get_args(ReceiptStatus)
+    assert (
+        vocabulary.RECEIPT_BEFORE_INSPECTION | vocabulary.RECEIPT_INSPECTION_SETTLED
+        == set(get_args(ReceiptStatus))
     )
 
 
 def test_14e_모르는_단계는_아는_단계로_접지_않는다(monkeypatch: pytest.MonkeyPatch):
     """🔴 검수 전으로 보면 적힌 검수를 덮고, 검수 후로 보면 검수를 건너뛴 채 재고를 만든다."""
-    monkeypatch.setattr(inbound_execution, "_INSPECTION_SETTLED", frozenset({"CLOSED"}))
+    monkeypatch.setattr(inbound_execution, "RECEIPT_INSPECTION_SETTLED", frozenset({"CLOSED"}))
     wiring = Wiring(
         monkeypatch,
         in_transit=[_in_transit_row()],
@@ -755,7 +796,7 @@ def test_19b_일정_행이_없으면_그대로_올라간다(monkeypatch: pytest.
 
 def test_19c_broad_catch_가_없다():
     """🔴 `except Exception` 하나면 위 세 검사가 전부 조용히 무력해진다."""
-    code = _code_only(_source())
+    code = _code()
 
     assert "except Exception" not in code
     assert "except BaseException" not in code
@@ -768,7 +809,7 @@ def test_19c_broad_catch_가_없다():
 
 
 def test_19d_물류가_FAILED_어휘를_만들지_않는다():
-    code = _code_only(_source())
+    code = _code()
 
     assert "FAILED" not in code
     assert set(get_args(InboundPartOut.model_fields["status"].annotation)) == {
@@ -789,14 +830,16 @@ def test_20_커밋도_롤백도_닫기도_새_커넥션도_없다(monkeypatch: p
 
     assert (conn.commits, conn.rollbacks, conn.closed) == (0, 0, 0)
     assert wiring.call_count("materialize") == 1
-    code = _code_only(_source())
-    for banned in ("commit", "rollback", ".close(", "get_connection", "psycopg"):
+    code = _code()
+    for banned in (
+        "commit", "rollback", ".close(", "get_connection", "core_db", "app.core", "psycopg"
+    ):
         assert banned not in code, f"{banned} — 트랜잭션 경계는 마스터 것이다"
 
 
 def test_20b_SQL_도_스키마도_이_파일에_없다():
     """★ 이 층은 **조립만 한다.** SQL 이 한 줄이라도 있으면 남의 소유를 다시 짜는 것이다."""
-    code = _code_only(_source())
+    code = _code()
 
     for banned in (
         "SELECT",
@@ -819,7 +862,7 @@ def test_20b_SQL_도_스키마도_이_파일에_없다():
 
 def test_20c_id_규칙을_다시_짓지_않는다():
     """🔴 `receipt_id` · `lot_id` · `move_id` 의 주인은 각 모듈이다."""
-    code = _code_only(_source())
+    code = _code()
 
     for banned in (
         "RCPT-",
@@ -834,7 +877,11 @@ def test_20c_id_규칙을_다시_짓지_않는다():
 
 
 def test_20d_다른_파트를_임포트하지_않는다():
-    """⚠️ `app.master.inbound` 만은 예외다 — 결과 계약(`InboundPartOut`)의 주인이다."""
+    """다른 파트도 마스터도 import 하지 않는다. 결과 계약은 공용 계약에서 온다.
+
+    ★ 2026-09-29 전에는 `app.master.inbound` 하나가 예외였다 — 결과 계약(`InboundPartOut`)이
+      거기 있었다. 그 타입을 `app/contracts/parts.py` 로 올려 예외가 없어졌다 (재구성 BL-011).
+    """
     tree = ast.parse(_source())
     modules: set[str] = set()
     for node in ast.walk(tree):
@@ -844,7 +891,8 @@ def test_20d_다른_파트를_임포트하지_않는다():
             modules.add(node.module)
 
     assert not [m for m in modules if m.startswith(("app.purchase", "app.finance", "app.sales"))]
-    assert {m for m in modules if m.startswith("app.master")} == {"app.master.inbound"}
+    assert {m for m in modules if m.startswith("app.master")} == set()
+    assert "app.contracts.parts" in modules, "결과 계약을 어디서 가져오는지 못 찾았다"
 
 
 def test_20e_파트_이름이_마스터_등록소와_같다():
@@ -972,14 +1020,14 @@ def test_23c3_Protocol_준수까지_검사하지는_않는다():
     assert LogisticsInboundExecution(
         sim_run_id=SIM_RUN_ID, inspection_provider=MinimalProvider()
     ) is not None
-    code = _code_only(_source())
+    code = _code()
     assert "isinstance" not in code
     assert "runtime_checkable" not in code
 
 
 def test_23d_자동_검수_정책이_코드에_없다():
     """🔴 저장소 어디에도 *"몇 %가 PASS 인가"* 를 정한 규칙이 없다. 여기서 만들지 않는다."""
-    code = _code_only(_source())
+    code = _code()
 
     for banned in (
         "PASS",
@@ -1026,7 +1074,7 @@ def test_막힘_어휘가_arrival_것을_그대로_쓴다():
 
 @pytest.fixture
 def pin_schema_name(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(inbound_stock, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(inbound_stock_repository, "get_db_schema", lambda: "haetdeul")
 
 
 def _fixture_rows(status: str = "CONFIRMED") -> list[Any]:

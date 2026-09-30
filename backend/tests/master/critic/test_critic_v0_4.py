@@ -170,7 +170,7 @@ section("[A] 오케스트레이터 — 기존 파이프라인 회귀")
 
 from fixtures import CASES
 
-from app.master.band import clip_all, combine_band
+from app.master.domain.band import clip_all, combine_band
 
 for name, case in CASES.items():
     replies = case["replies"]
@@ -424,7 +424,7 @@ from app.contracts.core import (
     CycleBState,
     PipelineState,
 )
-from app.master.band import check_occupancy_detailed
+from app.master.domain.band import check_occupancy_detailed
 
 _REPLIES_STD = _std_replies()
 
@@ -558,7 +558,7 @@ from fixtures_cycle_b import (
 )
 from run_day_stub import _hooks_a, _hooks_b
 
-from app.master.outbound import (
+from app.master.domain.outbound import (
     clip_allocations,
     combine_outbound_band,
     detect_allocation_collapse,
@@ -654,7 +654,7 @@ from app.contracts.core import (
     OutboundLeg,
     SalesFacts,
 )
-from app.master.outbound import clip_allocation
+from app.master.domain.outbound import clip_allocation
 
 # ── HOLD 는 출고가 아니다 (§5) ──────────────────────────────────
 _legs = (

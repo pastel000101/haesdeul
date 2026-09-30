@@ -34,32 +34,28 @@ from typing import Any, NamedTuple
 import psycopg
 import pytest
 
-from app.api.logistics.query import _SEVERITY, _SEVERITY_UNKNOWN, _severity_at
-from app.logistics import historical_repository, turnover
-from app.logistics.db import get_connection
-from app.logistics.monitoring import exceptions as exception_repo
-from app.logistics.monitoring.detect import (
-    COMMITTED,
-    ESCALATED_FRESHNESS_EXPIRED,
-    REDETECT,
-    detect_logistics_exceptions,
-)
-from app.logistics.monitoring.exceptions import (
-    EmptyEvidence,
+from app.core import db as core_db
+from app.logistics.domain.console_rules import severity_at
+from app.logistics.domain.monitoring import COMMITTED, ESCALATED_FRESHNESS_EXPIRED, REDETECT
+from app.logistics.readmodel.observation import observe
+from app.logistics.repository import rows
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.repository.exceptions import (
     live_exceptions,
     open_exception,
     resolve_exception,
     touch_exception,
 )
-from app.logistics.monitoring.observe import observe
-from app.logistics.monitoring.schemas import (
+from app.logistics.schemas.monitoring import (
     CAPACITY_PRESSURE,
     FRESHNESS_PRESSURE,
     WAREHOUSE_SUBJECT_ID,
+    EmptyEvidence,
     ExceptionEvidence,
     ExceptionRow,
 )
-from app.logistics.schemas import InventoryLogisticsSnapshot
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
+from app.logistics.service.monitoring import detect_logistics_exceptions
 
 pytestmark = pytest.mark.db
 
@@ -110,46 +106,50 @@ def _file(name: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            for name in ("30_logistics_wms_schema.sql", "logistics_inventory_lots_nullable.sql"):
-                cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            # 🔴 이 판이 만드는 표가 검사 대상이다 — 저장소의 DDL 을 **그대로** 돌린다.
-            에이전트 = _file("40_logistics_agent_schema.sql")
-            cur.execute(에이전트.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                for name in (
+                    "30_logistics_wms_schema.sql",
+                    "logistics_inventory_lots_nullable.sql",
+                ):
+                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                # 🔴 이 판이 만드는 표가 검사 대상이다 — 저장소의 DDL 을 **그대로** 돌린다.
+                에이전트 = _file("40_logistics_agent_schema.sql")
+                cur.execute(에이전트.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            for 실행 in (SIM, OTHER_SIM):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (실행,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
-            for item, name in ((BAECHU, "배추"), (MU, "무")):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                for 실행 in (SIM, OTHER_SIM):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (실행,))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
+                for item, name in ((BAECHU, "배추"), (MU, "무")):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 **배추에만** 넣는다 — 실 DB 도 5 중 3 품목뿐이고,
+                #    정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다 (LEFT JOIN).
                 cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item, ZONE, LIMIT_DAYS),
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (BAECHU, PRIORITY_DAYS),
                 )
-            # 🔴 회전 정책은 **배추에만** 넣는다 — 실 DB 도 5 중 3 품목뿐이고,
-            #    정책 없는 품목이 조회에서 사라지지 않는 것이 계약이다 (LEFT JOIN).
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, 10, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (BAECHU, PRIORITY_DAYS),
-            )
-        for module in (turnover, historical_repository, exception_repo):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+            # ★ 2026-09-30 재구성 BL-015: 회전 SQL 은 `repository/turnover` 가, 이력 · 문제 장부 ·
+            #   일정 SQL 은 `rows.schema_identifier` 로 스키마를 읽는다.
+            for module in (turnover_repository, rows):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────
@@ -835,11 +835,11 @@ def test_감지_이력이_날짜별_severity를_복원한다(conn: psycopg.Conne
         (D3, "CRITICAL"),
     }
 
-    assert _severity_at(row, D1) == (_SEVERITY["MEDIUM"], None)
-    assert _severity_at(row, D2) == (_SEVERITY["HIGH"], None)
-    assert _severity_at(row, D3) == (_SEVERITY["CRITICAL"], None)
+    assert severity_at(row, D1) == "MEDIUM"
+    assert severity_at(row, D2) == "HIGH"
+    assert severity_at(row, D3) == "CRITICAL"
     # 🔴 D1 화면에 D3 의 CRITICAL 이 새지 않는다.
-    assert _severity_at(row, D1)[0] != _SEVERITY["CRITICAL"]
+    assert severity_at(row, D1) != "CRITICAL"
 
 
 def test_같은_날_상승은_마지막_감지값이다(conn: psycopg.Connection) -> None:
@@ -850,7 +850,7 @@ def test_같은_날_상승은_마지막_감지값이다(conn: psycopg.Connection
 
     row = _one_live(conn)
     assert [(r.as_of, r.severity) for r in row.detection_history] == [(D1, "HIGH")]
-    assert _severity_at(row, D1) == (_SEVERITY["HIGH"], None)
+    assert severity_at(row, D1) == "HIGH"
 
 
 def test_같은_날_하락은_마지막_감지값이다(conn: psycopg.Connection) -> None:
@@ -861,8 +861,8 @@ def test_같은_날_하락은_마지막_감지값이다(conn: psycopg.Connection
 
     row = _one_live(conn)
     assert [(r.as_of, r.severity) for r in row.detection_history] == [(D1, "MEDIUM")]
-    assert _severity_at(row, D1) == (_SEVERITY["MEDIUM"], None)
-    assert _severity_at(row, D1)[0] != _SEVERITY["HIGH"]
+    assert severity_at(row, D1) == "MEDIUM"
+    assert severity_at(row, D1) != "HIGH"
 
 
 def test_이력_배열_순서와_무관하게_기준일_이하_최대날짜를_고른다(
@@ -881,9 +881,9 @@ def test_이력_배열_순서와_무관하게_기준일_이하_최대날짜를_�
 
     row = _one_live(conn)
     # 🔴 history[-1] (=D2) 가 아니라 날짜 비교로 고른다.
-    assert _severity_at(row, D3) == (_SEVERITY["CRITICAL"], None)
-    assert _severity_at(row, D2) == (_SEVERITY["HIGH"], None)
-    assert _severity_at(row, D1) == (_SEVERITY["LOW"], None)
+    assert severity_at(row, D3) == "CRITICAL"
+    assert severity_at(row, D2) == "HIGH"
+    assert severity_at(row, D1) == "LOW"
 
 
 def test_이력_없는_옛_행은_기존_fallback_을_유지한다() -> None:
@@ -904,12 +904,12 @@ def test_이력_없는_옛_행은_기존_fallback_을_유지한다() -> None:
     )
     assert row.detection_history == ()
     # last_detected(D2) <= 기준일(D3) → 지금 값이 그날 값이다.
-    assert _severity_at(row, D3) == (_SEVERITY["HIGH"], None)
-    # last_detected(D2) > 기준일(D1) → 증명 불가.
-    #  ★ 표 칸이 적는 말은 결과뿐이다 (#812). *왜* 못 적는지는 카드 footer 가 한 번
-    #    말하므로, 여기서 기대하는 것도 `_SEVERITY_UNKNOWN` 한 마디다 — 판정 규칙
-    #    (「last_detected > 기준일이면 증명 불가」)은 그대로고 **문구만** 짧아졌다.
-    assert _severity_at(row, D1) == ("—", _SEVERITY_UNKNOWN)
+    assert severity_at(row, D3) == "HIGH"
+    # last_detected(D2) > 기준일(D1) → 증명 불가 (`None`).
+    #  ★ 표 칸이 적는 말(「—」 · 「우선도 정보 없음」 · #812)은 화면이 정한다 —
+    #    `tests/api/test_logistics_severity_label.py`. 여기서는 판정 규칙
+    #    (「last_detected > 기준일이면 증명 불가」)만 잰다.
+    assert severity_at(row, D1) is None
 
 
 def test_현재_severity_는_최신_감지_이력과_같다(conn: psycopg.Connection) -> None:

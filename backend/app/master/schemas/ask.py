@@ -1,0 +1,203 @@
+"""`/master/ask` 입출력 — 발화문 입구.
+
+★ `schemas.py`(매입 Flow 계약)와 분리한다. 발화문 입구는 **화면 요구가 가장 자주
+  바뀌는 자리**라, 여기가 흔들려도 에이전트 계약이 따라 흔들리면 안 된다.
+
+★ 2026-09-30 재구성 BL-018: `master/ask_schemas.py` 에서 자리만 옮겼다(내용 그대로).
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.contracts.envelope import AgentName, LLMStatus
+from app.master.llm.schemas import Intent
+from app.master.schemas.decision import DecisionOut
+from app.master.schemas.procurement import ProcurementRunResponse
+from app.master.schemas.status_flow import StatusCode
+
+#: 이 요청이 실제로 무엇을 했나.
+#:
+#: **분류와 실행을 구분하는 것이 이 필드의 전부다.** `CLASSIFIED_ONLY` 는 "알아들었지만
+#: 아직 아무것도 안 했다"이고, 그 상태로 200 을 돌려주는 것이 정상 경로다.
+AskOutcome = Literal[
+    "CLASSIFIED_ONLY",  # 확인이 필요해 실행하지 않음
+    "STATUS_ANSWERED",  # 조회를 돌려 답을 담음
+    "DECISION_RECORDED",  # 사람이 고른 안을 결정 이력에 적음
+    "DOMAIN_ACTION_ANSWERED",  # Finance/Sales/Partner 읽기
+    "DOMAIN_ACTION_EXECUTED",  # 확인 뒤 쓰기
+    "NEEDS_CLARIFICATION",  # 못 알아들음/필수 슬롯 부족 — 되묻는다
+]
+
+
+class AskRequest(BaseModel):
+    """발화문 하나."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    utterance: str = Field(min_length=1, max_length=2000)
+    as_of: date
+    policy_version: str = Field(min_length=1)
+    request_id: str | None = None
+    budget: int = Field(default=12, ge=1, le=50)
+    # Report UI가 선택한 실행/기간. 기존 발화-only 호출과 호환되도록 전부 선택값이다.
+    sim_run_id: str | None = Field(default=None, min_length=1)
+    date_from: date | None = None
+    date_to: date | None = None
+
+    @model_validator(mode="after")
+    def validate_report_dates(self) -> AskRequest:
+        if (self.date_from is None) != (self.date_to is None):
+            raise ValueError("시작일과 종료일을 모두 선택해 주세요.")
+        if self.date_from and self.date_to and self.date_from > self.date_to:
+            raise ValueError("시작일은 종료일보다 늦을 수 없습니다.")
+        return self
+
+
+class AskExecuteRequest(BaseModel):
+    """사용자가 **확인한 의도**를 그대로 돌려보내 실행한다.
+
+    ★ 발화문을 다시 분류하지 않는다. 재분류하면 사용자가 확인한 것과 다른 것이 돌 수
+      있다 — 확인의 뜻이 사라진다. **본 것을 실행한다.**
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent
+    as_of: date
+    policy_version: str = Field(min_length=1)
+    request_id: str | None = None
+    budget: int = Field(default=12, ge=1, le=50)
+
+    #: 🔴 **결정 대상 실행의 업무 키.** `SELECT_SCENARIO` 에 필수다.
+    #:
+    #: **LLM 이 채울 수 없고 채워서도 안 된다.** *"기본안으로 진행해"* 라는 말에는
+    #: **어느 실행의** 기본안인지가 없다. 화면은 방금 무엇을 보여줬는지 알고 있으므로
+    #: 화면이 싣는다 — 서버가 "가장 최근 실행" 으로 추측하면 **엉뚱한 날의 안을
+    #: 승인**할 수 있다.
+    target_request_id: str | None = None
+
+    #: 🔴 **화면이 보고 있던 실행의 이력 행 id** (2026-08-30 신설).
+    #:
+    #: `target_request_id` 는 **업무 키**라 한 키에 실행이 여러 행이면 어느 것인지
+    #: 못 가린다 (실측: 한 키에 75행). 그 사이 재실행이 있었으면 **사람이 본 안과
+    #: 다른 안이 승인된 것으로 남는다** — 라벨이 같아 눈에 안 띈다.
+    #:
+    #: 화면이 응답의 `history_run_id` 를 그대로 되돌려 주면 된다. 안 주면 서버가
+    #: 최신 실행을 고르고, **그때는 경합이 남는다.**
+    target_history_run_id: str | None = None
+
+    #: 🔴 **승인자.** `SELECT_SCENARIO` 에 필수다.
+    #:
+    #: *"승인자가 없는 승인은 승인이 아니다"* (`decision.py`). **말로 골랐다고 승인자가
+    #: 생기지는 않는다** — 발화문에는 신원이 없으므로 인증된 사용자를 화면이 싣는다.
+    decided_by: str | None = None
+
+    #: 확인을 받은 **발화문 원문.** 선택 칸이다 (2026-09-15 신설).
+    #:
+    #: ★ 재분류에 쓰지 않는다. 가격 예측(`ml`) 조회는 질문 원문을 그대로 받아야 답하는데,
+    #:   확인을 거친 조회는 의도만 돌아와 원문이 없다. 화면이 `/ask` 에 보냈던 말을
+    #:   되돌려 줄 때만 ML 에 실린다. 다른 부서 조회에는 쓰이지 않는다.
+    utterance: str | None = Field(default=None, max_length=2000)
+
+    #: 일반 Domain write 의 실행자. 승인 의미인 `decided_by` 와 섞지 않는다.
+    actor: str | None = Field(default=None, max_length=120)
+
+
+class StatusAnswer(BaseModel):
+    """조회 결과. **못 답한 부서를 감추지 않는다.**"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status_code: StatusCode
+    reason: str
+    answers: dict[AgentName, dict[str, Any]] = {}
+    unavailable: list[AgentName] = []
+    #: 입력이 없어 못 답한 것 — 다시 물어도 같다.
+    missing_data: dict[AgentName, list[str]] = {}
+    #: 호출이 터진 것 — 다시 불러 볼 값어치가 있다. `missing_data` 와 나눠 둔다.
+    errors: dict[AgentName, str] = {}
+
+
+class AnswerOut(BaseModel):
+    """사람이 읽는 답. 마스터 역할 ⑥.
+
+    ★ `text` 는 **규칙이 만든 사실 줄 + (있으면) LLM 문장**이다. `narrative` 가 비어도
+      `text` 는 완결돼 있다 — LLM 이 답의 뼈대가 아니기 때문이다.
+
+    ★ `status.answers` 를 지우지 않는다. 이건 **사람이 읽는 표현**이고, 화면·다른
+      시스템이 쓰는 것은 여전히 구조화된 `status` 다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    #: LLM 이 쓴 앞머리. 없으면 규칙이 만든 줄만으로 답한 것이다.
+    narrative: str | None = None
+    llm_status: LLMStatus
+    llm_attempts: int = 0
+    llm_fallback_used: bool = False
+    #: 가격 예측(`ml`)이 쓴 **마크다운 본문 그대로.** 선택 칸이다 (2026-09-15 신설).
+    #:
+    #: ★ `text` 에 섞지 않는다. `text` 는 규칙이 만든 사실 줄과 LLM 문장이고, 이것은
+    #:   부서가 완결해 보낸 글이다. 사실 줄로 펴지도 않고 ⑥이 다시 요약하지도 않는다.
+    markdown: str | None = None
+
+
+class DomainActionAnswer(BaseModel):
+    """Finance/Sales/Logistics/Partner 자연어 명령의 구조화 결과."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: Literal["finance", "sales", "logistics", "partner"]
+    action: str
+    text: str
+    data: dict[str, Any] = Field(default_factory=dict)
+    markdown: str | None = None
+    report_kind: Literal["FINANCE", "SALES", "LOGISTICS"] | None = None
+
+
+class AskResponse(BaseModel):
+    """분류 결과 + (실행했다면) 그 결과."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str
+    as_of: date
+    outcome: AskOutcome
+
+    intent: Intent
+    #: 되물을 말. 확인이 필요하거나 못 알아들었을 때만 채운다.
+    clarification: str | None = None
+    #: 확인 후 실행하려면 이 의도를 `/master/ask/execute` 로 그대로 보낸다.
+    confirm_required: bool = False
+
+    status: StatusAnswer | None = None
+    #: 적재된 결정. `DECISION_RECORDED` 일 때만 채운다.
+    decision: DecisionOut | None = None
+    #: 조건부 재요청으로 **다시 돈 실행.** `RERUN_WITH_CONDITION` 일 때만 채운다.
+    #:
+    #: ★ **없으면 고리가 끊긴다.** 사용자가 *"다시 해줘"* 라고 했으면 다음 동작은
+    #:   **새로 나온 안 중 하나를 고르는 것**인데, 결정만 돌려주면 화면이 그 안을
+    #:   그릴 수도 고를 수도 없다. 리포트 문장에는 있지만 문장에서 라벨을 긁어 쓰는 것은
+    #:   화면이 서버 문장 형식에 묶이는 일이라 하지 않는다.
+    run: ProcurementRunResponse | None = None
+    #: 사람이 읽는 답 (⑥). 실행한 경우에만 채운다 — 되묻는 경우는 `clarification` 이다.
+    answer: AnswerOut | None = None
+    #: Finance/Sales/Partner 명령의 구조화된 실제 결과.
+    domain_result: DomainActionAnswer | None = None
+
+    #: ★ 아래 다섯은 **①(의도 분류)의 상태다.** ⑥의 상태는 `answer` 안에 따로 있다 —
+    #: 한 요청에 LLM 호출이 둘이라 한 칸에 담으면 어느 쪽이 죽었는지 알 수 없다.
+    llm_status: LLMStatus
+    llm_provider: str | None = None
+    llm_model: str | None = None
+    llm_attempts: int = 0
+    llm_fallback_used: bool = False
+
+    #: 사람이 읽는 한 줄. `CLASSIFIED_ONLY` 면 실행하지 않은 이유이고,
+    #: `STATUS_ANSWERED` 면 조회가 읽은 실행·기준일이다 (`ask_service._shown_note`).
+    note: str | None = None

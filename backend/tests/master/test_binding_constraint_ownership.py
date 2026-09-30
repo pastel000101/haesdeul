@@ -34,8 +34,9 @@ import app.master
 from app.contracts.core import BINDING_CONSTRAINT_LABELS, BindingConstraint
 
 _BACKEND = Path(app.master.__file__).parent.parent.parent
-_DRAFT_PLAN = _BACKEND / "app" / "purchase_agent" / "nodes" / "draft_plan.py"
-_PURCHASE_SCHEMAS = _BACKEND / "app" / "purchase_agent" / "schemas.py"
+#: 2026-09-29 재구성 BL-016: ③ 노드 함수는 ``service/nodes/``, 출력 계약은 ``schemas/proposal.py``.
+_DRAFT_PLAN = _BACKEND / "app" / "purchase_agent" / "service" / "nodes" / "draft_plan.py"
+_PURCHASE_SCHEMAS = _BACKEND / "app" / "purchase_agent" / "schemas" / "proposal.py"
 
 
 def _purchase_cap_keys() -> tuple[str, ...]:
@@ -54,7 +55,9 @@ def _purchase_cap_keys() -> tuple[str, ...]:
 
 def _band_binding_axes() -> tuple[str, ...]:
     """`band` 가 `binding_constraints` 에 넣는 축 이름."""
-    tree = ast.parse((_BACKEND / "app" / "master" / "band.py").read_text(encoding="utf-8"))
+    tree = ast.parse(
+        (_BACKEND / "app" / "master" / "domain" / "band.py").read_text(encoding="utf-8")
+    )
     out: list[str] = []
     for node in ast.walk(tree):
         if (
@@ -256,7 +259,7 @@ def test_밴드_축은_어휘를_닫을_수_없다():
 
     이것이 두 어휘를 합칠 수 없는 기술적 이유다.
     """
-    source = (_BACKEND / "app" / "master" / "band.py").read_text(encoding="utf-8")
+    source = (_BACKEND / "app" / "master" / "domain" / "band.py").read_text(encoding="utf-8")
 
     assert 'f"cap_by_date.{' in source, (
         "cap_by_date 축이 날짜를 안 붙인다 — 그러면 어휘를 닫을 수 있고 "

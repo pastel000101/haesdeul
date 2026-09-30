@@ -6,27 +6,28 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 
 from app.contracts.aging import AgingBucket
-from app.sales.console_collections import ConsoleCollectionsResponse, get_console_collections
-from app.sales.console_items import ConsoleItemsResponse, get_console_items
-from app.sales.console_lifecycle import ConsoleSaleLifecycle, get_console_sale_lifecycle
-from app.sales.console_partners import (
-    ConsolePartnerDetailResponse,
-    ConsolePartnersResponse,
+from app.sales.readmodel.console_collections import get_console_collections
+from app.sales.readmodel.console_items import get_console_items
+from app.sales.readmodel.console_lifecycle import get_console_sale_lifecycle
+from app.sales.readmodel.console_partners import (
     get_console_partner_detail,
     get_console_partners,
 )
-from app.sales.console_proposals import (
-    ConsoleSalesProposalsResponse,
-    get_console_sales_proposals,
+from app.sales.readmodel.console_proposals import get_console_sales_proposals
+from app.sales.readmodel.console_runs import get_console_sales_runs
+from app.sales.readmodel.console_trend import get_console_sales_trend
+from app.sales.readmodel.dashboard import get_sales_dashboard
+from app.sales.schemas.console_collections import ConsoleCollectionsResponse
+from app.sales.schemas.console_items import ConsoleItemsResponse
+from app.sales.schemas.console_lifecycle import ConsoleSaleLifecycle
+from app.sales.schemas.console_partners import (
+    ConsolePartnerDetailResponse,
+    ConsolePartnersResponse,
 )
-from app.sales.console_runs import ConsoleSalesRunsResponse, get_console_sales_runs
-from app.sales.console_trend import (
-    MAX_TREND_DAYS,
-    SalesTrendResponse,
-    get_console_sales_trend,
-)
-from app.sales.dashboard import get_sales_dashboard
-from app.sales.schemas import SalesDashboardResponse
+from app.sales.schemas.console_proposals import ConsoleSalesProposalsResponse
+from app.sales.schemas.console_runs import ConsoleSalesRunsResponse
+from app.sales.schemas.console_trend import MAX_TREND_DAYS, SalesTrendResponse
+from app.sales.schemas.dashboard import SalesDashboardResponse
 
 router = APIRouter(prefix="/console/sales", tags=["console:sales"])
 

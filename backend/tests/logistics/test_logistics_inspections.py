@@ -20,18 +20,20 @@ from typing import Any, Self
 
 import pytest
 
-from app.logistics import inspections
-from app.logistics.inspections import (
+from app.logistics.domain import inspections as inspections_domain
+from app.logistics.domain.inspections import inspection_id_for, validate_outcome
+from app.logistics.repository import inspections as inspections_repository
+from app.logistics.repository.inspections import find_inspection
+from app.logistics.schemas import inspections as inspections_schemas
+from app.logistics.schemas.inspections import (
     InspectionConflict,
     InspectionIntegrityError,
     InspectionOutcome,
     InspectionWriteResult,
     InvalidInspectionOutcome,
-    find_inspection,
-    inspection_id_for,
-    record_inspection,
-    validate_outcome,
 )
+from app.logistics.service import inspections
+from app.logistics.service.inspections import record_inspection
 
 RECEIPT_ID = "RCPT-SIM-BURNIN-202512-INB-H1-THRU-20260105-BAECHU-1-1"
 INSPECTION_ID = "INSP-" + RECEIPT_ID
@@ -52,7 +54,7 @@ _영수칸 = ("receipt_status", "accepted_qty_kg", "hold_qty_kg", "rejected_qty_
 @pytest.fixture(autouse=True)
 def 스키마이름을_고정한다(monkeypatch: pytest.MonkeyPatch) -> None:
     """`get_db_schema()` 는 환경변수를 읽는다 — 여기서 끊는다."""
-    monkeypatch.setattr(inspections, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(inspections_repository, "get_db_schema", lambda: "haetdeul")
 
 
 def _결과(
@@ -220,7 +222,27 @@ def _코드만(source: str) -> str:
 
 
 def _원문() -> str:
-    return Path(inspections.__file__).read_text(encoding="utf-8")
+    """종전 `inspections.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 service · repository ·
+    domain · schemas 네 파일이다(잠금은 `repository/locks.py` 로 모였다)."""
+    return chr(10).join(_원문들())
+
+
+def _원문들() -> list[str]:
+    return [
+        Path(module.__file__).read_text(encoding="utf-8")
+        for module in (
+            inspections,
+            inspections_repository,
+            inspections_domain,
+            inspections_schemas,
+        )
+    ]
+
+
+def _코드() -> str:
+    """네 파일 각각에서 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일부터
+    모듈 docstring 이 docstring 으로 안 잡힌다)."""
+    return chr(10).join(_코드만(원문) for 원문 in _원문들())
 
 
 # ── 1~10. DB 계약을 쓰기 전에 건다 ─────────────────────────────────────
@@ -359,7 +381,7 @@ def test_14b_검수자와_검수시각은_호출자가_준_값_그대로다():
 
 def test_14c_시계를_읽지_않는다():
     """★ `now()` 는 Receipt `updated_at` 하나뿐 — **DB 기록 시각**이지 업무 사실이 아니다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("datetime.now", "utcnow", "today("):
         assert 금지 not in 코드, f"{금지} — 검수 시각을 지어내고 있다"
@@ -567,7 +589,7 @@ def test_22_검수_항목_행을_만들지_않는다():
 
     ★ 그 표의 주석이 *"사람이 웹 Form 으로 넣는다"* 이고, 필수라는 정책이 없다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "inbound_inspection_checks" not in 코드
     for 금지 in ("MOLD", "ROT", "ODOR", "CONTAMINATION", "PACKAGING_DAMAGE", "severity"):
@@ -582,8 +604,11 @@ def test_23_24_25_커밋도_롤백도_새_커넥션도_없다():
     assert conn.commits == 0
     assert conn.rollbacks == 0
     assert conn.closed == 0
-    코드 = _코드만(_원문())
+    코드 = _코드()
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "commit" not in 코드
     assert "rollback" not in 코드
 
@@ -608,8 +633,15 @@ def test_26_다른_파트를_임포트하지_않는다():
         "decimal",
         "typing",
         "psycopg",
-        "app.logistics.db",
-        "app.logistics.receipts",
+        # ★ 2026-09-30 재구성 BL-015: 같은 기능의 계층 파일 · 물류 공용 도우미(스키마 이름 ·
+        #   잠금) · 상태 어휘. 종전 `app.logistics.db` · `app.logistics.receipts` 의 자리다.
+        "app.logistics.domain.inspections",
+        "app.logistics.repository.inspections",
+        "app.logistics.schemas.inspections",
+        "app.logistics.repository.rows",
+        "app.logistics.repository.locks",
+        "app.logistics.schemas.receipts",
+        "app.logistics.schemas.vocabulary",
     }, 모듈
 
 
@@ -627,7 +659,7 @@ def test_잠금이_먼저이고_세_번째_잠금을_만들지_않는다():
 
 
 def test_아직_Lot_도_원장도_일정도_건드리지_않는다():
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in (
         "inventory_lots",

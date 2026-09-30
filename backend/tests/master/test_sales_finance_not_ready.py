@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.master.decision import SALES_CYCLE, approve_end_codes, decidable_end_codes
-from app.master.sales_flow import SalesEndCode
+from app.master.domain.decision import SALES_CYCLE, approve_end_codes, decidable_end_codes
+from app.master.schemas.sales import SalesEndCode
 from tests.master.test_sales_flow import (
     _meta,
     _reply,
@@ -44,7 +44,7 @@ def finance(kinds: dict[str, str] | None = None, default: str = "ok"):
 
     ★ `business_status` 만 바꾸지 않는다. 이번 구분은 `runtime_status` 와
       `payload.status` 까지 봐야 성립하므로, 재무가 실제로 보내는 칸을 그대로 싣는다
-      (`app/finance/capabilities/sales.py` · `map_sales_finance_verdict`).
+      (`app/finance/domain/sales_validation.py` · `map_sales_finance_verdict`).
     """
 
     def port(request):
@@ -331,7 +331,7 @@ def test_미판정_검증은_재검증_통과_어휘_밖이다():
     ★ 이 계약은 `revalidation._verdict` 가 이미 갖고 있다 — 여기서 새로 만들지 않고
       **그것이 살아 있는지**만 잰다.
     """
-    from app.master.envelope import PASSING_VERDICTS
+    from app.contracts.envelope import PASSING_VERDICTS
 
     assert "skipped" not in PASSING_VERDICTS
     assert PASSING_VERDICTS == frozenset({"ok", "conditional"})
@@ -426,6 +426,6 @@ def test_종료코드_어휘가_한_벌이다():
 
 def test_새_통과_어휘를_만들지_않았다():
     """🔴 `skipped` 를 통과로 만드는 것이 아니다 — 후보를 살려 둘 뿐이다."""
-    from app.master.envelope import PASSING_VERDICTS
+    from app.contracts.envelope import PASSING_VERDICTS
 
     assert PASSING_VERDICTS == frozenset({"ok", "conditional"})

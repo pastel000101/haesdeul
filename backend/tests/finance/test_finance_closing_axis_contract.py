@@ -5,7 +5,7 @@
 
   ```text
   FinanceDayOpening   실행축 하나를 전진시킨다
-  FinanceDayClosing   같은 실행축 하나로 닫는다
+  close_finance_day_on 같은 실행축 하나로 닫는다 (2026-09-29 재구성 BL-014 전 `FinanceDayClosing`)
   ```
 
 🔴 **예전 계약은 여기서 뒤집혔다.** 마감이 같은 날짜의 `BASE_NO_LOAN` 을 따로 요구해,
@@ -36,9 +36,10 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import closing
-from app.finance.day_open import FinanceDayOpening
-from app.finance.db import FinanceDataNotReady, InventorySnapshot
+from app.finance.adapter import FinanceDayOpening
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service import closing
 
 CARRY_FROM = date(2026, 1, 5)
 AS_OF = date(2026, 1, 6)
@@ -263,17 +264,17 @@ class _Conn:
 def _schema():
     snapshot = InventorySnapshot(Decimal(123), Decimal(456), Decimal(456))
     with (
-        patch("app.finance.day_open.get_db_schema", return_value="haetdeul"),
-        patch("app.finance.closing.get_db_schema", return_value="haetdeul"),
-        patch("app.finance.day_open.load_inventory_snapshot_as_of", return_value=snapshot),
-        patch("app.finance.closing.load_inventory_snapshot_as_of", return_value=snapshot),
+        patch("app.finance.repository.day_open.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.repository.closing.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.service.day_open.load_inventory_snapshot_as_of", return_value=snapshot),
+        patch("app.finance.service.closing.load_inventory_snapshot_as_of", return_value=snapshot),
     ):
         yield
 
 
 def _open_and_close(conn, *, as_of=AS_OF, carry_from=CARRY_FROM):
     FinanceDayOpening().open_day(conn, as_of=as_of, carry_from=carry_from)
-    return closing.FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=SIM_RUN_ID)
+    return closing.close_finance_day_on(conn, as_of=as_of, sim_run_id=SIM_RUN_ID)
 
 
 def _row(conn, *, as_of=AS_OF):
@@ -370,8 +371,8 @@ def test_principal_repayment_does_not_lower_the_debt_free_curve():
         ]
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day1, sim_run_id=SIM_RUN_ID)
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day1, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     before = _row(conn, as_of=day1)
     after = _row(conn, as_of=day2)
@@ -396,7 +397,7 @@ def test_repayment_day_has_no_new_borrowing():
         ]
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     assert _row(conn, as_of=day2)["loan_execution_krw"] == Decimal(0)
 
@@ -410,7 +411,7 @@ def test_additional_borrowing_is_the_daily_increase_only():
         ]
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     row = _row(conn, as_of=day2)
     assert row["loan_execution_krw"] == Decimal(5_000)
@@ -427,7 +428,7 @@ def test_unchanged_debt_reports_no_execution_and_a_moving_debt_free_curve():
         ]
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     row = _row(conn, as_of=day2)
     assert row["loan_execution_krw"] == Decimal(0)
@@ -443,7 +444,7 @@ def test_full_repayment_makes_both_curves_equal():
         ]
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     row = _row(conn, as_of=day2)
     assert row["base_cash_balance_krw"] == row["loan_cash_balance_krw"] == Decimal(9_000)
@@ -457,7 +458,7 @@ def test_first_day_without_a_prior_state_counts_the_whole_debt_as_execution():
         issued_receivables=Decimal(700),
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     row = _row(conn)
     assert row["loan_execution_krw"] == Decimal(3_000)
@@ -495,7 +496,7 @@ def test_missing_execution_state_blocks_the_close():
     conn = _Conn([_state(CARRY_FROM, LOAN_MODE, cash=Decimal(12_000), debt=Decimal(3_000))])
 
     with pytest.raises(FinanceDataNotReady) as raised:
-        closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+        closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert raised.value.key == "finance_state"
     assert not conn.closings
@@ -512,7 +513,7 @@ def test_two_states_on_the_execution_axis_are_ambiguous():
     )
 
     with pytest.raises(FinanceDataNotReady) as raised:
-        closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+        closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert raised.value.key == "finance_state_ambiguous"
 
@@ -531,7 +532,7 @@ def test_debt_larger_than_cash_is_a_fact_not_a_blocked_close():
         issued_receivables=Decimal(700),
     )
 
-    result = closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+    result = closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert result.status == "CLOSED"
     row = _row(conn)
@@ -547,7 +548,7 @@ def test_negative_debt_free_cash_does_not_raise_not_ready():
     )
 
     try:
-        closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+        closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
     except FinanceDataNotReady as exc:  # pragma: no cover - 회귀 시에만 도달한다
         raise AssertionError(f"음수 대출제외 현금이 막혔다: {exc.key}") from exc
 
@@ -567,7 +568,7 @@ def test_a_negative_ledger_amount_still_blocks_on_the_existing_guard():
     )
 
     with pytest.raises(FinanceDataNotReady) as raised:
-        closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+        closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert raised.value.key == "daily_closing_ledger"
 
@@ -579,7 +580,7 @@ def test_a_run_without_a_financing_mode_blocks():
     )
 
     with pytest.raises(FinanceDataNotReady) as raised:
-        closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+        closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert raised.value.key == "sim_run_financing_mode"
 
@@ -671,7 +672,7 @@ def _first_day_conn(
 
 
 def _close_new_run(conn, *, as_of=AS_OF):
-    return closing.FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=SIM_RUN_ID)
+    return closing.close_finance_day_on(conn, as_of=as_of, sim_run_id=SIM_RUN_ID)
 
 
 # A ─ 물려받은 부채가 그대로면 첫날 신규 차입은 없다
@@ -819,7 +820,7 @@ def test_same_run_prior_takes_precedence_over_the_baseline():
         baseline_states=[_baseline_row(debt=Decimal(10))],
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     # 어제 부채 45,000 대비 1,000 만 신규 차입이다. baseline(10) 을 썼다면 45,990 이 된다.
     assert _row(conn, as_of=day2)["loan_execution_krw"] == Decimal(1_000)
@@ -855,7 +856,7 @@ def test_baseline_is_not_used_as_the_prior_when_the_same_run_has_a_prior_day():
         baseline_states=[_baseline_row(debt=Decimal(10), receivables=Decimal(10_000))],
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=day2, sim_run_id=SIM_RUN_ID)
 
     row = _row(conn, as_of=day2)
     # 직전이 baseline(부채 10) 이었다면 45,990 이 된다. 어제(45,000)를 썼으므로 1,000.
@@ -876,7 +877,7 @@ def test_a_run_without_a_baseline_declaration_keeps_the_existing_first_day_contr
         issued_receivables=Decimal(700),
     )
 
-    closing.FinanceDayClosing().close(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
+    closing.close_finance_day_on(conn, as_of=AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert _row(conn)["loan_execution_krw"] == Decimal(3_000)
 

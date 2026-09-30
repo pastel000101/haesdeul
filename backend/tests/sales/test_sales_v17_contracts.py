@@ -5,10 +5,11 @@ from decimal import Decimal
 
 import pytest
 
+from app.sales.domain.ranking import rank_scenarios, remove_dominated_scenarios
 from app.sales.llm.runtime import LlmInterpretationOutput, interpret_candidates
-from app.sales.proposal import _generate_scenarios, run_proposal
-from app.sales.ranking import rank_scenarios, remove_dominated_scenarios
-from app.sales.schemas import LogisticsLotConstraint, SalesCandidate, SalesProposalInput
+from app.sales.schemas.proposal import LogisticsLotConstraint, SalesCandidate, SalesProposalInput
+from app.sales.service.proposal import run_proposal
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 
 @pytest.fixture(autouse=True)
@@ -131,8 +132,8 @@ def test_s02_partial_purchase_caps_supported_candidate():
 
 
 def test_s03_zero_and_s04_null_are_not_conflated():
-    zero = _generate_scenarios(_request(replies=[_purchase(0), _finance()]))[-1]
-    unknown = _generate_scenarios(_request(replies=[_purchase(None), _finance()]))[-1]
+    zero = plan_and_generate_scenarios(_request(replies=[_purchase(0), _finance()]))[-1]
+    unknown = plan_and_generate_scenarios(_request(replies=[_purchase(None), _finance()]))[-1]
     assert zero.supply.conditional_quantity_kg == Decimal(0)
     assert zero.status == "INFEASIBLE"
     assert unknown.supply.conditional_quantity_kg is None
@@ -165,7 +166,7 @@ def test_s08_user_price_survives_finance_pass_and_extra_fields():
 
 
 def test_s09_fail_does_not_invent_price_or_payment_and_s10_authority_can_adjust_payment():
-    failed = _generate_scenarios(_request(quantity=7000, replies=[_finance("FAIL")]))[-1]
+    failed = plan_and_generate_scenarios(_request(quantity=7000, replies=[_finance("FAIL")]))[-1]
     assert failed.unit_price_krw == Decimal(2300)
     assert failed.payment_days == 30
 
@@ -243,7 +244,7 @@ def test_pre_sales_delivery_facts_are_consumed_without_sales_recalculation(
         replies=[_finance()],
     )
 
-    scenario = _generate_scenarios(request)[-1]
+    scenario = plan_and_generate_scenarios(request)[-1]
 
     delivery = request.logistics_context.delivery_feasibility
     assert delivery.delivery_route == "FIXED_ROUTE"
@@ -270,7 +271,7 @@ def test_pre_sales_without_delivery_date_accepts_an_empty_date_capacity_vector()
         replies=[_finance()],
     )
 
-    scenario = _generate_scenarios(request)[-1]
+    scenario = plan_and_generate_scenarios(request)[-1]
 
     assert scenario.delivery_date == date(2026, 9, 10)
     assert scenario.collection_reference_date == scenario.delivery_date
@@ -293,7 +294,7 @@ def test_an_unresolved_delivery_never_invents_a_date():
         replies=[_finance()],
     )
 
-    scenario = _generate_scenarios(request)[-1]
+    scenario = plan_and_generate_scenarios(request)[-1]
 
     assert scenario.delivery_date is None
     assert scenario.collection_reference_date is None
@@ -310,7 +311,7 @@ def test_a_user_delivery_date_is_not_overwritten_by_logistics():
         replies=[_finance()],
     )
 
-    scenario = _generate_scenarios(request)[-1]
+    scenario = plan_and_generate_scenarios(request)[-1]
 
     assert scenario.delivery_date == date(2026, 9, 20)
     assert scenario.collection_reference_date == date(2026, 9, 20)
@@ -471,7 +472,7 @@ def test_물류가_낸_재고원가가_후보에_그대로_실린다():
     """🔴 **판매가 금액을 손대지 않는다.** 계보도 줄이지 않는다."""
     request = _request(logistics=_logistics_with_basis(_cost_basis()))
 
-    후보 = {s.scenario_type: s for s in _generate_scenarios(request)}
+    후보 = {s.scenario_type: s for s in plan_and_generate_scenarios(request)}
     보수 = 후보["CONSERVATIVE"]
 
     # 확정 7,000kg 이 이 안의 물량이다 (요청 10,000 중 확정분).
@@ -491,7 +492,7 @@ def test_덮는_양이_확정_물량과_다르면_싣지_않는다():
     """
     request = _request(logistics=_logistics_with_basis(_cost_basis(quantity="6999")))
 
-    for scenario in _generate_scenarios(request):
+    for scenario in plan_and_generate_scenarios(request):
         assert scenario.inventory_cost_basis is None
 
 
@@ -500,7 +501,7 @@ def test_품목이_다른_재고원가는_싣지_않는다():
     basis["item"] = "무"
     request = _request(logistics=_logistics_with_basis(basis))
 
-    for scenario in _generate_scenarios(request):
+    for scenario in plan_and_generate_scenarios(request):
         assert scenario.inventory_cost_basis is None
 
 
@@ -508,14 +509,16 @@ def test_물류가_원가를_안_내면_칸이_비어_있다():
     """없는 것을 0원으로 채우지 않는다."""
     request = _request(logistics=_logistics_with_basis(None))
 
-    for scenario in _generate_scenarios(request):
+    for scenario in plan_and_generate_scenarios(request):
         assert scenario.inventory_cost_basis is None
 
 
 def test_재고원가는_재무_전선_이름_그대로_직렬화된다():
     """마스터는 후보를 통째로 나른다 — 재무 parser 가 읽는 이름이 그대로 있어야 한다."""
     request = _request(logistics=_logistics_with_basis(_cost_basis()))
-    보수 = next(s for s in _generate_scenarios(request) if s.scenario_type == "CONSERVATIVE")
+    보수 = next(
+        s for s in plan_and_generate_scenarios(request) if s.scenario_type == "CONSERVATIVE"
+    )
 
     wire = 보수.model_dump(by_alias=True, mode="json")
 
@@ -541,7 +544,9 @@ def test_conservative_collapse_distinguishes_missing_from_covered_supply(
     context = _logistics(confirmed) if confirmed is not None else _logistics(None)
     request = _request(quantity=requested, logistics=context)
     scenario = next(
-        item for item in _generate_scenarios(request) if item.scenario_type == "CONSERVATIVE"
+        item
+        for item in plan_and_generate_scenarios(request)
+        if item.scenario_type == "CONSERVATIVE"
     )
 
     assert scenario.quantity_kg == Decimal(quantity)

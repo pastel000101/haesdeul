@@ -7,33 +7,26 @@
 우리가 규칙을 베껴 쓰면 그 사본이 드리프트 지점이 되고, 규약이 바뀌었을 때 조용히 어긋난다.
 """
 
+import sys
+from copy import deepcopy
 from dataclasses import replace
 from datetime import date, timedelta
 from math import ceil, floor
+from pathlib import Path
 
 import pytest
 from _injection import declare_thresholds, force_situation
 
-from app.master.envelope import (
-    AgentRequest,
-    ExecutionContext,
-    check_reasoning,
-    validate_reply,
-)
+from app.contracts.envelope import AgentRequest, ExecutionContext, check_reasoning, validate_reply
 from app.purchase_agent import ports
-from app.purchase_agent.adapter import (
-    SUPPORTED_MODES,
-    UnsupportedMode,
-    _volume_gate_sentence,
-    absorb_inventory,
-    build_reasoning,
-    purchase_port,
-    validate_payload,
-)
+from app.purchase_agent.adapter import SUPPORTED_MODES, UnsupportedMode, purchase_port
 from app.purchase_agent.config import ci_width_threshold, load_constraints
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes.classify_situation import SplitEntryCap, volume_gate_holds
-from app.purchase_agent.nodes.package_scenarios import split_quantities
+from app.purchase_agent.domain.allocation import split_quantities
+from app.purchase_agent.domain.classify_situation import SplitEntryCap, volume_gate_holds
+from app.purchase_agent.domain.evidence import _volume_gate_sentence
+from app.purchase_agent.domain.payload import absorb_inventory, validate_payload
+from app.purchase_agent.domain.reasoning import build_reasoning
+from app.purchase_agent.service.graph import run_purchase_agent
 
 # "2025-12-31" 은 통합 시연 앵커 (#73) — 재무·물류 DB 데이터가 이 날에만 있다.
 ANCHORS = ["2025-12-31", "2026-08-21", "2026-08-28", "2026-09-04", "2026-09-11"]
@@ -264,7 +257,7 @@ def test_evidence_relation_never_states_a_false_comparison(
     방향을 하드코딩하지 않는 것도 같은 이유다 — ①이 ``ci_width_comparison``을 설정에서
     읽으므로(규칙 7), 문장이 방향을 따로 적으면 설정을 바꾼 날 문장만 옛 방향으로 남는다.
     """
-    from app.purchase_agent.adapter import _relation
+    from app.purchase_agent.domain.evidence import _relation
 
     assert _relation(value, threshold, comparison) == expected
 
@@ -394,7 +387,7 @@ def test_empty_item_mix_ratio_is_refused_not_recorded_as_zero() -> None:
     as_of = SPREAD_WIDE
     payload = _payload("배추", as_of)
     payload["policy_values"] = {**payload["policy_values"], "item_mix_ratio": {}}
-    assert "policy_values.item_mix_ratio" in validate_payload(payload, as_of)
+    assert "policy_values.item_mix_ratio" in validate_payload(payload, as_of, load_constraints())
 
     reply, _ = purchase_port(
         AgentRequest(
@@ -516,7 +509,8 @@ def test_envelope_stays_clean_with_a_single_scenario() -> None:
     """
     from dataclasses import replace as dc_replace
 
-    from app.purchase_agent.adapter import build_evidences, build_reasoning
+    from app.purchase_agent.domain.evidence import build_evidences
+    from app.purchase_agent.domain.reasoning import build_reasoning
 
     request = _request("배추", SPREAD_WIDE)
     reply, metadata = purchase_port(request)
@@ -528,7 +522,7 @@ def test_envelope_stays_clean_with_a_single_scenario() -> None:
     trimmed = dc_replace(
         reply,
         payload=single,
-        evidences=build_evidences(final_state, single),
+        evidences=build_evidences(final_state, single, load_constraints()),
         reasoning=build_reasoning(single),
     )
     assert isinstance(trimmed.payload["scenarios"], list)
@@ -577,8 +571,8 @@ def test_used_tools_order_matches_and_never_repeats_a_tool() -> None:
 
 def test_recorder_is_absent_on_the_direct_path() -> None:
     """어댑터를 거치지 않는 호출은 **기록기 층을 만나지 않는다** — 949건 불변의 근거."""
-    from app.purchase_agent.graph import build_graph
-    from app.purchase_agent.tracing import wrap
+    from app.purchase_agent.service.graph import build_graph
+    from app.purchase_agent.service.tracing import wrap
 
     node = object()
     assert wrap(node, "x", None) is node  # 감싸지 않고 원본 그대로
@@ -675,7 +669,9 @@ def test_forecast_receipt_checks_catch_what_master_lets_through(
     """
     as_of = SPREAD_WIDE
     forecast = {**ports.get_forecast("배추", as_of), **mutate}
-    missing = validate_payload({**_payload("배추", as_of), "forecast": forecast}, as_of)
+    missing = validate_payload(
+        {**_payload("배추", as_of), "forecast": forecast}, as_of, load_constraints()
+    )
     assert expected in missing
 
 
@@ -697,7 +693,9 @@ def test_forecast_day_axis_must_start_at_the_day_after_as_of() -> None:
     shifted = [{**row, "date": (date.fromisoformat(row["date"]) + timedelta(days=1)).isoformat()}
                for row in forecast["daily"]]
     missing = validate_payload(
-        {**_payload("배추", as_of), "forecast": {**forecast, "daily": shifted}}, as_of
+        {**_payload("배추", as_of), "forecast": {**forecast, "daily": shifted}},
+        as_of,
+        load_constraints(),
     )
     assert "forecast.daily" in missing
 
@@ -707,7 +705,7 @@ def test_scalar_item_mix_ratio_is_refused() -> None:
     as_of = SPREAD_WIDE
     payload = _payload("배추", as_of)
     payload["policy_values"] = {**payload["policy_values"], "item_mix_ratio": 0.812}
-    assert "policy_values.item_mix_ratio" in validate_payload(payload, as_of)
+    assert "policy_values.item_mix_ratio" in validate_payload(payload, as_of, load_constraints())
 
 
 @pytest.mark.parametrize(
@@ -731,7 +729,7 @@ def test_finance_leaf_keys_are_required_not_just_the_container(drop: str, expect
     payload["constraints"]["finance"] = {
         k: v for k, v in payload["constraints"]["finance"].items() if k != drop
     }
-    assert expected in validate_payload(payload, as_of)
+    assert expected in validate_payload(payload, as_of, load_constraints())
 
     request = AgentRequest(
         context=ExecutionContext("R", as_of, "ML_COMPLETE", "v2.3"),
@@ -756,7 +754,7 @@ def test_inventory_leaf_keys_are_required(key: str) -> None:
     payload["constraints"]["inventory"] = {
         k: v for k, v in payload["constraints"]["inventory"].items() if k != key
     }
-    assert f"constraints.inventory.{key}" in validate_payload(payload, as_of)
+    assert f"constraints.inventory.{key}" in validate_payload(payload, as_of, load_constraints())
 
 
 @pytest.mark.parametrize(
@@ -814,7 +812,9 @@ def test_confirmed_zero_capacity_is_not_a_shape_problem(key: str) -> None:
     payload = _payload("배추", as_of)
     payload["constraints"]["inventory"][key] = 0
     assert not [
-        m for m in validate_payload(payload, as_of) if m.startswith(f"constraints.inventory.{key}")
+        m
+        for m in validate_payload(payload, as_of, load_constraints())
+        if m.startswith(f"constraints.inventory.{key}")
     ]
 
 
@@ -843,7 +843,7 @@ def test_confirmed_zero_is_honoured_not_treated_as_missing() -> None:
     """
     as_of = SPREAD_WIDE
     payload = _payload("배추", as_of, finance={"finance_cap_amount_krw": 0})
-    assert not [m for m in validate_payload(payload, as_of) if "finance" in m]
+    assert not [m for m in validate_payload(payload, as_of, load_constraints()) if "finance" in m]
     reply, _ = purchase_port(
         AgentRequest(
             context=ExecutionContext("R", as_of, "ML_COMPLETE", "v2.3"),
@@ -887,7 +887,7 @@ def test_nullable_contract_values_are_not_treated_as_missing(path: str, key: str
         payload["constraints"]["finance"] = {**payload["constraints"]["finance"], key: None}
     else:
         payload["policy_values"] = {**payload["policy_values"], key: None}
-    assert not [m for m in validate_payload(payload, as_of) if key in m]
+    assert not [m for m in validate_payload(payload, as_of, load_constraints()) if key in m]
 
     reply, _ = purchase_port(
         AgentRequest(
@@ -904,7 +904,7 @@ def test_missing_item_is_reported_instead_of_crashing() -> None:
     """품목 없이 오면 ``KeyError``가 아니라 ``missing_data``다."""
     as_of = SPREAD_WIDE
     payload = {k: v for k, v in _payload("배추", as_of).items() if k != "item"}
-    assert "item" in validate_payload(payload, as_of)
+    assert "item" in validate_payload(payload, as_of, load_constraints())
 
 
 # ── 품목별 임계 미선언 (#67 · #127) ────────────────────────────────────────
@@ -1011,7 +1011,67 @@ def test_missing_advisor_constraints_report_their_names() -> None:
     as_of = SPREAD_WIDE
     payload = _payload("배추", as_of)
     payload["constraints"] = {"finance": payload["constraints"]["finance"]}
-    assert "constraints.inventory" in validate_payload(payload, as_of)
+    assert "constraints.inventory" in validate_payload(payload, as_of, load_constraints())
+
+
+# ── 부서 선언은 부르는 쪽이 읽어 넘긴다 (2026-09-29 · BL-016 보완) ──────────
+
+
+def _record_declaration_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[tuple[str, dict, dict]]:
+    """``constraints.yaml`` 을 읽을 때마다 ``(읽기를 부른 파일, 읽어 준 dict, 그때의 사본)``.
+
+    ``config.load_constraints`` 가 부르는 ``yaml.safe_load`` 를 감싼다 — 모듈마다 이름으로
+    들여 쓴 ``load_constraints`` 를 하나하나 갈아 끼우지 않아도 모든 읽기가 여기를 지난다.
+    사본은 실행이 끝난 뒤 **읽어 준 dict 를 누가 고쳤는지** 대조하려고 둔다 — 한 요청 · 한 노드
+    안에서 같은 dict 를 여러 함수가 함께 보므로, 한 곳의 변경이 다른 판정으로 새면 안 된다.
+    """
+    from app.purchase_agent import config
+
+    here = Path(config.__file__).resolve()
+    real = config.yaml
+    reads: list[tuple[str, dict, dict]] = []
+
+    class _Recording:
+        def __getattr__(self, name: str):
+            return getattr(real, name)
+
+        @staticmethod
+        def safe_load(handle):
+            frame = sys._getframe(1)
+            while frame is not None and Path(frame.f_code.co_filename).resolve() == here:
+                frame = frame.f_back
+            caller = "?" if frame is None else Path(frame.f_code.co_filename).as_posix()
+            loaded = real.safe_load(handle)
+            reads.append((caller, loaded, deepcopy(loaded)))
+            return loaded
+
+    monkeypatch.setattr(config, "yaml", _Recording())
+    return reads
+
+
+@pytest.mark.parametrize("mode", ["GENERATE_SCENARIOS", "SUPPLY_CAPACITY_QUERY"])
+def test_the_domain_reads_no_declaration_file_during_a_run(
+    mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """🔴 **domain 은 부서 선언을 읽지 않고 넘겨받는다** — 봉투 한 건을 실제로 돌려 잰다.
+
+    구조 검사(``tests/architecture/test_purchase_layers.py``)는 import · 이름을 본다. 여기서는
+    **읽은 자리**를 모은다: domain 파일에서 읽은 것이 0 이고, 어댑터는 요청마다 한 번
+    읽는다 — 수신 검사 · 근거 · 관측일(공급 가능량은 경계 · 관측일)이 같은 선언을 본다.
+    노드는 각자 읽는다(``service/nodes``). 실행이 끝났을 때 읽어 준 dict 는 **그대로**여야
+    한다 — 넘겨받은 쪽이 고치면 같은 dict 를 보는 다음 판정이 조용히 바뀐다.
+    """
+    reads = _record_declaration_reads(monkeypatch)
+    reply, _ = purchase_port(_request("배추", SPREAD_WIDE, mode=mode))
+    callers = [caller for caller, _loaded, _copy in reads]
+
+    assert reply.runtime_status == "READY", reply.reasoning
+    assert callers, "선언을 한 번도 안 읽었다 — 기록 장치가 빗나갔다"
+    assert [c for c in callers if "/purchase_agent/domain/" in c] == []
+    assert sum(c.endswith("/purchase_agent/adapter.py") for c in callers) == 1
+    assert [caller for caller, loaded, copy in reads if loaded != copy] == []
 
 
 # ── Codex 교차검증 회귀 ───────────────────────────────────────────────────
@@ -1032,7 +1092,7 @@ def test_forecast_axis_shifted_from_the_middle_is_caught() -> None:
     for row in rows[1:]:  # 첫 행은 그대로 두고 나머지만 민다
         row["date"] = (date.fromisoformat(row["date"]) + timedelta(days=1)).isoformat()
     payload = {**_payload("배추", as_of), "forecast": {**forecast, "daily": rows}}
-    assert "forecast.daily" in validate_payload(payload, as_of)
+    assert "forecast.daily" in validate_payload(payload, as_of, load_constraints())
 
 
 @pytest.mark.parametrize(
@@ -1053,7 +1113,7 @@ def test_graph_consumed_leaf_keys_are_validated(drop_from: str, key: str, expect
     as_of = SPREAD_WIDE
     payload = _payload("배추", as_of)
     payload[drop_from] = {k: v for k, v in payload[drop_from].items() if k != key}
-    assert expected in validate_payload(payload, as_of)
+    assert expected in validate_payload(payload, as_of, load_constraints())
 
     reply, _ = purchase_port(
         AgentRequest(
@@ -1278,7 +1338,9 @@ def test_arrival_inputs_are_shape_checked(bad: dict, hint: str) -> None:
     조용히 반올림하지 않고 여기서 막는다 (Codex 교차검증).
     """
     payload = _payload("배추", SPREAD_WIDE, inventory=bad)
-    problems = [m for m in validate_payload(payload, SPREAD_WIDE) if "inventory" in m]
+    problems = [
+        m for m in validate_payload(payload, SPREAD_WIDE, load_constraints()) if "inventory" in m
+    ]
     assert any(hint in m for m in problems), problems
 
 
@@ -1287,7 +1349,7 @@ def test_arrival_inputs_absent_is_not_a_problem() -> None:
     payload = _payload("배추", SPREAD_WIDE)
     assert not [
         m
-        for m in validate_payload(payload, SPREAD_WIDE)
+        for m in validate_payload(payload, SPREAD_WIDE, load_constraints())
         if "inbound_lead_days" in m or "cap_by_date" in m
     ]
 
@@ -1367,7 +1429,7 @@ def test_finance_cap_replaces_the_ratio_instead_of_stacking() -> None:
 def test_mock_path_keeps_the_ratio_fallback() -> None:
     """cap이 없는 경로는 **종전 그대로** — 949건이 매일 이 길을 밟는다."""
     from app.purchase_agent.config import load_constraints
-    from app.purchase_agent.nodes.draft_plan import purchase_budget_krw
+    from app.purchase_agent.domain.draft_plan import purchase_budget_krw
 
     constraints = load_constraints()
     state = {"projected_cash_min": 10_000_000}
@@ -1463,7 +1525,7 @@ def test_status_query_answers_without_building_scenarios() -> None:
 
 def test_generate_scenarios_still_requires_used_tools() -> None:
     """면제는 ``STATUS_QUERY`` **하나뿐**이다 — 판단하는 mode는 재현할 대상이 있다."""
-    from app.master.envelope import ExecutionMetadata, validate_reply
+    from app.contracts.envelope import ExecutionMetadata, validate_reply
 
     request = _request("배추", SPREAD_WIDE)
     reply, metadata = purchase_port(request)
@@ -1496,7 +1558,7 @@ def test_every_scenario_number_carries_a_path_evidence() -> None:
     같은 이름의 필드가 안마다 2~3벌이라 위치가 필요하다 — 매입 요청으로 신설된 규칙이다
     (M-1 §7.1). 라벨은 면제이므로 ``label``·``strategy_type`` 근거는 만들지 않는다.
     """
-    from app.master.envelope import required_claims
+    from app.contracts.envelope import required_claims
 
     reply = purchase_port(_request("배추", SPREAD_WIDE))[0]
     required = required_claims(reply.payload, reply.judgment_fields)
@@ -1562,7 +1624,7 @@ def test_old_shape_lots_are_caught_by_receive_validation() -> None:
     stale = {"lot_id": 12, "grade": "상", "remaining_kg": 3000, "shelf_life_days": 10}
     payload = _payload("배추", date(2026, 8, 21))
     payload["constraints"]["inventory"] = {**payload["constraints"]["inventory"], "lots": [stale]}
-    missing = validate_payload(payload, date(2026, 8, 21))
+    missing = validate_payload(payload, date(2026, 8, 21), load_constraints())
     assert "constraints.inventory.lots[0].available_qty_kg" in missing
 
 
@@ -1571,7 +1633,7 @@ def test_absent_lots_are_not_reported_as_missing() -> None:
     payload = _payload("배추", date(2026, 8, 21))
     inventory = {k: v for k, v in payload["constraints"]["inventory"].items() if k != "lots"}
     payload["constraints"]["inventory"] = inventory
-    missing = validate_payload(payload, date(2026, 8, 21))
+    missing = validate_payload(payload, date(2026, 8, 21), load_constraints())
     assert not [name for name in missing if "lots" in name]
 
 
@@ -1683,13 +1745,18 @@ def test_a_status_query_says_skipped_not_disabled_when_the_llm_is_on(
 
 
 def test_our_vocabulary_is_the_envelope_vocabulary() -> None:
-    """어휘를 우리가 새로 만들지 않는다 — 봉투 계약의 네 값을 그대로 쓴다."""
+    """어휘를 우리가 새로 만들지 않는다 — 봉투 계약의 네 값을 그대로 쓴다.
+
+    ★ 2026-09-30 BL-020: 매입 스키마가 같은 네 값을 따로 적던 것을 봉투의 이름을 들이게 했다.
+      들인 이름을 다시 꺼내 비교하지 않고, 결과 모델이 **실제로 받는 값**을 잰다.
+    """
     from typing import get_args
 
-    from app.master.envelope import LLMStatus as EnvelopeStatus
-    from app.purchase_agent.llm.schemas import LLMStatus as OurStatus
+    from app.contracts.envelope import LLMStatus as EnvelopeStatus
+    from app.purchase_agent.llm.schemas import InterpretationResult
 
-    assert set(get_args(OurStatus)) == set(get_args(EnvelopeStatus))
+    annotation = InterpretationResult.model_fields["llm_status"].annotation
+    assert set(get_args(annotation)) == set(get_args(EnvelopeStatus))
 
 
 # ---------------------------------------------------------------------------
@@ -1703,7 +1770,7 @@ def _request_with_mode(mode: str, monkeypatch: pytest.MonkeyPatch) -> AgentReque
     봉투(``_AGENT_MODES``)가 지금은 앞에서 막지만, 그것이 우리 어댑터가 안전하다는
     뜻은 아니다. 그 방어가 사라지는 날을 여기서 미리 살아 본다.
     """
-    from app.master import envelope
+    from app.contracts import envelope
 
     monkeypatch.setitem(
         envelope._AGENT_MODES, "purchase", envelope._AGENT_MODES["purchase"] | {mode}

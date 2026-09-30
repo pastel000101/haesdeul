@@ -16,11 +16,7 @@ from datetime import date
 
 import pytest
 
-from app.master.envelope import (
-    ContractViolation,
-    LLMCallMetadata,
-    summarize_llm_calls,
-)
+from app.contracts.envelope import ContractViolation, LLMCallMetadata, summarize_llm_calls
 from app.purchase_agent.adapter import SOURCING_SELECTION
 
 ITEM = "배추"
@@ -108,9 +104,7 @@ def test_모델이_여럿이면_멈춘다() -> None:
 
 
 def _메타():
-    from app.purchase_agent.adapter import build_state  # noqa: F401  (경로 확인용)
-    from app.purchase_agent.graph import build_graph
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_graph, build_initial_state
 
     state = build_initial_state(ITEM, AS_OF)
     build_graph().invoke(state)

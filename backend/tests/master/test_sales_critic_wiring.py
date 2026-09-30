@@ -24,18 +24,14 @@ from typing import Any
 
 import pytest
 
-from app.master import wiring
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.adapters.critic_bridge import CriticSkipped, _sales_replies_in, build_sales_request
 from app.master.critic.schemas import CriticSalesRequest, CriticVerdictOut
 from app.master.critic.service import run_critic_procurement, run_critic_sales
-from app.master.critic_bridge import CriticSkipped, _sales_replies_in, build_sales_request
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master.schemas import SalesRunRequest
-from app.master.service import run_sales
-from app.master.verifier import (
-    MasterVerifier,
-    SalesVerificationContext,
-    SalesVerifier,
-)
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service.sales import run_sales
+from app.master.service.verifier import MasterVerifier, SalesVerificationContext, SalesVerifier
 
 평일 = date(2026, 9, 10)
 품목 = "배추"
@@ -133,7 +129,8 @@ def _로트없는_공급() -> dict:
     return {**_공급, "sellable_supply": supply}
 
 
-#: 판매 후보 — 채널 배분이 실린 모양 (`app/sales/schemas.py` `SalesCandidate.allocation`).
+#: 판매 후보 — 채널 배분이 실린 모양
+#: (`app/sales/schemas/proposal.py` `SalesCandidate.allocation`).
 _배분_있는_후보 = {
     "scenario_id": "ALLOC-1",
     "item": 품목,
@@ -163,10 +160,10 @@ _배분_없는_후보 = {
 
 
 def _wire(scenario: dict[str, Any], supply: dict[str, Any] = _공급) -> None:
-    wiring.reset()
-    wiring.register("inventory", _port(dict(supply)))
-    wiring.register("sales", _port({"scenarios": [scenario], "situation": "물량이 있다"}))
-    wiring.register("finance", _port({"verdict": "ok"}))
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port(dict(supply)))
+    registry_wiring.register("sales", _port({"scenarios": [scenario], "situation": "물량이 있다"}))
+    registry_wiring.register("finance", _port({"verdict": "ok"}))
 
 
 def _request() -> SalesRunRequest:

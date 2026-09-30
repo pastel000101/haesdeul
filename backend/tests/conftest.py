@@ -40,7 +40,9 @@ from collections.abc import Iterator
 
 import pytest
 
-from app.master import day_open, transition, wiring
+from app.master.registry import day_open as registry_day_open
+from app.master.registry import transition as registry_transition
+from app.master.registry import wiring as registry_wiring
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +52,11 @@ def 전역_에이전트_레지스트리를_되돌린다() -> Iterator[None]:
     ★ 테스트 앞에서 비우지 않는다. 그러면 *"등록된 상태를 전제하는"* 테스트가
       전부 깨진다 — 되돌리는 것이지 초기화하는 것이 아니다.
     """
-    saved = wiring.snapshot()
+    saved = registry_wiring.snapshot()
     try:
         yield
     finally:
-        wiring.restore(saved)
+        registry_wiring.restore(saved)
 
 
 @pytest.fixture(autouse=True)
@@ -73,13 +75,13 @@ def 전역_전이_등록소를_되돌린다() -> Iterator[None]:
       `reset()` + `register_transition()` 으로 되돌린다 — 마스터 모듈에 검사 전용
       함수를 더하지 않는다.
     """
-    saved = dict(transition.registered())
+    saved = dict(registry_transition.registered())
     try:
         yield
     finally:
-        transition.reset()
+        registry_transition.reset()
         for part, impl in saved.items():
-            transition.register_transition(part, impl)
+            registry_transition.register_transition(part, impl)
 
 
 @pytest.fixture(autouse=True)
@@ -98,10 +100,84 @@ def 전역_하루넘김_등록소를_되돌린다() -> Iterator[None]:
     ★ 위 전이 fixture 와 같은 방식이다 — `registered()` 로 뜨고 `reset()` +
       `register_day_opening()` 으로 되돌린다.
     """
-    saved = dict(day_open.registered())
+    saved = dict(registry_day_open.registered())
     try:
         yield
     finally:
-        day_open.reset()
+        registry_day_open.reset()
         for part, impl in saved.items():
-            day_open.register_day_opening(part, impl)
+            registry_day_open.register_day_opening(part, impl)
+
+
+# ── 실 DB 차단 — 스위트 전체 (2026-09-29 · 풀 전환) ─────────────────────────
+
+
+class 실_DB_연결을_열었다(AssertionError):
+    """`db` 마크가 없는 검사가 실 DB 연결을 열려 했다."""
+
+
+@pytest.fixture(autouse=True)
+def 실_DB_연결을_막는다(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """🔴 **`db` 마크가 없는 검사가 실 DB 에 닿으려 하면 그 자리에서 예외를 던진다.**
+
+    ★ **문이 셋이다.** 연결은 이제 `app/core/db.py` 의 풀이 만든다.
+
+    ```text
+    psycopg.connect                  옛 문. 앱 안에는 부르는 곳이 없지만 스크립트 · 검사가 쓴다
+    psycopg.Connection.connect       풀의 작업 스레드가 새 연결을 만들 때 부르는 문
+    ConnectionPool.open (psycopg 연결)  풀을 여는 문 — 부른 자리에서 바로 멈추게 한다
+    ```
+
+    🔴 **`psycopg.connect` 만 막으면 풀은 샌다.** psycopg_pool 은
+       `connection_class.connect()` 를 부르므로(3.3.3 소스) 모듈 이름 `psycopg.connect` 를
+       바꿔 끼워도 닿지 않는다. 또 그 문은 **풀의 작업 스레드**에서 열려, 거기서 난 예외는
+       검사로 올라오지 않고 대여가 시간 초과까지 기다린다. 그래서 풀을 **여는 자리**에서
+       먼저 멈춘다 — 검사용 가짜 연결 종류(`tests/core/fake_pg_connection.py`)로 여는 풀은 통과한다.
+
+    ★ **`.env` 가 있는 자리를 없는 자리와 같게 만든다.** 없는 자리에서는 환경변수
+      확인이 먼저 터져 여기까지 안 온다. 있는 자리에서는 이 가드가 없으면 새는 검사가
+      **팀 공용 DB 를 조용히 치고** 답이 그날 표에 따라 갈린다.
+
+    ★ 2026-09-14 부터 `tests/master/conftest.py` 에만 있던 가드를 여기로 올렸다 — 설계서
+      §기존 테스트 활용과 보완 ⑤. 실 DB 가 필요한 검사는 `db` 마크를 단다.
+
+    ⚠️ **예외를 삼키는 경로는 이 가드로 빨개지지 않는다.** 삼키는 경로도 실 DB 에는
+      닿지 않는다.
+    """
+    if request.node.get_closest_marker("db") is not None:
+        return
+
+    import psycopg
+    import psycopg_pool
+
+    def 막는다(*_args: object, **_kwargs: object) -> object:
+        raise 실_DB_연결을_열었다(
+            f"db 마크가 없는 검사가 실 DB 연결을 열었다: {request.node.nodeid}"
+        )
+
+    monkeypatch.setattr(psycopg, "connect", 막는다)
+    monkeypatch.setattr(psycopg.Connection, "connect", classmethod(막는다))
+
+    original_pool_open = psycopg_pool.ConnectionPool.open
+
+    def refuse_real_connection_pool_open(
+        self: psycopg_pool.ConnectionPool, *args: object, **kwargs: object
+    ) -> None:
+        if isinstance(self.connection_class, type) and issubclass(
+            self.connection_class, psycopg.Connection
+        ):
+            raise 실_DB_연결을_열었다(
+                f"db 마크가 없는 검사가 실 DB 연결 풀을 열었다: {request.node.nodeid}"
+            )
+        original_pool_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(psycopg_pool.ConnectionPool, "open", refuse_real_connection_pool_open)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def close_pools_after_session() -> Iterator[None]:
+    """스위트가 끝나면 열린 풀을 닫는다 — `db` 마크 검사가 연 풀의 작업 스레드를 남기지 않는다."""
+    yield
+    from app.core import db as core_db
+
+    core_db.close_pools()

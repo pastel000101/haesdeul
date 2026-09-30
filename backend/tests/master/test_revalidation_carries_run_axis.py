@@ -50,8 +50,13 @@ from typing import Any
 
 import pytest
 
-from app.master import revalidation, sales_approval, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.domain import revalidation as domain_revalidation
+from app.master.domain import sales_approval as domain_sales_approval
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas import revalidation as schemas_revalidation
+from app.master.service import revalidation as service_revalidation
+from app.master.service import sales_approval as service_sales_approval
 
 #: 재검증이 서는 날. 두 실행이 **같은 날 같은 회차**로 돌아야 ② 가 축만 잰다.
 고른_날 = date(2026, 1, 6)
@@ -63,7 +68,7 @@ from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
 #: 검사 대상 파일. 🔴 **`__file__` 에서 얻는다** — 경로를 손으로 적으면 파일이
 #:   옮겨간 날 `FileNotFoundError` 가 아니라 조용한 빈 통과가 될 길이 생긴다.
-_대상 = pathlib.Path(revalidation.__file__)
+_대상 = pathlib.Path(service_revalidation.__file__)
 
 
 class 부서:
@@ -96,14 +101,14 @@ class 부서:
 @pytest.fixture
 def 부서들() -> dict[str, 부서]:
     """필수 capability 둘이 라우팅되는 물류·재무를 등록한다."""
-    wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
+    registry_wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
     등록 = {"inventory": 부서(), "finance": 부서()}
     for 이름, 포트 in 등록.items():
-        wiring.register(이름, 포트)
+        registry_wiring.register(이름, 포트)
     return 등록
 
 
-def _재검증(**kw: Any) -> revalidation.Revalidation:
+def _재검증(**kw: Any) -> schemas_revalidation.Revalidation:
     base: dict[str, Any] = {
         "scenario": {"label": "기본"},
         "original_conditions": frozenset(),
@@ -112,7 +117,7 @@ def _재검증(**kw: Any) -> revalidation.Revalidation:
         "as_of": 고른_날,
     }
     base.update(kw)
-    return revalidation.revalidate_scenario(**base)
+    return service_revalidation.revalidate_scenario(**base)
 
 
 def _파싱() -> ast.Module:
@@ -152,9 +157,9 @@ def test_두_다른_실행이_각각_자기_축으로_돈다(부서들):
     #:   축을 `sales` INSERT 에 그대로 싣는 자리라, 거기 기본값이 생기면 일어난 적
     #:   없는 판매가 번인 장부에 쌓인다.
     [
-        revalidation.revalidate_scenario,
-        sales_approval.confirm_approved_sale,
-        sales_approval._confirmation_input,
+        service_revalidation.revalidate_scenario,
+        service_sales_approval.confirm_approved_sale,
+        domain_sales_approval.confirmation_input,
     ],
     ids=["revalidate_scenario", "confirm_approved_sale", "_confirmation_input"],
 )
@@ -194,8 +199,8 @@ def test_못_읽은_축은_메우지_않고_ERROR_다(부서들):
       없다"* 로 `ERROR` 가 나서 `outcome` 만으로는 못 가른다 — 등록해 두면 메우는
       순간 `PASSED` 가 되어 그 자리에서 빨개진다.
     """
-    from app.master.decision import DecisionIn
-    from app.master.decision_service import _revalidation_for
+    from app.master.schemas.decision import DecisionIn
+    from app.master.service.decision import _revalidation_for
 
     응답 = {
         "end_code": "E1_APPROVED",
@@ -249,14 +254,14 @@ def test_키_만드는_함수가_축을_첫_위치_인자로_받는다():
     🔴 축을 뒤에 기본값으로 붙였다면 옛 두 인자 호출이 그대로 살고, 그 자리는
       여전히 축 없는 키를 짓는다 — 그것이 못 잡는 모양이다.
     """
-    params = list(inspect.signature(revalidation.make_revalidation_request_id).parameters)
+    params = list(inspect.signature(domain_revalidation.make_revalidation_request_id).parameters)
 
     assert params[0] == "sim_run_id", f"축이 첫 인자가 아니다: {params}"
     assert params == ["sim_run_id", "as_of", "decision_seq"], (
         f"`{{머리}}-{{실행}}-{{날짜}}-{{꼬리}}` 차례가 아니다: {params}"
     )
     assert (
-        revalidation.make_revalidation_request_id(실행_가, 고른_날, 1)
+        domain_revalidation.make_revalidation_request_id(실행_가, 고른_날, 1)
         == f"REV-{실행_가}-20260106-0001"
     )
 

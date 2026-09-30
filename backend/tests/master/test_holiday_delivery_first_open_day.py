@@ -25,9 +25,10 @@ from typing import Any, Self
 
 import pytest
 
-from app.master import outbound_flow
-from app.master.finance_receivable import read_confirmed_sales
-from app.master.outbound_flow import DueSaleItem, due_sale_items
+from app.master.domain import outbound_flow as domain_outbound_flow
+from app.master.repository.outbound_flow import due_sale_items
+from app.master.repository.sales_reads import read_confirmed_sales
+from app.master.schemas.outbound_flow import DueSaleItem
 
 실행 = "SIM-CHAIN-CHECK-0915"
 남의_실행 = "SIM-OTHER"
@@ -183,6 +184,6 @@ def test_출고의_파이썬_거름이_휴장_납품을_버리지_않는다() ->
             sale_date=sale_date,
         )
 
-    남은 = outbound_flow._due_today([행(토_휴장), 행(월), 행(화)], 월)
+    남은 = domain_outbound_flow.due_today([행(토_휴장), 행(월), 행(화)], 월)
 
     assert [r.sale_date for r in 남은] == [토_휴장, 월]

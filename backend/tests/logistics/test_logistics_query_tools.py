@@ -23,11 +23,9 @@ from pathlib import Path
 
 import pytest
 
-from app.logistics.historical_repository import HistoricalAllocation, HistoricalReservation
-from app.logistics.inbound_schedules import InboundScheduleView
-from app.logistics.monitoring.schemas import ExceptionEvidence, ExceptionRow
-from app.logistics.query import tools as agent_tools
-from app.logistics.query.tools import (
+from app.logistics.domain.tools import CAP_BY_DATE_WINDOW_DAYS
+from app.logistics.readmodel import status_tools as agent_tools
+from app.logistics.readmodel.status_tools import (
     DETECT_WRITTEN_DETAILS,
     MUTABLE_EXCEPTION_DETAILS,
     InboundScheduleFact,
@@ -38,7 +36,9 @@ from app.logistics.query.tools import (
     _state_observed_as_of,
     get_inbound_schedule,
 )
-from app.logistics.tools import CAP_BY_DATE_WINDOW_DAYS
+from app.logistics.schemas.historical import HistoricalAllocation, HistoricalReservation
+from app.logistics.schemas.inbound_schedules import InboundScheduleView
+from app.logistics.schemas.monitoring import ExceptionEvidence, ExceptionRow
 
 AS_OF = date(2026, 1, 20)
 SIM = "SIM-TOOLS-TEST"
@@ -188,7 +188,8 @@ def test_this_layer_holds_no_sql_at_all():
 def test_observed_at_constants_are_not_redefined():
     """🔴 `agent.schemas` 가 규칙의 주인이다 — Tool 이 자기 상수를 들면 두 벌이 된다."""
     assert "OBSERVED_AS_OF: date" not in SOURCE
-    assert "from app.logistics.monitoring.schemas import" in SOURCE
+    # ★ 2026-09-30 재구성 BL-015: 규칙의 자리가 `monitoring/schemas.py` → `schemas/monitoring.py`.
+    assert "from app.logistics.schemas.monitoring import" in SOURCE
 
 
 def test_observed_at_has_no_convenience_fallback():

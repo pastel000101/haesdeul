@@ -14,7 +14,7 @@ from app.contracts.core import (
     Evidence,
     SuggestedAdjustment,
 )
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionContext,

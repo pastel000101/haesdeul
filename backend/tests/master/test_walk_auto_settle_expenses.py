@@ -44,24 +44,27 @@ from typing import Any
 import pytest
 from psycopg import sql
 
-from app.finance.closing_adapter import FinanceClosingAdapter
-from app.finance.db import get_connection, get_db_schema
-from app.finance.expenses import ExpenseSettlement, settle_due_expenses
-from app.master import backtest_runner
-from app.master import closing as master_closing
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.clock import SEOUL
-from app.master.closing import close_day
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.maintenance import MaintenanceOut
-from app.master.pending_transition import RetryOut
-from app.master.scheduler import (
+from app.core import db as core_db
+from app.core.clock import SEOUL
+from app.core.settings import get_db_schema
+from app.finance.adapter import FinanceClosingAdapter
+from app.finance.schemas.expenses import ExpenseSettlement
+from app.finance.service.expenses import settle_due_expenses
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import (
     EXPENSE_SETTLEMENT_STATUSES,
     DayRunOutcome,
     ScheduledAction,
     plan_next_action,
-    run_scheduled_day,
 )
+from app.master.registry import closing
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.maintenance import MaintenanceOut
+from app.master.schemas.pending_transition import RetryOut
+from app.master.service.closing import close_day
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 1, 12)
 ITEMS = ("무", "배추", "양파")
@@ -122,7 +125,7 @@ class _커넥션:
         self.순서 = 순서
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -132,8 +135,12 @@ class _커넥션:
         self.rolled_back += 1
         self.순서.append("지급롤백")
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _연결:
@@ -250,7 +257,7 @@ def _하루(
     순서: list[str] = []
     지급 = over.pop("지급", None) or _지급(순서)
     연결 = over.pop("연결", None) or _연결(순서)
-    인자 = _인자(순서, settle_expenses_fn=지급, connect=연결, **over)
+    인자 = _인자(순서, settle_expenses_fn=지급, borrow=연결, **over)
     return run_scheduled_day(_계획(as_of), **인자), 순서, 지급, 연결  # type: ignore[arg-type]
 
 
@@ -308,7 +315,7 @@ def test_유지보수_스위치로는_지급이_안_켜진다() -> None:
     인자 = _인자(
         순서,
         settle_expenses_fn=지급,
-        connect=_연결(순서),
+        borrow=_연결(순서),
         maintain_fn=_단계(순서, "유지보수", MaintenanceOut(as_of=AS_OF, status="NOTHING_DUE")),
     )
     run_scheduled_day(_계획(), auto_approve=True, auto_maintain=True, **인자)  # type: ignore[arg-type]
@@ -327,13 +334,13 @@ def test_기본이_꺼짐이다(함수: Any) -> None:
 
 def test_문에도_기본이_꺼짐이다() -> None:
     """🔴 **CLI 도 안 주면 안 켠다.** `store_true` 이고 기본이 거짓이다."""
-    from app.master import backtest_runner
+    from app.master.cli import backtest_runner as cli_backtest_runner
 
     공통 = ["--sim-run-id", 실행, "--start", "2026-01-01", "--end", "2026-03-31"]
     공통 += ["--now", "2026-09-17T10:35+09:00"]
 
-    안준것 = backtest_runner._parser().parse_args(공통)
-    준것 = backtest_runner._parser().parse_args([*공통, "--auto-settle-expenses"])
+    안준것 = cli_backtest_runner._parser().parse_args(공통)
+    준것 = cli_backtest_runner._parser().parse_args([*공통, "--auto-settle-expenses"])
 
     assert 안준것.auto_settle_expenses is False
     assert 준것.auto_settle_expenses is True
@@ -379,7 +386,7 @@ def test_커밋이_마감보다_먼저다() -> None:
     assert 순서2.index("지급커밋") < 순서2.index("마감")
     assert 연결.conn.committed == 1, "한 사이클에 커밋이 하나가 아니다"
     assert 연결.conn.rolled_back == 0
-    assert 연결.conn.closed == 1
+    assert 연결.conn.returned == 1
 
 
 def test_커넥션을_부르는_쪽이_연다() -> None:
@@ -445,7 +452,7 @@ def test_관문이_막은_날은_지급을_아예_안_한다() -> None:
     인자 = _인자(
         순서,
         settle_expenses_fn=지급,
-        connect=연결,
+        borrow=연결,
         receive_fn=_단계(순서, "입고", _Out("BLOCKED")),
     )
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
@@ -463,7 +470,7 @@ def test_개장이_막힌_날은_지급을_아예_안_한다() -> None:
     인자 = _인자(
         순서,
         settle_expenses_fn=지급,
-        connect=_연결(순서),
+        borrow=_연결(순서),
         open_day_fn=_단계(순서, "개장", _Out("BLOCKED")),
     )
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
@@ -486,9 +493,9 @@ def 재무마감이_등록된다():
     ⚠️ 여기 재무는 **실 어댑터**이지만 커넥션이 대역이라 DB 를 안 탄다 — 이 판이
       잠그는 것은 *"막힌 날에 어댑터를 부르지도 않는다"* 이다.
     """
-    master_closing.register_closing("finance", FinanceClosingAdapter())
+    closing.register_closing("finance", FinanceClosingAdapter())
     yield
-    master_closing.reset()
+    closing.reset()
 
 
 def _마감문(연결: _연결):
@@ -496,7 +503,7 @@ def _마감문(연결: _연결):
 
     def 마감(as_of: date, **kwargs: Any):
         연결.순서.append("마감")
-        return close_day(as_of, connect=연결, **kwargs)
+        return close_day(as_of, borrow=연결, **kwargs)
 
     return 마감
 
@@ -513,7 +520,7 @@ def test_지급이_터지면_그날_마감이_BLOCKED_다(재무마감이_등록
     순서: list[str] = []
     지급 = _지급(순서, boom=RuntimeError("원장이 안 열린다"))
     연결 = _연결(순서)
-    인자 = _인자(순서, settle_expenses_fn=지급, connect=연결, close_fn=_마감문(연결))
+    인자 = _인자(순서, settle_expenses_fn=지급, borrow=연결, close_fn=_마감문(연결))
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
     assert out.expense_settlement_status == "FAILED"
@@ -529,7 +536,7 @@ def test_지급이_섰으면_그날은_그대로_닫힌다(재무마감이_등�
     순서: list[str] = []
     지급 = _지급(순서, out=_지급결과(3_855_000))
     연결 = _연결(순서)
-    인자 = _인자(순서, settle_expenses_fn=지급, connect=연결, close_fn=_마감문(연결))
+    인자 = _인자(순서, settle_expenses_fn=지급, borrow=연결, close_fn=_마감문(연결))
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
     assert out.expense_settlement_status == "RAN"
@@ -544,7 +551,7 @@ def test_터지면_롤백하고_커밋을_안_한다() -> None:
 
     assert 연결.conn.committed == 0
     assert 연결.conn.rolled_back == 1
-    assert 연결.conn.closed == 1
+    assert 연결.conn.returned == 1
 
 
 def test_커넥션을_못_열어도_마감을_막는다() -> None:
@@ -554,7 +561,7 @@ def test_커넥션을_못_열어도_마감을_막는다() -> None:
     """
     순서: list[str] = []
     연결 = _연결(순서, boom=RuntimeError("연결이 안 된다"))
-    인자 = _인자(순서, settle_expenses_fn=_지급(순서), connect=연결)
+    인자 = _인자(순서, settle_expenses_fn=_지급(순서), borrow=연결)
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
     assert out.expense_settlement_status == "FAILED"
@@ -585,7 +592,7 @@ def test_사유를_두_벌로_안_짓는다() -> None:
     지급 = _지급(순서, boom=RuntimeError("터짐"))
     마감 = _단계(순서, "마감", _Out("BLOCKED"))
     연결 = _연결(순서)
-    인자 = _인자(순서, settle_expenses_fn=지급, connect=연결, close_fn=마감)
+    인자 = _인자(순서, settle_expenses_fn=지급, borrow=연결, close_fn=마감)
     out = run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
     넘긴사유 = 마감.calls[0]["ledger_gap"]
@@ -602,7 +609,7 @@ def test_지급이_선_날에는_마감에_ledger_gap_을_안_넘긴다() -> Non
     순서: list[str] = []
     마감 = _단계(순서, "마감", _Out("CLOSED"))
     연결 = _연결(순서)
-    인자 = _인자(순서, settle_expenses_fn=_지급(순서), connect=연결, close_fn=마감)
+    인자 = _인자(순서, settle_expenses_fn=_지급(순서), borrow=연결, close_fn=마감)
     run_scheduled_day(_계획(), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
     assert "ledger_gap" not in 마감.calls[0]
@@ -645,118 +652,120 @@ def test_그날_지급한_운영비가_마감행의_운영비_칸에_잡힌다()
     기준일 = date(2026, 1, 12)
     금액 = Decimal(3855000)
     시작현금 = Decimal(100000000)
-    conn = get_connection()
+    with core_db.connection() as conn:
 
-    class _안닫는커넥션:
-        """스케줄러가 트랜잭션을 닫지 못하게 감싼다 — 안 그러면 되돌릴 수 없다."""
+        class _안닫는커넥션:
+            """스케줄러가 트랜잭션을 닫지 못하게 감싼다 — 안 그러면 되돌릴 수 없다."""
 
-        def cursor(self) -> Any:
-            return conn.cursor()
+            def cursor(self) -> Any:
+                return conn.cursor()
 
-        def commit(self) -> None:
-            return None
+            def commit(self) -> None:
+                return None
 
-        def rollback(self) -> None:  # pragma: no cover - 이 판에서는 안 탄다
-            raise AssertionError("지급이 롤백됐다 — 이 판의 전제가 깨졌다")
+            def rollback(self) -> None:  # pragma: no cover - 이 판에서는 안 탄다
+                raise AssertionError("지급이 롤백됐다 — 이 판의 전제가 깨졌다")
 
-        def close(self) -> None:
-            return None
+            def __enter__(self) -> Any:
+                return self
 
-    그커넥션 = _안닫는커넥션()
+            def __exit__(self, *_exc: object) -> None:
+                return None
 
-    def _연결하기() -> Any:
-        return 그커넥션
+        그커넥션 = _안닫는커넥션()
 
-    비용 = f"EXP-{uuid.uuid4().hex[:8]}"
+        def _연결하기() -> Any:
+            return 그커넥션
+
+        비용 = f"EXP-{uuid.uuid4().hex[:8]}"
 
 
-    master_closing.register_closing("finance", FinanceClosingAdapter())
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("SELECT company_persona_id FROM {}.sim_runs LIMIT 1").format(schema)
+        closing.register_closing("finance", FinanceClosingAdapter())
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("SELECT company_persona_id FROM {}.sim_runs LIMIT 1").format(schema)
+                )
+                페르소나 = cur.fetchall()[0]["company_persona_id"]
+                cur.execute(
+                    sql.SQL(
+                        "INSERT INTO {}.sim_runs (sim_run_id, company_persona_id, run_type,"
+                        " period_start, period_end, as_of, status, financing_mode, config_json)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                    ).format(schema),
+                    [
+                        축,
+                        # ★ **페르소나를 지어내지 않는다.** `sim_runs` 가 실제 행을 참조하고,
+                        #   이 판은 실행을 하나 더 만드는 것이지 회사를 만드는 것이 아니다.
+                        페르소나,
+                        "WALK",
+                        date(2026, 1, 1),
+                        date(2026, 3, 31),
+                        기준일,
+                        "RUNNING",
+                        "LOAN_BASELINE",
+                        "{}",
+                    ],
+                )
+                cur.execute(
+                    sql.SQL(
+                        "INSERT INTO {}.finance_states (finance_state_id, sim_run_id, state_date,"
+                        " state_type, financing_mode, current_cash_krw, minimum_operating_cash_krw)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s)"
+                    ).format(schema),
+                    [f"FS-{축}", 축, 기준일, "DAY", "LOAN_BASELINE", 시작현금, Decimal(0)],
+                )
+                cur.execute(
+                    sql.SQL(
+                        "INSERT INTO {}.expenses (expense_id, sim_run_id, expense_date,"
+                        " expense_category, amount_krw, is_fixed, status, due_date)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+                    ).format(schema),
+                    [비용, 축, 기준일, "RENT", 금액, True, "ACCRUED", 기준일],
+                )
+
+            순서: list[str] = []
+            인자 = _인자(
+                순서,
+                settle_expenses_fn=settle_due_expenses,
+                borrow=_연결하기,
+                close_fn=lambda as_of, **kw: close_day(as_of, borrow=_연결하기, **kw),
+                sim_run_id=축,
             )
-            페르소나 = cur.fetchall()[0]["company_persona_id"]
-            cur.execute(
-                sql.SQL(
-                    "INSERT INTO {}.sim_runs (sim_run_id, company_persona_id, run_type,"
-                    " period_start, period_end, as_of, status, financing_mode, config_json)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                ).format(schema),
-                [
-                    축,
-                    # ★ **페르소나를 지어내지 않는다.** `sim_runs` 가 실제 행을 참조하고,
-                    #   이 판은 실행을 하나 더 만드는 것이지 회사를 만드는 것이 아니다.
-                    페르소나,
-                    "WALK",
-                    date(2026, 1, 1),
-                    date(2026, 3, 31),
-                    기준일,
-                    "RUNNING",
-                    "LOAN_BASELINE",
-                    "{}",
-                ],
-            )
-            cur.execute(
-                sql.SQL(
-                    "INSERT INTO {}.finance_states (finance_state_id, sim_run_id, state_date,"
-                    " state_type, financing_mode, current_cash_krw, minimum_operating_cash_krw)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s)"
-                ).format(schema),
-                [f"FS-{축}", 축, 기준일, "DAY", "LOAN_BASELINE", 시작현금, Decimal(0)],
-            )
-            cur.execute(
-                sql.SQL(
-                    "INSERT INTO {}.expenses (expense_id, sim_run_id, expense_date,"
-                    " expense_category, amount_krw, is_fixed, status, due_date)"
-                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
-                ).format(schema),
-                [비용, 축, 기준일, "RENT", 금액, True, "ACCRUED", 기준일],
-            )
+            out = run_scheduled_day(_계획(기준일), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
 
-        순서: list[str] = []
-        인자 = _인자(
-            순서,
-            settle_expenses_fn=settle_due_expenses,
-            connect=_연결하기,
-            close_fn=lambda as_of, **kw: close_day(as_of, connect=_연결하기, **kw),
-            sim_run_id=축,
-        )
-        out = run_scheduled_day(_계획(기준일), auto_settle_expenses=True, **인자)  # type: ignore[arg-type]
+            assert out.expense_settlement_status == "RAN", out.notes
+            assert out.closing_status == "CLOSED", out.notes
 
-        assert out.expense_settlement_status == "RAN", out.notes
-        assert out.closing_status == "CLOSED", out.notes
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL(
+                        "SELECT operating_expense_cash_out_krw, base_net_cash_krw,"
+                        " base_cash_balance_krw FROM {}.daily_closings"
+                        " WHERE sim_run_id = %s AND close_date = %s"
+                    ).format(schema),
+                    [축, 기준일],
+                )
+                행들 = cur.fetchall()
+                cur.execute(
+                    sql.SQL(
+                        "SELECT status, paid_date FROM {}.expenses WHERE expense_id = %s"
+                    ).format(schema),
+                    [비용],
+                )
+                비용행 = cur.fetchall()[0]
 
-        with conn.cursor() as cur:
-            cur.execute(
-                sql.SQL(
-                    "SELECT operating_expense_cash_out_krw, base_net_cash_krw,"
-                    " base_cash_balance_krw FROM {}.daily_closings"
-                    " WHERE sim_run_id = %s AND close_date = %s"
-                ).format(schema),
-                [축, 기준일],
-            )
-            행들 = cur.fetchall()
-            cur.execute(
-                sql.SQL("SELECT status, paid_date FROM {}.expenses WHERE expense_id = %s").format(
-                    schema
-                ),
-                [비용],
-            )
-            비용행 = cur.fetchall()[0]
-
-        assert len(행들) == 1, "그날 마감행이 하나가 아니다"
-        행 = 행들[0]
-        assert 비용행["status"] == "PAID"
-        assert 비용행["paid_date"] == 기준일
-        assert Decimal(str(행["operating_expense_cash_out_krw"])) == 금액
-        # 🔴 **정확히 한 번만 빠진다.** 두 번 빠지면 여기가 −7,710,000 이 된다.
-        assert Decimal(str(행["base_net_cash_krw"])) == -금액
-        assert Decimal(str(행["base_cash_balance_krw"])) == 시작현금 - 금액
-    finally:
-        master_closing.reset()
-        conn.rollback()
-        conn.close()
+            assert len(행들) == 1, "그날 마감행이 하나가 아니다"
+            행 = 행들[0]
+            assert 비용행["status"] == "PAID"
+            assert 비용행["paid_date"] == 기준일
+            assert Decimal(str(행["operating_expense_cash_out_krw"])) == 금액
+            # 🔴 **정확히 한 번만 빠진다.** 두 번 빠지면 여기가 −7,710,000 이 된다.
+            assert Decimal(str(행["base_net_cash_krw"])) == -금액
+            assert Decimal(str(행["base_cash_balance_krw"])) == 시작현금 - 금액
+        finally:
+            closing.reset()
+            conn.rollback()
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -893,7 +902,7 @@ def test_지급이_터진_날이_사고로_세진다() -> None:
     ★ 마감 `FAILED` 를 사고로 센 것과 같은 이유다 — 그날 장부가 안 닫혔으면 다음 날
       판단은 **안 닫힌 장부 위에서** 돈다.
     """
-    사유 = backtest_runner._incident_reason(_터진하루(AS_OF), scope="FULL")
+    사유 = cli_backtest_runner._incident_reason(_터진하루(AS_OF), scope="FULL")
 
     assert 사유 is not None, "지급이 터진 날이 사고로 안 세졌다"
     assert _NFC("운영비를 못 지급했다") in _NFC(사유)
@@ -916,7 +925,7 @@ def test_지급이_선_날은_사고가_아니다() -> None:
             expense_settlement_status=상태,
             closing_status="CLOSED",
         )
-        assert backtest_runner._incident_reason(하루, scope="FULL") is None, 상태
+        assert cli_backtest_runner._incident_reason(하루, scope="FULL") is None, 상태
 
 
 def test_지급이_날마다_터지면_걷기가_연속_사고_상한에_걸려_멈춘다() -> None:

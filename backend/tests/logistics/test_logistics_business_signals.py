@@ -3,13 +3,7 @@
 from datetime import date
 from decimal import Decimal
 
-from app.logistics.llm.runtime import (
-    InterpretationService,
-    LLMSettings,
-    ProviderResult,
-    UnavailableProvider,
-)
-from app.logistics.rules import (
+from app.logistics.domain.rules import (
     CAPACITY_TIGHT,
     CAPACITY_TIGHT_POLICY_UNRESOLVED,
     FRESHNESS_PRESSURE_POLICY_UNRESOLVED,
@@ -22,22 +16,28 @@ from app.logistics.rules import (
     evaluate_sales_business_signals,
     measure_freshness_facts,
 )
-from app.logistics.scenario_engine import derive_preferred_adjustment
-from app.logistics.schemas import (
-    InventoryLotSnapshot,
+from app.logistics.domain.scenario_engine import derive_preferred_adjustment
+from app.logistics.domain.tools import (
+    calculate_window_capacity_usage,
+    collect_freshness_lot_census,
+    collect_freshness_pressure_inputs,
+)
+from app.logistics.llm.runtime import (
+    InterpretationService,
+    LLMSettings,
+    ProviderResult,
+    UnavailableProvider,
+)
+from app.logistics.schemas.agent import (
     LogisticsSalesRequest,
     PurchaseAgentOutput,
     ScenarioAdjustment,
     ScenarioValidationResult,
 )
-from app.logistics.service import (
+from app.logistics.schemas.snapshot import InventoryLotSnapshot
+from app.logistics.service.cycle import (
     run_logistics_procurement_with_snapshot,
     run_logistics_sales_with_snapshot,
-)
-from app.logistics.tools import (
-    calculate_window_capacity_usage,
-    collect_freshness_lot_census,
-    collect_freshness_pressure_inputs,
 )
 
 AS_OF = date(2026, 8, 21)
@@ -186,7 +186,7 @@ def test_freshness_pressure_includes_grade_none_lots(complete_logistics_snapshot
 
 def test_effective_limit_is_the_denominator_not_operational_raw():
     """중 등급: remaining 6 / 유효 한계 6 = 1.0 — 원값 10 으로 나누면 0.6 이 된다."""
-    from app.logistics.schemas import InventoryLogisticsSnapshot
+    from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
 
     snapshot = InventoryLogisticsSnapshot(
         snapshot_id=None,

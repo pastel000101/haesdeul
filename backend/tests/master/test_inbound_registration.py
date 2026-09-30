@@ -35,11 +35,11 @@ from typing import Any
 import pytest
 
 import app.main  # noqa: F401  — import 시점에 입고 실행을 등록한다. 이 검사의 전제다
-from app.logistics.inbound_execution import LogisticsInboundExecution
-from app.logistics.simulated_inspection import ScenarioSimulatedInspectionProvider
-from app.master import inbound
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import bind_sim_run
+from app.logistics.adapter import LogisticsInboundExecution
+from app.logistics.domain.simulated_inspection import ScenarioSimulatedInspectionProvider
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import inbound as registry_inbound
+from app.master.registry.sim_run_binding import bind_sim_run
 
 AS_OF = date(2026, 1, 7)
 """도착 예정이 실제로 걸려 있는 날 — 250일째 `in_transit` 에 묻혀 있는 그 건이다."""
@@ -55,7 +55,7 @@ def _등록된() -> Any:
     ★ **재는 것은 그대로다** — 바뀐 것은 구현이 **언제 서는가** 하나다.
       전에는 `registered()["logistics"]` 가 곧 구현이라 축이 프로세스 시작 때 굳었다.
     """
-    return bind_sim_run(inbound.registered()["logistics"], 등록축)
+    return bind_sim_run(registry_inbound.registered()["logistics"], 등록축)
 
 
 
@@ -66,8 +66,8 @@ def _등록된() -> Any:
 
 def test_입고_실행이_등록된다() -> None:
     """★ **미등록과 못 받음은 다른 사실이다.** 이 줄이 없으면 앞으로 나간다."""
-    assert inbound.missing() == (), (
-        f"입고 실행이 미등록인 파트가 있다: {inbound.missing()}. "
+    assert registry_inbound.missing() == (), (
+        f"입고 실행이 미등록인 파트가 있다: {registry_inbound.missing()}. "
         "app/main.py 의 register_inbound 를 확인한다"
     )
 

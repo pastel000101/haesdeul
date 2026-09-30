@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from app.core.llm.runtime import run_with_fallback
 from app.purchase_agent.llm import runtime as rt
 from app.purchase_agent.llm.mix import build_mix_context
 from app.purchase_agent.llm.schemas import MixCandidate
@@ -140,15 +141,20 @@ def test_골격이_상태_넷을_옛_규칙대로_낸다(
 
     ``FALLBACK`` 의 시도 수가 ``max_retries + 1`` 인 것도 그대로다 — 재시도를 두 층이
     각자 세면 상한이 곱해진다.
+
+    ★ 2026-09-30 BL-020: 골격이 ``app.core.llm.runtime`` 으로 옮겨 갔다 — 매입 역할은 설정 ·
+      프로바이더 대신 켜짐 · 재시도 횟수와 «안내를 받아 프로바이더에 묻는 콜러블» 을 넘긴다.
     """
+    설정 = _설정(enabled=켬)
+    context = _context()
     assert (
-        rt.run_with_fallback(
-            settings=_설정(enabled=켬),
-            provider=프로바이더,
-            context=_context(),
-            template="기본안",
-            validate=lambda raw: "해석",
+        run_with_fallback(
+            enabled=설정.enabled,
             needs_call=부를조건,
+            max_retries=설정.max_retries,
+            call=lambda guidance: 프로바이더.generate(context, retry_guidance=guidance),
+            validate=lambda raw: "해석",
+            template="기본안",
             guidance_for=lambda error: ["다시"],
         )
         == 기대

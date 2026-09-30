@@ -30,31 +30,36 @@ from typing import Any, get_args
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
-from app.logistics.interpretation import _MISSING_DATA_NAMES
-from app.logistics.llm.runtime import InterpretationService, LLMSettings, UnavailableProvider
-from app.logistics.repository import LogisticsRead
-from app.logistics.rules import (
+from app.logistics.domain import agent_evidence
+from app.logistics.domain.rules import (
     BUSINESS_SIGNALS,
     UNRESOLVED_WARNING_CODES,
     derive_procurement_verdict,
 )
-from app.logistics.scenario_engine import (
+from app.logistics.domain.scenario_engine import (
     derive_preferred_adjustment,
     validate_purchase_scenarios,
 )
-from app.logistics.schemas import (
-    POLICY_VERSION,
+from app.logistics.llm.interpretation import _MISSING_DATA_NAMES
+from app.logistics.llm.runtime import InterpretationService, LLMSettings, UnavailableProvider
+from app.logistics.schemas.agent import (
     ConstraintCode,
     ConstraintResult,
-    InventoryLogisticsSnapshot,
-    LogisticsPolicy,
     PurchaseAgentOutput,
     ScenarioAdjustment,
     ScenarioValidationResult,
 )
-from app.logistics.service import run_logistics_procurement_with_snapshot
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.logistics.schemas.current import LogisticsRead
+from app.logistics.schemas.snapshot import (
+    POLICY_VERSION,
+    InventoryLogisticsSnapshot,
+    LogisticsPolicy,
+)
+from app.logistics.service import agent_read
+from app.logistics.service.cycle import run_logistics_procurement_with_snapshot
+from tests.logistics.mode_modules import swap_in_modes
 
 AS_OF = date(2026, 8, 21)
 
@@ -180,10 +185,12 @@ def _policy() -> LogisticsPolicy:
 
 
 def _wire(monkeypatch: pytest.MonkeyPatch, snapshot: InventoryLogisticsSnapshot) -> None:
-    monkeypatch.setattr(
-        adapter,
-        "_load_read",
-        lambda *, as_of, sim_run_id: LogisticsRead(snapshot=snapshot, policy=_policy()),
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *,
+        as_of,
+        sim_run_id: LogisticsRead(snapshot=snapshot, policy=_policy()),
     )
 
 
@@ -660,7 +667,7 @@ def test_어댑터와_독립_경로는_공유_결정론_값이_같다(monkeypatc
     #    독립 API verdict 와 M-1 business_status 는 같은 집계의 두 표기다)
     assert reply.runtime_status == service_response.runtime_status
     assert service_response.verdict is not None
-    assert reply.business_status == adapter._VERDICT_MAP[service_response.verdict]
+    assert reply.business_status == agent_evidence.VERDICT_MAP[service_response.verdict]
 
     # ② inventory_by_item
     assert service_response.inventory_by_item is not None
@@ -724,7 +731,7 @@ def test_parity_는_시나리오가_전부_통과인_날도_성립한다(monkeyp
     assert service_response.preferred_adjustment is None
     # 조용한 날도 최상위 판정 결합 규칙은 동일하다.
     assert service_response.verdict is not None
-    assert reply.business_status == adapter._VERDICT_MAP[service_response.verdict]
+    assert reply.business_status == agent_evidence.VERDICT_MAP[service_response.verdict]
     # 키 생략까지 고정한다 — `.get() is None` 은 "키 없음"과 "명시적 null 탑재"를
     # 구분하지 못한다 (§1.2-10). 어댑터는 preferred 가 없으면 키 자체를 빼야 한다.
     assert "preferred_adjustment" not in reply.payload
@@ -777,8 +784,8 @@ def test_데이터_부재는_NOT_READY_다(monkeypatch, mode, payload_factory):
     무엇을 달라고 할지 알도록 missing_data 에 **이름**이 남는다.
     """
     monkeypatch.setattr(
-        adapter,
-        "get_current_logistics_read",
+        agent_read,
+        "read_current_logistics",
         _raising_loader(LookupError("No active Logistics runtime fixture")),
     )
 
@@ -819,7 +826,7 @@ def test_실행_오류는_ERROR_다(monkeypatch, mode, payload_factory, error):
     세 예외를 다 도는 이유는 무결성 계열 하나만 대표로 두면 "ValueError 만 부재로
     되돌리는" 뮤턴트가 살아남기 때문이다 (2026-09-01 교차검증 지적).
     """
-    monkeypatch.setattr(adapter, "get_current_logistics_read", _raising_loader(error))
+    monkeypatch.setattr(agent_read, "read_current_logistics", _raising_loader(error))
 
     request = _request(payload_factory(), mode=mode)
     reply, meta = adapter.logistics_port(request)

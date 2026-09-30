@@ -20,10 +20,10 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.master.answer import facts_from_status
-from app.master.envelope import AgentFailure
-from app.master.plan import ExecutionPlan
-from app.master.status_flow import StatusOutcome
+from app.contracts.envelope import AgentFailure
+from app.master.domain.answer import facts_from_status
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
 
 #: 매입이 값을 받고도 *"쓰지 말라"* 로 표시했을 때 실제로 나가는 사유 문장이다.
 _쓰지_말라고_온_사유 = "예측을 만든 쪽이 오늘 값을 쓰지 말라고 표시해 시나리오를 만들지 않았다."

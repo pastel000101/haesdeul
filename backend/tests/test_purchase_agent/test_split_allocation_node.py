@@ -19,19 +19,17 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.purchase_agent.allocation import arrival_dates, split_quantities
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan
-from app.purchase_agent.nodes.package_scenarios import materialize_split, package_scenarios
-from app.purchase_agent.nodes.self_check import self_check
-from app.purchase_agent.nodes.split_plan import (
-    evaluate_split_entry,
-    safe_allocation_candidates,
-    split_plan,
-)
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain.allocation import arrival_dates, split_quantities
+from app.purchase_agent.domain.package_scenarios import materialize_split
+from app.purchase_agent.domain.split_plan import evaluate_split_entry, safe_allocation_candidates
+from app.purchase_agent.service.graph import build_initial_state
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 ITEM = "배추"
 #: 지속 상승 앵커 — ④ 가 궤적으로 **진입한다** (``rounds`` 2). 진입 안 하면 후보가 없다.
@@ -278,7 +276,7 @@ def test_어느_후보를_골라도_일곱번_검사를_통과한다(
     """
     monkeypatch.setenv("PURCHASE_LLM_SPLIT_ALLOCATION_ENABLED", "true")
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
     )
     state = _state(cap=_넉넉한_여유())
     state.update(split_plan(state, selector=_고정_선택자(후보_id)))
@@ -336,7 +334,7 @@ def _후보_밖_선택자(사유: str):
 def _우회_상태(monkeypatch: pytest.MonkeyPatch, 사유: str) -> dict:
     monkeypatch.setenv("PURCHASE_LLM_SPLIT_ALLOCATION_ENABLED", "true")
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
     )
     state = _state(cap=_넉넉한_여유())
     state.update(split_plan(state, selector=_후보_밖_선택자(사유)))
@@ -388,7 +386,7 @@ def test_되돌린_뒤_배분은_규칙_기본안과_같다(monkeypatch: pytest.
     """되돌림은 **무변화**여야 한다 — 판단자를 안 꽂았을 때와 회차 비율이 같다."""
     monkeypatch.setenv("PURCHASE_LLM_SPLIT_ALLOCATION_ENABLED", "true")
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
+        "app.purchase_agent.service.nodes.split_plan.load_constraints", lambda: _선언(승인=True)
     )
     기본 = _state(cap=_넉넉한_여유())
     기본.update(split_plan(기본, selector=None))

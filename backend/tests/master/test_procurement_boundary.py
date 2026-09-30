@@ -20,15 +20,12 @@ from uuid import UUID
 
 import pytest
 
-from app.master import procurement_boundary
-from app.master.clock import SEOUL
-from app.master.execution_day import CalendarNotCovered
-from app.master.procurement_boundary import (
-    ABSENT_REASONS,
-    ProcurementBoundary,
-    read_procurement_boundary,
-)
-from app.master.run_repository import LEDGER_GAP_END_CODE, ledger_gap_request_id
+from app.core.clock import SEOUL
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.domain.request_ids import LEDGER_GAP_END_CODE, ledger_gap_request_id
+from app.master.readmodel import procurement_boundary as readmodel_procurement_boundary
+from app.master.readmodel.procurement_boundary import read_procurement_boundary
+from app.master.schemas.procurement_boundary import ABSENT_REASONS, ProcurementBoundary
 
 #: 실행일(금요일). 실측으로 이 날 매입 판단 행이 서 있다.
 평일 = date(2026, 1, 23)
@@ -154,7 +151,7 @@ def 표(monkeypatch):
 
     def _꽂기(*rows: dict[str, Any]) -> _표:
         대역 = _표(*rows)
-        monkeypatch.setattr(procurement_boundary, "list_runs", 대역)
+        monkeypatch.setattr(readmodel_procurement_boundary, "list_runs", 대역)
         return 대역
 
     return _꽂기

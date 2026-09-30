@@ -10,16 +10,12 @@ from pydantic import ValidationError
 
 os.environ.setdefault("DB_SCHEMA", "haetdeul")
 
-from app.finance.db import FinanceDataNotReady
-from app.finance.receivables import (
-    ReceivablePersistenceConflict,
-    build_receivable_write_plan,
-    confirm_receivable,
-    load_finance_state_id_for_date,
-    receivable_id_for,
-)
-from app.finance.sales_validation import ReceivableCreateInput
-from app.finance.state_identity import daily_finance_state_id
+from app.finance.domain.receivables import build_receivable_write_plan, receivable_id_for
+from app.finance.domain.state_identity import daily_finance_state_id
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.receivables import ReceivablePersistenceConflict
+from app.finance.schemas.sales_validation import ReceivableCreateInput
+from app.finance.service.receivables import confirm_receivable, load_finance_state_id_for_date
 
 SALE_ID = "SALE-RUN-1-SCN-1"
 SIM_RUN_ID = "SIM-1"

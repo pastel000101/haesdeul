@@ -54,9 +54,16 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from app.master import decision_service, revalidation, sales_approval, wiring
-from app.master.decision import DecisionIn, DecisionOut, mark_current
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app import core
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.domain import revalidation as domain_revalidation
+from app.master.domain import sales_approval as domain_sales_approval
+from app.master.domain.decision import mark_current
+from app.master.readmodel import approvals
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service import decision
+from app.master.service import sales_approval as service_sales_approval
 
 REQ = "REQ-20260910-0001"
 RUN_UUID = UUID("cccccccc-cccc-cccc-cccc-cccccccccccc")
@@ -169,7 +176,10 @@ class 커넥션_대역:
 
     def rollback(self) -> None: ...
 
-    def close(self) -> None: ...
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None: ...
 
 
 class 결정_저장소:
@@ -254,30 +264,31 @@ def _판매_실행() -> dict[str, Any]:
 @pytest.fixture
 def 확정(monkeypatch) -> 확정_대역:
     대역 = 확정_대역()
-    monkeypatch.setattr(sales_approval, "confirm_sale", 대역)
+    monkeypatch.setattr(service_sales_approval, "confirm_sale", 대역)
     # 🔴 **예약도 대역이다** (2026-09-12). 확정이 서면 그 자리에서 물류 예약이
     #    불리므로, 안 갈아 끼우면 이 파일이 실 DB 를 친다.
-    monkeypatch.setattr(sales_approval, "reserve_confirmed_sale_available", 예약_대역())
-    monkeypatch.setattr(sales_approval, "_open", lambda connect: 커넥션_대역())
+    monkeypatch.setattr(service_sales_approval, "reserve_confirmed_sale_available", 예약_대역())
+    monkeypatch.setattr(core.db, "connection", lambda: 커넥션_대역())
     return 대역
 
 
 def _승인한다(monkeypatch, 요약: dict[str, str] | None) -> DecisionOut:
     """재무가 그 요약을 내는 세상에서 승인 한 번을 끝까지 돌린다."""
-    wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
-    wiring.register("inventory", 부서(None))
-    wiring.register("finance", 부서(요약))
+    registry_wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
+    registry_wiring.register("inventory", 부서(None))
+    registry_wiring.register("finance", 부서(요약))
 
     저장소 = 결정_저장소()
-    monkeypatch.setattr(decision_service, "list_decisions", 저장소.list_decisions)
-    monkeypatch.setattr(decision_service, "save_decision", 저장소.save_decision)
+    monkeypatch.setattr(approvals, "list_decisions", 저장소.list_decisions)
+    monkeypatch.setattr(decision, "list_decisions", 저장소.list_decisions)
+    monkeypatch.setattr(decision, "save_decision", 저장소.save_decision)
     행 = _판매_실행()
     monkeypatch.setattr(
-        decision_service, "get_run_by_request_id", lambda request_id, **kw: dict(행)
+        approvals, "get_run_by_request_id", lambda request_id, **kw: dict(행)
     )
-    monkeypatch.setattr(decision_service, "get_run", lambda run_id: dict(행))
+    monkeypatch.setattr(approvals, "get_run", lambda run_id: dict(행))
 
-    return decision_service.record_decision(
+    return decision.record_decision(
         REQ,
         DecisionIn(decision="APPROVE", scenario_label=SCN, decided_by="이현서"),
     )
@@ -305,7 +316,7 @@ def test_재검증_판정이_부서_payload_를_나른다() -> None:
         payload={"financial_summary": _요약(재검증_마진, 재검증_마진율)},
     )
 
-    판정 = revalidation._verdict_of(reply)
+    판정 = domain_revalidation.verdict_of(reply)
 
     assert "payload" in 판정, "재검증 판정이 payload 를 버린다 — 나를 값이 없다"
     assert 판정["payload"]["financial_summary"]["contribution_margin_krw"] == 재검증_마진
@@ -318,7 +329,8 @@ def test_두_경로의_판정_모양이_run_id_말고는_같다() -> None:
       **포인터**이고 재검증에는 그 등록소가 없다 — 없는 것을 가리키는 포인터를
       만들면 다음 사람이 그것을 쓰려다 빈손이 된다.
     """
-    from app.master import sales_flow
+    from app.master.domain import revalidation as domain_revalidation
+    from app.master.service import sales_flow as service_sales_flow
 
     reply = AgentReply(
         request_id="R",
@@ -330,8 +342,8 @@ def test_두_경로의_판정_모양이_run_id_말고는_같다() -> None:
         business_status="ok",
     )
 
-    재검증칸 = set(revalidation._verdict_of(reply))
-    첫검증칸 = set(sales_flow._verdict_of(reply))
+    재검증칸 = set(domain_revalidation.verdict_of(reply))
+    첫검증칸 = set(service_sales_flow._verdict_of(reply))
 
     assert 첫검증칸 - 재검증칸 == {"run_id"}, (
         f"두 판정의 차이가 run_id 하나가 아니다: 첫검증만 {sorted(첫검증칸 - 재검증칸)}"
@@ -365,9 +377,9 @@ def test_payload_를_더해도_조건_집합이_안_바뀐다() -> None:
         }
     }
 
-    assert revalidation.conditions_of(없는것, ()) == revalidation.conditions_of(있는것, ()), (
-        "payload 가 조건 집합을 바꿨다 — 사용자가 같은 안을 다시 승인하게 된다"
-    )
+    assert domain_revalidation.conditions_of(없는것, ()) == domain_revalidation.conditions_of(
+        있는것, ()
+    ), "payload 가 조건 집합을 바꿨다 — 사용자가 같은 안을 다시 승인하게 된다"
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +461,7 @@ def test_마진이_없으면_BLOCKED_이고_이름을_부른다(monkeypatch, 확
     assert 확정.호출 == [], "마진이 없는데 confirm_sale 을 불렀다"
 
     사유 = _NFC(saved.sale.reason)
-    for 이름 in sales_approval.REQUIRED_FINANCIAL_SUMMARY_FIELDS:
+    for 이름 in domain_sales_approval.REQUIRED_FINANCIAL_SUMMARY_FIELDS:
         assert 이름 in 사유, f"사유가 '{이름}' 을 안 부른다: {사유}"
     assert _NFC("재무") in 사유, "사유가 누가 채우는지를 안 가리킨다"
 
@@ -475,7 +487,7 @@ def test_마진이_0_이면_그것은_있는_값이다(monkeypatch, 확정) -> N
 )
 def test_한_칸이라도_비면_확정하지_않는다(요약) -> None:
     """★ 두 칸이 짝이다. 한쪽만 싣고 다른 쪽을 `None` 으로 두면 장부가 반만 선다."""
-    없는것 = sales_approval.missing_financial_summary_fields(요약)
+    없는것 = domain_sales_approval.missing_financial_summary_fields(요약)
 
     assert 없는것, f"비어 있는데 「다 있다」로 셌다: {요약}"
 
@@ -487,7 +499,10 @@ def test_한_칸이라도_비면_확정하지_않는다(요약) -> None:
 
 #: 검사 대상. 🔴 **`__file__` 에서 얻는다** — 경로를 손으로 적으면 파일이 옮겨간 날
 #:   조용한 빈 통과가 될 길이 생긴다.
-_대상 = pathlib.Path(sales_approval.__file__)
+#: ★ 2026-09-30 재구성 BL-018: 확정 입력 짓기는 순수 계산이라 `domain/sales_approval.py` 로 갔고,
+#:   여러 모듈이 쓰게 되며
+#:   `_confirmation_input` → `confirmation_input` 으로 이름을 열었다.
+_대상 = pathlib.Path(domain_sales_approval.__file__)
 
 #: 마스터가 재무가 되는 연산들. `수량 × 단가 − 원가` 가 그 모양이다.
 _금지연산 = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow)
@@ -501,7 +516,7 @@ def _함수마디(이름: str) -> ast.FunctionDef:
     raise AssertionError(f"{_대상.name} 에서 {이름} 를 못 찾았다 — 검사가 헛돌고 있다")
 
 
-@pytest.mark.parametrize("함수이름", ["_confirmation_input", "_decimal_of"])
+@pytest.mark.parametrize("함수이름", ["confirmation_input", "_decimal_of"])
 def test_마스터가_마진을_계산하지_않는다(함수이름: str) -> None:
     """🔴 **수량 × 단가 − 원가 를 여기서 세면 그 순간 마스터가 재무가 된다.**
 
@@ -546,7 +561,9 @@ def test_기여이익_인자가_기본값_없는_키워드다() -> None:
 
     🔴 기본값이 생기면 안 넘긴 자리가 조용히 그 값으로 돌고 아무 데도 안 적힌다.
     """
-    param = inspect.signature(sales_approval.confirm_approved_sale).parameters["financial_summary"]
+    param = inspect.signature(service_sales_approval.confirm_approved_sale).parameters[
+        "financial_summary"
+    ]
 
     assert param.kind is inspect.Parameter.KEYWORD_ONLY
     assert param.default is inspect.Parameter.empty, (

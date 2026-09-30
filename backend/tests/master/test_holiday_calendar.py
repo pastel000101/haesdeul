@@ -47,15 +47,18 @@ from typing import Any
 
 import pytest
 
-from app.master import day_open, execution_day, holiday_calendar
-from app.master.calendar_walk import MAX_WALK_DAYS
-from app.master.execution_day import (
+from app.master.domain import execution_day as domain_execution_day
+from app.master.domain.calendar_walk import MAX_WALK_DAYS
+from app.master.domain.execution_day import (
     CalendarNotCovered,
     ExecutionDayNotFound,
     is_execution_day,
     next_execution_day,
 )
-from app.master.holiday_calendar import MlCalendarDays
+from app.master.readmodel import holiday_calendar as readmodel_holiday_calendar
+from app.master.readmodel.holiday_calendar import MlCalendarDays
+from app.master.service import day_open as service_day_open
+from tests.fake_core_db import patch_sql_helpers
 
 # ── 실측값 ─────────────────────────────────────────────────────────────────
 #
@@ -259,7 +262,7 @@ def test_상한은_하루_넘김과_같은_상수다():
     달력을 하루씩 걷는 자리가 둘이고(하루 넘김은 뒤로, 실행일은 앞으로) 멈추는
     이유가 같다. 이유와 수는 `calendar_walk.py` 에 한 번만 있다.
     """
-    assert day_open.MAX_CARRY_DAYS == MAX_WALK_DAYS
+    assert service_day_open.MAX_CARRY_DAYS == MAX_WALK_DAYS
     assert MAX_WALK_DAYS == 31, "상한이 바뀌었다면 두 자리의 사유 문장도 같이 봐야 한다"
 
 
@@ -341,11 +344,11 @@ def _잡은_질의(monkeypatch: pytest.MonkeyPatch) -> str:
     """조회를 가로채 **원문만** 본다. DB 는 안 부른다."""
     잡은질의: list[Any] = []
 
-    monkeypatch.setattr(holiday_calendar, "get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr(
-        holiday_calendar,
-        "fetch_all",
-        lambda query: (잡은질의.append(query), [])[1],
+    monkeypatch.setattr(readmodel_holiday_calendar, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(
+        monkeypatch,
+        readmodel_holiday_calendar,
+        fetch_all=lambda query: (잡은질의.append(query), [])[1],
     )
 
     with pytest.raises(CalendarNotCovered):  # 빈 결과 — 질의만 보면 된다
@@ -457,22 +460,22 @@ def test_실_DB_의_표가_미래_공휴일을_답한다():
     ⚠️ 기본 스위트에서는 빠진다 — 사내망 밖에서 스위트가 전원 빨간불이 되면 아무도
       스위트를 안 믿는다 (`pyproject.toml` 의 `db` 마커 주석).
     """
-    holiday_calendar.reset()
-    calendar = holiday_calendar.get_calendar()
+    readmodel_holiday_calendar.reset()
+    calendar = readmodel_holiday_calendar.get_calendar()
 
     for day, name in _뷰_밖의_공휴일.items():
         assert calendar.is_holiday(day) is True, f"{day} {name} 을 못 본다"
     assert calendar.is_holiday(_뷰_밖의_평일) is False
 
-    holiday_calendar.reset()
+    readmodel_holiday_calendar.reset()
 
 
 # ── ⑦ 달력을 못 읽어도 주말 판정은 계속 돈다 ───────────────────────────────
 
 
 def _wire_all() -> list[str]:
-    from app.master import wiring
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+    from app.master.registry import wiring as registry_wiring
 
     called: list[str] = []
 
@@ -494,9 +497,9 @@ def _wire_all() -> list[str]:
             run_id=run_id, request_id=request.context.request_id, agent=request.agent
         )
 
-    wiring.reset()
+    registry_wiring.reset()
     for part in ("finance", "inventory", "purchase"):
-        wiring.register(part, port)
+        registry_wiring.register(part, port)
     return called
 
 
@@ -506,8 +509,8 @@ def 적재를_막는다(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(as_of: date, request_id: str):
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     return run_procurement(
         ProcurementRunRequest(
@@ -519,7 +522,8 @@ def _run(as_of: date, request_id: str):
 
 @pytest.fixture
 def 달력이_죽는다(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.master.service.get_calendar", lambda: 죽은달력())
+    monkeypatch.setattr("app.master.service.procurement.get_calendar", lambda: 죽은달력())
+    monkeypatch.setattr("app.master.service.sales.get_calendar", lambda: 죽은달력())
 
 
 def test_달력이_죽어도_주말은_그대로_접힌다(적재를_막는다, 달력이_죽는다):
@@ -568,7 +572,8 @@ def test_달력이_살아_있으면_못_본_축이_없다(적재를_막는다):
 
 def test_공휴일에는_부서를_한_번도_안_부른다(적재를_막는다, monkeypatch: pytest.MonkeyPatch):
     """★ 한 번이라도 부르면 그 회신이 이력에 남고 *"돌긴 돌았다"* 로 읽힌다."""
-    monkeypatch.setattr("app.master.service.get_calendar", _신정을_아는_달력)
+    monkeypatch.setattr("app.master.service.procurement.get_calendar", _신정을_아는_달력)
+    monkeypatch.setattr("app.master.service.sales.get_calendar", _신정을_아는_달력)
     called = _wire_all()
 
     response = _run(_신정, "REQ-NEWYEAR-1")
@@ -579,7 +584,8 @@ def test_공휴일에는_부서를_한_번도_안_부른다(적재를_막는다,
 
 def test_공휴일_사유가_주말이라고_말하지_않는다(적재를_막는다, monkeypatch: pytest.MonkeyPatch):
     """★ 설날을 *"주말이라"* 로 적으면 사유가 거짓말을 한다 — 사람이 달력을 다시 본다."""
-    monkeypatch.setattr("app.master.service.get_calendar", _신정을_아는_달력)
+    monkeypatch.setattr("app.master.service.procurement.get_calendar", _신정을_아는_달력)
+    monkeypatch.setattr("app.master.service.sales.get_calendar", _신정을_아는_달력)
     _wire_all()
 
     reason = _run(_신정, "REQ-NEWYEAR-2").reason
@@ -600,32 +606,37 @@ def test_실행일_모듈에_SQL_이_없다():
     ② 매입이 이 함수를 인용할 예정이다 — 매입은 봉투만 받는 파트라 DB 를 못 부른다
     ```
     """
-    source = Path(execution_day.__file__).read_text(encoding="utf-8")
+    source = Path(domain_execution_day.__file__).read_text(encoding="utf-8")
     code = ast.get_docstring(ast.parse(source))
     본문 = source.replace(code or "", "")  # 모듈 docstring 은 뷰 이름을 말할 수 있다
 
-    for 금지 in ("SELECT", "fetch_all", "fetch_one", "get_connection", "psycopg"):
+    for 금지 in (
+        "SELECT", "fetch_all", "fetch_one", "get_connection", "core_db", "app.core", "psycopg"
+    ):
         assert 금지 not in 본문, f"실행일 모듈이 DB 를 안다: {금지}"
     assert "app.finance.db" not in source, "실행일 모듈이 DB 모듈을 임포트한다"
+    #  2026-09-29 재구성 BL-014: 마스터 DB 입구가 `app.master.db` 로 옮겼다 — 그것도 막는다.
+    assert "app.master.db" not in source, "실행일 모듈이 DB 모듈을 임포트한다"
 
 
 def test_실행일_모듈이_달력을_직접_만들지_않는다():
     """★ 포트만 연다. 실물을 여기서 만들면 순수함이 임포트 한 줄로 무너진다."""
-    tree = ast.parse(inspect.getsource(execution_day))
+    tree = ast.parse(inspect.getsource(domain_execution_day))
     imported = {
         node.module
         for node in ast.walk(tree)
         if isinstance(node, ast.ImportFrom) and node.module
     }
 
-    assert "app.master.holiday_calendar" not in imported, (
+    # ★ 2026-09-30 재구성 BL-018: 휴일 달력 구현체는 `readmodel/holiday_calendar.py` 다.
+    assert "app.master.readmodel.holiday_calendar" not in imported, (
         "실행일 모듈이 구현체를 임포트한다 — 화살표가 거꾸로다"
     )
 
 
 def test_매입_배선이_별건이라고_적혀_있다():
     """⚠️ **이 판이 연 것은 포트까지다.** 봉투에 달력을 실을지는 정하지 않았다."""
-    doc = execution_day.__doc__ or ""
+    doc = domain_execution_day.__doc__ or ""
 
     assert "매입" in doc and "별건" in doc, (
         "매입에 달력을 전달하는 것이 별건이라는 사실이 안 적혀 있다 —"

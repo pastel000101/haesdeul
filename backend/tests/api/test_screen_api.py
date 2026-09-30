@@ -1,6 +1,6 @@
 """화면용 API — 여섯 탭이 계약대로 값을 내는가.
 
-★ **이 테스트가 있는 이유.** 부서가 자기 `query.py` 를 채울 때, 응답 모양을
+★ **이 테스트가 있는 이유.** 부서가 자기 `presenter.py` 를 채울 때, 응답 모양을
   같이 바꿔 버리면 화면이 **조용히 빈 칸**이 됩니다. 오류가 안 나서 아무도
   모릅니다. 그래서 모양만 여기서 잡아 둡니다.
 
@@ -21,10 +21,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.finance import query as finance_query
-from app.api.router import router
-from app.api.sales import query as sales_query
-from app.finance.schemas import (
+from app.api.finance import presenter as finance_presenter
+from app.api.router import screen_router
+from app.api.sales import presenter as sales_presenter
+from app.finance.schemas.dashboard import (
     FinanceCashflowResponse,
     FinanceCashflowSummary,
     FinanceClosingItem,
@@ -34,7 +34,7 @@ from app.finance.schemas import (
     FinanceReceivableSummary,
     FinanceStateView,
 )
-from app.sales.schemas import (
+from app.sales.schemas.dashboard import (
     SalesCollectionStatusSummary,
     SalesDashboardMeta,
     SalesDashboardResponse,
@@ -50,11 +50,11 @@ FIN_AS_OF = "2025-12-31"
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(sales_query, "get_sales_dashboard", _sales_dashboard_stub)
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", _finance_dashboard_stub)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _finance_cashflow_stub)
+    monkeypatch.setattr(sales_presenter, "get_sales_dashboard", _sales_dashboard_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_dashboard", _finance_dashboard_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _finance_cashflow_stub)
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(screen_router)
     return TestClient(app)
 
 
@@ -99,10 +99,10 @@ def test_없는_값은_400_이지_500_이_아니다(client):
 
 
 def test_재무_state가_없는_날짜도_사용자_문장으로_열린다(monkeypatch):
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", _empty_finance_dashboard_stub)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _finance_cashflow_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_dashboard", _empty_finance_dashboard_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _finance_cashflow_stub)
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(screen_router)
     local_client = TestClient(app)
 
     response = local_client.get("/api/finance", params={"as_of": AS_OF, "state": "base"})
@@ -170,9 +170,9 @@ def test_판매_화면은_요청_as_of를_service에_그대로_넘긴다(monkeyp
         seen["as_of"] = as_of
         return _sales_dashboard_stub(sim_run_id, as_of)
 
-    monkeypatch.setattr(sales_query, "get_sales_dashboard", spy)
+    monkeypatch.setattr(sales_presenter, "get_sales_dashboard", spy)
 
-    sales_query.build(date(2026, 1, 6))
+    sales_presenter.build(date(2026, 1, 6))
 
     assert seen["as_of"] == date(2026, 1, 6)
 
@@ -212,10 +212,12 @@ def test_재무_화면은_저장된_state를_비교_카드로_보여준다(clien
 
 
 def test_재무_base가_없으면_존재하는_state로_화면을_연다(monkeypatch):
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", _loan_only_finance_dashboard_stub)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _finance_cashflow_stub)
+    monkeypatch.setattr(
+        finance_presenter, "get_finance_dashboard", _loan_only_finance_dashboard_stub
+    )
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _finance_cashflow_stub)
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(screen_router)
     local_client = TestClient(app)
 
     response = local_client.get("/api/finance", params={"as_of": AS_OF, "state": "base"})
@@ -230,10 +232,10 @@ def test_재무_base가_없으면_존재하는_state로_화면을_연다(monkeyp
 
 
 def test_재무_요청일과_실제_state_날짜를_구분한다(monkeypatch):
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", _prior_finance_dashboard_stub)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _prior_finance_cashflow_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_dashboard", _prior_finance_dashboard_stub)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _prior_finance_cashflow_stub)
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(screen_router)
     local_client = TestClient(app)
 
     response = local_client.get("/api/finance", params={"as_of": "2026-01-20", "state": "base"})
@@ -261,10 +263,10 @@ def test_재무_화면은_요청_as_of를_service에_그대로_넘긴다(monkeyp
         seen["cashflow_as_of"] = as_of
         return _finance_cashflow_stub(sim_run_id, as_of, days)
 
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", dashboard_spy)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", cashflow_spy)
+    monkeypatch.setattr(finance_presenter, "get_finance_dashboard", dashboard_spy)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", cashflow_spy)
 
-    finance_query.build(date(2026, 1, 6), "base")
+    finance_presenter.build(date(2026, 1, 6), "base")
 
     assert seen == {
         "dashboard_as_of": date(2026, 1, 6),
@@ -280,7 +282,7 @@ def test_재무_판매_출처에_보는_실행과_요청_기준일을_적는다(
         params = {"as_of": as_of} | ({"state": "base"} if path == "/api/finance" else {})
         note = client.get(path, params=params).json()["source"]["note"]
         notes.append(note)
-        assert f"보고 있는 실행: {finance_query.SHOWN_SIM_RUN_ID} · 기준일: {as_of}" in note
+        assert f"보고 있는 실행: {finance_presenter.SHOWN_SIM_RUN_ID} · 기준일: {as_of}" in note
     assert notes[0] != notes[1]
 
 
@@ -379,7 +381,7 @@ def test_표의_칸_이름이_행에_있다(client):
 
 
 def _sales_dashboard_stub(sim_run_id: str, as_of: date) -> SalesDashboardResponse:
-    assert sim_run_id == sales_query.SHOWN_SIM_RUN_ID
+    assert sim_run_id == sales_presenter.SHOWN_SIM_RUN_ID
     return SalesDashboardResponse(
         meta=SalesDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         summary=SalesDashboardSummary(
@@ -495,7 +497,7 @@ def _sales_dashboard_stub(sim_run_id: str, as_of: date) -> SalesDashboardRespons
 
 
 def _finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardResponse:
-    assert sim_run_id == finance_query.SHOWN_SIM_RUN_ID
+    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
     return FinanceDashboardResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         states=[
@@ -541,7 +543,7 @@ def _finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardRes
 
 
 def _empty_finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardResponse:
-    assert sim_run_id == finance_query.SHOWN_SIM_RUN_ID
+    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
     assert as_of == date(2026, 1, 6)
     return FinanceDashboardResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
@@ -615,7 +617,7 @@ def _finance_cashflow_stub(
     as_of: date,
     days: int,
 ) -> FinanceCashflowResponse:
-    assert sim_run_id == finance_query.SHOWN_SIM_RUN_ID
+    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
     return FinanceCashflowResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         cashflow=[
@@ -630,7 +632,7 @@ def _prior_finance_cashflow_stub(
     as_of: date,
     days: int,
 ) -> FinanceCashflowResponse:
-    assert sim_run_id == finance_query.SHOWN_SIM_RUN_ID
+    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
     assert as_of == date(2026, 1, 20)
     return FinanceCashflowResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),

@@ -1,7 +1,7 @@
 """매입 탭 조회의 **날짜 창** — `window_days`.
 
 🔴 **이 인자는 매입 탭이 아니라 대시보드를 위한 자리다** (2026-09-16). 대시보드가
-`purchase_q.build()` 를 통째로 재사용하는데, 도착일을 맞추려고 **다시 훑는** 실행 조회가
+`purchase_presenter.build()` 를 통째로 재사용하는데, 도착일을 맞추려고 **다시 훑는** 실행 조회가
 달력 전체를 걸어 우리 머신에서 `829.6ms` · 7,700행이었다 (실 DB 실측).
 
 ★★ **그런데 대시보드는 그 결과를 안 읽는다** — `pu.plans` · `pu.source` 만 읽고, 그 조회가
@@ -10,6 +10,11 @@
 
 🔴 **값을 대 보지 않는다** (규칙 8). `assert 행수 == 7` 같은 단언은 코드가 같은 상수를 들고
 있어도 통과한다. 여기서는 **창을 실제로 바꿔** 관측이 따라 움직이는지를 본다.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -20,7 +25,9 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
+from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 1, 22)
 AXIS = "SIM-WINDOW-TEST"
@@ -83,16 +90,15 @@ class _Recorder:
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     """`_read` 가 함수 **안에서** import 하므로 모듈 속성을 갈아 끼우면 잡힌다."""
-    import app.finance.db as finance_db
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     rec = _Recorder()
-    monkeypatch.setattr(finance_db, "fetch_all", rec)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=rec)
     return rec
 
 
 def test_창을_안_주면_매입일_전부를_걸고_전부_읽었다고_답한다(recorder: _Recorder) -> None:
-    data = purchase_query._read(AS_OF)
+    data = read_purchase_tab(AS_OF)
 
     assert len(recorder.arrival_calls) == 1, "도착일 조회가 나가야 한다"
     assert recorder.arrival_calls[0]["dates"] == sorted(BUY_DATES)
@@ -101,7 +107,7 @@ def test_창을_안_주면_매입일_전부를_걸고_전부_읽었다고_답한
 
 def test_창이_0이면_도착일_조회가_아예_안_나간다(recorder: _Recorder) -> None:
     """🔴 마스터에게 「0 이어도 됩니다」로 답했다 — 그게 실제로 돼야 한다."""
-    data = purchase_query._read(AS_OF, window_days=0)
+    data = read_purchase_tab(AS_OF, window_days=0)
 
     assert recorder.arrival_calls == [], "창이 0이면 질의가 나가면 안 된다"
     assert data["arrivals"] == []
@@ -110,10 +116,10 @@ def test_창이_0이면_도착일_조회가_아예_안_나간다(recorder: _Reco
 
 def test_창을_좁히면_거는_날짜가_따라_줄어든다(recorder: _Recorder) -> None:
     """🔴 규칙 8 — 상수와 대 보지 않는다. **입력을 바꿔** 관측이 따라 움직이는지 본다."""
-    wide = purchase_query._read(AS_OF)
+    wide = read_purchase_tab(AS_OF)
     wide_dates = recorder.arrival_calls[-1]["dates"]
 
-    narrow = purchase_query._read(AS_OF, window_days=2)
+    narrow = read_purchase_tab(AS_OF, window_days=2)
     narrow_dates = recorder.arrival_calls[-1]["dates"]
 
     #  ★ 좁힌 쪽이 **진부분집합**이어야 한다. 「같은 수가 나왔다」로는 창이 도는지 모른다.
@@ -127,7 +133,7 @@ def test_창이_매입일을_다_덮으면_전부_읽었다고_답한다(recorde
     """창을 줬다고 무조건 「안 읽었다」가 아니다 — **실제로 뺀 날이 있을 때만**이다."""
     span = (AS_OF - min(BUY_DATES)).days + 1
 
-    data = purchase_query._read(AS_OF, window_days=span)
+    data = read_purchase_tab(AS_OF, window_days=span)
 
     assert recorder.arrival_calls[-1]["dates"] == sorted(BUY_DATES)
     assert data["arrivals_complete"] is True
@@ -166,7 +172,7 @@ def _data(*, arrivals: list[dict[str, Any]], complete: bool | None) -> dict[str,
 @pytest.fixture
 def inject(monkeypatch: pytest.MonkeyPatch):
     def _inject(data: dict[str, Any]):
-        monkeypatch.setattr(purchase_query, "_read", lambda as_of, **_kwargs: data)
+        monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: data)
 
     return _inject
 
@@ -178,7 +184,7 @@ def _stat(tab: Any, label: str) -> Any:
 def test_창이_온전하면_입고예정은_숫자다(inject) -> None:
     inject(_data(arrivals=_ARRIVALS, complete=True))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     stat = _stat(tab, "확정 입고 예정")
     assert stat.raw == pytest.approx(1000.0)
@@ -189,7 +195,7 @@ def test_창을_좁히면_입고예정이_0이_아니라_미결로_나간다(inj
     """🔴 규칙 3. 도착일을 안 읽어 합계가 0이 되는데, 그건 «확정된 0» 이 아니다."""
     inject(_data(arrivals=[], complete=False))
 
-    tab = purchase_query.build(AS_OF, AXIS, window_days=0)
+    tab = purchase_presenter.build(AS_OF, AXIS, window_days=0)
 
     stat = _stat(tab, "확정 입고 예정")
     assert stat.raw is None, "미결은 raw 가 None 이다 — 0 이 아니다"
@@ -201,7 +207,7 @@ def test_창을_좁혀도_이번주_확정_매입액은_그대로_숫자다(inje
     """★ 창은 **도착일 하나**에만 닿는다. 매입액은 원장에서 나오므로 미결이 아니다."""
     inject(_data(arrivals=[], complete=False))
 
-    tab = purchase_query.build(AS_OF, AXIS, window_days=0)
+    tab = purchase_presenter.build(AS_OF, AXIS, window_days=0)
 
     assert _stat(tab, "이번 주 확정 매입액").raw == pytest.approx(800_000)
 
@@ -209,10 +215,10 @@ def test_창을_좁혀도_이번주_확정_매입액은_그대로_숫자다(inje
 def test_안내문이_못_맞췄다와_안_읽었다를_가른다(inject) -> None:
     """★ E3-5 와 같은 판단 — 「못 읽었다」와 「없다」는 다른 문장이다."""
     inject(_data(arrivals=[], complete=False))
-    narrowed = purchase_query.build(AS_OF, AXIS, window_days=0).committed_note.text
+    narrowed = purchase_presenter.build(AS_OF, AXIS, window_days=0).committed_note.text
 
     inject(_data(arrivals=[], complete=True))
-    unmatched = purchase_query.build(AS_OF, AXIS).committed_note.text
+    unmatched = purchase_presenter.build(AS_OF, AXIS).committed_note.text
 
     assert "안 읽었습니다" in narrowed
     assert "못 맞춘" not in narrowed
@@ -223,7 +229,7 @@ def test_칸이_없는_옛_모양은_전부_읽은_것으로_읽는다(inject) -
     """검사 주입은 자기가 준 `arrivals` 가 전부인 세상이라 «온전» 이 맞다."""
     inject(_data(arrivals=_ARRIVALS, complete=None))
 
-    assert _stat(purchase_query.build(AS_OF, AXIS), "확정 입고 예정").raw is not None
+    assert _stat(purchase_presenter.build(AS_OF, AXIS), "확정 입고 예정").raw is not None
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -233,7 +239,7 @@ def test_칸이_없는_옛_모양은_전부_읽은_것으로_읽는다(inject) -
 def test_새_시그니처_스텁이면_실제값으로_선다(inject) -> None:
     inject(_data(arrivals=_ARRIVALS, complete=True))
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is True
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is True
 
 
 def test_build_가_창을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -250,10 +256,10 @@ def test_build_가_창을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -
         받은_창.append(kwargs.get("window_days", "안 받음"))
         return _data(arrivals=[], complete=True)
 
-    monkeypatch.setattr(purchase_query, "_read", _spy)
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _spy)
 
     for 창 in (None, 0, 7):
-        purchase_query.build(AS_OF, AXIS, window_days=창)
+        purchase_presenter.build(AS_OF, AXIS, window_days=창)
 
     #  ★ 상수와 대 보는 것이 아니라 **넣은 순서 그대로 나오는지**를 본다 (규칙 8).
     assert 받은_창 == [None, 0, 7]
@@ -270,8 +276,8 @@ def test_창_인자를_못_받는_스텁은_예시값으로_떨어진다(monkeyp
     늘리면 검사 서른한 개가 조용히 예시값을 재게 된다는 것을 **보이는** 자리다.
     """
     monkeypatch.setattr(
-        purchase_query, "_read",
+        purchase_presenter, "read_purchase_tab",
         lambda as_of: _data(arrivals=_ARRIVALS, complete=True),  # 창 인자를 안 받는다
     )
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is False
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is False

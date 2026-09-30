@@ -39,11 +39,13 @@ from typing import Any, Self
 
 import pytest
 
-from app.finance.collection import CollectionEvent
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis, get_db_schema
-from app.master.collection_events import read_collection_events
-from app.master.finance_collection import FinanceCollectionAdapter
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.core.settings import get_db_schema
+from app.finance.schemas.collections import CollectionEvent
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
+from app.master.adapters.finance_parts import FinanceCollectionAdapter
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.readmodel.collection_events import read_collection_events
 
 AS_OF = date(2026, 1, 10)
 """토요일이다. **입금은 토요일에도 찍힌다** — 수금은 달력일이다."""
@@ -84,13 +86,17 @@ class _가짜커넥션:
         self.rows = rows or []
         self.조회_예외 = 조회_예외
         self.executed: list[tuple[Any, Any]] = []
-        self.closed = 0
+        self.returned = 0
 
     def cursor(self) -> _가짜커서:
         return _가짜커서(self)
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 def _행(
@@ -146,7 +152,7 @@ def test_축_둘로_거른다() -> None:
     read_collection_events(
         sim_run_id=BURN_IN_SIM_RUN_ID,
         financing_mode=축_모드,
-        connect=lambda: conn,
+        borrow=lambda: conn,
     )
 
     assert len(conn.executed) == 1
@@ -164,7 +170,7 @@ def test_표_이름이_정본_스키마에_붙는다() -> None:
     conn = _가짜커넥션()
 
     read_collection_events(
-        sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=lambda: conn
+        sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=lambda: conn
     )
 
     문장 = conn.executed[0][0].as_string(None)
@@ -181,13 +187,14 @@ def test_행을_재무_사건으로_옮긴다() -> None:
     conn = _가짜커넥션(rows=[_행(receivable_id="RCV-0007", target=금액)])
 
     사건들 = read_collection_events(
-        sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=lambda: conn
+        sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=lambda: conn
     )
 
     assert len(사건들) == 1
     사건 = 사건들[0]
     assert isinstance(사건, CollectionEvent)
-    assert type(사건).__module__ == "app.finance.collection", (
+    #  2026-09-29 재구성 BL-014: 수금 사건 모양은 `app/finance/schemas/collections.py` 에 산다.
+    assert type(사건).__module__ == "app.finance.schemas.collections", (
         f"수금 사건 모양이 재무 것이 아니다: {type(사건).__module__}"
     )
     assert 사건.sim_run_id == BURN_IN_SIM_RUN_ID
@@ -203,7 +210,7 @@ def test_표가_비면_빈_튜플이다() -> None:
 
     assert (
         read_collection_events(
-            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=lambda: conn
+            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=lambda: conn
         )
         == ()
     )
@@ -224,7 +231,7 @@ def test_조회_실패를_빈_튜플로_접지_않는다() -> None:
 
     with pytest.raises(RuntimeError, match="relation does not exist"):
         read_collection_events(
-            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=lambda: conn
+            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=lambda: conn
         )
 
 
@@ -234,10 +241,10 @@ def test_조회가_터져도_커넥션을_닫는다() -> None:
 
     with pytest.raises(RuntimeError):
         read_collection_events(
-            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=lambda: conn
+            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=lambda: conn
         )
 
-    assert conn.closed == 1, "조회가 터진 뒤 커넥션이 안 닫혔다"
+    assert conn.returned == 1, "조회가 터진 뒤 커넥션이 안 닫혔다"
 
 
 def test_커넥션_열기가_터지면_그대로_올라온다() -> None:
@@ -248,7 +255,7 @@ def test_커넥션_열기가_터지면_그대로_올라온다() -> None:
 
     with pytest.raises(FinanceDataNotReady, match="connection refused"):
         read_collection_events(
-            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, connect=못_연다
+            sim_run_id=BURN_IN_SIM_RUN_ID, financing_mode=축_모드, borrow=못_연다
         )
 
 
@@ -384,45 +391,47 @@ def test_다른_축_행이_섞이지_않는다() -> None:
     """
     from psycopg import sql
 
-    from app.finance.db import get_connection
+    from app.core import db as core_db
 
-    conn = get_connection()
-    표 = sql.SQL("{}.{}").format(
-        sql.Identifier(get_db_schema()), sql.Identifier("master_collection_events")
-    )
-
-    class _안닫는커넥션:
-        """로더가 트랜잭션을 닫지 못하게 감싼다 — 안 그러면 되돌릴 수 없다."""
-
-        def cursor(self) -> Any:
-            return conn.cursor()
-
-        def close(self) -> None:
-            return None
-
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
-                (BURN_IN_SIM_RUN_ID, 축_모드, AS_OF, "RCV-TEST-1", Decimal(100), "검사"),
-            )
-            cur.execute(
-                sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
-                (BURN_IN_SIM_RUN_ID, 남의_모드, AS_OF, "RCV-TEST-2", Decimal(200), "검사"),
-            )
-            cur.execute(
-                sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
-                (남의_실행, 축_모드, AS_OF, "RCV-TEST-3", Decimal(300), "검사"),
-            )
-
-        사건들 = read_collection_events(
-            sim_run_id=BURN_IN_SIM_RUN_ID,
-            financing_mode=축_모드,
-            connect=_안닫는커넥션,
+    with core_db.connection() as conn:
+        표 = sql.SQL("{}.{}").format(
+            sql.Identifier(get_db_schema()), sql.Identifier("master_collection_events")
         )
-    finally:
-        conn.rollback()
-        conn.close()
+
+        class _안닫는커넥션:
+            """로더가 트랜잭션을 닫지 못하게 감싼다 — 안 그러면 되돌릴 수 없다."""
+
+            def cursor(self) -> Any:
+                return conn.cursor()
+
+            def __enter__(self) -> Any:
+                return self
+
+            def __exit__(self, *_exc: object) -> None:
+                return None
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
+                    (BURN_IN_SIM_RUN_ID, 축_모드, AS_OF, "RCV-TEST-1", Decimal(100), "검사"),
+                )
+                cur.execute(
+                    sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
+                    (BURN_IN_SIM_RUN_ID, 남의_모드, AS_OF, "RCV-TEST-2", Decimal(200), "검사"),
+                )
+                cur.execute(
+                    sql.SQL("INSERT INTO {} VALUES (%s,%s,%s,%s,%s,%s)").format(표),
+                    (남의_실행, 축_모드, AS_OF, "RCV-TEST-3", Decimal(300), "검사"),
+                )
+
+            사건들 = read_collection_events(
+                sim_run_id=BURN_IN_SIM_RUN_ID,
+                financing_mode=축_모드,
+                borrow=_안닫는커넥션,
+            )
+        finally:
+            conn.rollback()
 
     나온것 = {사건.receivable_id for 사건 in 사건들}
     assert "RCV-TEST-1" in 나온것, "그 축의 사건이 안 나왔다"

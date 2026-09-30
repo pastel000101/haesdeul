@@ -38,13 +38,18 @@ from typing import Any
 import pytest
 
 import app.main  # 임포트 시점에 배선이 선다 · ⑤ 의 `실제_배선` 이 이 모듈을 다시 실행한다
-from app.master import persistence, service
-from app.master.day_gate import DayGate
-from app.master.envelope import ExecutionContext
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.scheduler import ScheduledAction, run_scheduled_day
-from app.master.schemas import ProcurementRunRequest, SalesRunRequest
-from app.master.sim_run_binding import SimRunBound, bind_sim_run
+from app.contracts import envelope
+from app.contracts.envelope import ExecutionContext
+from app.master.domain import run_response, sim_run
+from app.master.domain.scheduler import ScheduledAction
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry.sim_run_binding import SimRunBound, bind_sim_run
+from app.master.schemas.day_gate import DayGate
+from app.master.schemas.procurement import ProcurementRunRequest
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import persistence as service_persistence
+from app.master.service import procurement, sales
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 1, 7)
 
@@ -80,13 +85,15 @@ def 봉투를_잡는다(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
       적재까지 태워야 한다 — 재려는 것은 **봉투에 실렸나** 하나다.
     """
     잡힌: dict[str, Any] = {}
-    진짜 = service.ExecutionContext
+    진짜 = envelope.ExecutionContext
 
     def _간첩(**kw: Any) -> ExecutionContext:
         잡힌.update(kw)
         return 진짜(**kw)
 
-    monkeypatch.setattr(service, "ExecutionContext", _간첩)
+    monkeypatch.setattr(run_response, "ExecutionContext", _간첩)
+    monkeypatch.setattr(procurement, "ExecutionContext", _간첩)
+    monkeypatch.setattr(sales, "ExecutionContext", _간첩)
     return 잡힌
 
 
@@ -99,7 +106,8 @@ def 문앞에서_접는다(monkeypatch: pytest.MonkeyPatch) -> None:
        축이 봉투까지 갔는지를 **가장 짧은 경로로** 잴 수 있는 자리다.
     """
     막힘 = DayGate(as_of=AS_OF, gate="BLOCKED", result="NEVER_OPENED", reason="대역: 안 열린 날")
-    monkeypatch.setattr(service, "check_day_gate", lambda *a, **k: 막힘)
+    monkeypatch.setattr(procurement, "check_day_gate", lambda *a, **k: 막힘)
+    monkeypatch.setattr(sales, "check_day_gate", lambda *a, **k: 막힘)
 
 
 @pytest.fixture
@@ -110,7 +118,9 @@ def 적재를_잡는다(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
       꺼내 넘겼나"* 까지만 재고, **적재 함수가 그 값을 칸으로 들고 가는가**는 안 잰다.
     """
     잡힌: dict[str, Any] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: 잡힌.update(kw) or "RUN-1")
+    monkeypatch.setattr(
+        service_persistence, "try_save_run", lambda **kw: 잡힌.update(kw) or "RUN-1"
+    )
     return 잡힌
 
 
@@ -121,7 +131,7 @@ def 적재를_잡는다(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
 
 def test_매입_요청이_준_축이_봉투에_실린다(봉투를_잡는다, 문앞에서_접는다, 적재를_잡는다) -> None:
     """🔴 전에는 진입점이 상수를 다시 적어 **걷기가 축을 줘도 여기서 끊겼다.**"""
-    service.run_procurement(_매입요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
+    procurement.run_procurement(_매입요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
 
     assert 봉투를_잡는다["sim_run_id"] == 실행축
     assert 봉투를_잡는다["sim_run_id"] != BURN_IN_SIM_RUN_ID
@@ -129,7 +139,7 @@ def test_매입_요청이_준_축이_봉투에_실린다(봉투를_잡는다, �
 
 def test_판매_요청이_준_축이_봉투에_실린다(봉투를_잡는다, 문앞에서_접는다, 적재를_잡는다) -> None:
     """★ **매입과 같은 자리다.** 여기만 상수로 남으면 같은 날 두 판단이 갈린다."""
-    service.run_sales(_판매요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
+    sales.run_sales(_판매요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
 
     assert 봉투를_잡는다["sim_run_id"] == 실행축
     assert 봉투를_잡는다["sim_run_id"] != BURN_IN_SIM_RUN_ID
@@ -140,7 +150,7 @@ def test_안_주면_번인으로_간다(봉투를_잡는다, 문앞에서_접는
 
     ⚠️ 기본값을 없애면 라우터가 깨진다 — 이번 판은 운영 동작을 안 바꾼다.
     """
-    service.run_procurement(_매입요청(), verifier=lambda *a, **k: None)
+    procurement.run_procurement(_매입요청(), verifier=lambda *a, **k: None)
 
     assert 봉투를_잡는다["sim_run_id"] == BURN_IN_SIM_RUN_ID
 
@@ -150,7 +160,7 @@ def test_빈_축은_안_준_것으로_본다(빈축, 봉투를_잡는다, 문앞
     """★ 공백만 든 축을 봉투에 그대로 실으면 `ledger.sim_run_id_for` 가 **뒤에서**
     터지고, 그 실패가 *"요청이 이상했다"* 가 아니라 *"원장이 터졌다"* 로 읽힌다.
     """
-    service.run_procurement(_매입요청(sim_run_id=빈축), verifier=lambda *a, **k: None)
+    procurement.run_procurement(_매입요청(sim_run_id=빈축), verifier=lambda *a, **k: None)
 
     assert 봉투를_잡는다["sim_run_id"] == BURN_IN_SIM_RUN_ID
 
@@ -164,13 +174,13 @@ def test_매입_판단_행에_요청이_준_축이_앉는다(문앞에서_접는
     """🔴 **`master_agent_runs.sim_run_id` 다.** 승인 경로가 그 행에서 축을 읽으므로
     (`decision_service._sim_run_id_of`), 여기가 번인이면 **원장까지 번인으로 돌아온다.**
     """
-    service.run_procurement(_매입요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
+    procurement.run_procurement(_매입요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
 
     assert 적재를_잡는다["sim_run_id"] == 실행축
 
 
 def test_판매_판단_행에_요청이_준_축이_앉는다(문앞에서_접는다, 적재를_잡는다) -> None:
-    service.run_sales(_판매요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
+    sales.run_sales(_판매요청(sim_run_id=실행축), verifier=lambda *a, **k: None)
 
     assert 적재를_잡는다["sim_run_id"] == 실행축
 
@@ -184,14 +194,14 @@ def test_기본값이면_출처표가_그렇게_적는다() -> None:
     """🔴 **적히는 것 자체를 잰다.** 기본값을 조용히 두면 *"말 안 하고 번인에 쌓는"*
     길이 그대로 남는다 — `#524` 가 봉투에 대해 낸 결론과 같은 자리다.
     """
-    표 = service._input_sources(_매입요청(), None)
+    표 = procurement._input_sources(_매입요청(), None)
 
     assert 표["sim_run_id"] == "DEFAULT:burn_in"
 
 
 def test_요청이_주면_출처표가_요청이라고_적는다() -> None:
     """★ **어휘를 새로 만들지 않았다.** `REQUEST` 는 이미 있던 것이다."""
-    표 = service._input_sources(_매입요청(sim_run_id=실행축), None)
+    표 = procurement._input_sources(_매입요청(sim_run_id=실행축), None)
 
     assert 표["sim_run_id"] == "REQUEST:sim_run_id"
 
@@ -203,7 +213,7 @@ def test_출처표가_축_키를_통째로_빼지_않는다() -> None:
     **없는 표를 다시 뒤진다** — 봉투(`execution_calendar`)에서 이미 한 번 겪은 일이다.
     """
     for 요청 in (_매입요청(), _매입요청(sim_run_id=실행축)):
-        assert "sim_run_id" in service._input_sources(요청, None), (
+        assert "sim_run_id" in procurement._input_sources(요청, None), (
             "출처표에서 축 키가 통째로 빠졌다 — 「기본값이었다」가 「모른다」와 섞인다"
         )
 
@@ -215,8 +225,8 @@ def test_축_출처를_값과_같은_판정으로_고른다() -> None:
     """
     공백요청 = _매입요청(sim_run_id="   ")
 
-    assert service._sim_run_id_of(공백요청) == BURN_IN_SIM_RUN_ID
-    assert service._input_sources(공백요청, None)["sim_run_id"] == "DEFAULT:burn_in"
+    assert sim_run.sim_run_id_of(공백요청) == BURN_IN_SIM_RUN_ID
+    assert procurement._input_sources(공백요청, None)["sim_run_id"] == "DEFAULT:burn_in"
 
 
 # ---------------------------------------------------------------------------
@@ -314,9 +324,9 @@ def test_배선이_축을_상수로_들지_않는다() -> None:
     """
     import pathlib
 
-    from app.master import bootstrap
+    from app.master.registry import bootstrap as registry_bootstrap
 
-    원문 = pathlib.Path(bootstrap.__file__).read_text(encoding="utf-8")
+    원문 = pathlib.Path(registry_bootstrap.__file__).read_text(encoding="utf-8")
     코드 = "\n".join(줄 for 줄 in 원문.splitlines() if not 줄.lstrip().startswith("#"))
 
     assert "BURN_IN_SIM_RUN_ID" not in 코드, (
@@ -367,16 +377,16 @@ def 실제_배선() -> Any:
     ★ **값을 검사가 지어내지 않는다.** 상수를 들고 다시 등록하는 것이 아니라 배선
       함수를 다시 돌린다 — 검사가 production 사실을 복제하면 배선이 틀려도 초록불이다.
     """
-    from app.master import cancellation as master_cancellation
+    from app.master.registry import cancellation as registry_cancellation
 
-    이전_취소 = dict(master_cancellation.registered_cancellations())
+    이전_취소 = dict(registry_cancellation.registered_cancellations())
     try:
         importlib.reload(app.main)
         yield
     finally:
-        master_cancellation.reset()
+        registry_cancellation.reset()
         for part, impl in 이전_취소.items():
-            master_cancellation.register_cancellation(part, impl)
+            registry_cancellation.register_cancellation(part, impl)
 
 
 def test_여섯_등록소가_같은_축_하나를_받는다(실제_배선) -> None:
@@ -391,15 +401,20 @@ def test_여섯_등록소가_같은_축_하나를_받는다(실제_배선) -> No
     🔴 **`registered()` 를 지나서 잰다.** 배선 원문만 읽으면 등록소가 감싼 것을
        **풀지 않고 그대로 쓰는** 날을 못 잡는다.
     """
-    from app.master import cancellation, collection, day_open, inbound, receivable, transition
+    from app.master.registry import cancellation as registry_cancellation
+    from app.master.registry import collection as registry_collection
+    from app.master.registry import day_open as registry_day_open
+    from app.master.registry import inbound as registry_inbound
+    from app.master.registry import receivable as registry_receivable
+    from app.master.registry import transition as registry_transition
 
     등록들 = [
-        transition.registered()["logistics"],
-        day_open.registered()["logistics"],
-        cancellation.registered_cancellations()["logistics"],
-        inbound.registered()["logistics"],
-        collection.registered()["finance"],
-        receivable.registered()["finance"],
+        registry_transition.registered()["logistics"],
+        registry_day_open.registered()["logistics"],
+        registry_cancellation.registered_cancellations()["logistics"],
+        registry_inbound.registered()["logistics"],
+        registry_collection.registered()["finance"],
+        registry_receivable.registered()["finance"],
     ]
 
     for 등록 in 등록들:
@@ -421,10 +436,10 @@ def test_감싼_등록도_미등록_판정을_안_바꾼다() -> None:
     ★ **전역 등록을 읽지 않는다.** 다른 검사가 `reset()` 을 하면 순서에 따라 답이
       달라진다 — 여기서 직접 채우고, 되돌리기는 루트 `conftest.py` 가 한다.
     """
-    from app.master import transition
+    from app.master.registry import transition as registry_transition
 
-    transition.reset()
-    for part in transition.PARTS:
-        transition.register_transition(part, SimRunBound(lambda axis: axis))
+    registry_transition.reset()
+    for part in registry_transition.PARTS:
+        registry_transition.register_transition(part, SimRunBound(lambda axis: axis))
 
-    assert transition.missing() == ()
+    assert registry_transition.missing() == ()

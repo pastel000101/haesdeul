@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/sales/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/sales/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/sales?as_of=2025-12-31
 
 ```
 app/api/sales/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/sales/query.py
+# backend/app/api/sales/presenter.py
 def build(as_of: date) -> SalesTab:
 ```
 
@@ -60,14 +60,14 @@ def build(as_of: date) -> SalesTab:
 **★ SQL 을 새로 쓰지 마세요. 이미 만들어 둔 것을 부르세요.**
 
 ```python
-from app.sales.dashboard import get_sales_dashboard
+from app.sales.readmodel.dashboard import get_sales_dashboard
 dash = get_sales_dashboard(sim_run_id=..., as_of=as_of)
 ```
 
 `GET /sales/dashboard` 가 쓰는 함수입니다. **같은 쿼리를 두 벌 두면
 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
 
 원래 표: `sales` · `sale_items` · `receivables`.
 
@@ -96,28 +96,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+부서 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.sales.db import fetch_one, fetch_all, get_db_schema
+판매는 계층으로 나뉘어 있습니다 (2026-09-29). **SQL 은 `app/sales/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/sales/readmodel/` 입니다.
+
+```text
+app/sales/repository/<자원>.py   SQL. 연결을 인자로 받고 commit 하지 않는다
+app/sales/readmodel/<자원>.py    조회 연결을 빌려 repository 를 부르고 응답 모델로 편다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.sales WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---
@@ -282,11 +274,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -382,7 +374,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/sales/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/sales/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

@@ -16,19 +16,18 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.application.harness import PRE_PURCHASE_TOOLS
-from app.finance.execution import (
+from app.contracts.envelope import DEPT_CAP_CHECK_ID, AgentRequest, ExecutionContext
+from app.finance.domain.evidence import (
     _CAP_TOOL_INPUTS,
     _CONTEXT_INPUTS,
     _TOOL_PREREQUISITE_TOOLS,
     FINANCE_CAP_CHECK_ID,
     FinanceToolDependencyMissing,
-    _finance_dept_meta,
     _resolve_tool_inputs,
+    finance_dept_meta,
 )
-from app.finance.state import FinanceAgentState
-from app.master.critic_bridge import DEPT_CAP_CHECK_ID
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.service.harness import PRE_PURCHASE_TOOLS
 
 FORBIDDEN_IN_FINANCE_CAP = frozenset(
     {"grade_unit_price", "qty_kg", "total_qty_kg", "avg_unit_price", "sourcing_plan"}
@@ -88,7 +87,7 @@ def test_unknown_executed_tool_fails_closed():
     assert raised.value.tool == "some_new_finance_tool"
 
     with pytest.raises(FinanceToolDependencyMissing):
-        _finance_dept_meta("PRE_PURCHASE", {"finance_cap_amount_krw": 1}, [_state(["nope"])])
+        finance_dept_meta("PRE_PURCHASE", {"finance_cap_amount_krw": 1}, [_state(["nope"])])
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +129,7 @@ def test_context_inputs_are_shared_by_every_tool():
 
 def test_declared_cap_inputs_contain_no_purchase_owned_field():
     """정상 재무 cap 은 등급·수량을 읽지 않는다 — 읽게 되면 여기가 먼저 깨진다."""
-    meta = _finance_dept_meta(
+    meta = finance_dept_meta(
         "PRE_PURCHASE",
         {"finance_cap_amount_krw": 1},
         [_state(sorted(PRE_PURCHASE_TOOLS))],
@@ -146,7 +145,7 @@ def test_declared_cap_inputs_contain_no_purchase_owned_field():
 
 def test_scenario_validation_produced_fields_are_runtime_derived():
     payload = {"verdicts": [{"verdict": "ok"}], "finance_cap_amount_krw": 100, "empty": None}
-    meta = _finance_dept_meta("SCENARIO_VALIDATION", payload, [_state([])])
+    meta = finance_dept_meta("SCENARIO_VALIDATION", payload, [_state([])])
 
     assert meta["observation_type"] == "finance_dept_meta"
     # 없는 검사에 가짜 입력을 지어내지 않는다.
@@ -156,8 +155,8 @@ def test_scenario_validation_produced_fields_are_runtime_derived():
 
 
 def test_dept_meta_is_absent_without_states():
-    assert _finance_dept_meta("PRE_PURCHASE", {}, []) is None
-    assert _finance_dept_meta("STATUS_QUERY", {"a": 1}, [_state([])]) is None
+    assert finance_dept_meta("PRE_PURCHASE", {}, []) is None
+    assert finance_dept_meta("STATUS_QUERY", {"a": 1}, [_state([])]) is None
 
 
 # ---------------------------------------------------------------------------
@@ -166,11 +165,11 @@ def test_dept_meta_is_absent_without_states():
 
 
 def _critic_verdict(observations: dict[str, tuple[str, ...]]):
-    from app.master import critic_bridge as bridge
+    from app.master.adapters import critic_bridge
     from app.master.critic.service import run_critic_procurement
     from tests.master.test_critic_bridge import CONSTRAINTS, EVIDENCES, _proposal
 
-    request = bridge.build_request(
+    request = critic_bridge.build_request(
         as_of=date(2025, 12, 31),
         item="배추",
         proposal=_proposal(),

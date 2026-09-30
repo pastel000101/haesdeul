@@ -3,19 +3,19 @@
 🔴 **비율·수량·날짜를 만들지 않는다.** 규칙이 후보를 만들고 안전 검사까지 끝냈고, 여기서
 하는 일은 그중 하나를 고르는 것뿐이다. 고른 뒤 실제 수량과 날짜로 펴는 것은 ⑥ 이다.
 
-★ **재시도·오류 분류·fallback 은 ``runtime.run_with_fallback`` 이 소유한다.** 이 파일에는
-이 역할의 것만 있다 — 지시문·응답 스키마·검증·기본안.
+★ **재시도·오류 분류·fallback 골격은 ``app.core.llm.runtime.run_with_fallback`` 이다.**
+이 파일에는 이 역할의 것만 있다 — 지시문·응답 스키마·검증·기본안.
 """
 
 from collections.abc import Callable
 
+from app.core.llm.runtime import run_with_fallback
 from app.purchase_agent.llm.runtime import (
     LLMProvider,
     LLMSettings,
     RoleSpec,
     build_provider,
     get_llm_settings,
-    run_with_fallback,
 )
 from app.purchase_agent.llm.split_schemas import (
     SplitAllocationChoice,
@@ -191,16 +191,16 @@ class SplitAllocationService:
             chosen_candidate_id=default_candidate_id, reason="규칙 기본안"
         )
         해석, 상태, 시도, 떨어짐 = run_with_fallback(
-            settings=self.settings,
-            provider=self.provider,
-            context=context,
-            template=template,
+            enabled=self.settings.enabled,
+            needs_call=needs_call(context),
+            max_retries=self.settings.max_retries,
+            call=lambda guidance: self.provider.generate(context, retry_guidance=guidance),
             # 🔴 상한은 **설정이 들고 온다** — 설정은 ``constraints.yaml`` 을 읽는다
             #   (``get_llm_settings``). ⑤ 와 같은 선언을 같은 경로로 지난다.
             validate=lambda raw: validate_choice(
                 raw, context, reason_max_chars=self.settings.reason_max_chars
             ),
-            needs_call=needs_call(context),
+            template=template,
             guidance_for=guidance_for,
         )
         return SplitAllocationResult(

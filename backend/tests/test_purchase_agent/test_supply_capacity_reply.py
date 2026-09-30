@@ -31,9 +31,9 @@ from datetime import date
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.purchase_agent.adapter import purchase_port
-from app.sales.schemas import PurchaseAdditionalSupplyResult
+from app.sales.schemas.proposal import PurchaseAdditionalSupplyResult
 
 #: mock 앵커여야 시세가 나온다 (`mocks/scenarios.json`).
 AS_OF = date(2026, 9, 11)
@@ -147,12 +147,14 @@ def test_그래프를_한_번도_안_돈다(monkeypatch: pytest.MonkeyPatch):
 
     판매 사이클이 그 시간을 기다린다. 그래프를 부르면 여기서 터진다.
     """
-    from app.purchase_agent import adapter
+    # 2026-09-29 재구성 BL-016: 어댑터 경로가 그래프를 조립하는 자리는 `service/scenarios.py` 다
+    #   (전에는 어댑터가 직접 `build_graph` 를 불렀다).
+    from app.purchase_agent.service import scenarios
 
     def _boom(*args, **kwargs):
         raise AssertionError("경계만 내는 경로가 7노드 그래프를 불렀다")
 
-    monkeypatch.setattr(adapter, "build_graph", _boom)
+    monkeypatch.setattr(scenarios, "build_graph", _boom)
 
     reply, metadata = purchase_port(
         _request(warehouse_free_kg=5000, finance_cap_amount_krw=3_000_000)

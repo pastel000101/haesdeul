@@ -16,11 +16,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.finance.adapter import _CONTROLLER_MODES
-from app.finance.application.harness import (
+from app.finance.schemas.agent import FinanceMode, FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.planner import CAPABILITY_OWNER
+from app.finance.service.agent_replies import _CONTROLLER_MODES
+from app.finance.service.harness import (
     _ARGUMENT_SCHEMAS,
     _TOOL_DESCRIPTIONS,
-    CAPABILITY_OWNER,
     PRE_PURCHASE_TOOLS,
     SALES_REQUIRED_CAPABILITIES,
     SALES_VALIDATION_TOOLS,
@@ -30,8 +32,6 @@ from app.finance.application.harness import (
     dependencies_of,
     required_capabilities,
 )
-from app.finance.db import FinanceDataNotReady
-from app.finance.schemas import FinanceMode, FinancePolicy
 
 # ---------------------------------------------------------------------------
 # 판매 Capability 를 직접 부를 때 쓰는 최소 도구
@@ -243,7 +243,7 @@ def test_sales_tool_description_states_the_payload_is_the_source():
 
 
 def test_harness_entrypoint_discards_planner_arguments():
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     state = SimpleNamespace(request=SimpleNamespace(payload={"scenario_id": "SC-1"}))
 
@@ -266,7 +266,7 @@ def test_missing_sales_policies_are_reported_not_invented():
       소유한 별개의 사실이고 권위 있는 저장 위치가 아직 없다 — 채권 잔액으로
       한도를 역산하는 순간 없는 값이 판정에 들어간다.
     """
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     result = run_sales_validation(_receivable_port(), {}, _sales_state())
 
@@ -290,7 +290,7 @@ def test_an_empty_ledger_is_a_fact_not_a_missing_fact():
 
     신규 거래처를 "자료 미비" 로 다루면 영영 아무 판정도 받지 못한다.
     """
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     result = run_sales_validation(_receivable_port(), {}, _sales_state())
 
@@ -300,7 +300,7 @@ def test_an_empty_ledger_is_a_fact_not_a_missing_fact():
 
 def test_a_failed_lookup_is_not_an_empty_ledger():
     """🔴 못 읽은 것은 0원이 아니다 — 실행 자체가 서야 한다."""
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     class _BrokenPort:
         def load_partner_receivables(self, as_of, partner_id):
@@ -352,7 +352,8 @@ def test_finance_port_dispatches_sales_explicitly_not_by_falling_through():
     assert '"SALES_VALIDATION"' in source
     assert "_controller_sales_validation(request)" in source
     # 모르는 mode 는 여전히 닫힌다.
-    assert "_not_implemented(request)" in source
+    #  2026-09-29 재구성 BL-014: 미구현 응답은 `service/agent_replies.py` 의 이름이다.
+    assert "not_implemented_reply(request)" in source
 
 
 def test_sales_controller_does_not_reuse_the_purchase_scenario_path():
@@ -372,7 +373,8 @@ def test_sales_controller_does_not_reuse_the_purchase_scenario_path():
     assert "_purchase_proposal" not in called
     assert "PurchaseProposal" not in called
     # 경계 확인과 Controller 실행만 한다.
-    assert {"_controller_boundary", "_controller_run"} <= called
+    #  2026-09-29 재구성 BL-014: 경계 · 실행은 `service/agent_run.py` 의 이름이다.
+    assert {"controller_boundary", "run_controller"} <= called
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +393,7 @@ def test_sales_controller_does_not_reuse_the_purchase_scenario_path():
 
 def test_minimum_cash_policy_loads_without_a_collection_reference_date():
     """🔴 이 결함의 자리 — 날짜가 없어도 정책은 읽힌다."""
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     result = run_sales_validation(_receivable_port(), {}, _sales_state())
 
@@ -400,7 +402,7 @@ def test_minimum_cash_policy_loads_without_a_collection_reference_date():
 
 def test_only_the_scenario_projection_is_missing_without_a_date():
     """★ 없는 것은 투영 하나다 — 날짜를 지어내 투영을 만들지 않는다."""
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     result = run_sales_validation(_receivable_port(), {}, _sales_state())
 
@@ -410,7 +412,7 @@ def test_only_the_scenario_projection_is_missing_without_a_date():
 
 def test_the_cashflow_rule_names_only_what_is_actually_missing():
     """두 이름이 함께 실리면 **고칠 사람이 둘로 갈린다** — 정책 담당과 영업."""
-    from app.finance.capabilities.sales import run_sales_validation
+    from app.finance.service.capabilities.sales import run_sales_validation
 
     result = run_sales_validation(_receivable_port(), {}, _sales_state())
     cashflow = next(
@@ -429,7 +431,7 @@ def test_reading_the_policy_does_not_require_the_payroll_source():
     """
     import inspect
 
-    from app.finance.capabilities import sales as sales_capability
+    from app.finance.service.capabilities import sales as sales_capability
 
     source = inspect.getsource(sales_capability._load_sales_cashflow_context)
     before_projection = source.split("load_context(")[0]

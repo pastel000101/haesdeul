@@ -42,15 +42,16 @@ from pathlib import Path
 
 import pytest
 
-from app.master import scheduler
-from app.master.run_repository import (
+from app.master.domain import request_ids
+from app.master.domain.request_ids import (
     DAILY_REQUEST_HEAD,
     LEDGER_GAP_REQUEST_LIKE,
     build_request_id,
+    daily_request_id,
+    daily_sales_request_id,
     is_ledger_gap_request_id,
     ledger_gap_request_id,
 )
-from app.master.scheduler import daily_request_id, daily_sales_request_id
 
 _APP = Path(__file__).resolve().parents[2] / "app"
 
@@ -200,7 +201,7 @@ def test_축을_안_넘기면_부를_수가_없다(짓기, 인자) -> None:
 @pytest.mark.parametrize("짓기", 키함수)
 def test_축이_키워드_전용이고_기본값이_없다(짓기: str) -> None:
     """🔴 **서명 자체를 잠근다.** 위치 인자로 받으면 순서가 바뀌는 날 조용히 밀린다."""
-    파라 = inspect.signature(getattr(scheduler, 짓기)).parameters
+    파라 = inspect.signature(getattr(request_ids, 짓기)).parameters
 
     assert "sim_run_id" in 파라, f"{짓기} 가 축을 아예 안 받는다"
     축 = 파라["sim_run_id"]

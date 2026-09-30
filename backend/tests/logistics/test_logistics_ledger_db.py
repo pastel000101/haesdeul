@@ -8,7 +8,7 @@
 
 ```text
 ① 임시 스키마를 만들고 그 안에 저장소 DDL 로 표를 세운다
-② ledger.get_db_schema 를 그 임시 스키마로 돌려 놓는다
+② repository/ledger 의 get_db_schema 를 그 임시 스키마로 돌려 놓는다
 ③ 검사한다
 ④ ROLLBACK — 임시 스키마도 시험 데이터도 남지 않는다
 ```
@@ -31,15 +31,17 @@ from typing import Any
 import psycopg
 import pytest
 
-from app.logistics import ledger
-from app.logistics.db import get_connection
-from app.logistics.ledger import (
+from app.core import db as core_db
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import locks
+from app.logistics.schemas.ledger import (
     MoveIdConflict,
     MoveLine,
     OriginalQuantityExceeded,
     RemainingQuantityInsufficient,
-    record_inventory_move,
 )
+from app.logistics.service import ledger as ledger_service
+from app.logistics.service.ledger import record_inventory_move
 
 pytestmark = pytest.mark.db
 
@@ -81,27 +83,28 @@ def _repo_block(table: str) -> str:
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     """임시 스키마에 원장 표를 세우고, 끝나면 **되돌린다**."""
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
 
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s)", (PURCHASE_ITEM_ID,))
-        monkeypatch.setattr(ledger, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
-        connection.rollback()
-        connection.close()
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES (%s)", (PURCHASE_ITEM_ID,)
+                )
+            monkeypatch.setattr(ledger_repository, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
+            connection.rollback()
 
 
 def _lot(
@@ -256,7 +259,8 @@ def test_계산이_뚫려도_DB_CHECK_가_막고_부분결과가_안_남는다(
       SAVEPOINT 로 감싸 호출자가 되돌리면 **부분 결과가 남지 않아야 한다.**
     """
     _lot(conn, original="100", remaining="40")
-    monkeypatch.setattr(ledger, "_next_remaining", lambda **_: 다음잔량)
+    # ★ 2026-09-30 재구성 BL-015: 계산은 domain 으로 갔고, 부르는 자리(service)에서 바꾼다.
+    monkeypatch.setattr(ledger_service, "next_remaining_qty", lambda **_: 다음잔량)
 
     with pytest.raises(psycopg.errors.CheckViolation), conn.transaction():
         _기록(conn, quantity_kg=Decimal(10))
@@ -503,7 +507,7 @@ def test_기존_Move_가_다른_존재하는_Lot_을_가리켜도_Conflict_다(c
 def _try_ledger_lock(cursor: Any) -> bool:
     cursor.execute(
         "SELECT pg_try_advisory_xact_lock(%s, %s)",
-        (ledger._LEDGER_LOCK_CLASSID, ledger._LEDGER_LOCK_OBJID),
+        (locks.LEDGER_LOCK_CLASSID, locks.LEDGER_LOCK_OBJID),
     )
     row = cursor.fetchone()
     assert row is not None
@@ -546,14 +550,13 @@ def test_기록_중에는_다른_세션이_원장_잠금을_못_잡는다(conn: 
     _lot(conn, original="100", remaining="60")
     _기록(conn, quantity_kg=Decimal(20))  # 잠금을 쥔 채 커밋하지 않는다
 
-    other = get_connection()
-    other.autocommit = False
-    try:
-        with other.cursor() as cur:
-            잡혔나 = _try_ledger_lock(cur)
-    finally:
-        other.rollback()
-        other.close()
+    with core_db.connection() as other:
+        other.autocommit = False
+        try:
+            with other.cursor() as cur:
+                잡혔나 = _try_ledger_lock(cur)
+        finally:
+            other.rollback()
 
     assert 잡혔나 is False, "원장 쓰기는 한 줄로 선다"
 
@@ -566,15 +569,14 @@ def test_다른_move_id_도_같은_원장_잠금을_기다린다(conn: psycopg.C
     _lot(conn, original="100", remaining="60")
     _기록(conn, move_id="MOVE-1", quantity_kg=Decimal(20))
 
-    other = get_connection()
-    other.autocommit = False
-    try:
-        with other.cursor() as cur:
-            # 다른 move_id 를 쓰려는 트랜잭션도 같은 잠금 앞에서 선다.
-            잡혔나 = _try_ledger_lock(cur)
-    finally:
-        other.rollback()
-        other.close()
+    with core_db.connection() as other:
+        other.autocommit = False
+        try:
+            with other.cursor() as cur:
+                # 다른 move_id 를 쓰려는 트랜잭션도 같은 잠금 앞에서 선다.
+                잡혔나 = _try_ledger_lock(cur)
+        finally:
+            other.rollback()
 
     assert 잡혔나 is False, "move_id 가 달라도 통과시키지 않는다 — 그것이 교착의 뿌리였다"
 
@@ -588,20 +590,19 @@ def test_잠금은_트랜잭션이_끝나면_저절로_풀린다(conn: psycopg.C
     _lot(conn, original="100", remaining="60")
     _기록(conn, quantity_kg=Decimal(20))
 
-    other = get_connection()
-    other.autocommit = False
-    try:
-        with other.cursor() as cur:
-            잠긴동안 = _try_ledger_lock(cur)
-        other.rollback()  # 관측용 트랜잭션을 닫아 이쪽 잠금도 남기지 않는다
+    with core_db.connection() as other:
+        other.autocommit = False
+        try:
+            with other.cursor() as cur:
+                잠긴동안 = _try_ledger_lock(cur)
+            other.rollback()  # 관측용 트랜잭션을 닫아 이쪽 잠금도 남기지 않는다
 
-        conn.rollback()  # ← 원장 트랜잭션 종료. 여기서 advisory lock 이 풀려야 한다
+            conn.rollback()  # ← 원장 트랜잭션 종료. 여기서 advisory lock 이 풀려야 한다
 
-        with other.cursor() as cur:
-            풀린뒤 = _try_ledger_lock(cur)
-    finally:
-        other.rollback()
-        other.close()
+            with other.cursor() as cur:
+                풀린뒤 = _try_ledger_lock(cur)
+        finally:
+            other.rollback()
 
     assert 잠긴동안 is False
     assert 풀린뒤 is True, "트랜잭션이 끝났는데 잠금이 남아 있으면 커넥션에 눌어붙는다"

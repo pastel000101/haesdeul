@@ -11,18 +11,10 @@ from datetime import date
 
 import pytest
 
-from app.master import (
-    AgentNotRegistered,
-    AgentRegistry,
-    AgentReply,
-    AgentRequest,
-    BudgetExhausted,
-    CallBudget,
-    ExecutionContext,
-    ExecutionMetadata,
-    MasterError,
-    MasterRunner,
-)
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.registry.ports import AgentNotRegistered, AgentRegistry, MasterError
+from app.master.service.budget import BudgetExhausted, CallBudget
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2026, 8, 26)
 

@@ -1,4 +1,9 @@
-"""Sales 후보 해석을 Gemini 구조화 출력으로 연결한다."""
+"""Sales 후보 해석을 Gemini 구조화 출력으로 연결한다.
+
+★ 요청 만들기 · 보내기 · 응답 읽기 · 스키마 낮추기는 `app.core.llm` 이 한다 (2026-09-30 재구성
+  BL-020). 여기 남은 것은 판매의 몫이다 — 지시문 · 입출력 계약 · 검증 · `SALES_` 설정과 오류
+  문장 · 한 번만 묻고 실패하면 템플릿으로 가는 규칙(재시도 없음).
+"""
 
 from __future__ import annotations
 
@@ -6,26 +11,27 @@ import json
 import os
 import re
 import urllib.error
-import urllib.request
-from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
-from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.sales.schemas import SalesCandidate, SalesRecommendation
+from app.core.llm.providers import (
+    first_text,
+    gemini_json_request,
+    gemini_parts,
+    gemini_request,
+    gemini_safe_schema,
+    send_json,
+)
+from app.core.llm.runtime import ENV_FILES, gemini_api_key, load_env_files, read_optional_bool
+from app.sales.schemas.proposal import SalesCandidate, SalesRecommendation
+from app.sales.schemas.strategy import StrategyProfile
 
 _NUMBER = re.compile(r"\d")
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _SYSTEM_PROMPT = """Sales 후보 중 하나만 추천하세요. 후보 ID 외 숫자·금액·수량·날짜를 쓰지 말고,
 새 후보나 조건을 만들지 마세요. 모든 문장은 자연스러운 한국어로 작성하세요."""
-_ENV_FILES = (
-    Path(__file__).resolve().parents[3] / ".env",
-    Path(__file__).resolve().parents[4] / ".env",
-)
 
 
 _PLANNER_SYSTEM_PROMPT = """당신은 판매 전략 자세만 정합니다.
@@ -47,7 +53,7 @@ class StrategyPlanningInput(BaseModel):
       출력   닫힌 어휘의 자세뿐 — 숫자가 섞이면 계획을 통째로 버린다
       ```
 
-      모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `proposal.py` 의
+      모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `domain/proposal.py` 의
       결정론 계산이 **자세만 읽고** 만들고, 모델 출력에는 숫자를 담을 칸이 없다.
 
     🔴 **판정 라벨을 주지 않는다.** `finance_verdict` 같은 값은 여기 없다 — 후보가
@@ -251,8 +257,6 @@ def _validated_profiles(output: LlmStrategyPlanOutput, template: list[Any]) -> l
     🔴 **사유에 숫자가 있으면 버린다.** 자세는 라벨이고, 라벨에 숫자가 섞이는 순간
       모델이 값을 말하기 시작한 것이다.
     """
-    from app.sales.strategy import StrategyProfile
-
     names = [item.strategy for item in output.strategies]
     if sorted(names) != ["AGGRESSIVE", "BALANCED", "CONSERVATIVE"]:
         raise ValueError("strategy set is not A/B/C exactly once")
@@ -295,11 +299,16 @@ class LLMSettings:
 
 
 def load_settings() -> LLMSettings:
-    """Sales 전용 설정을 우선하고 전역 Ollama 설정이 모델로 섞이지 않게 한다."""
+    """Sales 전용 설정을 우선하고 전역 Ollama 설정이 모델로 섞이지 않게 한다.
+
+    ⚠️ 켜짐 기본값은 **꺼짐**이다(`SALES_LLM_ENABLED` → `LLM_ENABLED` → 끔 · 빈 값은 끔) —
+      다른 부서(기본 켬)와 다르다. provider 는 `SALES_LLM_PROVIDER` 만 보고(기본 gemini), timeout 은
+      공용 `LLM_TIMEOUT_SECONDS` 만 본다(잘못된 값이면 예외). 옮기기 전 그대로다.
+    """
     _load_environment()
-    enabled = _read_bool("SALES_LLM_ENABLED")
+    enabled = read_optional_bool("SALES_LLM_ENABLED")
     if enabled is None:
-        enabled = _read_bool("LLM_ENABLED")
+        enabled = read_optional_bool("LLM_ENABLED")
     provider = (os.getenv("SALES_LLM_PROVIDER") or "gemini").strip().lower()
     explicit_model = os.getenv("SALES_LLM_MODEL")
     common_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
@@ -365,101 +374,33 @@ def _gemini_structured(
 
     ★ 전선을 두 벌로 두면 타임아웃·키·스키마 낮추기가 두 곳에서 갈린다 — 한쪽만
       고치는 날이 오고, 그날 한쪽 호출만 조용히 다른 규칙으로 돈다.
+    ★ 전송 예외(`HTTPError` · `URLError` · 깨진 JSON)를 감싸지 않는다 — 실패 라벨
+      (`_failure_label`)이 종류로 가른다. 주소는 기본 주소 하나다(환경변수로 바꾸지 않는다).
+    ★ 스키마는 `gemini_safe_schema` 로 낮춘다 — 중첩 모델의 `$defs` · `$ref` 를 펴 넣는다.
     """
     if settings.provider != "gemini":
         raise RuntimeError("unsupported Sales LLM provider")
-    api_key = os.getenv("SALES_GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = gemini_api_key("SALES_")
     if not api_key:
         raise RuntimeError("Sales Gemini API key is not set")
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_json}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseSchema": _gemini_safe_schema(schema_model.model_json_schema()),
-        },
-    }
-    request = urllib.request.Request(
-        f"{_GEMINI_BASE_URL}/models/{settings.model}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
+    payload = gemini_json_request(
+        system_prompt, user_json, gemini_safe_schema(schema_model.model_json_schema())
     )
-    with urllib.request.urlopen(request, timeout=settings.timeout_seconds) as response:
-        document = json.loads(response.read().decode("utf-8"))
+    request = gemini_request(settings.model, payload, api_key=api_key)
+    document = send_json(request, timeout=settings.timeout_seconds)
     return schema_model.model_validate_json(_gemini_response_text(document))
 
 
 def _gemini_response_text(document: dict[str, Any]) -> str:
-    candidates = document.get("candidates") or []
-    parts = ((candidates[0] if candidates else {}).get("content") or {}).get("parts") or []
-    for part in parts:
-        text = part.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-    raise ValueError("empty Gemini response")
+    """공백이 아닌 첫 글자 조각을 앞뒤 공백을 떼어 돌려준다. 없으면 `ValueError`.
 
-
-def _gemini_safe_schema(node: Any, defs: Mapping[str, Any] | None = None) -> Any:
-    """Pydantic Schema를 Gemini가 받는 표현으로만 낮추고 계약 의미는 유지한다.
-
-    🔴 **중첩 모델의 `$defs`·`$ref` 를 펴 넣는다** (2026-09-16 실측으로 고친 자리).
-
-      Pydantic 은 모델 안에 모델이 있으면 그 정의를 `$defs` 로 빼고 자리에는
-      `$ref` 만 남긴다. Gemini `responseSchema` 는 그 둘을 모르고 **요청 자체를
-      거부한다.**
-
-      ```text
-      HTTP 400  Unknown name "$defs" at 'generation_config.response_schema'
-                Unknown name "$ref"  at '...properties[0].value.items'
-      ```
-
-      ⚠️ **전략 Planner 가 그래서 한 번도 안 돌았다.** 해석 호출
-        (`LlmInterpretationOutput`)은 중첩이 없어 평면 스키마라 통과했고, 중첩이 있는
-        `LlmStrategyPlanOutput` 만 매번 400 을 받아 `FALLBACK` 으로 떨어졌다 —
-        상태 칸은 정직하게 `FALLBACK` 을 말하고 있었지만 **원인이 호출 밖이 아니라
-        우리 스키마였다.**
-
-    ★ **`$defs` 는 결과에서 지운다.** 펴 넣은 뒤에도 남겨 두면 Gemini 가 그 키를
-      모른다고 다시 거부한다.
-
-    ⚠️ **자기 자신을 참조하는 모델은 못 편다.** 지금 두 계약에는 없고, 생기면 여기서
-      무한히 돈다 — 그런 모델을 만들지 않는 것이 계약이다.
+    ⚠️ 사고(`thought`) 조각을 따로 건너뛰지 않는다 — 마스터 · Critic · 재무와 다르다
+      (2026-09-30 BL-020 확인 — 바꾸지 않았다).
     """
-    if defs is None and isinstance(node, dict):
-        defs = node.get("$defs") or {}
-    if not isinstance(node, dict):
-        return node
-    ref = node.get("$ref")
-    if isinstance(ref, str):
-        # ★ `#/$defs/Name` 의 마지막 조각이 정의 이름이다. 못 찾으면 펴지 않고
-        #   그대로 두는 대신 **비운다** — 없는 정의를 지어내면 계약이 달라진다.
-        target = (defs or {}).get(ref.rsplit("/", 1)[-1])
-        if not isinstance(target, Mapping):
-            raise TypeError(f"cannot resolve schema reference: {ref}")
-        # `$ref` 옆에 붙은 칸(description 등)은 정의를 덮어쓴다 — JSON Schema 관례다.
-        merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
-        return _gemini_safe_schema(merged, defs)
-    excluded = {"const", "anyOf", "additionalProperties", "$defs"}
-    safe = {key: value for key, value in node.items() if key not in excluded}
-    if "const" in node:
-        safe.update({"type": "string", "enum": [node["const"]]})
-    if "anyOf" in node:
-        branches = [b for b in node["anyOf"] if isinstance(b, dict) and b.get("type") != "null"]
-        if len(branches) != len(node["anyOf"]):
-            safe["nullable"] = True
-        if len(branches) == 1:
-            safe.update(_gemini_safe_schema(branches[0], defs))
-        elif branches:
-            safe["anyOf"] = [_gemini_safe_schema(branch, defs) for branch in branches]
-    if "properties" in node:
-        safe["properties"] = {
-            name: _gemini_safe_schema(child, defs) for name, child in node["properties"].items()
-        }
-    if "items" in node:
-        safe["items"] = _gemini_safe_schema(node["items"], defs)
-    return safe
+    text = first_text(gemini_parts(document))
+    if text is None:
+        raise ValueError("empty Gemini response")
+    return text.strip()
 
 
 def _validated(candidates, output, settings, fixed_recommendation=None) -> SalesRecommendation:
@@ -519,10 +460,4 @@ def _fallback(
 
 
 def _load_environment() -> None:
-    for env_file in _ENV_FILES:
-        load_dotenv(env_file, override=False)
-
-
-def _read_bool(name: str) -> bool | None:
-    value = os.getenv(name)
-    return None if value is None else value.strip().lower() in {"1", "true", "yes", "on"}
+    load_env_files(ENV_FILES, override=False)

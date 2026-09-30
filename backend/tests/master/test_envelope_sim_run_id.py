@@ -31,8 +31,8 @@ import ast
 from pathlib import Path
 
 import app.master
-from app.master.envelope import ExecutionContext
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.contracts.envelope import ExecutionContext
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 
 _MASTER_DIR = Path(app.master.__file__).parent
 
@@ -63,7 +63,9 @@ def test_마스터가_봉투를_만드는_자리를_실제로_찾는다() -> Non
     assert calls, (
         "app/master/ 안에서 ExecutionContext 생성 지점을 하나도 못 찾았다 — 스캐너가 고장 났다"
     )
-    assert {"service.py", "ask_service.py"} <= files, (
+    # ★ 2026-09-30 재구성 BL-018: 판단 경로가 매입 · 판매 두 파일로, 조회 경로가 `service/ask.py` 로
+    #   갔다.
+    assert {"procurement.py", "sales.py", "ask.py"} <= files, (
         f"판단·조회 두 경로가 다 잡혀야 한다. 잡힌 파일: {sorted(files)}"
     )
 

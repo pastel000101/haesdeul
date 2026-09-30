@@ -14,22 +14,12 @@ from pydantic import ValidationError
 
 from app.purchase_agent import ports
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import NODES, build_graph, route_after_classify, run_purchase_agent
-from app.purchase_agent.nodes._guards import require_positive
-from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-from app.purchase_agent.nodes.classify_situation import classify_situation, compute_ci_width
-from app.purchase_agent.nodes.draft_plan import (
-    draft_plan,
-    fixed_market_quotes,
-    reference_unit_price,
-)
-from app.purchase_agent.nodes.package_scenarios import (
-    assign_axes,
-    compute_margin,
-    materialize_sourcing,
-    package_scenarios,
-)
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.allocation import assign_axes
+from app.purchase_agent.domain.classify_situation import compute_ci_width
+from app.purchase_agent.domain.draft_plan import fixed_market_quotes, reference_unit_price
+from app.purchase_agent.domain.guards import require_positive
+from app.purchase_agent.domain.package_scenarios import compute_margin, materialize_sourcing
+from app.purchase_agent.domain.self_check import (
     check_axis_allowed,
     check_axis_diversity,
     check_cash_ceiling,
@@ -38,11 +28,21 @@ from app.purchase_agent.nodes.self_check import (
     check_quadruple_match,
     check_split_dates,
     check_warehouse_capacity,
-    self_check,
 )
-from app.purchase_agent.nodes.split_plan import split_plan
-from app.purchase_agent.schemas import PurchaseProposal, revalidate_for_output
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.schemas.proposal import PurchaseProposal, revalidate_for_output
+from app.purchase_agent.service.graph import (
+    NODES,
+    build_graph,
+    build_initial_state,
+    route_after_classify,
+    run_purchase_agent,
+)
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 RISING = date(2026, 8, 21)
 FALLING = date(2026, 8, 28)
@@ -659,7 +659,7 @@ def test_compute_margin_flags_excess_without_cutting() -> None:
 
 def test_missing_inventory_is_not_reported_as_zero_stock() -> None:
     """``lots=None``(미수신)과 ``lots=[]``(없음이 확정)은 다른 근거·등급으로 나간다."""
-    from app.purchase_agent.nodes.package_scenarios import _inventory_claim
+    from app.purchase_agent.domain.package_scenarios import _inventory_claim
 
     missing_claim, _, missing_grade = _inventory_claim(None)
     empty_claim, _, empty_grade = _inventory_claim([])

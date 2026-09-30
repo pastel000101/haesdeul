@@ -21,17 +21,19 @@ from datetime import date
 
 import pytest
 
-from app.master import persistence, run_repository
-from app.master.plan import ExecutionPlan
-from app.master.schemas import ProcurementRunRequest, ProcurementRunResponse
-from app.master.status_flow import StatusOutcome
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
+from app.master.repository import runs
+from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse
+from app.master.service import persistence as service_persistence
+from app.master.service import run_history
 
 # ── ① 표 이름 ───────────────────────────────────────────────────────────────
 
 
 def test_마스터_소유_표를_쓴다():
     """★ 표 이름은 SQL 문자열이라 타입이 안 막는다. 값으로 고정한다."""
-    assert run_repository._TABLE == "master_agent_runs"
+    assert runs._TABLE == "master_agent_runs"
 
 
 def _value_strings(module) -> list[str]:
@@ -71,7 +73,7 @@ def test_옛_공용_표로_되돌아가지_않는다():
     흐려진다. 옛 표는 Critic 이 계속 쓰므로 **살아 있어서** 되돌려도 에러가 안 난다 —
     그래서 이름으로 잠근다.
     """
-    offenders = [s for s in _value_strings(run_repository) if "orchestrator_agent_runs" in s]
+    offenders = [s for s in _value_strings(runs) if "orchestrator_agent_runs" in s]
     assert not offenders, f"옛 표 이름을 값으로 쓴다: {offenders}"
 
 
@@ -81,7 +83,7 @@ def test_agent_축이_없다():
     ★ 상수를 컬럼으로 두면 "언젠가 다른 값이 들어올 수 있다" 로 읽힌다.
       옛 저장소에는 `agent` 인자가 필수였다 — 그것이 안 남아 있어야 한다.
     """
-    params = inspect.signature(run_repository.save_run).parameters
+    params = inspect.signature(run_history.save_run).parameters
     assert "agent" not in params
     assert "item" in params
     assert "end_code" in params
@@ -96,7 +98,7 @@ def test_pytest_안에서는_적재하지_않는다():
 
     새 모듈로 옮기면서 이 가드를 빠뜨리면 **아무도 모르는 채로** 다시 쌓인다.
     """
-    assert run_repository.history_enabled() is False
+    assert run_history.history_enabled() is False
 
 
 def test_적재가_실제로_건너뛴다(monkeypatch):
@@ -108,8 +110,8 @@ def test_적재가_실제로_건너뛴다(monkeypatch):
         called = True
         raise AssertionError("pytest 안에서 save_run 이 불렸다")
 
-    monkeypatch.setattr(run_repository, "save_run", _boom)
-    assert run_repository.try_save_run(cycle="PROCUREMENT") is None
+    monkeypatch.setattr(run_history, "save_run", _boom)
+    assert run_history.try_save_run(cycle="PROCUREMENT") is None
     assert called is False
 
 
@@ -147,8 +149,8 @@ def test_품목과_종료코드가_컬럼으로_넘어간다(monkeypatch):
     def _capture(**kwargs):
         captured.update(kwargs)
 
-    monkeypatch.setattr(persistence, "try_save_run", _capture)
-    persistence.record(_request(), _response())
+    monkeypatch.setattr(service_persistence, "try_save_run", _capture)
+    service_persistence.record(_request(), _response())
 
     assert captured["item"] == "배추"
     assert captured["end_code"] == "E1_APPROVED"
@@ -158,8 +160,8 @@ def test_품목과_종료코드가_컬럼으로_넘어간다(monkeypatch):
 def test_품목이_없으면_없는_대로_넘긴다(monkeypatch):
     """★ 없는 것을 지어내지 않는다. 품목 없이 도는 실행이 있고 그것도 이력이다."""
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
-    persistence.record(_request(item=None), _response())
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
+    service_persistence.record(_request(item=None), _response())
 
     assert captured["item"] is None
 
@@ -179,8 +181,8 @@ def test_종료코드는_그대로_런타임상태는_접힌다(monkeypatch, end
     섰는가다. 컬럼이 둘 다 생겼으니 섞이지 않는 것을 잠근다.
     """
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
-    persistence.record(_request(), _response(end_code))
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
+    service_persistence.record(_request(), _response(end_code))
 
     assert captured["end_code"] == end_code
     assert captured["runtime_status"] == expected
@@ -225,8 +227,8 @@ def test_조회도_이력에_남는다(monkeypatch):
     조회만 계속 돌린 날과 아무것도 안 한 날이 이력에서 같아 보이면 안 된다.
     """
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
-    persistence.record_status(
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
+    service_persistence.record_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
         policy_version="v1.3",
@@ -245,8 +247,8 @@ def test_조회는_품목_축이_아니다(monkeypatch):
     품목 칸을 억지로 채우면 "이 조회는 배추에 대한 것" 이라는 없는 사실이 생긴다.
     """
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
-    persistence.record_status(
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
+    service_persistence.record_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
         policy_version="v1.3",
@@ -264,13 +266,13 @@ def test_아무도_못_답하면_미가동이다(monkeypatch):
     매입에서 `E4` 만 `RUNTIME_NOT_READY` 인 것과 같은 구분이다.
     """
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
     for code, expected in (
         ("S1_ANSWERED", "READY"),
         ("S2_PARTIAL", "READY"),
         ("S3_UNAVAILABLE", "RUNTIME_NOT_READY"),
     ):
-        persistence.record_status(
+        service_persistence.record_status(
             request_id="REQ-20251231-0001",
             as_of=date(2025, 12, 31),
             policy_version="v1.3",
@@ -298,9 +300,12 @@ def test_읽는_쪽이_사이클을_밝힌다():
     """
     import inspect as _inspect
 
-    from app.master import decision_service, service
+    # ★ 2026-09-30 재구성 BL-018: 업무 키로 실행을 찾는 자리는 readmodel 둘이다(이력 조회 · 현재
+    #   승인).
+    from app.master.readmodel import approvals as readmodel_approvals
+    from app.master.readmodel import history as readmodel_history
 
-    for module in (service, decision_service):
+    for module in (readmodel_history, readmodel_approvals):
         source = _inspect.getsource(module)
         for line in source.splitlines():
             stripped = line.strip()
@@ -320,14 +325,14 @@ def test_조회_경로가_적재를_부른다(monkeypatch):
     실제로 그 함수를 부르는지 알 수 없다. 변이 테스트에서 호출을 통째로 지웠는데
     한 건도 안 걸렸다 (2026-09-02). 그 구멍을 메운다.
     """
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask
 
     called: dict[str, object] = {}
-    monkeypatch.setattr(ask_service.persistence, "record_status", lambda **kw: called.update(kw))
-    monkeypatch.setattr(ask_service.wiring, "missing", lambda: ("finance", "inventory", "purchase"))
+    monkeypatch.setattr(service_persistence, "record_status", lambda **kw: called.update(kw))
+    monkeypatch.setattr(ask.wiring, "missing", lambda: ("finance", "inventory", "purchase"))
 
-    ask_service._run_status(
+    ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
         policy_version="v1.3",
@@ -346,15 +351,15 @@ def test_어댑터가_없어_못_물어본_날도_남는다(monkeypatch):
     미등록으로 접히는 경로에서 먼저 돌려주면 그 날이 이력에서 사라진다.
     "조회를 안 했다" 와 "조회했는데 아무도 없었다" 가 같아 보이면 안 된다.
     """
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask
 
     called: dict[str, object] = {}
-    monkeypatch.setattr(ask_service.persistence, "record_status", lambda **kw: called.update(kw))
-    monkeypatch.setattr(ask_service.wiring, "missing", lambda: ("inventory",))
-    monkeypatch.setattr(ask_service.wiring, "registry", dict)
+    monkeypatch.setattr(service_persistence, "record_status", lambda **kw: called.update(kw))
+    monkeypatch.setattr(ask.wiring, "missing", lambda: ("inventory",))
+    monkeypatch.setattr(ask.wiring, "registry", dict)
 
-    ask_service._run_status(
+    ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
         policy_version="v1.3",
@@ -377,15 +382,15 @@ def test_미등록이_없는_정상_경로도_적재한다(monkeypatch):
     **정상 경로가 오히려 대부분이다.** 거기서 이력이 안 남으면 조회는 영영
     안 보이는 호출이 된다.
     """
-    from app.master import ask_service
     from app.master.llm.schemas import Intent
+    from app.master.service import ask
 
     called: dict[str, object] = {}
-    monkeypatch.setattr(ask_service.persistence, "record_status", lambda **kw: called.update(kw))
-    monkeypatch.setattr(ask_service.wiring, "missing", tuple)
-    monkeypatch.setattr(ask_service.wiring, "registry", dict)
+    monkeypatch.setattr(service_persistence, "record_status", lambda **kw: called.update(kw))
+    monkeypatch.setattr(ask.wiring, "missing", tuple)
+    monkeypatch.setattr(ask.wiring, "registry", dict)
 
-    ask_service._run_status(
+    ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
         policy_version="v1.3",

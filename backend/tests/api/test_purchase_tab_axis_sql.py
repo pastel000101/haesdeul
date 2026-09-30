@@ -17,6 +17,11 @@
 
 🔴 **파이썬 축 필터(`_arrival_index`)는 그대로 남는다.** 주입 검사가 그것을 따로 잰다
 (`test_purchase_tab_sim_run.py::test_도착일도_같은_축에서만_맞춘다`).
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -27,7 +32,9 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
+from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 AXIS = "SIM-AXIS-SQL-TEST"
@@ -87,18 +94,17 @@ class _Recorder:
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     """`_read` 가 함수 **안에서** import 하므로 모듈 속성을 갈아 끼우면 잡힌다."""
-    import app.finance.db as finance_db
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     rec = _Recorder()
-    monkeypatch.setattr(finance_db, "fetch_all", rec)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=rec)
     return rec
 
 
 def test_축을_주면_도착일_조회가_그_축과_그_축의_날짜로_나간다(recorder: _Recorder) -> None:
     """🔴 규칙 8 — 상수와 대 보지 않는다. **축을 바꿔** 조회가 따라 움직이는지 본다."""
-    purchase_query._read(AS_OF, sim_run_id=AXIS)
-    purchase_query._read(AS_OF, sim_run_id=OTHER)
+    read_purchase_tab(AS_OF, sim_run_id=AXIS)
+    read_purchase_tab(AS_OF, sim_run_id=OTHER)
 
     (text_a, params_a), (text_o, params_o) = recorder.arrivals
     for text in (text_a, text_o):
@@ -111,7 +117,7 @@ def test_축을_주면_도착일_조회가_그_축과_그_축의_날짜로_나�
 
 def test_축을_안_주면_도착일_조회에_축을_안_걸고_날짜도_전부다(recorder: _Recorder) -> None:
     """🔴 `None` 경로는 그대로다. `= %(sim)s` 에 `None` 을 넣으면 0행이 된다 — 다 버린다."""
-    purchase_query._read(AS_OF)
+    read_purchase_tab(AS_OF)
 
     ((text, params),) = recorder.arrivals
     assert "sim_run_id =" not in text
@@ -125,9 +131,9 @@ def test_다른_걷기의_날짜를_안_건_것은_안_읽었다가_아니다(re
     다른 걷기만 산 날을 안 걸었다고 `arrivals_complete=False` 가 되면, 창을 안 좁힌 매입 탭의
     「확정 입고 예정」이 «안 읽었다» 로 떨어진다 (규칙 3 의 반대 방향 사고).
     """
-    whole = purchase_query._read(AS_OF, sim_run_id=AXIS)
+    whole = read_purchase_tab(AS_OF, sim_run_id=AXIS)
     #  ★ 대조군 — 그 축의 날을 실제로 뺀 창이면 여전히 «안 읽었다» 다
-    narrowed = purchase_query._read(AS_OF, sim_run_id=AXIS, window_days=1)
+    narrowed = read_purchase_tab(AS_OF, sim_run_id=AXIS, window_days=1)
 
     assert whole["arrivals_complete"] is True
     assert narrowed["arrivals_complete"] is False
@@ -162,10 +168,10 @@ def test_build_가_축을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -
         받은_축.append(kwargs.get("sim_run_id", "안 받음"))
         return _data()
 
-    monkeypatch.setattr(purchase_query, "_read", _spy)
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _spy)
 
     for 축 in (None, AXIS, OTHER):
-        purchase_query.build(AS_OF, 축)
+        purchase_presenter.build(AS_OF, 축)
 
     #  ★ 상수와 대 보는 것이 아니라 **넣은 순서 그대로 나오는지**를 본다 (규칙 8).
     assert 받은_축 == [None, AXIS, OTHER]
@@ -177,9 +183,9 @@ def test_build_가_축을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -
 
 def test_새_인자를_받는_스텁이면_실제값으로_선다(monkeypatch: pytest.MonkeyPatch) -> None:
     """아래 함정 검사의 대조군 — 스텁만 바꿨을 때 결과가 갈리는 것을 보인다."""
-    monkeypatch.setattr(purchase_query, "_read", lambda as_of, **_kwargs: _data())
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: _data())
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is True
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is True
 
 
 def test_축_인자를_못_받는_옛_스텁은_예시값으로_떨어진다(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -192,6 +198,6 @@ def test_축_인자를_못_받는_옛_스텁은_예시값으로_떨어진다(mon
     def _옛_스텁(as_of: date, *, window_days: int | None = None) -> dict[str, Any]:
         return _data()
 
-    monkeypatch.setattr(purchase_query, "_read", _옛_스텁)
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _옛_스텁)
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is False
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is False

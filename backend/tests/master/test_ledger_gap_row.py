@@ -21,12 +21,15 @@ from datetime import date, datetime
 
 import pytest
 
-from app.master import persistence, scheduler
-from app.master.clock import SEOUL
-from app.master.commitment import ITEM_CODES
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.scheduler import daily_request_id, ledger_gap_request_id, run_scheduled_day
+from app.contracts.commitment import ITEM_CODES
+from app.core.clock import SEOUL
+from app.master.domain import scheduler as domain_scheduler
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.request_ids import daily_request_id, ledger_gap_request_id
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.service import persistence as service_persistence
+from app.master.service import scheduler as service_scheduler
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -108,8 +111,8 @@ _ALL_READY = DayForecastReadiness(
 )
 
 
-def _plan() -> scheduler.ScheduledAction:
-    return scheduler.plan_next_action(
+def _plan() -> domain_scheduler.ScheduledAction:
+    return domain_scheduler.plan_next_action(
         now=datetime(AS_OF.year, AS_OF.month, AS_OF.day, 9, 30, tzinfo=SEOUL),
         as_of=AS_OF,
         calendar=_Calendar(),
@@ -139,7 +142,7 @@ def _run(*, inbound="RECEIVED", receivable="ISSUED", collection="COLLECTED", **k
 def 적재(monkeypatch) -> _Record:
     """관문 적재를 대역으로 바꾼다. **진짜는 DB 를 찾아간다.**"""
     spy = _Record()
-    monkeypatch.setattr(persistence, "record_ledger_gap", spy)
+    monkeypatch.setattr(service_persistence, "record_ledger_gap", spy)
     return spy
 
 
@@ -204,7 +207,7 @@ def test_사유를_다시_짓지_않는다(적재):
     _run(inbound="BLOCKED", collection="FAILED")
 
     넘긴사유 = 적재.calls[0]["reason"]
-    assert 넘긴사유 == scheduler._ledger_gap_note("BLOCKED", "ISSUED", "FAILED")
+    assert 넘긴사유 == service_scheduler._ledger_gap_note("BLOCKED", "ISSUED", "FAILED")
 
 
 def test_넘긴_사유가_결과에_담긴_문장과_같다(적재):
@@ -260,11 +263,11 @@ def test_적재가_터져도_그날_결과가_그대로_나온다(monkeypatch):
     ★ **자기 생존.** 터지는 대역이 실제로 불렸다는 것을 같이 확인한다.
     """
     조용한대역 = _Record()
-    monkeypatch.setattr(persistence, "record_ledger_gap", 조용한대역)
+    monkeypatch.setattr(service_persistence, "record_ledger_gap", 조용한대역)
     성한결과, _ = _run(inbound="BLOCKED")
 
     터지는대역 = _Record(boom=RuntimeError("표가 죽었다"))
-    monkeypatch.setattr(persistence, "record_ledger_gap", 터지는대역)
+    monkeypatch.setattr(service_persistence, "record_ledger_gap", 터지는대역)
     터진결과, procure = _run(inbound="BLOCKED")
 
     assert len(터지는대역.calls) == 1, "터지는 대역이 안 불렸다 — 아무것도 안 쟀다"
@@ -281,9 +284,9 @@ def test_적재가_터져도_그날_결과가_그대로_나온다(monkeypatch):
 def 표(monkeypatch) -> dict[str, object]:
     """`try_save_run` 을 대역으로. **넘어간 칸을 그대로 본다.**"""
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "history_enabled", lambda: True)
-    monkeypatch.setattr(persistence, "list_runs", lambda **kw: [])
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
+    monkeypatch.setattr(service_persistence, "history_enabled", lambda: True)
+    monkeypatch.setattr(service_persistence, "list_runs", lambda **kw: [])
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
     return captured
 
 
@@ -301,7 +304,7 @@ def _적재(**kwargs) -> str | None:
         "collection_status": "COLLECTED",
     }
     보낼것.update(kwargs)
-    return persistence.record_ledger_gap(**보낼것)  # type: ignore[arg-type]
+    return service_persistence.record_ledger_gap(**보낼것)  # type: ignore[arg-type]
 
 
 def test_런타임_상태가_미가동이다(표):
@@ -359,7 +362,7 @@ def test_안을_지어내지_않는다(표):
     """🔴 **이것이 화면 안전의 조건이다.**
 
     매입 화면은 `response_payload.scenarios` 가 있는 행만 안으로 고른다
-    (`app/api/purchase/query.py` `_pick`). 지어낸 안을 한 줄이라도 실으면 그 순간
+    (`app/master/readmodel/purchase_tab.py::pick_runs`). 지어낸 안을 한 줄이라도 실으면 그 순간
     품목 미상 행이 안 목록에 뜬다.
     """
     _적재()
@@ -391,9 +394,9 @@ def test_같은_날_게이트_행이_이미_있으면_안_넣는다(monkeypatch)
     """
     적힌것: list[dict[str, object]] = []
     있는행: list[object] = []
-    monkeypatch.setattr(persistence, "history_enabled", lambda: True)
-    monkeypatch.setattr(persistence, "list_runs", lambda **kw: list(있는행))
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
+    monkeypatch.setattr(service_persistence, "history_enabled", lambda: True)
+    monkeypatch.setattr(service_persistence, "list_runs", lambda **kw: list(있는행))
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
 
     _적재()
     assert len(적힌것) == 1, "행이 없는데도 안 넣었다"
@@ -414,9 +417,9 @@ def test_중복_확인이_터져도_행을_남긴다(monkeypatch):
     def _터진다(**kwargs):
         raise RuntimeError("표를 못 읽었다")
 
-    monkeypatch.setattr(persistence, "history_enabled", lambda: True)
-    monkeypatch.setattr(persistence, "list_runs", _터진다)
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
+    monkeypatch.setattr(service_persistence, "history_enabled", lambda: True)
+    monkeypatch.setattr(service_persistence, "list_runs", _터진다)
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
 
     _적재()
 
@@ -441,9 +444,9 @@ def _판단_행의_축(monkeypatch) -> object:
     ★ 상수를 여기 다시 적으면 비교가 *"내가 적은 값과 같은가"* 가 되어 아무것도 안
       잰다. 개장 관문을 막아 부서를 한 번도 안 부르고 적재 인자만 받아낸다.
     """
-    from app.master.day_gate import DayGate
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.day_gate import DayGate
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     막힘 = DayGate(
         as_of=AS_OF,
@@ -453,7 +456,8 @@ def _판단_행의_축(monkeypatch) -> object:
         next_action="RETRY_OPEN_DAY",
     )
     받은것: dict[str, object] = {}
-    monkeypatch.setattr("app.master.service.check_day_gate", lambda as_of, **kw: 막힘)
+    monkeypatch.setattr("app.master.service.procurement.check_day_gate", lambda as_of, **kw: 막힘)
+    monkeypatch.setattr("app.master.service.sales.check_day_gate", lambda as_of, **kw: 막힘)
     monkeypatch.setattr(
         "app.master.service.persistence.record",
         lambda *a, **k: 받은것.update(k) or "RUN-1",
@@ -493,7 +497,7 @@ def test_실행_축을_새로_짓지_않는다(적재):
     스케줄러가 문자열을 다시 적거나 자기 상수를 만들면 실행이 둘이 되는 날 그 자리만
     안 바뀐다.
     """
-    from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+    from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 
     _run(collection="BLOCKED")
 
@@ -509,9 +513,9 @@ def test_이력을_끄면_읽지도_않는다(monkeypatch):
     읽음: list[object] = []
     적힌것: list[object] = []
     켜짐 = [False]
-    monkeypatch.setattr(persistence, "history_enabled", lambda: 켜짐[0])
-    monkeypatch.setattr(persistence, "list_runs", lambda **kw: 읽음.append(kw) or [])
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
+    monkeypatch.setattr(service_persistence, "history_enabled", lambda: 켜짐[0])
+    monkeypatch.setattr(service_persistence, "list_runs", lambda **kw: 읽음.append(kw) or [])
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: 적힌것.append(kw))
 
     assert _적재() is None
     assert 읽음 == [], "이력이 꺼졌는데 표를 읽으러 갔다"

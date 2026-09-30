@@ -22,13 +22,14 @@ from typing import Any, Self
 
 import pytest
 
-from app.logistics import purchase_detail
-from app.logistics.purchase_detail import (
+from app.logistics.repository import purchase_detail
+from app.logistics.repository.purchase_detail import fetch_purchase_detail
+from app.logistics.schemas import purchase_detail as purchase_detail_schemas
+from app.logistics.schemas.purchase_detail import (
     InvalidPurchaseIdentity,
     PurchaseDetail,
     PurchaseDetailAmbiguous,
     PurchaseDetailMissing,
-    fetch_purchase_detail,
 )
 
 PURCHASE_ID = "PUR-THRU-20260105-BAECHU-D1-S1"
@@ -160,7 +161,22 @@ def _코드만(source: str) -> str:
 
 
 def _원문() -> str:
-    return Path(purchase_detail.__file__).read_text(encoding="utf-8")
+    """종전 `purchase_detail.py` 한 파일 — 2026-09-30 재구성 BL-015 부터 repository(SQL · 행 읽기)
+    · schemas(타입) 두 파일이다."""
+    return chr(10).join(_원문들())
+
+
+def _원문들() -> list[str]:
+    return [
+        Path(module.__file__).read_text(encoding="utf-8")
+        for module in (purchase_detail, purchase_detail_schemas)
+    ]
+
+
+def _코드() -> str:
+    """두 파일 각각에서 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일의
+    모듈 docstring 이 docstring 으로 안 잡힌다)."""
+    return chr(10).join(_코드만(원문) for 원문 in _원문들())
 
 
 # ── 1~4. 적힌 사실을 그대로 나른다 ──────────────────────────────────────
@@ -230,7 +246,7 @@ def test_4c_매입_금액_규칙을_다시_계산하지_않는다():
 
     다시 하면 같은 사실의 주인이 둘이 되고, 매입이 식을 바꾸는 날 조용히 갈린다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("line_amount", "total_amount", "/ total", "ROUND_HALF_UP", "quantize"):
         assert 금지 not in 코드, f"{금지} — 매입 계산을 복제하고 있다"
@@ -287,7 +303,7 @@ def test_8_첫_행을_조용히_고르지_않는다():
     with pytest.raises(PurchaseDetailAmbiguous):
         fetch_purchase_detail(conn, purchase_id=PURCHASE_ID)
 
-    코드 = _코드만(_원문())
+    코드 = _코드()
     assert "rows[0]" in 코드, "1행일 때만 첫 원소를 쓴다 — 그 앞에 개수 검사가 있다"
     assert "fetchone" not in 코드
 
@@ -342,7 +358,7 @@ def test_12_13_items_표나_품목명으로_찾지_않는다():
     이름으로 독립 번역하면 두 칸이 다른 품목을 가리켜도 DB 가 통과시킨다.
     찾은 그 줄의 `item_id` 를 그대로 써야 두 FK 가 구조적으로 일치한다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "items" not in 코드.replace("purchase_items", ""), "items 표를 뒤지고 있다"
     assert "item_name" not in 코드
@@ -351,7 +367,7 @@ def test_12_13_items_표나_품목명으로_찾지_않는다():
 
 
 def test_13b_시세나_예측가를_쓰지_않는다():
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("market_quote", "market_price", "forecast", "average", "auction", "policy"):
         assert 금지 not in 코드.lower(), f"{금지} — 없는 값을 만들고 있다"
@@ -383,13 +399,16 @@ def test_14_15_다른_파트를_임포트하지_않는다():
         "decimal",
         "typing",
         "psycopg",
-        "app.logistics.db",
+        # ★ 2026-09-30 재구성 BL-015: 종전 `app.logistics.db` 자리(스키마 이름 · 행 읽기)와
+        #   같은 기능의 타입 파일이다.
+        "app.logistics.repository.rows",
+        "app.logistics.schemas.purchase_detail",
     }, 모듈
 
 
 def test_16_쓰기_문장이_없다():
     """🔴 이 단계는 **읽기 전용**이다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     for 금지 in ("INSERT", "UPDATE", "DELETE", "TRUNCATE", "CREATE", "ALTER"):
         assert 금지 not in 코드, f"{금지} 가 있다"
@@ -397,14 +416,14 @@ def test_16_쓰기_문장이_없다():
 
 def test_16b_잠금을_걸지_않는다():
     """★ 잠금은 나중의 Receipt 쓰기 트랜잭션이 소유한다."""
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "pg_advisory" not in 코드
     assert "FOR UPDATE" not in 코드
 
 
 def test_17_커밋도_롤백도_하지_않는다():
-    코드 = _코드만(_원문())
+    코드 = _코드()
     assert "commit" not in 코드
     assert "rollback" not in 코드
 
@@ -420,8 +439,11 @@ def test_18_자기_커넥션을_열지_않는다():
 
     ★ 그래서 `repository.fetch_all` 도 쓰지 않는다 — 그쪽이 자기 커넥션을 연다.
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "fetch_all" not in 코드
 
     conn = 가짜커넥션([_줄()])
@@ -491,7 +513,7 @@ def test_수량_대조를_이_단계에서_정하지_않았다():
        **두 값이 실제로 달라진다.** 지금 근거로는 "정확히 같다"를 계약으로 못 박을 수
        없어, 대조 규칙은 Receipt 단계로 넘긴다 (보고서에 적었다).
     """
-    코드 = _코드만(_원문())
+    코드 = _코드()
 
     assert "scheduled_quantity" not in 코드
     assert "validate_inbound_quantity" not in 코드

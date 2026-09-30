@@ -1,0 +1,130 @@
+"""ML 운영 콘솔 프록시 — 우리 ML 백엔드로 넘긴다.
+
+★ **왜 프록시인가.**
+
+  재학습·에이전트·설명은 **ML 저장소가 있는 곳에서만** 돌 수 있습니다.
+  학습 꾸러미(`ML/.../ml_train_kit_2/`), 모델 번들 208MB, 에이전트 기록 파일이
+  거기 있습니다. 이 저장소로 옮길 수 있는 것이 아닙니다.
+
+  그렇다고 화면이 브라우저에서 직접 그쪽을 부르면 출처가 달라져 CORS 를
+  만나고, 주소가 화면 코드에 박힙니다. 그래서 **서버가 대신 물어봅니다.**
+
+      브라우저 ──/ml/console/…──▶ 이 서버 ──▶ ML 백엔드(기본 8102)
+
+★ **안 되면 조용히 비우지 않고 말합니다.** ML 백엔드가 안 떠 있으면
+  502 와 함께 «무엇이 안 됐는지» 를 그대로 올립니다. 화면이 빈 채로
+  «자료가 없다» 로 보이면 안 됩니다.
+
+★ **넘길 경로를 목록으로 못박습니다.** 아무 경로나 넘기면 이 서버가
+  열린 문이 됩니다. 쓰기(POST)는 재학습 셋뿐입니다.
+
+설정: `backend/.env` 의 `ML_CONSOLE_ORIGIN` (없으면 `http://127.0.0.1:8102`)
+
+🟢 **이 파일은 HTTP 입구다** (2026-09-29 · 재구성 BL-017). 허용 경로 목록 · 404 · 저쪽 실패를
+  502 · 504 로 바꾸는 것만 여기 있고, ML 백엔드에 실제로 묻는 호출(주소 · 타임아웃 · 전달)은
+  `app/ml/ml_backend.py` 로 옮겼다. 라우트 자체는 2026-09-30 재구성 BL-019 에
+  `app/ml/console_proxy.py` 에서 이 자리로 옮겼다(허용 목록 · 문구 · URL 그대로).
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+
+from app.ml import ml_backend
+
+router = APIRouter(prefix="/ml/console", tags=["ml:console"])
+
+#: 넘길 수 있는 것. **여기 없는 경로는 404 다.**
+#: ★ 2026-09-11 — 화면이 안 부르는 경로는 **주석 처리**했습니다 (`# "…"`).
+#:   대부분 옛 3100 화면이 쓰던 것입니다. 되살리려면 `# ` 만 지우면 됩니다.
+READ = frozenset({
+    # "meta",
+    # "forecast",
+    # "forecast/base-dates",
+    # "accuracy",
+    # "accuracy/leadtime",
+    "quality",
+    #   ★ 아침에 저장된 점검 결과. 다시 안 돌리고 그대로 읽습니다.
+    "quality/saved",
+    # "quality-table",
+    # "delivery",
+    "batch/recent",
+    "agent/batch",
+    "agent/news",
+    "agent/history",
+    "agent/report",
+    "agent/explain",
+    "retrain/status",
+    #   ★ 사람이 눌러야 할 결정이 있나. 화면이 탭을 띄울지 정하는 데 씁니다.
+    "retrain/pending",
+    # "retrain/job",
+    "retrain/graph/status",
+    #   ★ 다시 돌리기가 어디까지 갔나. 누른 뒤 진행을 묻는 자리입니다.
+    "ops/job",
+})
+
+#: 쓰기. **재학습 셋뿐이다.** 사람이 눌러야 도는 것들이고,
+#: 화면은 승인권자에게만 버튼을 보인다.
+#: ★ 2026-09-11 — `retrain/build` · `apply` · `rollback` 을 주석 처리했습니다.
+#:   화면은 승인 단계를 밟는 `retrain/graph/*` 로 바뀌었는데, 옛 문이 열려 있어
+#:   `/docs` 에서 직접 누르면 **승인 없이 모델 교체·되돌리기**가 돌 수 있었습니다.
+WRITE = frozenset({
+    # "retrain/build",
+    # "retrain/apply",
+    # "retrain/rollback",
+    "retrain/graph/act",
+    "retrain/graph/reset",
+    #   ★ 아침에 실패한 것을 다시 돌립니다 (자동 작업 · AI 점검).
+    #     같은 기준일을 다시 쓰는 것이라 UPSERT 로 덮입니다 — 없던 날이
+    #     생기거나 있던 날이 사라지지 않습니다.
+    "ops/rerun",
+})
+
+
+async def _forward(method: str, path: str, request: Request) -> JSONResponse:
+    body = await request.body() if method == "POST" else None
+    try:
+        reply = await ml_backend.forward(
+            method, path, params=dict(request.query_params), body=body
+        )
+    except ml_backend.MlBackendUnreachable as error:
+        #   ★ 여기서 조용히 빈 값을 돌려주면 화면이 «자료가 없다» 로 보인다.
+        #     ML 백엔드가 안 떠 있다는 사실 자체를 알려야 한다.
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail=(f"ML 백엔드에 닿지 못했습니다 ({error.origin}). {error.hint} "
+                    f"주소가 맞다면 그쪽 서버가 떠 있는지, 방화벽이 그 포트를 "
+                    f"막고 있지 않은지 보세요 — {error.cause}"),
+        ) from error
+    except ml_backend.MlBackendTimeout as error:
+        raise HTTPException(
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(f"ML 백엔드가 제때 답하지 않았습니다 ({error.origin}/{error.path}) "
+                    f"— {error.cause}"),
+        ) from error
+
+    #   저쪽이 낸 상태와 본문을 **그대로** 올린다. 400 을 200 으로 바꾸면
+    #   무엇을 잘못 넣었는지가 사라진다.
+    return JSONResponse(status_code=reply.status_code, content=reply.body)
+
+
+@router.get("/{path:path}", summary="ML 콘솔 조회 — ML 백엔드로 넘긴다")
+async def proxy_get(path: str, request: Request) -> JSONResponse:
+    if path not in READ:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=f"넘길 수 있는 경로가 아닙니다: {path}",
+        )
+    return await _forward("GET", path, request)
+
+
+@router.post("/{path:path}", summary="ML 콘솔 실행 — 재학습만")
+async def proxy_post(path: str, request: Request) -> JSONResponse:
+    if path not in WRITE:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            detail=(f"쓰기로 넘길 수 있는 경로가 아닙니다: {path}. "
+                    f"가능: {', '.join(sorted(WRITE))}"),
+        )
+    return await _forward("POST", path, request)

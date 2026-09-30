@@ -3,8 +3,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.aging import classify_receivable_aging
-from app.finance.console_receivables import get_console_receivables
+from app.contracts.aging import classify_receivable_aging
+from app.finance.readmodel.console_receivables import get_console_receivables
+from tests.finance.finance_fake_connection import lend
 
 AS_OF = date(2026, 9, 11)
 
@@ -48,9 +49,11 @@ def test_console_receivables_never_mix_runs(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr("app.finance.console_receivables.fetch_all", rows)
-    monkeypatch.setattr("app.finance.console_receivables.get_db_schema", lambda: "haetdeul")
+    #  2026-09-29 재구성 BL-014: 화면 조회가 조회 연결을 빌려 repository 에 넘긴다 — 가짜 연결의
+    #  답을 `rows` 가 한다.
+    conn = lend(monkeypatch, rows)
     a = get_console_receivables(sim_run_id="SIM-CONSOLE-A", as_of=AS_OF)
     b = get_console_receivables(sim_run_id="SIM-CONSOLE-B", as_of=AS_OF)
     assert a.rows[0].receivable_id == "AR-A" and a.summary.total_outstanding_krw == Decimal(10)
     assert b.rows[0].receivable_id == "AR-B" and b.summary.total_outstanding_krw == Decimal(20)
+    assert conn.borrows == ["read", "read"]  # 화면 응답마다 조회 연결 하나

@@ -12,9 +12,9 @@ from datetime import date
 import pytest
 
 from app.purchase_agent import features
-from app.purchase_agent import information_requests as ir
-from app.purchase_agent.graph import build_graph
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain import information_requests as ir
+from app.purchase_agent.schemas.proposal import ReasonCode
+from app.purchase_agent.service.graph import build_graph, build_initial_state
 
 ITEM = "배추"
 AS_OF = date(2026, 8, 21)
@@ -142,7 +142,7 @@ def test_종료된_협의는_요청_어휘에_없다() -> None:
 
     ⚠️ 고지(``risks``)로는 계속 나간다 — 「안 청한다」와 「안 말한다」는 다르다.
     """
-    어휘 = " ".join(ir.ReasonCode.__args__) + " ".join(
+    어휘 = " ".join(ReasonCode.__args__) + " ".join(
         길.required_field for 길 in ir.ROUTING.values()
     )
     assert "SHELF" not in 어휘
@@ -154,7 +154,7 @@ def test_시장의_사실은_요청이_아니다() -> None:
 
     요청으로 내보내면 못 받을 것을 매일 청하게 된다 — 「누가 주면 풀리는 것」만 요청이다.
     """
-    어휘 = " ".join(ir.ReasonCode.__args__)
+    어휘 = " ".join(ReasonCode.__args__)
     assert "GRADE" not in 어휘
 
 
@@ -162,7 +162,7 @@ def _제안(*, 켬: bool, monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(
         features, "enabled", lambda key, default=False: 켬 and key == features.INFORMATION_REQUESTS
     )
-    from app.purchase_agent.nodes import self_check as sc
+    from app.purchase_agent.service.nodes import self_check as sc
 
     monkeypatch.setattr(sc, "enabled", lambda key, default=False: 켬)
     state = build_initial_state(ITEM, AS_OF)
@@ -197,7 +197,7 @@ def test_한_모델에_직렬화기가_하나뿐이다() -> None:
     ⚠️ 다음에 또 «빼고 싶은 키» 가 생기면 **기존 하나에 줄을 더한다.** 새로 달면
     지금 빠지는 것이 그날부터 안 빠지고, 그 사실은 산출물을 바이트로 대조해야 보인다.
     """
-    from app.purchase_agent.schemas import PurchaseProposal, Scenario
+    from app.purchase_agent.schemas.proposal import PurchaseProposal, Scenario
 
     for 모델 in (PurchaseProposal, Scenario):
         직렬화기 = list(모델.__pydantic_decorators__.model_serializers)

@@ -13,8 +13,8 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from app.finance.sales_validation import InventoryCostBasis, VerifiedDirectCost
-from app.finance.tools import build_sales_calculation_facts, compose_sales_cost_basis
+from app.finance.domain.tools import build_sales_calculation_facts, compose_sales_cost_basis
+from app.finance.schemas.sales_validation import InventoryCostBasis, VerifiedDirectCost
 
 
 def _inventory(
@@ -385,7 +385,7 @@ def test_direct_cost_refs_never_displace_the_lot_lineage():
 
 def test_the_wire_carries_every_lot_ref_into_the_parsed_input():
     """물류 → 판매 → 재무 전선의 **이름 그대로** 읽히는지 (마스터는 운반만 한다)."""
-    from app.finance.capabilities.sales import parse_sales_validation_input
+    from app.finance.domain.sales_validation import parse_sales_validation_input
 
     parsed, missing = parse_sales_validation_input(
         {

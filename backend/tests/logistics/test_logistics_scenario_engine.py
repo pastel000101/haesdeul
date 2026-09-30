@@ -2,23 +2,18 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
-from app.logistics.scenario_engine import (
+from app.logistics.domain.scenario_engine import (
     run_logistics_procurement_scenario,
     run_logistics_sales_scenario,
     validate_purchase_scenarios,
 )
-from app.logistics.schemas import (
-    InTransitItem,
-    InventoryLotSnapshot,
-    LogisticsSalesRequest,
-    PurchaseAgentOutput,
-    ScheduledQuantity,
-)
-from app.logistics.service import (
+from app.logistics.domain.tools import calculate_cap_by_date
+from app.logistics.schemas.agent import LogisticsSalesRequest, PurchaseAgentOutput
+from app.logistics.schemas.snapshot import InTransitItem, InventoryLotSnapshot, ScheduledQuantity
+from app.logistics.service.cycle import (
     run_logistics_procurement_with_snapshot,
     run_logistics_sales_with_snapshot,
 )
-from app.logistics.tools import calculate_cap_by_date
 
 ARRIVAL = date(2026, 8, 23)
 
@@ -283,7 +278,7 @@ def test_logistics_external_snapshot_bypasses_repository_and_round_trips_id(
     request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
 
     with patch(
-        "app.logistics.service.get_current_inventory_logistics_snapshot",
+        "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
         side_effect=AssertionError("Repository must not be called"),
     ):
         response = run_logistics_procurement_with_snapshot(
@@ -307,7 +302,7 @@ def test_logistics_sales_engine_keeps_h1_future_and_on_hand_unchanged(
     first = run_logistics_sales_scenario(request, complete_logistics_snapshot)
     second = run_logistics_sales_scenario(request, complete_logistics_snapshot)
     with patch(
-        "app.logistics.service.get_current_inventory_logistics_snapshot",
+        "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
         side_effect=AssertionError("Repository must not be called"),
     ):
         response = run_logistics_sales_with_snapshot(

@@ -1,13 +1,16 @@
 """Finance Planner — **고를 뿐 실행하지 않는다.**
 
 이 파일이 소유하는 것
-    Planner/Finalizer 계약(`ToolAction` · 프로토콜 · 예외) · Planner 프롬프트 ·
-    출력 사후 검증 · LangChain ChatModel 어댑터 · tool-calling Planner ·
+    Planner 프롬프트 · 출력 사후 검증 · LangChain ChatModel 어댑터 · tool-calling Planner ·
     결정론(오프라인) Planner · Provider 구성과 가용성 대체
 
 여기 **없는 것**
     Tool 실행 · capability 판단 · 예산 · 재무 계산 · 설명 문장
-    → 실행 승인은 `application.harness`, 계산은 `capabilities`, 문장은 `messages` 다.
+    → 실행 승인은 `service/harness.py`, 계산은 `service/capabilities`,
+      문장은 `domain/messages.py` 다.
+    Planner/Finalizer 계약(`ToolAction` · 프로토콜 · 예외 · 종료 Tool · capability 표)은
+    `schemas/planner.py` 다 — Controller · Harness 도 같은 계약을 쓴다(2026-09-30 BL-020).
+    Provider 호출은 `llm/client.py` → `app.core.llm` 이다.
 
 ★ **LangChain 이 Tool 을 실행하지 않는다.** 모델의 tool call 은 *실행 요청*으로만
   쓰이고, 실제 실행은 Harness 승인을 지난 뒤 같은 어댑터를 통해 일어난다. 에이전트
@@ -25,8 +28,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+from dataclasses import dataclass
+from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -37,37 +40,39 @@ from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from app.contracts.core import Evidence
+from app.contracts.envelope import AgentRequest
 from app.finance.llm.client import (
-    _DEFAULT_MODELS,
-    _finance_model,
-    _finance_provider_name,
-    _gemini_availability_failure_reason,
-    _gemini_tool_call,
-    _ollama_availability_failure_reason,
-    _ollama_tool_call,
-    _ollama_tool_calling_model,
+    DEFAULT_MODELS,
     finance_llm_enabled,
+    finance_model,
     finance_planner_model,
+    finance_provider_name,
+    gemini_availability_failure_reason,
+    gemini_tool_call,
+    ollama_availability_failure_reason,
+    ollama_tool_call,
+    ollama_tool_calling_model,
 )
 from app.finance.llm.finalizer import (
     DeterministicFinanceFinalizer,
     GeminiFinanceFinalizer,
     OllamaFinanceFinalizer,
 )
-from app.finance.schemas import FinanceMode
-from app.master.envelope import AgentRequest
+from app.finance.schemas.agent import FinanceMode
+from app.finance.schemas.planner import (
+    CAPABILITY_OWNER,
+    FINALIZE_TOOL_NAME,
+    FinanceFinalizer,
+    FinancePlanner,
+    FinancePlannerContractViolation,
+    FinancePlannerFailure,
+    FinancePlannerUnavailable,
+    ToolAction,
+)
 
 # ---------------------------------------------------------------------------
-# Planner/Finalizer 계약과 출력 검증
+# Planner 프롬프트와 출력 검증
 # ---------------------------------------------------------------------------
-
-#: capability 를 다 채웠을 때 Planner 가 부르는 종료 Tool 의 이름.
-#:
-#: ★ 종료도 **Tool 호출**이다. 자유 문장으로 "재무 검토 완료" 라고 답할 자리를 주지
-#:   않기 위해서다 — 필수 capability 가 남아 있으면 Harness 가 이 Tool 을 아예
-#:   바인딩하지 않는다. 이름을 여기서 소유하는 이유는 **Planner 계약**이기 때문이다.
-FINALIZE_TOOL_NAME = "finalize_finance_review"
-
 
 _PLANNER_SYSTEM_PROMPT = (
     "You plan Finance capability calls. Call exactly one of the tools you were given "
@@ -106,76 +111,6 @@ def _planner_prompt(
     if rejected:
         prompt["previous_attempts_rejected"] = rejected
     return prompt
-
-
-@dataclass(frozen=True)
-class ToolAction:
-    tool_name: str | None = None
-    arguments: dict[str, Any] = field(default_factory=dict)
-    reason: str = ""
-    finalize: bool = False
-
-
-class FinancePlanner(Protocol):
-    model: str
-    attempts: int
-
-    def decide(
-        self,
-        *,
-        request: AgentRequest,
-        allowed_tools: frozenset[str],
-        observations: tuple[dict[str, Any], ...],
-        missing_capabilities: tuple[str, ...],
-        **kwargs: Any,
-    ) -> ToolAction: ...
-
-
-class FinanceFinalizer(Protocol):
-    model: str
-    attempts: int
-
-    def finalize(
-        self,
-        *,
-        mode: FinanceMode,
-        business_status: str,
-        evidences: tuple[Evidence, ...],
-        has_verified_adjustment: bool = False,
-    ) -> str: ...
-
-
-class FinancePlannerFailure(RuntimeError):
-    """되돌릴 수 없는 Planner 실패를 Controller 상태로 전달한다.
-
-    Provider 장애·네트워크 오류·구조화 출력 파싱 불가처럼 **다시 물어도 같은 것**이
-    여기로 온다. 모델이 계약을 어긴 것은 `FinancePlannerContractViolation` 이다.
-    """
-
-
-class FinancePlannerUnavailable(FinancePlannerFailure):
-    """구성된 LLM Planner들이 모두 실행 불가해 결정론 선택으로 내릴 수 있는 실패."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        provider: str | None = None,
-        reason: str | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.provider = provider
-        self.reason = reason
-
-
-class FinancePlannerContractViolation(ValueError):
-    """모델이 계약을 어긴 **회복 가능한** 잘못.
-
-    ★ 이것을 `FinancePlannerFailure` 와 섞으면 재계획이 죽는다. 예전에는 검증 실패가
-      `decide()` 안에서 예외로 올라와 Controller 가 통째로 ERROR 로 접었고, 그래서
-      `_guard_replan` 은 있으나 마나였다 — `metadata.replans` 는 늘 0 이었다.
-      허용되지 않은 Tool 선택 같은 잘못은 **왜 반려됐는지 알려주고 다시 묻는다.**
-    """
 
 
 def _validate_planner_action(
@@ -257,7 +192,7 @@ class FinanceChatModel(BaseChatModel):
             # 그럴 자리가 없으므로 여기서 막는다 — 조용히 통과시키지 않는다.
             raise ValueError("Finance chat model requires at least one bound tool")
         system_prompt, user_payload = _split_prompt(messages)
-        transport = _gemini_tool_call if self.provider == "gemini" else _ollama_tool_call
+        transport = gemini_tool_call if self.provider == "gemini" else ollama_tool_call
         calls = transport(
             model=self.finance_model,
             system_prompt=system_prompt,
@@ -303,7 +238,7 @@ def _split_prompt(messages: list[BaseMessage]) -> tuple[str, dict[str, Any]]:
 
 def finance_chat_model(provider: str, *, model: str | None = None) -> FinanceChatModel:
     return FinanceChatModel(
-        provider=provider, finance_model=model or _finance_model(provider)
+        provider=provider, finance_model=model or finance_model(provider)
     )
 
 
@@ -399,11 +334,9 @@ class DeterministicFinancePlanner:
         missing_capabilities: tuple[str, ...],
         **_kwargs: Any,
     ) -> ToolAction:
-        # capability 소유표는 Harness 가 든다. 모듈 최상단에서 부르면 순환이 되므로
-        # (Harness → planner → Harness) 실행 시점에 읽는다 — 고르는 순서를 바꾸지
-        # 않기 위해서다. 순서가 바뀌면 결정론 실행의 Tool 순서가 달라진다.
-        from app.finance.application.harness import CAPABILITY_OWNER
-
+        # capability 소유표(`schemas/planner.py`)의 순서대로 고른다 — 순서가 바뀌면 결정론
+        # 실행의 Tool 순서가 달라진다. (2026-09-30 BL-020 전에는 표가 Harness 에 있어 순환을
+        # 피하려고 이 자리에서 함수 안 import 로 읽었다.)
         self.attempts += 1
         if not missing_capabilities:
             return ToolAction(finalize=True, reason="capabilities complete")
@@ -456,7 +389,7 @@ class _AvailabilityFallbackFinancePlanner:
         try:
             return self.primary.decide(**kwargs)
         except Exception as error:
-            reason = _gemini_availability_failure_reason(error)
+            reason = gemini_availability_failure_reason(error)
             if reason is None:
                 raise
             self.state.activate(reason)
@@ -466,7 +399,7 @@ class _AvailabilityFallbackFinancePlanner:
         try:
             return self.fallback.decide(**kwargs)
         except Exception as error:
-            reason = _ollama_availability_failure_reason(error)
+            reason = ollama_availability_failure_reason(error)
             if reason is None:
                 raise
             raise FinancePlannerUnavailable(
@@ -516,7 +449,7 @@ class _AvailabilityFallbackFinanceFinalizer:
         try:
             return self.primary.finalize(**kwargs)
         except Exception as error:
-            reason = _gemini_availability_failure_reason(error)
+            reason = gemini_availability_failure_reason(error)
             if reason is None:
                 raise
             self.state.activate(reason)
@@ -534,7 +467,7 @@ def _langchain_planner(provider: str, *, model: str | None = None) -> LangChainF
     )
 
 
-def _configured_finance_llms(
+def configured_finance_llms(
 ) -> tuple[FinancePlanner, FinanceFinalizer, _ProviderFallbackState | None]:
     """설정이 정하는 Planner/Finalizer 한 쌍.
 
@@ -543,7 +476,7 @@ def _configured_finance_llms(
     """
     if not finance_llm_enabled():
         return DeterministicFinancePlanner(), DeterministicFinanceFinalizer(), None
-    provider = _finance_provider_name()
+    provider = finance_provider_name()
     state = _ProviderFallbackState(
         primary_provider=provider,
         effective_provider=provider,
@@ -556,12 +489,12 @@ def _configured_finance_llms(
             # ★ 대체 Planner 의 모델은 **재무 설정을 물려받지 않는다.** 설정값은
             #   Gemini 모델 이름이고, Ollama 로 옮겨 갈 때 그대로 쓰면 없는 모델을
             #   부른다. 여기서 고르는 것은 tool 을 부를 수 있는 기본값이다.
-            _langchain_planner("ollama", model=_ollama_tool_calling_model()),
+            _langchain_planner("ollama", model=ollama_tool_calling_model()),
             state,
         ),
         _AvailabilityFallbackFinanceFinalizer(
             GeminiFinanceFinalizer(),
-            OllamaFinanceFinalizer(model=_DEFAULT_MODELS["ollama"]),
+            OllamaFinanceFinalizer(model=DEFAULT_MODELS["ollama"]),
             state,
         ),
         state,

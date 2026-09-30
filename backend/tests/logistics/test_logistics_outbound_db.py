@@ -33,30 +33,36 @@ import psycopg
 import pytest
 
 from app.contracts.sales_logistics import SalesOutboundReservationRequest
-from app.logistics import fefo_allocation, ledger, outbound
-from app.logistics.db import get_connection
-from app.logistics.fefo_allocation import allocate_reserved_stock_fefo
-from app.logistics.outbound import (
+from app.core import db as core_db
+from app.logistics.domain import fefo_allocation as fefo_allocation_domain
+from app.logistics.domain import outbound as outbound_domain
+from app.logistics.domain.outbound import allocation_id_for, move_id_for_allocation
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import locks
+from app.logistics.repository import outbound as outbound_repository
+from app.logistics.schemas.outbound import (
     AllocationBasis,
     AllocationRequest,
     HumanAllocationBasis,
     InvalidOutboundRequest,
     OutboundIntegrityError,
     ReservationConflict,
+    ReservationResult,
+)
+from app.logistics.service import fefo_allocation
+from app.logistics.service import outbound as outbound_service
+from app.logistics.service.fefo_allocation import allocate_reserved_stock_fefo
+from app.logistics.service.outbound import (
     allocate_stock,
-    allocation_id_for,
     cancel_allocation,
-    move_id_for_allocation,
     recommend_fefo_candidates,
     release_reservation,
     reservation_allocation_state,
     reserve_available_stock,
-    reserve_stock,
-    ship_allocated_stock,
-)
-from app.logistics.sales_outbound import (
     reserve_confirmed_sale,
     reserve_confirmed_sale_available,
+    reserve_stock,
+    ship_allocated_stock,
 )
 
 pytestmark = pytest.mark.db
@@ -97,6 +103,22 @@ def _코드만(source: str) -> str:
     return chr(10).join(line.split("#", 1)[0] for line in 코드.splitlines())
 
 
+def _출고_코드() -> str:
+    """종전 `outbound.py` 한 파일이던 출고 코드 — 2026-09-30 재구성 BL-015 부터 네 파일이다."""
+    return chr(10).join(
+        _코드만(Path(module.__file__).read_text(encoding="utf-8"))
+        for module in (outbound_service, outbound_repository, outbound_domain, locks)
+    )
+
+
+def _자동_fefo_코드() -> str:
+    """종전 `fefo_allocation.py` 한 파일이던 자동 FEFO 코드 — 이제 service · domain 두 파일이다."""
+    return chr(10).join(
+        _코드만(Path(module.__file__).read_text(encoding="utf-8"))
+        for module in (fefo_allocation, fefo_allocation_domain)
+    )
+
+
 def _repo_block(table: str) -> str:
     text = (_DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
     match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
@@ -108,42 +130,42 @@ def _repo_block(table: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
-
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            for item, name in ((ITEM_ID, "배추"), (OTHER_ITEM, "무")):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, 30, 'PROVISIONAL')",
-                    (item, ZONE),
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
                 )
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sale_items VALUES (%s)", (SALE_ITEM_ID,))
-        for module in (outbound, ledger):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
-        connection.rollback()
-        connection.close()
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                for item, name in ((ITEM_ID, "배추"), (OTHER_ITEM, "무")):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, 30, 'PROVISIONAL')",
+                        (item, ZONE),
+                    )
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sale_items VALUES (%s)", (SALE_ITEM_ID,))
+            # ★ 2026-09-30 재구성 BL-015: 출고 · 원장 SQL 은 이제 repository 두 파일에 있다.
+            for module in (outbound_repository, ledger_repository):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            # 🔴 COMMIT 하지 않는다 — 공유 DB 에 시험 흔적을 남기지 않는다.
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────
@@ -639,11 +661,16 @@ def test_28_예약만_하고_출고하지_않으면_원장이_없다(conn: psyco
 
 
 def test_29_출고_전역_잠금을_먼저_잡는다(conn: psycopg.Connection) -> None:
-    """★ 잠금 뒤에 가용량을 다시 센다 — 잠금 밖의 값은 이미 낡았을 수 있다."""
-    코드 = _코드만(Path(outbound.__file__).read_text(encoding="utf-8"))
+    """★ 잠금 뒤에 가용량을 다시 센다 — 잠금 밖의 값은 이미 낡았을 수 있다.
 
-    assert "pg_advisory_xact_lock" in 코드
-    assert "_OUTBOUND_LOCK_OBJID = 3" in 코드
+    ★ 2026-09-30 재구성 BL-015: 잠금 SQL 과 좌표는 `repository/locks.py`, 쓰기 진입점은
+      `service/outbound.py` 에 있다.
+    """
+    잠금 = _코드만(Path(locks.__file__).read_text(encoding="utf-8"))
+    코드 = _코드만(Path(outbound_service.__file__).read_text(encoding="utf-8"))
+
+    assert "pg_advisory_xact_lock" in 잠금
+    assert "OUTBOUND_LOCK_OBJID = 3" in 잠금
     # ★ 각 쓰기 진입점이 잠금을 먼저 잡는다.
     for 함수 in ("reserve_stock", "allocate_stock", "ship_allocated_stock", "release_reservation"):
         조각 = 코드.split(f"def {함수}(")[1]
@@ -652,11 +679,9 @@ def test_29_출고_전역_잠금을_먼저_잡는다(conn: psycopg.Connection) -
 
 def test_29b_잠금_키가_기존_둘과_안_겹친다(conn: psycopg.Connection) -> None:
     """★ `(…,1)` 원장 · `(…,2)` 도착 · `(…,3)` 출고."""
-    from app.logistics import receipts
-
-    assert (outbound._OUTBOUND_LOCK_CLASSID, outbound._OUTBOUND_LOCK_OBJID) == (20260905, 3)
-    assert (ledger._LEDGER_LOCK_CLASSID, ledger._LEDGER_LOCK_OBJID) == (20260905, 1)
-    assert (receipts._ARRIVAL_LOCK_CLASSID, receipts._ARRIVAL_LOCK_OBJID) == (20260905, 2)
+    assert (locks.OUTBOUND_LOCK_CLASSID, locks.OUTBOUND_LOCK_OBJID) == (20260905, 3)
+    assert (locks.LEDGER_LOCK_CLASSID, locks.LEDGER_LOCK_OBJID) == (20260905, 1)
+    assert (locks.ARRIVAL_LOCK_CLASSID, locks.ARRIVAL_LOCK_OBJID) == (20260905, 2)
 
 
 def test_30_33_커밋도_롤백도_새_커넥션도_없다(conn: psycopg.Connection) -> None:
@@ -666,8 +691,14 @@ def test_30_33_커밋도_롤백도_새_커넥션도_없다(conn: psycopg.Connect
     ship_allocated_stock(conn, reservation_id=RSV, shipped_at=AS_OF)
 
     assert conn.info.transaction_status.name in {"INTRANS", "INERROR"}
-    코드 = _코드만(Path(outbound.__file__).read_text(encoding="utf-8"))
+    코드 = _출고_코드()
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    #   같은 날 출고가 시간대(`app.core.clock.SEOUL`)를 가져다 쓰게 되어 `app.core`
+    #   전체가 아니라 연결 모듈만 막는다.
+    assert "core_db" not in 코드
+    assert "app.core.db" not in 코드
+    assert not re.search(r"from app\.core import [^\n]*\bdb\b", 코드)
     assert "commit" not in 코드
     assert "rollback" not in 코드
 
@@ -744,7 +775,7 @@ def test_sales_boundary_request에서_명시적_lot_선택으로_inventory_OUT�
 
 
 def test_34_38_범위_밖_어휘를_쓰지_않는다(conn: psycopg.Connection) -> None:
-    코드 = _코드만(Path(outbound.__file__).read_text(encoding="utf-8"))
+    코드 = _출고_코드()
 
     for 금지 in ("inventory_count", "ADJUST", "DISPOSE", "app.master", "app.sales"):
         assert 금지 not in 코드, f"{금지} — 이 판의 범위가 아니다"
@@ -752,7 +783,7 @@ def test_34_38_범위_밖_어휘를_쓰지_않는다(conn: psycopg.Connection) -
 
 def test_원장_잔량_UPDATE_를_복제하지_않는다(conn: psycopg.Connection) -> None:
     """🔴 `remaining_qty_kg` 를 바꾸는 것은 원장뿐이다."""
-    코드 = _코드만(Path(outbound.__file__).read_text(encoding="utf-8"))
+    코드 = _출고_코드()
 
     assert "remaining_qty_kg =" not in 코드
     assert "record_inventory_move" in 코드, "원장을 재사용해야 한다"
@@ -767,7 +798,7 @@ def test_sale_item_id_를_지어내지_않는다(conn: psycopg.Connection) -> No
     ship_allocated_stock(conn, reservation_id=RSV, shipped_at=AS_OF)
 
     assert _moves(conn)[0]["sale_item_id"] is None
-    코드 = _코드만(Path(outbound.__file__).read_text(encoding="utf-8"))
+    코드 = _출고_코드()
     assert "SITEM-" not in 코드, "판매 ID 를 조립하고 있다"
 
 
@@ -1016,7 +1047,7 @@ def test_B4_계약_밖_근거는_거부된다(conn: psycopg.Connection) -> None:
 
 def _부분예약(
     conn: psycopg.Connection, *, rid: str = RSV, required: str = "100"
-) -> outbound.ReservationResult:
+) -> ReservationResult:
     return reserve_available_stock(
         conn,
         reservation_id=rid,
@@ -1335,9 +1366,7 @@ def test_S18_실출고에서만_OUT_이_난다(conn: psycopg.Connection) -> None
 
 def test_S19_자동_FEFO_는_범위를_넘지_않는다() -> None:
     """★ 두 단계를 묶으면 *"할당은 됐는데 출고가 실패"* 를 표현할 수 없다."""
-    from app.logistics import fefo_allocation
-
-    코드 = _코드만(Path(fefo_allocation.__file__).read_text(encoding="utf-8"))
+    코드 = _자동_fefo_코드()
 
     for 금지 in (
         "ship_allocated_stock",
@@ -1675,8 +1704,10 @@ def test_S33_자동_FEFO_는_decided_at_을_필수로_받는다() -> None:
 
 def test_S34_물류에_자체_시각_생성_규칙이_없다() -> None:
     """★ 한 실행에 시간축이 둘이면 장부에서 단계 순서가 사라진다."""
-    assert not hasattr(fefo_allocation, "decided_at_for")
-    assert "decided_at_for" not in fefo_allocation.__all__
+    # ★ 2026-09-30 재구성 BL-015: 종전 한 파일의 `__all__` 대신 두 파일(service · domain)
+    #   어디에도 그 이름이 없는지 본다.
+    for module in (fefo_allocation, fefo_allocation_domain):
+        assert not hasattr(module, "decided_at_for")
 
 
 def test_S35_시간대_없는_decided_at_은_거부된다(conn: psycopg.Connection) -> None:
@@ -1736,7 +1767,7 @@ def test_S37_자동_할당_장부의_세_칸(conn: psycopg.Connection) -> None:
 
 def test_S38_물류가_벽시계도_남의_시각도_안_읽는다() -> None:
     """🔴 의존 방향은 `Master → Logistics` 다. 뒤집지 않는다."""
-    코드 = _코드만(Path(fefo_allocation.__file__).read_text(encoding="utf-8"))
+    코드 = _자동_fefo_코드()
 
     for 금지 in (
         "datetime.now(",

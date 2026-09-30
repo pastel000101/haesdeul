@@ -17,7 +17,8 @@ UNRESOLVED  ≠  REJECTED
 
 from datetime import date
 
-from app.sales.console_proposals import get_console_sales_proposals
+from app.sales.readmodel.console_proposals import get_console_sales_proposals
+from tests.sales.sales_fake_connection import lend
 
 RUN = "SIM-CHAIN-V13"
 AS_OF = date(2026, 3, 10)
@@ -73,8 +74,8 @@ def _row(**over) -> dict:
 
 
 def _load(monkeypatch, rows):
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", _Reader(rows))
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, _Reader(rows))
     return get_console_sales_proposals(sim_run_id=RUN, as_of=AS_OF)
 
 
@@ -287,7 +288,7 @@ def test_a_run_without_strategy_labels_reports_nothing_rather_than_empty_labels(
 
 def test_the_strategy_block_carries_only_stored_labels(monkeypatch):
     """🔴 HTTP 원문이나 provider 응답 본문이 화면까지 나가지 않는다."""
-    from app.sales.console_proposals import ConsoleSalesStrategy
+    from app.sales.schemas.console_proposals import ConsoleSalesStrategy
 
     assert set(ConsoleSalesStrategy.model_fields) == {
         "source",

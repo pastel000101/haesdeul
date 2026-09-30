@@ -3,10 +3,9 @@
 from datetime import date
 from decimal import Decimal
 
-from app.sales.console_trend import (
-    MAX_TREND_DAYS,
-    get_console_sales_trend,
-)
+from app.sales.readmodel.console_trend import get_console_sales_trend
+from app.sales.schemas.console_trend import MAX_TREND_DAYS
+from tests.sales.sales_fake_connection import lend
 
 RUN = "SIM-CHAIN-V13"
 AS_OF = date(2026, 3, 31)
@@ -34,8 +33,8 @@ def _row(day: int, **over) -> dict:
 
 
 def _patch(monkeypatch, reader: _Reader) -> None:
-    monkeypatch.setattr("app.sales.console_trend.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.sales.console_trend.fetch_all", reader)
+    monkeypatch.setattr("app.sales.repository.console_trend.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, reader)
 
 
 def test_daily_points_come_back_as_stored(monkeypatch):

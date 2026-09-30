@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 import app.finance
-from app.master.sim_run_open import AXIS_COLUMN
+from app.master.repository.sim_run_open import AXIS_COLUMN
 
 _REPO = Path(app.finance.__file__).parent.parent.parent.parent
 _FRESH = _REPO / "database" / "10_domain_schema.sql"

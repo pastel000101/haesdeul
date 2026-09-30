@@ -139,7 +139,8 @@ def test_스캐너가_파일을_실제로_읽는다():
 
     assert len(seen) > 100, f"훑은 파일이 {len(seen)}개뿐이다 — 스캐너가 폴더를 못 찾는다"
     assert "app/main.py" in seen, "앱 진입점을 안 훑었다"
-    assert "app/master/band.py" in seen, "옮겨 온 파일을 안 훑었다"
+    # ★ 2026-09-30 재구성 BL-018: 밴드는 `app/master/domain/band.py` 다.
+    assert "app/master/domain/band.py" in seen, "옮겨 온 파일을 안 훑었다"
     assert "tests/master/test_orchestrator_is_gone.py" in seen, "이 파일 자신을 안 훑었다"
 
 
@@ -177,8 +178,18 @@ def _imported_modules(path: pathlib.Path) -> set[str]:
     return out
 
 
+#: ★ 2026-09-30 재구성 BL-018: 마스터 모듈이 계층 폴더로 갈라졌다 — 최상위만 보면 `router.py` 하나라
+#:   폴더 안까지 본다.
+#:   따로 있던 하위 패키지는 종전처럼 뺀다.
+_SEPARATE_PACKAGES = ("critic", "llm", "cycle_llm")
+
+
 def _master_imports() -> dict[str, set[str]]:
-    return {path.name: _imported_modules(path) for path in sorted(_MASTER_DIR.glob("*.py"))}
+    return {
+        path.relative_to(_MASTER_DIR).as_posix(): _imported_modules(path)
+        for path in sorted(_MASTER_DIR.rglob("*.py"))
+        if path.relative_to(_MASTER_DIR).parts[0] not in _SEPARATE_PACKAGES
+    }
 
 
 def test_공용_계약을_쓰는_파일이_늘지_않는다():
@@ -224,20 +235,40 @@ def test_공용_계약을_쓰는_파일이_늘지_않는다():
     #   품목 범위**를 `ITEMS` 에서 읽는다. 🔴 피마늘·건고추를 보고서 코드에 직접
     #   적어서 거르지 않는다 — 범위는 업무 결정이고 그 주인은 계약이다.
     #   commitment.py·forecast_gate.py·inputs.py 와 같은 자리다.
+    # ★ 2026-09-29 에 둘이 빠졌다 (재구성 BL-011). `envelope.py` 는 파일째
+    #   `app/contracts/envelope.py` 로 올라갔고, `commitment.py` 는 약정 타입과
+    #   `ITEM_CODES` 를 `app/contracts/commitment.py` 로 보내 이제 그쪽을 읽는다 —
+    #   계약을 덜 쓰게 된 것이 아니라 계약의 자리가 늘었다. 품목 목록을 다시 세지 않는
+    #   규율은 `ITEM_CODES` 와 함께 옮겨 갔다 (`test_item_set_follows_contract.py`).
+    # ★ 같은 날 plan.py 가 들어왔다 — `RuntimeStatus` · `Verdict` 를 봉투가 다시 내보내는
+    #   이름으로 읽던 것을 **정의 자리에서** 읽는다. 새로 쓰기 시작한 계약이 아니라 경로가
+    #   곧아진 것이다 (물류 어댑터의 `Verdict` 도 같이 바꿨다).
+    # ★ 2026-09-30 재구성 BL-018: 자리만 바뀌었다 — 열두 파일이 계층 폴더로 가며 셋이 둘로 갈려
+    #   열다섯 자리가 됐다.
+    #   `flow.py` · `sales_flow.py` 는 판정(domain) · 순서(service) 둘, `schemas.py` 는 매입 · 판매
+    # 둘로
+    #   갈렸고, `report.py` 에서 품목 범위를 읽던 채팅 보고서는 `report/chat_reports.py` 다. 계약을
+    #   새로 부르기 시작한 파일은 없다(갈린 조각이 옛 파일에서 쓰던 이름을 그대로 읽는다).
+    #   2026-09-30 재구성 BL-019: `router.py`(계약 위반 → 422)는 `app/api/master/flows.py` 로 옮겨
+    #   마스터 밖이 됐다 — 이 목록에서 빠졌다. `readmodel/purchase_tab.py` 가 늘었다 — 매입 탭
+    #   화면이 실행을 고르며 계약 품목(`ITEMS`)으로 거르던 규칙(`pick_runs`)을 마스터 readmodel 로
+    #   옮겼다(부르는 자리가 화면에서 마스터로 온 것이고, 계약을 새로 쓰는 일이 생긴 것은 아니다).
     assert users == {
-        "band.py": ["app.contracts.core"],
-        "report.py": ["app.contracts.core"],
-        "commitment.py": ["app.contracts.core"],
-        "critic_bridge.py": ["app.contracts.core"],
-        "envelope.py": ["app.contracts.core"],
-        "inputs.py": ["app.contracts.core"],
-        "flow.py": ["app.contracts.core"],
-        "forecast_gate.py": ["app.contracts.core"],
-        "outbound.py": ["app.contracts.core"],
-        "router.py": ["app.contracts.core"],
-        "sales_flow.py": ["app.contracts.core"],
-        "schemas.py": ["app.contracts.core"],
-        "verifier.py": ["app.contracts.core"],
+        "adapters/critic_bridge.py": ["app.contracts.core"],
+        "domain/band.py": ["app.contracts.core"],
+        "domain/flow.py": ["app.contracts.core"],
+        "domain/outbound.py": ["app.contracts.core"],
+        "domain/plan.py": ["app.contracts.core"],
+        "domain/sales_flow.py": ["app.contracts.core"],
+        "readmodel/forecast_gate.py": ["app.contracts.core"],
+        "readmodel/inputs.py": ["app.contracts.core"],
+        "readmodel/purchase_tab.py": ["app.contracts.core"],
+        "report/chat_reports.py": ["app.contracts.core"],
+        "schemas/procurement.py": ["app.contracts.core"],
+        "schemas/sales.py": ["app.contracts.core"],
+        "service/flow.py": ["app.contracts.core"],
+        "service/sales_flow.py": ["app.contracts.core"],
+        "service/verifier.py": ["app.contracts.core"],
     }, f"공용 계약 의존이 바뀌었다 — 의도한 변경이면 이 기대값을 같이 고친다: {users}"
 
 

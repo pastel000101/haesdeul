@@ -42,9 +42,10 @@ from typing import Any
 
 import pytest
 
-from app.master import backtest_runner, scheduler
-from app.master import sales_terms as 조건모듈
-from app.master.backfill import (
+from app.core.clock import SEOUL
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.backfill import (
     FIXED_UNIT_PRICE,
     ML_CURRENT_PRICE,
     BackfillRuleMissing,
@@ -52,18 +53,14 @@ from app.master.backfill import (
     SalesTermsRule,
     read_rules,
 )
-from app.master.backtest_runner import walk
-from app.master.clock import SEOUL
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.inputs import SourcedInput
-from app.master.sales_terms import apply_sales_terms, read_run_sales_terms, rules_source_ref
-from app.master.scheduler import (
-    DayRunOutcome,
-    ScheduledAction,
-    plan_next_action,
-    run_scheduled_day,
-)
-from app.master.schemas import SalesRunRequest
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction, plan_next_action
+from app.master.schemas.inputs import SourcedInput
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import sales_terms
+from app.master.service import scheduler as service_scheduler
+from app.master.service.sales_terms import apply_sales_terms, read_run_sales_terms, rules_source_ref
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("배추",)
@@ -87,9 +84,9 @@ ITEMS = ("배추",)
     unit_price_krw=고정단가,
 )
 
-_조건 = Path(조건모듈.__file__)
-_스케줄러 = Path(scheduler.__file__)
-_걷기 = Path(backtest_runner.__file__)
+_조건 = Path(sales_terms.__file__)
+_스케줄러 = Path(service_scheduler.__file__)
+_걷기 = Path(cli_backtest_runner.__file__)
 
 
 def _NFC(text: str) -> str:
@@ -263,7 +260,7 @@ def test_하루는_설정을_제_손으로_안_읽는다() -> None:
       스캐너가 아무것도 안 재고 있으면 그쪽에서 갈린다.
     """
     하루코드 = _코드만(inspect.getsource(run_scheduled_day))
-    깨어남코드 = _코드만(inspect.getsource(scheduler.wake_up))
+    깨어남코드 = _코드만(inspect.getsource(service_scheduler.wake_up))
 
     assert "terms_of" not in 하루코드, "하루 실행이 설정을 직접 읽는다"
     assert "read_run_sales_terms" not in 하루코드, "하루 실행이 설정을 직접 읽는다"

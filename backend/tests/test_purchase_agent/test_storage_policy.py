@@ -11,16 +11,16 @@ from datetime import date
 
 import pytest
 
-from app.master.verifier import supplied_but_unresolved, unresolved_supplied_keys
+from app.master.domain.verifier import supplied_but_unresolved, unresolved_supplied_keys
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.allocate_sourcing import (
+from app.purchase_agent.domain.allocate_sourcing import (
     evaluate_mid_grade,
     item_storage_policy,
     mid_grade_shelf_ratio,
     shelf_days_block_reason,
     top_grade_operational_days,
 )
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_initial_state
 from tests.test_purchase_agent._ast_helpers import code_string_literals
 
 SPREAD_WIDE = date(2026, 9, 11)
@@ -146,7 +146,7 @@ def test_the_old_double_source_key_is_gone() -> None:
 
 def test_fallback_is_disclosed_in_risks() -> None:
     """폴백으로 계산했으면 화면에 남는다 — mock 은 policies 를 싣지 않는다."""
-    from app.purchase_agent.graph import run_purchase_agent
+    from app.purchase_agent.service.graph import run_purchase_agent
 
     proposal = run_purchase_agent(ITEM, SPREAD_WIDE)
     for scenario in proposal["scenarios"]:
@@ -466,12 +466,14 @@ def test_the_screen_wording_does_not_say_shelf_life_limit() -> None:
     """
     from pathlib import Path
 
-    import app.purchase_agent.nodes.allocate_sourcing as alloc
-    import app.purchase_agent.nodes.package_scenarios as pkg
+    import app.purchase_agent.domain.allocate_sourcing as alloc
+    import app.purchase_agent.domain.package_scenarios as pkg
+    import app.purchase_agent.service.nodes.allocate_sourcing as alloc_node
+    import app.purchase_agent.service.nodes.package_scenarios as pkg_node
 
 
     offenders = []
-    for module in (alloc, pkg):
+    for module in (alloc, pkg, alloc_node, pkg_node):
         path = Path(module.__file__)
         for text in code_string_literals(path):
             if "상품 한계일" in text and "상품 한계일이 아니다" not in text:

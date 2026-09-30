@@ -19,12 +19,14 @@ from typing import get_args
 
 import pytest
 
-from app.master import backtest_runner
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.clock import SEOUL
-from app.master.execution_day import CalendarNotCovered
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.scheduler import DayRunOutcome, ItemRunOutcome, SchedulerAction
+from app.core.clock import SEOUL
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome, SchedulerAction
+from app.master.report import walk_summary
+from app.master.report.walk_summary import WalkResult, format_summary
 
 ITEMS = ("무", "배추", "양파")
 
@@ -329,7 +331,7 @@ def test_하루_실행을_부른다():
 def test_기본값이_run_scheduled_day_자체다():
     """★ **`None` 이 아니다.** `None` 을 허용하면 *"안 줬다"* 와 *"기본을 줬다"* 가
     같은 값이 된다 (`clock.py` · `verifier.py` 와 같은 규율)."""
-    from app.master.scheduler import run_scheduled_day
+    from app.master.service.scheduler import run_scheduled_day
 
     default = inspect.signature(walk).parameters["run_day_fn"].default
 
@@ -342,7 +344,7 @@ def test_모듈이_run_procurement_을_안_부른다():
     ★ **자기 생존 검사를 같이 둔다** — 스캐너가 `run_scheduled_day` 를 실제로
       찾는지부터 본다. 안 그러면 스캐너가 망가져 0건을 세는 날 공짜 초록이 난다.
     """
-    source = Path(backtest_runner.__file__).read_text(encoding="utf-8")
+    source = Path(cli_backtest_runner.__file__).read_text(encoding="utf-8")
     names = {
         node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)
     } | _imported_names(source)
@@ -387,7 +389,7 @@ def test_모듈이_시계를_안_읽는다():
     ⚠️ `clock.seoul_now` 를 부르는 것도 답이 아니다 — 그러면 걷기가 **오늘**을
       기준으로 마감을 재기 시작하고, 백테스트가 조용히 무효가 된다.
     """
-    source = Path(backtest_runner.__file__).read_text(encoding="utf-8")
+    source = Path(cli_backtest_runner.__file__).read_text(encoding="utf-8")
     called = {
         ast.unparse(node.func).split(".")[-1]
         for node in ast.walk(ast.parse(source))
@@ -481,7 +483,7 @@ def test_요약에_사고와_멈춘_사유가_남는다():
 def test_날짜를_안_주면_막는다():
     """⚠️ **기본 범위를 두면 그 범위가 곧 업무 규칙이 된다** — 아무도 정한 적이 없는데."""
     with pytest.raises(SystemExit):
-        backtest_runner.main([])
+        cli_backtest_runner.main([])
 
 
 def test_진입점이_walk_에_그대로_넘긴다():
@@ -492,10 +494,10 @@ def test_진입점이_walk_에_그대로_넘긴다():
         seen.update(kwargs)
         return WalkResult(start=kwargs["start"], end=kwargs["end"])
 
-    original = backtest_runner.walk
-    backtest_runner.walk = _fake  # type: ignore[assignment]
+    original = cli_backtest_runner.walk
+    cli_backtest_runner.walk = _fake  # type: ignore[assignment]
     try:
-        code = backtest_runner.main(
+        code = cli_backtest_runner.main(
             [
                 "--sim-run-id",
                 실행축,
@@ -508,7 +510,7 @@ def test_진입점이_walk_에_그대로_넘긴다():
             ]
         )
     finally:
-        backtest_runner.walk = original  # type: ignore[assignment]
+        cli_backtest_runner.walk = original  # type: ignore[assignment]
 
     assert seen["start"] == date(2026, 2, 7)
     assert seen["end"] == date(2026, 9, 7)
@@ -523,13 +525,13 @@ def test_사고가_있으면_0_이_아니다():
         return WalkResult(
             start=kwargs["start"],
             end=kwargs["end"],
-            incidents=(backtest_runner.WalkIncident(as_of=kwargs["start"], reason="터졌다"),),
+            incidents=(walk_summary.WalkIncident(as_of=kwargs["start"], reason="터졌다"),),
         )
 
-    original = backtest_runner.walk
-    backtest_runner.walk = _fake  # type: ignore[assignment]
+    original = cli_backtest_runner.walk
+    cli_backtest_runner.walk = _fake  # type: ignore[assignment]
     try:
-        code = backtest_runner.main(
+        code = cli_backtest_runner.main(
             [
                 "--sim-run-id",
                 실행축,
@@ -542,7 +544,7 @@ def test_사고가_있으면_0_이_아니다():
             ]
         )
     finally:
-        backtest_runner.walk = original  # type: ignore[assignment]
+        cli_backtest_runner.walk = original  # type: ignore[assignment]
 
     assert code == 1
 
@@ -551,7 +553,7 @@ def test_상한을_안_주면_모듈_상수를_쓴다():
     """★ 수의 주인은 하나다 — 진입점이 다시 세지 않는다."""
     default = inspect.signature(walk).parameters["max_consecutive_failures"].default
 
-    assert default == backtest_runner.MAX_CONSECUTIVE_FAILURES
+    assert default == cli_backtest_runner.MAX_CONSECUTIVE_FAILURES
 
 
 def test_걷는_날_수가_범위와_맞는다():

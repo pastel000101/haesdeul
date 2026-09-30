@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.contracts.envelope import LLMStatus
+
 #: 예측 궤적. 🔴 기울기 값이 아니라 **판정 결과**다 — 판정은 규칙이 이미 끝냈다.
 TrendLabel = Literal["TREND_RISING", "TREND_FLAT"]
 #: 도착일 여유. ``CAP_UNKNOWN`` 은 **「넉넉하다」가 아니라 「못 봤다」** 다 (규칙 3).
@@ -62,7 +64,7 @@ class SplitAllocationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     interpretation: SplitAllocationChoice
-    llm_status: Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+    llm_status: LLMStatus
     llm_provider: str | None
     llm_model: str | None
     llm_attempts: int = Field(ge=0)

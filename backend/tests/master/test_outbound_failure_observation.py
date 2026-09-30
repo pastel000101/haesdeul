@@ -31,8 +31,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from app.master import outbound_flow
-from app.master.outbound_flow import DueSaleItem, OutboundOut, SaleItemOutcome
+from app.master.schemas.outbound_flow import DueSaleItem, OutboundOut, SaleItemOutcome
+from app.master.service import outbound_flow as service_outbound_flow
 
 AS_OF = date(2026, 2, 10)
 축 = "SIM-CHAIN-REH-0914"
@@ -104,7 +104,7 @@ def _ship(
     candidates_fn: Any,
     release_fn: Any | None = None,
 ) -> SaleItemOutcome:
-    return outbound_flow._ship_one(
+    return service_outbound_flow._ship_one(
         conn,
         _row(),
         as_of=AS_OF,
@@ -153,7 +153,7 @@ def test_성공한_출고에도_확보량이_실린다() -> None:
     class _Shipped:
         shipped_qty_kg: Decimal = 확보
 
-    결과 = outbound_flow._ship_one(
+    결과 = service_outbound_flow._ship_one(
         conn,
         _row(),
         as_of=AS_OF,
@@ -212,13 +212,13 @@ def test_놓아주기가_터지면_RELEASE_FAILED_다() -> None:
 
 def test_release_stranded_가_값을_돌려준다() -> None:
     conn = _Conn()
-    문장, 값 = outbound_flow._release_stranded(
+    문장, 값 = service_outbound_flow._release_stranded(
         conn, reservation_id="RSV-X", as_of=AS_OF, release_fn=_기록("release", conn)
     )
     assert 값 == "RELEASED"
     assert 문장
 
-    문장, 값 = outbound_flow._release_stranded(
+    문장, 값 = service_outbound_flow._release_stranded(
         conn,
         reservation_id="RSV-X",
         as_of=AS_OF,
@@ -248,8 +248,8 @@ def test_기존_생성_지점은_새_칸_없이도_선다() -> None:
 
 def test_걷기_요약에_출고실패_한_줄이_칸들을_담는다() -> None:
     """🔴 **값이 있는데 성적표가 안 읽으면 없는 것과 같다** (`예약어휘` 와 같은 규율)."""
-    from app.master.backtest_runner import WalkResult, format_summary
-    from app.master.scheduler import DayRunOutcome
+    from app.master.domain.scheduler import DayRunOutcome
+    from app.master.report.walk_summary import WalkResult, format_summary
 
     실패 = SaleItemOutcome(
         sale_id="SALE-A",
@@ -312,10 +312,10 @@ def test_출고_결과는_하루_결과에_그대로_실린다() -> None:
 
     `run_scheduled_day` 가 출고의 낸 값을 떨어뜨리면 ④ 가 공짜로 통과한다.
     """
-    from app.master import scheduler
+    from app.master.service import scheduler as service_scheduler
 
     출고 = OutboundOut(as_of=AS_OF, status="NOTHING_DUE")
-    status, 낸값, note = scheduler._outbound(
+    status, 낸값, note = service_scheduler._outbound(
         as_of=AS_OF, sim_run_id=축, outbound_fn=lambda as_of, *, sim_run_id: 출고
     )
     assert status == "NOTHING_DUE"
@@ -325,7 +325,7 @@ def test_출고_결과는_하루_결과에_그대로_실린다() -> None:
     def _터짐(as_of: date, *, sim_run_id: str) -> Any:
         raise RuntimeError("연결 없음")
 
-    status, 낸값, note = scheduler._outbound(as_of=AS_OF, sim_run_id=축, outbound_fn=_터짐)
+    status, 낸값, note = service_scheduler._outbound(as_of=AS_OF, sim_run_id=축, outbound_fn=_터짐)
     assert status == "FAILED"
     assert 낸값 is None
 
@@ -337,9 +337,10 @@ def test_하루를_돌리면_출고가_낸_값이_하루_결과에_실린다() -
     """
     from datetime import datetime
 
-    from app.master.clock import SEOUL
-    from app.master.pending_transition import RetryOut
-    from app.master.scheduler import ScheduledAction, run_scheduled_day
+    from app.core.clock import SEOUL
+    from app.master.domain.scheduler import ScheduledAction
+    from app.master.schemas.pending_transition import RetryOut
+    from app.master.service.scheduler import run_scheduled_day
 
     @dataclass
     class _단계결과:

@@ -11,22 +11,22 @@
 
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
-from app.finance.db import (
-    FinanceDataNotReady,
-    PostgresFinanceAsOfDataPort,
-    _get_current_finance_state_row,
-    get_current_finance_runtime_context,
-)
-from app.finance.schemas import FinanceSnapshot
+from app.finance.readmodel.as_of_data_port import PostgresFinanceAsOfDataPort
+from app.finance.readmodel.finance_state import get_current_finance_state
+from app.finance.readmodel.runtime_context import get_current_finance_runtime_context
+from app.finance.schemas.agent import FinanceSnapshot
+from app.finance.schemas.data_port import FinanceDataNotReady
+from tests.finance.finance_fake_connection import lend
 from tests.finance.test_finance_policy_repository import _debt_rows, _rows
 
 #: `patch()` 대상 모듈 경로 — 소유 모듈을 직접 가리킨다.
-_STATE_REPO = "app.finance.db"
+#: 2026-09-29 재구성 BL-014: 런타임 컨텍스트는 readmodel 이 조회 연결 하나로 읽는다.
+#: SQL 은 repository 가 그 연결(`lend` 의 가짜)에 실행한다.
+_CONTEXT = "app.finance.readmodel.runtime_context"
 
 
 def _snapshot(debt: Decimal) -> FinanceSnapshot:
@@ -48,7 +48,11 @@ def _snapshot(debt: Decimal) -> FinanceSnapshot:
 
 
 def _context(
-    *, debt: Decimal, debt_rows: list[dict[str, object]] | None, projection_days: int = 30
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    debt: Decimal,
+    debt_rows: list[dict[str, object]] | None,
+    projection_days: int = 30,
 ):
     """일정 원천은 비우고 **부채 축만** 본다.
 
@@ -73,55 +77,54 @@ def _context(
             return policy_rows if debt_rows is None else policy_rows + debt_rows
         return []
 
-    with (
-        patch(f"{_STATE_REPO}.get_db_schema", return_value="configured_schema"),
-        patch(f"{_STATE_REPO}.fetch_all", side_effect=fetch_all),
-        patch(
-            f"{_STATE_REPO}.get_current_finance_snapshot",
-            return_value=_snapshot(debt),
-        ),
-    ):
-        return get_current_finance_runtime_context()
+    lend(monkeypatch, fetch_all)
+    monkeypatch.setattr(
+        f"{_CONTEXT}.finance_snapshot_on", lambda _conn, *_args, **_kwargs: _snapshot(debt)
+    )
+    return get_current_finance_runtime_context()
 
 
-def test_zero_debt_without_debt_policy_is_ready():
+def test_zero_debt_without_debt_policy_is_ready(monkeypatch):
     """① 부채 0 + 부채 정책 없음 = 정상. unresolved 를 만들지 않는다."""
-    context = _context(debt=Decimal(0), debt_rows=None)
+    context = _context(monkeypatch, debt=Decimal(0), debt_rows=None)
 
     assert context.unresolved_sources == ()
     assert context.debt_policy is None
     assert not [event for event in context.cash_events if event.event_type == "DEBT_SERVICE"]
 
 
-def test_positive_debt_without_debt_policy_is_not_ready():
+def test_positive_debt_without_debt_policy_is_not_ready(monkeypatch):
     """② 부채 있음 + 정책 없음 = 준비되지 않음. **감추지 않는다.**"""
-    context = _context(debt=Decimal("45272104.184486"), debt_rows=None)
+    context = _context(monkeypatch, debt=Decimal("45272104.184486"), debt_rows=None)
 
     assert "DEBT_SERVICE" in context.unresolved_sources
     assert context.debt_policy is None
     assert not [event for event in context.cash_events if event.event_type == "DEBT_SERVICE"]
 
 
-def test_positive_debt_with_inconsistent_principal_is_not_ready():
+def test_positive_debt_with_inconsistent_principal_is_not_ready(monkeypatch):
     """③ 원금이 재무 상태와 어긋나면 준비되지 않음.
 
     정책이 있다고 통과시키면 **다른 빚의 상환 일정**으로 현금을 투영하게 된다.
     """
-    context = _context(debt=Decimal("11111111.11"), debt_rows=_debt_rows())
+    context = _context(monkeypatch, debt=Decimal("11111111.11"), debt_rows=_debt_rows())
 
     assert "DEBT_SERVICE" in context.unresolved_sources
     assert context.debt_policy is None
     assert not [event for event in context.cash_events if event.event_type == "DEBT_SERVICE"]
 
 
-def test_positive_debt_with_valid_policy_builds_debt_cash_events():
+def test_positive_debt_with_valid_policy_builds_debt_cash_events(monkeypatch):
     """④ 부채 있음 + 정책 일치 = 상환 일정이 현금흐름에 들어간다.
 
     상환일이 월말이라 기본 30일 창에는 하루 차이로 안 들어온다 — 일정 생성 자체를
     보려면 창을 넓혀야 한다 (`_context` 의 `projection_days` 주석 참고).
     """
     context = _context(
-        debt=Decimal("45272104.184486"), debt_rows=_debt_rows(), projection_days=91
+        monkeypatch,
+        debt=Decimal("45272104.184486"),
+        debt_rows=_debt_rows(),
+        projection_days=91,
     )
 
     assert context.unresolved_sources == ()
@@ -162,59 +165,41 @@ def _raw_state_row(debt: Decimal) -> dict[str, object]:
     }
 
 
-def test_negative_debt_is_rejected_at_the_raw_row_boundary():
+def test_negative_debt_is_rejected_at_the_raw_row_boundary(monkeypatch):
     """⑤ 음수 부채는 원천 행에서 막힌다 — 두 런타임 경로의 공통 입구다.
 
     ★ 현재 행 조회는 이제 `fetch_all` 이다. `fetch_one` 이면 실행이 여럿일 때
       **아무 행이나** 집혔다.
     """
-    with (
-        patch(f"{_STATE_REPO}.get_db_schema", return_value="configured_schema"),
-        patch(f"{_STATE_REPO}.fetch_all", return_value=[_raw_state_row(Decimal(-1))]),
-        pytest.raises(FinanceDataNotReady) as raised,
-    ):
-        _get_current_finance_state_row()
+    lend(monkeypatch, lambda _query, _params: [_raw_state_row(Decimal(-1))])
+    with pytest.raises(FinanceDataNotReady) as raised:
+        get_current_finance_state()
 
     assert raised.value.key == "finance_state_debt_invalid"
 
 
-def test_negative_debt_cannot_reach_the_runtime_context():
+def test_negative_debt_cannot_reach_the_runtime_context(monkeypatch):
     """⑤ 컨텍스트 경로: 음수 부채가 `unresolved 없음` 으로 통과하지 않는다."""
-    with (
-        patch(f"{_STATE_REPO}.get_db_schema", return_value="configured_schema"),
-        patch(
-            f"{_STATE_REPO}.fetch_all",
-            return_value=[_raw_state_row(Decimal("-0.01"))],
-        ),
-        pytest.raises(FinanceDataNotReady),
-    ):
+    lend(monkeypatch, lambda _query, _params: [_raw_state_row(Decimal("-0.01"))])
+    with pytest.raises(FinanceDataNotReady):
         get_current_finance_runtime_context()
 
 
-def test_negative_debt_cannot_bypass_through_the_as_of_data_port():
+def test_negative_debt_cannot_bypass_through_the_as_of_data_port(monkeypatch):
     """⑥ AsOf DataPort 경로도 막힌다.
 
     ★ 이 경로는 **원시 dict 를 그대로** 쓴다 — `FinanceSnapshot` 검증을 거치지 않으므로
       스키마 제약만 믿으면 여기로 음수가 빠져나간다. 그래서 원천 행에서 막아야 한다.
     """
     port = PostgresFinanceAsOfDataPort()
-    # as-of 경로는 축(`fetch_one`)을 읽고 상태 행(`fetch_all`)을 고른다.
-    with (
-        patch(f"{_STATE_REPO}.get_db_schema", return_value="configured_schema"),
-        patch(f"{_STATE_REPO}.fetch_one", return_value=_raw_state_row(Decimal(-1))),
-        patch(f"{_STATE_REPO}.fetch_all", return_value=[_raw_state_row(Decimal(-1))]),
-        pytest.raises(FinanceDataNotReady) as raised,
-    ):
+    # as-of 경로는 축을 읽고 상태 행을 고른다 — 두 조회 모두 같은 원시 행을 받는다.
+    lend(monkeypatch, lambda _query, _params: [_raw_state_row(Decimal(-1))])
+    with pytest.raises(FinanceDataNotReady) as raised:
         port.load_finance_position(date(2025, 12, 31))
 
     assert raised.value.key == "finance_state_debt_invalid"
     # 부채 일정 조회까지 가지도 못한다 — 상태 자체를 못 믿기 때문이다.
-    with (
-        patch(f"{_STATE_REPO}.get_db_schema", return_value="configured_schema"),
-        patch(f"{_STATE_REPO}.fetch_one", return_value=_raw_state_row(Decimal(-1))),
-        patch(f"{_STATE_REPO}.fetch_all", return_value=[_raw_state_row(Decimal(-1))]),
-        pytest.raises(FinanceDataNotReady),
-    ):
+    with pytest.raises(FinanceDataNotReady):
         port.load_debt_schedule(date(2025, 12, 31), date(2026, 1, 30))
 
 

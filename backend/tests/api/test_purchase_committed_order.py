@@ -8,6 +8,11 @@ FINAL-0918 09-14 에서 495줄이었다. 화면은 10줄씩 나눠 보이므로(
 
     ① 원장 조회가 최신순으로 나가나 — 질의 문면을 본다
     ② `_committed` 가 그 순서를 **다시 섞지 않나** — 주입한 순서가 그대로 나오나
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -18,7 +23,9 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
+from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 AXIS = "SIM-ORDER-TEST"
@@ -40,7 +47,6 @@ def _buy(purchase_id: str, purchase_date: date) -> dict[str, Any]:
 
 
 def test_원장_조회가_최신순으로_나간다(monkeypatch: pytest.MonkeyPatch) -> None:
-    import app.finance.db as finance_db
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     문면: list[str] = []
@@ -49,9 +55,9 @@ def test_원장_조회가_최신순으로_나간다(monkeypatch: pytest.MonkeyPa
         문면.append(query.as_string(None))
         return []
 
-    monkeypatch.setattr(finance_db, "fetch_all", _record)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=_record)
 
-    purchase_query._read(AS_OF, sim_run_id=AXIS)
+    read_purchase_tab(AS_OF, sim_run_id=AXIS)
 
     (원장,) = [t for t in 문면 if "purchase_items" in t]
     assert "ORDER BY p.purchase_date DESC, i.purchase_item_id DESC" in 원장
@@ -65,8 +71,8 @@ def test_확정_매입_표는_받은_순서를_다시_섞지_않는다(monkeypat
     def _tab(buys: list[dict[str, Any]]):
         data = {"runs": [], "buys": buys, "decisions": [],
                 "items": {"ITEM-CABBAGE": "배추"}, "arrivals": []}
-        monkeypatch.setattr(purchase_query, "_read", lambda as_of, **_kwargs: data)
-        return purchase_query.build(AS_OF, AXIS)
+        monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: data)
+        return purchase_presenter.build(AS_OF, AXIS)
 
     앞 = [r["approval"] for r in _tab(최신순).committed.rows]
     뒤 = [r["approval"] for r in _tab(list(reversed(최신순))).committed.rows]

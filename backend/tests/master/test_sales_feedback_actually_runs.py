@@ -20,11 +20,13 @@ from datetime import date
 from typing import Any
 
 from app.contracts.core import SuggestedAdjustment
-from app.finance.capabilities.sales import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
-from app.finance.execution import _adjustment_from_dict
-from app.master import AgentRegistry, CallBudget, ExecutionContext, MasterRunner
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master.sales_flow import SalesFlow
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.finance.domain.evidence import adjustment_from_dict
+from app.finance.domain.sales_validation import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import SalesFlow
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 AS_OF = date(2026, 9, 16)
@@ -93,7 +95,7 @@ def _finance_port(*, with_adjustment: bool = True):
             # 계산할 수 없는 실패 — 상한을 못 센다.
             payload["max_finance_allowed_amount_krw"] = None
         adjustments: tuple[SuggestedAdjustment, ...] = tuple(
-            _adjustment_from_dict(item) for item in build_sales_adjustments(payload)
+            adjustment_from_dict(item) for item in build_sales_adjustments(payload)
         )
         reply = _reply(
             request,
@@ -158,8 +160,8 @@ def test_되먹임_회차에_재무_회신_원본이_실린다():
 
 def test_되먹임_회차의_전략_계획도_회신을_본다():
     """재계획에서 자세를 다시 고를 때 부서 회신이 실제로 손에 있어야 한다."""
-    from app.sales.proposal import _all_feedback_replies
-    from app.sales.schemas import SalesProposalInput
+    from app.sales.domain.proposal import all_feedback_replies as _all_feedback_replies
+    from app.sales.schemas.proposal import SalesProposalInput
 
     _outcome, 보낸것 = _run()
     재계획 = SalesProposalInput.model_validate(

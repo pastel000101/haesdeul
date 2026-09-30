@@ -17,10 +17,10 @@ from datetime import date
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
-from app.purchase_agent.nodes.self_check import (
+from app.purchase_agent.domain.self_check import (
     arrival_capacity,
     cap_window,
     check_arrival_capacity,
@@ -296,7 +296,7 @@ def test_the_window_matches_what_logistics_built() -> None:
     """
     from datetime import timedelta
 
-    from app.logistics.tools import build_cap_window
+    from app.logistics.domain.tools import build_cap_window
 
     state = _state({}, lead=LEAD, window=WINDOW)
     ours = cap_window(state)  # type: ignore[arg-type]

@@ -22,12 +22,13 @@ from typing import Any
 
 import pytest
 
-from app.sales import proposal as proposal_module
+from app.sales.domain.ranking import rank_scenarios
 from app.sales.llm import runtime as llm_runtime
 from app.sales.llm.runtime import LlmInterpretationOutput
-from app.sales.proposal import run_proposal
-from app.sales.ranking import rank_scenarios
-from app.sales.schemas import SalesProposalInput
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service import proposal as proposal_service
+from app.sales.service.proposal import run_proposal
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 FINANCE_REF = "FIN-REPLY-SALES-001-A"
 
@@ -222,7 +223,7 @@ def test_the_second_pass_walks_the_whole_graph():
     ★ `decision_trace` 는 후보별 결과라 노드 순서를 담지 않는다. 그래서 그래프 상태의
       `agent_trace` 를 직접 본다 — 회신 계약을 넓히지 않고 확인하는 방법이다.
     """
-    from app.sales.graph import _graph
+    from app.sales.service.proposal import _graph
 
     first = _pass_one()
     ids = [scenario.scenario_id for scenario in first.scenarios]
@@ -478,9 +479,7 @@ def test_a_failing_finance_verdict_keeps_the_candidate_out_of_the_explanation(mo
 def test_the_deterministic_core_owns_the_numbers(gemini):
     """🔴 모델을 거치고도 숫자의 주인은 판매의 결정론 코어다."""
     reply = _pass_two()
-    direct = proposal_module._generate_scenarios(
-        SalesProposalInput.model_validate(_request_payload())
-    )
+    direct = plan_and_generate_scenarios(SalesProposalInput.model_validate(_request_payload()))
     by_id = {scenario.scenario_id: scenario for scenario in direct}
 
     for scenario in reply.scenarios:
@@ -511,7 +510,7 @@ def test_the_reported_amount_is_quantity_times_price(gemini):
 
 
 def _state_of(reply_input) -> Any:
-    from app.sales.graph import _graph
+    from app.sales.service.proposal import _graph
 
     return _graph().invoke({"request": reply_input})
 
@@ -582,8 +581,8 @@ def test_the_recommendation_is_already_settled_when_the_node_starts(gemini):
 
 def test_the_final_node_only_assembles_and_never_calls_the_model(monkeypatch):
     """🔴 최종 조립은 모델을 부르지 않는다 — 앞에서 만든 설명을 옮겨 담을 뿐이다."""
-    from app.sales.graph import _final_recommendation
-    from app.sales.schemas import SalesRecommendation
+    from app.sales.schemas.proposal import SalesRecommendation
+    from app.sales.service.proposal import _final_recommendation
 
     monkeypatch.setenv("SALES_LLM_ENABLED", "true")
     monkeypatch.setenv("SALES_GEMINI_API_KEY", "test-key")
@@ -639,13 +638,15 @@ def test_the_explanation_node_does_not_touch_the_business_values(monkeypatch):
     monkeypatch.setattr(llm_runtime, "_call_gemini", _GeminiSpy())
 
     seen: list[list[tuple]] = []
-    original = proposal_module._interpret_scenarios
+    #  ★ 2026-09-29 BL-013: 설명 node 가 해석 후보를 고르는 자리(`interpretation_candidates`)를
+    #    지켜본다 — 전에는 `proposal._interpret_scenarios` 가 후보 고르기와 모델 호출을 함께 했다.
+    original = proposal_service.interpretation_candidates
 
-    def watching(scenarios, fixed_recommendation):
+    def watching(scenarios):
         seen.append(_commercial_snapshot(scenarios))
-        return original(scenarios, fixed_recommendation)
+        return original(scenarios)
 
-    monkeypatch.setattr(proposal_module, "_interpret_scenarios", watching)
+    monkeypatch.setattr(proposal_service, "interpretation_candidates", watching)
 
     first = _pass_one()
     ids = [scenario.scenario_id for scenario in first.scenarios]

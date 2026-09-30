@@ -35,8 +35,10 @@ _APP = _BACKEND / "app"
 
 #: (파일, 클래스, 열려 있어야 하는 필드)
 _OPEN_FIELDS = [
-    ("logistics/schemas.py", "InventoryByItem", "item"),
-    ("sales/schemas.py", "LogisticsInventoryByItem", "item"),
+    #  2026-09-30 재구성 BL-015: 물류 모델은 `logistics/schemas/` 패키지로 나뉘었다.
+    ("logistics/schemas/agent.py", "InventoryByItem", "item"),
+    #  2026-09-29 BL-013: 판매 모델은 `sales/schemas/` 패키지로 나뉘었다.
+    ("sales/schemas/proposal.py", "LogisticsInventoryByItem", "item"),
 ]
 
 
@@ -104,7 +106,7 @@ def test_물류와_판매는_ITEMS_를_아예_안_본다():
 
 def test_계약_밖_품목도_재고로_설_수_있다():
     """실제로 세워 본다. **타입 검사만으로는 부족하다.**"""
-    from app.logistics.schemas import InventoryByItem
+    from app.logistics.schemas.agent import InventoryByItem
 
     outside = "피마늘"
     assert outside not in ITEMS, "이 검사는 계약 밖 품목이어야 뜻이 있다"

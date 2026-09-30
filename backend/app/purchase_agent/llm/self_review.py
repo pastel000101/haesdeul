@@ -12,6 +12,8 @@
 
 from collections.abc import Callable
 
+from app.core.llm.runtime import run_with_fallback
+from app.purchase_agent.domain.review_templates import FINDINGS
 from app.purchase_agent.llm.review_schemas import (
     ReviewContext,
     ReviewOutput,
@@ -23,10 +25,8 @@ from app.purchase_agent.llm.runtime import (
     RoleSpec,
     build_provider,
     get_llm_settings,
-    run_with_fallback,
 )
 from app.purchase_agent.llm.text_guard import contains_control_chars, contains_number
-from app.purchase_agent.review_templates import FINDINGS
 
 # 🔴 **도달 불가한 예시를 걷어냈다** (2026-09-18 · 검증설계 v0.2 §4 · 결정 ②).
 #   예시가 *"라벨이 SPREAD_NORMAL·SHELF_TIGHT 인데"* 였는데, ⑤ 가 도는 날은 언제나
@@ -140,12 +140,12 @@ class SelfReviewService:
         """
         template = ReviewOutput(findings=[])
         출력, 상태, 시도, 떨어짐 = run_with_fallback(
-            settings=self.settings,
-            provider=self.provider,
-            context=context,
-            template=template,
-            validate=lambda raw: validate_output(raw, context),
+            enabled=self.settings.enabled,
             needs_call=needs_call(context),
+            max_retries=self.settings.max_retries,
+            call=lambda guidance: self.provider.generate(context, retry_guidance=guidance),
+            validate=lambda raw: validate_output(raw, context),
+            template=template,
             guidance_for=guidance_for,
         )
         return ReviewResult(
@@ -176,7 +176,7 @@ def _service() -> SelfReviewService:
 
 
 #: 🔴 ``contains_number`` 는 이 역할에서 **응답이 아니라 요청**을 잰다 —
-#: 정제가 실제로 됐는지 노드가 확인할 때 쓴다 (``nodes/review_rationale``).
+#: 정제가 실제로 됐는지 노드가 확인할 때 쓴다 (``review_rationale``).
 __all__ = [
     "ROLE",
     "ReviewInvalid",

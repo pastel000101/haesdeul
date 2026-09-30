@@ -19,10 +19,13 @@ from uuid import uuid4
 
 import pytest
 
-from app.master import decision_service as svc
-from app.master import transition
-from app.master.commitment import ApprovedCommitment, ArrivalLeg
-from app.master.decision import AUTO_BACKFILL, DecisionIn, DecisionOut
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.readmodel import approvals
+from app.master.registry import transition as registry_transition
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service import decision
+from app.master.service import transition as service_transition
 
 AS_OF = date(2025, 12, 31)
 
@@ -37,11 +40,11 @@ def 전이_등록소를_비운다() -> Iterator[None]:
 
     ★ 끝나고만 비우면 앞 테스트가 남긴 등록이 이 파일로 흘러든다.
     """
-    transition.reset()
+    registry_transition.reset()
     try:
         yield
     finally:
-        transition.reset()
+        registry_transition.reset()
 
 
 def _commitment() -> ApprovedCommitment:
@@ -102,7 +105,7 @@ class 가짜커넥션:
     def __init__(self, log: list[tuple[str, Any]] | None = None) -> None:
         self.commits = 0
         self.rollbacks = 0
-        self.closed = 0
+        self.returned = 0
         self.cursors: list[가짜커서] = []
         self._log = log
 
@@ -117,8 +120,12 @@ class 가짜커넥션:
     def rollback(self) -> None:
         self.rollbacks += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class 가짜전이:
@@ -171,8 +178,8 @@ def _connect_spy(conn: 가짜커넥션, calls: list[int]):
 def test_둘_다_미등록이면_커넥션을_열지_않는다() -> None:
     """🔴 열고 나서 아무 일도 안 하면 **빈 트랜잭션**이 승인마다 열렸다 닫힌다."""
     calls: list[int] = []
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -188,11 +195,11 @@ def test_둘_다_미등록이면_커넥션을_열지_않는다() -> None:
 def test_한쪽만_등록되면_반쪽으로_반영하지_않는다() -> None:
     """★ 재무만 있는 날 현금만 나가면 **입고 예정 없는 장부**가 된다."""
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
     calls: list[int] = []
 
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "NOT_APPLIED"
@@ -206,13 +213,13 @@ def test_한쪽만_등록되면_반쪽으로_반영하지_않는다() -> None:
 
 def test_둘_다_등록되면_한_커넥션으로_한_번_커밋한다() -> None:
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
     conn = 가짜커넥션()
     calls: list[int] = []
 
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(conn, calls), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, calls), sim_run_id=실행축
     )
 
     assert out.status == "APPLIED"
@@ -235,7 +242,7 @@ def test_둘_다_등록되면_한_커넥션으로_한_번_커밋한다() -> None
     assert conn.commits == 1, "커밋은 한 번뿐이다"
     assert conn.commits == 1, "커밋은 두 파트가 끝난 뒤 한 번이다"
     assert conn.rollbacks == 0
-    assert conn.closed == 1
+    assert conn.returned == 1
 
     persisted = [(name, got) for name, got in log if name.endswith(".persist")]
     assert [name for name, _ in persisted] == ["finance.persist", "logistics.persist"]
@@ -249,11 +256,11 @@ def test_재무_build_는_상태가_설_날을_받는다() -> None:
       그 날짜 규칙 자체는 `test_transition_protocol.py` 가 잰다.
     """
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
 
-    transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
+    service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
     )
 
     assert ("finance.build", AS_OF + timedelta(days=1)) in log
@@ -265,15 +272,15 @@ def test_재무_build_는_상태가_설_날을_받는다() -> None:
 def test_물류_적재가_터지면_전부_되돌린다() -> None:
     """🔴 재무만 커밋되면 **현금은 나갔는데 입고 예정이 없는** 장부가 된다."""
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition(
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition(
         "logistics",
         가짜전이("logistics", log, persist_raises=RuntimeError("로트 표가 없다")),
     )
     conn = 가짜커넥션()
 
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(conn, []), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -281,19 +288,19 @@ def test_물류_적재가_터지면_전부_되돌린다() -> None:
     assert conn.commits == 0
     assert conn.rollbacks == 1
     # ② 하나로 바뀌었다 (물류 `#484`) — 개장 정본 읽기가 없어져 대역을 한 번만 닫는다.
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_적재_실패가_예외로_올라가지_않는다() -> None:
     """★ 결정은 **이미 적재됐다.** 전이 실패가 500 이 되면 승인이 실패로 보인다."""
     log: list[tuple[str, Any]] = []
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition(
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition(
         "logistics", 가짜전이("logistics", log, persist_raises=RuntimeError("끊겼다"))
     )
 
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(가짜커넥션(), []), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -304,14 +311,14 @@ def test_적재_실패가_예외로_올라가지_않는다() -> None:
 
 def test_build_가_터지면_커넥션을_열지_않는다() -> None:
     log: list[tuple[str, Any]] = []
-    transition.register_transition(
+    registry_transition.register_transition(
         "finance", 가짜전이("finance", log, build_raises=ValueError("현금 상태가 없다"))
     )
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
     calls: list[int] = []
 
-    out = transition.apply_approval(
-        _commitment(), connect=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=실행축
     )
 
     assert out.status == "FAILED"
@@ -328,7 +335,7 @@ def test_전이_모듈에_SQL_이_없다() -> None:
     ★ 원문을 읽어 검사한다. import 로는 안 잡힌다 — SQL 문자열은 실행되기 전까지
       아무 흔적이 없다.
     """
-    source = Path(transition.__file__).read_text(encoding="utf-8")
+    source = Path(service_transition.__file__).read_text(encoding="utf-8")
 
     for 금지 in ("INSERT INTO", "UPDATE ", "DELETE "):
         assert 금지 not in source, f"마스터 전이 경계에 SQL 이 있다: {금지}"
@@ -360,15 +367,17 @@ def wired(monkeypatch):
             **kw,
         )
 
-    monkeypatch.setattr(svc, "_run_for", _run_for)
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [])
-    monkeypatch.setattr(svc, "save_decision", _save)
+    monkeypatch.setattr(approvals, "run_for", _run_for)
+    monkeypatch.setattr(decision, "run_for", _run_for)
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "save_decision", _save)
 
     def _record(response: dict[str, Any], **payload: Any) -> DecisionOut:
         saved["response"] = response
         body = {"decision": "APPROVE", "scenario_label": "보수", "decided_by": "lhs"}
         body.update(payload)
-        return svc.record_decision("REQ-1", DecisionIn(**body))
+        return decision.record_decision("REQ-1", DecisionIn(**body))
 
     return _record
 
@@ -427,17 +436,17 @@ def test_등록되어_있으면_승인_경로가_커밋까지_간다(wired, monk
     """★ 재무·물류가 들어온 날 이 경로가 그대로 도는지 **미리** 잰다."""
     log: list[tuple[str, Any]] = []
     conn = 가짜커넥션()
-    transition.register_transition("finance", 가짜전이("finance", log))
-    transition.register_transition("logistics", 가짜전이("logistics", log))
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
 
-    real_apply = transition.apply_approval
+    real_apply = service_transition.apply_approval
     monkeypatch.setattr(
-        svc,
+        decision,
         "apply_approval",
         # ★ **축은 그대로 흘린다.** 여기서 `**_` 로 삼키면 결정 경로가 축을 넘기는지가
         #   이 검사에서 안 보인다.
         lambda commitment, *, sim_run_id, **_: real_apply(
-            commitment, sim_run_id=sim_run_id, connect=lambda: conn
+            commitment, sim_run_id=sim_run_id, borrow=lambda: conn
         ),
     )
 

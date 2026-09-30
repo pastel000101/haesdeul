@@ -21,12 +21,15 @@ from datetime import date
 
 import pytest
 
-from app.api.shown_run import SHOWN_SIM_RUN_ID
-from app.master import AgentReply, AgentRequest, ExecutionMetadata, ask_service, wiring
-from app.master.ask_schemas import AskExecuteRequest
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.core.settings import SHOWN_SIM_RUN_ID
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 from app.master.llm.runtime import SYSTEM_PROMPT, _clarification, validate_intent
 from app.master.llm.schemas import Intent
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.ask import AskExecuteRequest
+from app.master.service import ask
+from app.master.service import persistence as service_persistence
 
 AS_OF_A = date(2026, 1, 13)
 AS_OF_B = date(2026, 1, 20)
@@ -59,20 +62,20 @@ def _spy_port(seen: list[AgentRequest], payload: dict):
 
 @pytest.fixture(autouse=True)
 def clean_wiring():
-    wiring.reset()
+    registry_wiring.reset()
     yield
-    wiring.reset()
+    registry_wiring.reset()
 
 
 @pytest.fixture
 def recorded(monkeypatch) -> list[dict]:
     calls: list[dict] = []
-    monkeypatch.setattr(ask_service.persistence, "record_status", lambda **kw: calls.append(kw))
+    monkeypatch.setattr(service_persistence, "record_status", lambda **kw: calls.append(kw))
     return calls
 
 
 def _status(agent: str, as_of: date):
-    return ask_service.execute(
+    return ask.execute(
         AskExecuteRequest(
             intent=Intent(action="STATUS_QUERY", agents=[agent], confidence="HIGH"),
             as_of=as_of,
@@ -83,7 +86,7 @@ def _status(agent: str, as_of: date):
 
 def test_조회_봉투는_화면이_보는_실행을_읽고_기준일을_그대로_넘긴다(recorded):
     seen: list[AgentRequest] = []
-    wiring.register("finance", _spy_port(seen, {"available_cash": 1}))
+    registry_wiring.register("finance", _spy_port(seen, {"available_cash": 1}))
 
     _status("finance", AS_OF_A)
     _status("finance", AS_OF_B)
@@ -94,7 +97,7 @@ def test_조회_봉투는_화면이_보는_실행을_읽고_기준일을_그대�
 
 
 def test_조회_이력_행은_정본_축으로_안_적힌다(recorded):
-    wiring.register("finance", _spy_port([], {"available_cash": 1}))
+    registry_wiring.register("finance", _spy_port([], {"available_cash": 1}))
 
     _status("finance", AS_OF_A)
 
@@ -104,7 +107,7 @@ def test_조회_이력_행은_정본_축으로_안_적힌다(recorded):
 
 
 def test_응답에_보고_있는_실행과_기준일이_실린다(recorded):
-    wiring.register("finance", _spy_port([], {"available_cash": 1}))
+    registry_wiring.register("finance", _spy_port([], {"available_cash": 1}))
 
     response = _status("finance", AS_OF_B)
 
@@ -124,7 +127,7 @@ def test_판매는_분류_사전에_있고_검증을_통과한다():
 
 def test_판매_조회가_같은_흐름으로_답한다(recorded):
     seen: list[AgentRequest] = []
-    wiring.register("sales", _spy_port(seen, {"recent_runs": []}))
+    registry_wiring.register("sales", _spy_port(seen, {"recent_runs": []}))
 
     response = _status("sales", AS_OF_A)
 

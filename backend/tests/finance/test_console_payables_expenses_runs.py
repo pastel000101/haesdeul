@@ -11,13 +11,26 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.console_expenses import display_category, get_console_expenses
-from app.finance.console_payables import get_console_payables
-from app.finance.console_runs import get_console_finance_latest_run, get_console_finance_runs
+from app.finance.readmodel.console_expenses import display_category, get_console_expenses
+from app.finance.readmodel.console_payables import get_console_payables
+from app.finance.readmodel.console_runs import (
+    get_console_finance_latest_run,
+    get_console_finance_runs,
+)
+from tests.finance.finance_fake_connection import lend
 
 AS_OF = date(2026, 1, 9)
 RUN_A = "SIM-CONSOLE-A"
 RUN_B = "SIM-CONSOLE-B"
+
+
+@pytest.fixture(autouse=True)
+def _read_connection(monkeypatch):
+    """2026-09-29 재구성 BL-014: 화면 조회는 조회 연결을 빌려 repository 에 넘긴다.
+
+    가짜 연결을 빌려 준다.
+    """
+    return lend(monkeypatch)
 
 
 class _Capture:
@@ -27,7 +40,7 @@ class _Capture:
         self.rows_by_run = rows_by_run
         self.queries: list[tuple[str, list]] = []
 
-    def __call__(self, query, params):
+    def __call__(self, _conn, query, params):
         self.queries.append((str(query), list(params)))
         run = next((value for value in params if value in self.rows_by_run), None)
         return list(self.rows_by_run.get(run, []))
@@ -54,11 +67,11 @@ def _payable(payable_id: str, *, due: date, outstanding: str, status: str = "OPE
 def test_payables_never_mix_runs(monkeypatch):
     captured: list[list] = []
 
-    def loader(*, sim_run_id, as_of):
+    def loader(_conn, *, sim_run_id, as_of):
         captured.append([sim_run_id, as_of])
         return [_payable(f"PAY-{sim_run_id[-1]}", due=AS_OF, outstanding="10")]
 
-    monkeypatch.setattr("app.finance.console_payables.load_payables", loader)
+    monkeypatch.setattr("app.finance.readmodel.console_payables.load_payables", loader)
     a = get_console_payables(sim_run_id=RUN_A, as_of=AS_OF)
     b = get_console_payables(sim_run_id=RUN_B, as_of=AS_OF)
 
@@ -70,8 +83,8 @@ def test_payables_never_mix_runs(monkeypatch):
 
 def test_payable_windows_are_counted_separately(monkeypatch):
     monkeypatch.setattr(
-        "app.finance.console_payables.load_payables",
-        lambda **_: [
+        "app.finance.readmodel.console_payables.load_payables",
+        lambda _conn, **_: [
             _payable("OVERDUE", due=date(2026, 1, 5), outstanding="100"),
             _payable("TODAY", due=AS_OF, outstanding="200"),
             _payable("IN-7", due=date(2026, 1, 16), outstanding="300"),
@@ -89,8 +102,8 @@ def test_payable_windows_are_counted_separately(monkeypatch):
 
 def test_settled_payables_stay_readable_but_stop_counting(monkeypatch):
     monkeypatch.setattr(
-        "app.finance.console_payables.load_payables",
-        lambda **_: [
+        "app.finance.readmodel.console_payables.load_payables",
+        lambda _conn, **_: [
             _payable("DONE", due=AS_OF, outstanding="0", status="SETTLED"),
             _payable("OPEN", due=AS_OF, outstanding="50"),
         ],
@@ -103,8 +116,8 @@ def test_settled_payables_stay_readable_but_stop_counting(monkeypatch):
 
 def test_a_filter_narrows_rows_without_moving_the_summary(monkeypatch):
     monkeypatch.setattr(
-        "app.finance.console_payables.load_payables",
-        lambda **_: [
+        "app.finance.readmodel.console_payables.load_payables",
+        lambda _conn, **_: [
             _payable("OVERDUE", due=date(2026, 1, 5), outstanding="100"),
             _payable("LATER", due=date(2026, 2, 9), outstanding="400"),
         ],
@@ -118,8 +131,10 @@ def test_a_filter_narrows_rows_without_moving_the_summary(monkeypatch):
 
 def test_a_null_outstanding_amount_is_refused(monkeypatch):
     monkeypatch.setattr(
-        "app.finance.console_payables.load_payables",
-        lambda **_: [{**_payable("X", due=AS_OF, outstanding="0"), "outstanding_amount_krw": None}],
+        "app.finance.readmodel.console_payables.load_payables",
+        lambda _conn, **_: [
+            {**_payable("X", due=AS_OF, outstanding="0"), "outstanding_amount_krw": None}
+        ],
     )
     with pytest.raises(ValueError):
         get_console_payables(sim_run_id=RUN_A, as_of=AS_OF)
@@ -148,8 +163,8 @@ def test_expenses_never_mix_runs(monkeypatch):
             RUN_B: [_expense("EXP-B", category="RENT", amount="20")],
         }
     )
-    monkeypatch.setattr("app.finance.console_expenses.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_expenses.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_expenses.get_db_schema", lambda: "haetdeul")
 
     a = get_console_expenses(sim_run_id=RUN_A, as_of=AS_OF)
     b = get_console_expenses(sim_run_id=RUN_B, as_of=AS_OF)
@@ -171,8 +186,8 @@ def test_category_totals_group_by_the_stored_name(monkeypatch):
             ]
         }
     )
-    monkeypatch.setattr("app.finance.console_expenses.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_expenses.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_expenses.get_db_schema", lambda: "haetdeul")
 
     summary = get_console_expenses(sim_run_id=RUN_A, as_of=AS_OF).summary
 
@@ -188,8 +203,8 @@ def test_category_totals_group_by_the_stored_name(monkeypatch):
 def test_an_unknown_category_keeps_its_own_name(monkeypatch):
     """🔴 A category the label table does not know is **not** folded into 기타."""
     capture = _Capture({RUN_A: [_expense("E1", category="NEW_THING", amount="5")]})
-    monkeypatch.setattr("app.finance.console_expenses.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_expenses.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_expenses.get_db_schema", lambda: "haetdeul")
 
     row = get_console_expenses(sim_run_id=RUN_A, as_of=AS_OF).rows[0]
 
@@ -200,8 +215,8 @@ def test_an_unknown_category_keeps_its_own_name(monkeypatch):
 
 def test_the_date_filter_reaches_sql(monkeypatch):
     capture = _Capture({RUN_A: []})
-    monkeypatch.setattr("app.finance.console_expenses.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_expenses.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_expenses.get_db_schema", lambda: "haetdeul")
 
     get_console_expenses(
         sim_run_id=RUN_A,
@@ -242,8 +257,8 @@ def _run_row(run_id: str, *, verdict: str | None = "PASS") -> dict:
 
 def test_finance_runs_are_scoped_to_the_requested_run(monkeypatch):
     capture = _Capture({RUN_A: [_run_row("FIN-A")], RUN_B: [_run_row("FIN-B")]})
-    monkeypatch.setattr("app.finance.console_runs.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_runs.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_runs.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_runs.get_db_schema", lambda: "haetdeul")
 
     a = get_console_finance_runs(sim_run_id=RUN_A)
     b = get_console_finance_runs(sim_run_id=RUN_B)
@@ -259,8 +274,8 @@ def test_finance_runs_are_scoped_to_the_requested_run(monkeypatch):
 
 def test_latest_finance_run_never_falls_back_to_another_run(monkeypatch):
     capture = _Capture({RUN_A: [_run_row("FIN-A")]})
-    monkeypatch.setattr("app.finance.console_runs.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_runs.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_runs.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_runs.get_db_schema", lambda: "haetdeul")
 
     assert get_console_finance_latest_run(sim_run_id=RUN_A).run_id == "FIN-A"
     # 🔴 A run with no history answers "none" — not somebody else's newest run.
@@ -269,8 +284,8 @@ def test_latest_finance_run_never_falls_back_to_another_run(monkeypatch):
 
 def test_latest_finance_run_is_ordered_and_capped(monkeypatch):
     capture = _Capture({RUN_A: [_run_row("FIN-A")]})
-    monkeypatch.setattr("app.finance.console_runs.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_runs.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_runs.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_runs.get_db_schema", lambda: "haetdeul")
 
     get_console_finance_latest_run(sim_run_id=RUN_A)
     statement, params = capture.queries[0]
@@ -283,8 +298,8 @@ def test_latest_finance_run_is_ordered_and_capped(monkeypatch):
 
 def test_a_run_without_a_verdict_reports_null(monkeypatch):
     capture = _Capture({RUN_A: [_run_row("FIN-A", verdict=None)]})
-    monkeypatch.setattr("app.finance.console_runs.fetch_all", capture)
-    monkeypatch.setattr("app.finance.console_runs.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.console_runs.fetch_all", capture)
+    monkeypatch.setattr("app.finance.repository.console_runs.get_db_schema", lambda: "haetdeul")
 
     row = get_console_finance_runs(sim_run_id=RUN_A).rows[0]
 

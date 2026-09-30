@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/purchase/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/purchase/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/purchase?as_of=2026-01-22
 
 ```
 app/api/purchase/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/purchase/query.py
+# backend/app/api/purchase/presenter.py
 def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 ```
 
@@ -64,12 +64,12 @@ def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 `app/master/` 가 씁니다. **여기서 에이전트를 돌리지 마세요** — 저장된
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
-🔴 **DB 헬퍼는 `app.finance.db` 입니다.** `app.purchase_agent.db` 에는
-`get_db_schema` 가 **없습니다** — 일부러 뺐고 (그 파일 머리말) 이유는
-*"`.env` 가 어느 시세 테이블을 읽을지 정하면 안 된다"* 입니다. 그건
-에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로 스키마를
-`.env` 가 정하는 것이 맞습니다. 마스터 `ledger_repository.py` 가 같은
-이유로 같은 선택을 했습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
+🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
+(2026-09-30 — SQL 은 `app/master/repository/purchase_tab.py`, 조회 연결은 그 readmodel 이
+빌린다). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
+안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
+스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
 
 ## ★ 아직 안 정한 것 — `sim_run_id`
 
@@ -92,7 +92,7 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 띄우게 되고, 그건 **틀린 줄도 모르는** 오류입니다.
 급하면 ㉰ 로 두고 `Note` 에 «어느 실행을 보고 있는지» 를 적으세요.
 
-**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/api/shown_run.py`.**
+**발표용으로 ㉰ 로 정했습니다 (2026-09-14) — `app/core/settings.py` 의 두 값.**
 화면이 읽는 실행은 `SHOWN_SIM_RUN_ID`, 기준일은 `SHOWN_AS_OF` 한 자리에서만 정합니다.
 재무 · 물류 · 판매 · 대시보드와 매입 라우터(쿼리에 축이 없을 때)가 이 값을 씁니다.
 각 탭 `Source.note` 에 「보고 있는 실행: 실행 이름」 을 적습니다.
@@ -104,28 +104,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+마스터 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.finance.db import fetch_one, fetch_all, get_db_schema
+마스터는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/master/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/master/readmodel/` 입니다.
+
+```text
+app/master/repository/<자원>.py   SQL. 연결과 스키마 이름을 인자로 받고 commit 하지 않는다
+app/master/readmodel/<자원>.py    스키마 이름을 읽고 조회 연결을 빌려 repository 를 부른다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.purchases WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---
@@ -168,7 +160,7 @@ rows = fetch_all(f'SELECT * FROM {schema}.purchases WHERE as_of = %s', (as_of,))
 | `risks` | `list[str]` | 필수 | 걸리는 것. 비어 있으면 안 적는다 |
 | `pending` | `bool` | 필수 | 이 안의 요청(품목·날)에 아직 결정이 없나. 형제 안이 결정되면 거짓이다 |
 | `approved` | `bool` | 선택 | 이미 승인된 안인가 |
-| `state` | `str` | 선택 | 이 안이 실제로 어느 상태인가 — 후보 · 승인됨 · 매입 기록됨 · 반려. 🔴 낱말과 가르는 규칙의 주인은 `app/api/plan_state.py` 하나다 (대시보드도 같은 것을 쓴다). 화면이 이 넷 밖의 말을 만들지 않는다. |
+| `state` | `str` | 선택 | 이 안이 실제로 어느 상태인가 — 후보 · 승인됨 · 매입 기록됨 · 반려. 🔴 낱말과 가르는 규칙의 주인은 `app/master/domain/plan_state.py` 하나다 (대시보드도 같은 것을 쓴다). 화면이 이 넷 밖의 말을 만들지 않는다. |
 | `request_id` | `str &#124; None` | 선택 | 이 안을 낸 실행의 업무 키. 못 읽으면 None 이고 지어내지 않는다 |
 | `history_run_id` | `str &#124; None` | 선택 | 이 안을 낸 실행 이력 행 id(master_agent_runs.run_id). 못 읽으면 None |
 | `sim_run_id` | `str &#124; None` | 선택 | 어느 걷기의 실행인가. None 이면 걷기 밖(손 실행·축이 생기기 전)이다 |
@@ -287,7 +279,7 @@ Card(
 
 ```text
 max_price       재무 STRESS 로 나간다 — 남이 등식을 검사한다
-                finance/capabilities/scenario.py   amount_max_krw 등식
+                finance/service/capabilities/scenario.py   amount_max_krw 등식
                 master/verifier.py                 검사 이름 L-PAYSCHED-MAX
 cut_unit_price  우리 컷 (self_check.check_max_price)
 ```
@@ -332,13 +324,13 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 그 상수 주석이 *"여러 개가 되면 요청 파라미터로 올린다"* 이므로 매입이
 **먼저 그 자리에 간 것**입니다.
 
-**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `_read` 는 전부 읽고
-`_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
+**🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
+`pick_runs`(같은 마스터 readmodel) · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
    WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 됩니다
-② 검사가 `_read` 를 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
+② 검사가 `read_purchase_tab` 을 대신 세워 상황을 주입합니다. WHERE 에 두면 그 주입이
    필터를 건너뛰어 축이 도는지를 못 잽니다
 ```
 
@@ -381,11 +373,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -481,7 +473,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/purchase/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/purchase/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

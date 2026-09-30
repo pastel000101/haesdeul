@@ -245,13 +245,13 @@ def load_documents(item: str, as_of: date, doc_types: list[str]) -> list[dict[st
     🔴 **대신 열리는 위험 하나 — 문서의 나이.** 앵커가 2026-09-11 까지라 그 뒤 날짜는
       우연히 막혀 있었다. 이제 as_of 가 멀어져도 발행일 필터만 통과하면 다 보인다.
       시세는 나이를 본다(``quotes.provenance_problem``). **문서는 임계를 정할 근거가
-      없어 판정하지 않고, ⑥이 나이를 사실로 적는다** (``_context_risks``).
+      없어 판정하지 않고, ⑥이 나이를 사실로 적는다** (``context_risks``).
     """
     _require_item(item)
     raw = _read("documents.json")
     corpus = _pick(raw, "documents", "documents.json")
     # 🔴 **등급은 코퍼스가 선언한다** (2026-09-09 · E3-5). 전에는 ⑥
-    #   ``package_scenarios._context_rationale`` 이 ``"SIM_FIXED"`` 를 리터럴로 들고
+    #   ``package_scenarios.context_rationale`` 이 ``"SIM_FIXED"`` 를 리터럴로 들고
     #   있었고, *"실문서로 갈아끼우면 여기가 OFFICIAL 이 된다"* 는 설명만 docstring 에
     #   있었다. 선언과 코드가 **같은 값**이라 값 비교로는 «선언에서 읽는가» 를 증명할 수
     #   없었다 (규칙 8). 실물이 오는 날 고칠 자리를 코드 안에 숨기지 않는다.

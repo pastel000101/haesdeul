@@ -21,12 +21,8 @@ from datetime import date
 
 import pytest
 
-from app.master.commitment import (
-    ApprovedCommitment,
-    ArrivalLeg,
-    CommitmentNotBuildable,
-    build_commitment,
-)
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg, CommitmentNotBuildable
+from app.master.domain.commitment import build_commitment
 
 AS_OF = date(2025, 12, 31)
 
@@ -205,9 +201,9 @@ def test_오케를_import_하지_않는다():
     import ast
     from pathlib import Path
 
-    import app.master.commitment as module
+    from app.master.domain import commitment as domain_commitment
 
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(domain_commitment.__file__).read_text(encoding="utf-8"))
     modules = {
         node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
     }
@@ -239,7 +235,7 @@ def test_음수_리드타임은_과거_도착을_만들지_않는다():
 def _purchase_item_names() -> frozenset[str]:
     from typing import get_args
 
-    from app.purchase_agent.schemas import ItemName
+    from app.purchase_agent.schemas.proposal import ItemName
 
     return frozenset(get_args(ItemName))
 
@@ -251,7 +247,7 @@ def test_계약_품목은_전부_매입이_받을_수_있다():
     ⚠️ 반대 방향(매입이 더 넓은 것)은 사고가 아니다 — 마스터가 안 보내면 그만이다.
       그래서 같음이 아니라 **포함**으로 건다.
     """
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     assert ITEM_CODES <= _purchase_item_names()
 
@@ -280,10 +276,10 @@ def test_매입과_계약의_차이를_알고_있다():
       생기면 그것이 결정이든 사고든 **여기서 먼저 보인다.**
 
     ★ DB 기록은 안 고쳤다 — `master_agent_runs` 에 피마늘 194건이 남아 있고
-      매입 화면이 **보일 때 거른다** (`app/api/purchase/query.py`).
+      매입 화면이 **보일 때 거른다** (`app/master/readmodel/purchase_tab.py::pick_runs`).
       선언을 좁히는 것과 기록을 고쳐 쓰는 것은 다른 일이다.
     """
-    from app.master.commitment import ITEM_CODES
+    from app.contracts.commitment import ITEM_CODES
 
     extra = _purchase_item_names() - ITEM_CODES
 

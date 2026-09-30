@@ -21,17 +21,29 @@ master_agent_runs_run_request_unique   UNIQUE (run_id, request_id)
 
 from __future__ import annotations
 
+import inspect
 import re
 import unicodedata
 from pathlib import Path
 
-from app.master import run_repository, scheduler
+from app.master.domain import request_ids
 
 #: 🔴 이 이름이 **멱등의 근거로** 인용되면 안 된다.
 _인덱스 = "master_agent_runs_run_request_unique"
 
 def _원문(모듈) -> str:
     return unicodedata.normalize("NFC", Path(모듈.__file__).read_text(encoding="utf-8"))
+
+
+def _하루_키_원문() -> str:
+    """스케줄러의 하루 업무 키 짓기 둘. ★ 2026-09-30 재구성 BL-018 에 `scheduler.py` 에서
+    `domain/request_ids.py` 로 옮겨 설명 자리(`build_request_id`)와 같은 파일이 됐다 — 함수
+    원문만 잰다."""
+    return unicodedata.normalize(
+        "NFC",
+        inspect.getsource(request_ids.daily_request_id)
+        + inspect.getsource(request_ids.daily_sales_request_id),
+    )
 
 
 def test_인덱스_이름이_설명하는_한_자리에만_있다() -> None:
@@ -44,8 +56,8 @@ def test_인덱스_이름이_설명하는_한_자리에만_있다() -> None:
     🟢 그래서 **자리 수**를 잠근다. 왜 거짓인지는 **한 자리**에만 있고, 나머지는 그
       자리를 가리킨다 — 같은 설명이 세 벌이면 한쪽만 고쳐지는 날이 온다.
     """
-    설명한자리 = _원문(run_repository).count(_인덱스)
-    나머지 = _원문(scheduler).count(_인덱스)
+    설명한자리 = inspect.getsource(request_ids.build_request_id).count(_인덱스)
+    나머지 = _원문(request_ids).count(_인덱스) - 설명한자리 + _하루_키_원문().count(_인덱스)
 
     assert 설명한자리 == 1, (
         f"설명이 한 자리가 아니다 (run_repository 에 {설명한자리}번)."
@@ -63,7 +75,7 @@ def test_인덱스를_안_바꾼다는_판단이_적혀_있다() -> None:
     ⚠️ 이 검사가 없으면 *"거짓이니 인덱스를 고치자"* 로 가는 날 아무도 안 막는다 —
       고치면 **재실행이 막히고**, 그러면 부서가 고친 것을 다시 잴 수 없다.
     """
-    assert "인덱스를 안 바꾼다" in _원문(run_repository), (
+    assert "인덱스를 안 바꾼다" in _원문(request_ids), (
         "'인덱스를 안 바꾼다' 는 판단이 사라졌다 — 왜 그대로 두는지가 없으면"
         " 다음 사람이 인덱스를 고치고 재실행을 막는다"
     )
@@ -75,7 +87,7 @@ def test_그_주장이_거짓인_이유가_한_자리에_적혀_있다() -> None
     🔴 왜 거짓인지가 **한 자리**에 있어야 하고, 나머지는 그 자리를 가리켜야 한다 —
        같은 설명이 세 벌이면 한쪽만 고쳐지는 날이 온다.
     """
-    원문 = _원문(run_repository)
+    원문 = _원문(request_ids)
 
     assert "PK" in 원문 or "run_id 가 PK" in 원문, "왜 안 막는지가 안 적혀 있다"
     assert "언제나 통과" in 원문, "'언제나 통과한다' 는 사실이 안 적혀 있다"
@@ -84,7 +96,7 @@ def test_그_주장이_거짓인_이유가_한_자리에_적혀_있다() -> None
 
 def test_다른_두_자리가_그_한_자리를_가리킨다() -> None:
     """⚠️ 설명을 베껴 두면 갈린다 — **가리키게** 한다."""
-    원문 = _원문(scheduler)
+    원문 = _하루_키_원문()
 
     assert "build_request_id" in 원문, (
         "scheduler 가 이유를 적은 자리(`run_repository.build_request_id`)를 안 가리킨다"
@@ -97,7 +109,7 @@ def test_세는_축을_밝히라는_말이_있다() -> None:
     ★★ 매입이 행으로 세다 30 이 더 나왔고, 제가 축을 안 밝힌 것이 원인이었다.
       실측: `SIM-WALK-2026-V4` 는 창을 두 번 걸어 **행 854 · 업무 키 428** 이다.
     """
-    원문 = _원문(run_repository)
+    원문 = _원문(request_ids)
 
     assert re.search(r"행으로\s*세면", 원문), "세는 축에 대한 경고가 없다"
     assert "as_of" in 원문 and "cycle" in 원문, "무엇으로 세라는 말이 없다"

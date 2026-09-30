@@ -9,14 +9,10 @@ import pytest
 
 os.environ.setdefault("DB_SCHEMA", "haetdeul")
 
-from app.sales.persistence import (
-    SalesPersistenceConflict,
-    build_sale_confirmation_plan,
-    confirm_sale,
-    mark_sale_delivered,
-    sale_id_for,
-)
-from app.sales.schemas import SalesConfirmationInput, SalesScenario
+from app.sales.domain.sale_ledger import build_sale_confirmation_plan, sale_id_for
+from app.sales.schemas.proposal import SalesScenario
+from app.sales.schemas.sale_ledger import SalesConfirmationInput, SalesPersistenceConflict
+from app.sales.service.sale_ledger import confirm_sale, mark_sale_delivered
 
 
 def _scenario(**overrides) -> SalesScenario:

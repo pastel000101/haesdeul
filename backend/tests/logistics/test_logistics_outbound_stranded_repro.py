@@ -5,13 +5,15 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 import psycopg
 import pytest
 
-from app.logistics.fefo_allocation import allocate_reserved_stock_fefo
-from app.logistics.outbound import reserve_available_stock, ship_allocated_stock
-from app.master.outbound_flow import ALLOCATE_PHASE, phase_instant
+from app.logistics.service.fefo_allocation import allocate_reserved_stock_fefo
+from app.logistics.service.outbound import reserve_available_stock, ship_allocated_stock
+from app.master.domain.sim_time import phase_instant
+from app.master.service.outbound_flow import ALLOCATE_PHASE
 from tests.logistics.test_logistics_outbound_db import (
     ITEM_ID,
     RSV,
@@ -127,8 +129,11 @@ class _Nested:
     def rollback(self) -> None:
         self.c.execute("ROLLBACK TO SAVEPOINT flow")
 
-    def close(self) -> None:  # 바깥 fixture 가 닫는다
-        pass
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
 
     def __getattr__(self, name: str):
         return getattr(self.c, name)
@@ -137,8 +142,9 @@ class _Nested:
 def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아온다(conn: psycopg.Connection) -> None:
     from psycopg import sql
 
-    from app.logistics import outbound
-    from app.master.outbound_flow import DueSaleItem, ship_due_sales
+    from app.logistics.service import outbound
+    from app.master.schemas.outbound_flow import DueSaleItem
+    from app.master.service.outbound_flow import ship_due_sales
 
     _lot(conn, "LOT-A", qty="500", received_at=date(2026, 7, 1))  # AS_OF(07-08) 기준 신선
     schema = sql.Identifier(TMP_SCHEMA)
@@ -157,7 +163,7 @@ def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아�
     out = ship_due_sales(
         AS_OF,
         sim_run_id=SIM_RUN_ID,
-        connect=lambda: _Nested(conn),
+        borrow=lambda: _Nested(conn),
         due_fn=lambda _c, *, as_of, sim_run_id: (row,),
         allocate_fn=터지는_할당,
     )

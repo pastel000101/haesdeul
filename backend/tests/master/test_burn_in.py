@@ -10,8 +10,8 @@ from datetime import date
 
 import pytest
 
-from app.master import service
-from app.master.schemas import BurnInOut
+from app.master.readmodel import history
+from app.master.schemas.history import BurnInOut
 
 
 def _raw(**over):
@@ -58,9 +58,9 @@ def _raw(**over):
 
 
 def test_번인을_화면_형태로_옮긴다(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(service, "get_burn_in", lambda: _raw())
+    monkeypatch.setattr(history, "get_burn_in", lambda: _raw())
 
-    out = service.get_burn_in_history()
+    out = history.get_burn_in_history()
 
     assert isinstance(out, BurnInOut)
     assert out.as_of == date(2025, 12, 31), "에이전트가 처음 판단하는 날"
@@ -73,9 +73,9 @@ def test_값을_만들지_않는다(monkeypatch: pytest.MonkeyPatch):
 
     받은 것을 모양만 바꾼다.
     """
-    monkeypatch.setattr(service, "get_burn_in", lambda: _raw())
+    monkeypatch.setattr(history, "get_burn_in", lambda: _raw())
 
-    out = service.get_burn_in_history()
+    out = history.get_burn_in_history()
 
     assert not hasattr(out, "total"), "합계 칸을 두지 않는다"
     assert not hasattr(out, "delta"), "증감 칸을 두지 않는다"
@@ -86,9 +86,9 @@ def test_마감되지_않은_날을_지우지_않는다(monkeypatch: pytest.Monk
     """섞여 있으면 **그 사실이 답의 일부**다 — 화면이 적을 수 있어야 한다."""
     raw = _raw()
     raw["closings"][1]["closed"] = False
-    monkeypatch.setattr(service, "get_burn_in", lambda: raw)
+    monkeypatch.setattr(history, "get_burn_in", lambda: raw)
 
-    out = service.get_burn_in_history()
+    out = history.get_burn_in_history()
 
     assert [c.closed for c in out.closings] == [True, False]
 
@@ -99,7 +99,7 @@ def test_없으면_LookupError_가_그대로_올라간다(monkeypatch: pytest.Mo
     def missing():
         raise LookupError("시뮬레이션을 찾을 수 없습니다: SIM-NOPE")
 
-    monkeypatch.setattr(service, "get_burn_in", missing)
+    monkeypatch.setattr(history, "get_burn_in", missing)
 
     with pytest.raises(LookupError, match="SIM-NOPE"):
-        service.get_burn_in_history()
+        history.get_burn_in_history()

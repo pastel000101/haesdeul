@@ -1,7 +1,7 @@
 """재무 어댑터 — 번역이 계약을 지키는가.
 
 ★ DB 를 타지 않는다. `_load_context` 를 갈아 끼워 **번역만** 시험한다.
-  실제 값의 정확성은 `app.finance.tools` 의 테스트가 본다 — 여기서 다시 보면
+  실제 값의 정확성은 `app.finance.domain.tools` 의 테스트가 본다 — 여기서 다시 보면
   같은 것을 두 번 검사하면서 도메인 변경에 어댑터 테스트가 깨진다.
 """
 
@@ -14,16 +14,17 @@ from typing import ClassVar
 
 import pytest
 
-from app.finance import adapter
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.llm.planner import ToolAction
-from app.master.envelope import (
+from app.contracts.envelope import (
     AgentReply,
     AgentRequest,
     ExecutionContext,
     ExecutionMetadata,
     validate_reply,
 )
+from app.finance import adapter
+from app.finance.schemas.planner import ToolAction
+from app.finance.service.agent import FinanceAgentController
+from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 
 AS_OF = date(2025, 12, 31)
 
@@ -108,17 +109,15 @@ class _Context:
 
 @pytest.fixture(autouse=True)
 def controller_wired(monkeypatch):
+    wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _AdapterPlanner()))
     monkeypatch.setattr(
-        adapter,
-        "FinanceAgentController",
-        lambda port: FinanceAgentController(port, _AdapterPlanner()),
+        "app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None
     )
-    monkeypatch.setattr("app.finance.execution.save_finance_execution", lambda **_kwargs: None)
 
 
 @pytest.fixture
 def wired(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Context())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Context())
 
 
 class _AdapterPlanner:
@@ -195,7 +194,7 @@ def test_컨트롤러_위임은_실행_메타데이터를_그대로_반환한다
             received.append(controller_request)
             return controller_reply, controller_metadata
 
-    monkeypatch.setattr(adapter, "FinanceAgentController", _Controller)
+    wire_controller(monkeypatch, _Controller)
     reply, metadata = adapter.finance_port(request)
 
     assert received and received[0].context.policy_version == "POLICY-V1"
@@ -238,7 +237,7 @@ def test_마진_방어선이_없으면_missing_data_로_밝힌다(monkeypatch):
         class policy(_Policy):
             margin_defense_floor_rate = None
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _NoFloor())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _NoFloor())
     reply, _ = adapter.finance_port(req())
     assert "margin_defense_floor_rate" not in reply.payload
     assert "margin_defense_floor_rate" in reply.missing_data
@@ -258,7 +257,7 @@ def test_as_of_가_다르면_RUNTIME_NOT_READY(wired):
 
 def test_컨텍스트가_없으면_ERROR_가_아니라_NOT_READY(monkeypatch):
     """다시 불러도 같은 답이면 재시도 가치가 없다 (M-1 §5.1)."""
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: None)
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: None)
     reply, _ = adapter.finance_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert not reply.worth_retry
@@ -314,7 +313,7 @@ def _with_events(monkeypatch, events):
     class _C(_Context):
         cash_events = tuple(events)
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _C())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _C())
 
 
 def test_지급이_없는_날은_후보가_아니다(monkeypatch):
@@ -387,7 +386,7 @@ def test_급여_출처가_없으면_투영을_만들지_않는다(monkeypatch):
         class policy(_Policy):
             source_refs: ClassVar[dict[str, str]] = {}
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _NoRef())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _NoRef())
     reply, _ = adapter.finance_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert reply.business_status == "skipped"
@@ -413,7 +412,7 @@ def test_급여_아닌_정책값은_출처가_없어도_돈다(monkeypatch):
                 "payroll_date": "SRC-FIN-N6",
             }
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _PayrollOnly())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _PayrollOnly())
     reply, _ = adapter.finance_port(req())
     assert reply.runtime_status == "READY"
     assert "purchase_payment_days@policy_source_ref" in reply.missing_data
@@ -478,7 +477,7 @@ def test_급여_출처가_없으면_현금은_답하고_투영만_뺀다(monkeyp
     class _Ctx(_Context):
         policy = _NoPayroll()
 
-    monkeypatch.setattr(adapter, "_load_context", lambda _as_of=None, **_axis: _Ctx())
+    wire_context(monkeypatch, lambda _as_of=None, **_axis: _Ctx())
     request = req(mode="STATUS_QUERY")
     reply, meta = adapter.finance_port(request)
 

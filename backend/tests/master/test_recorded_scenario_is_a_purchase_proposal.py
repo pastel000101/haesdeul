@@ -11,7 +11,7 @@
 ```
 
 판정이 나쁜 것이 아니라 **두 부서가 payload 를 못 읽었다.** 둘 다 매입 계약
-(`app/purchase_agent/schemas.py` `PurchaseProposal`)으로 되살리는데, 기록값 사본이
+(`app/purchase_agent/schemas/proposal.py` `PurchaseProposal`)으로 되살리는데, 기록값 사본이
 `sourcing_plan[].grade_unit_price` 를 선정안 값 그대로 두어 `Scenario`
 `validate_quadruple_match` 의 「`total_amount_krw == Σ(qty_kg × grade_unit_price)`」
 가 깨졌다.
@@ -32,10 +32,10 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.master.commitment import RecordedLeg
-from app.master.purchase_record import recorded_scenario
-from app.master.revalidation import procurement_validation_payload
-from app.purchase_agent.schemas import PurchaseProposal
+from app.master.domain.commitment import RecordedLeg
+from app.master.domain.purchase_record import recorded_scenario
+from app.master.domain.revalidation import procurement_validation_payload
+from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 기준일 = date(2026, 1, 5)
 

@@ -1,0 +1,1357 @@
+"""걷기 결과 집계와 요약 — 날마다 결과를 모아 사고 · 현금 항등식 · 마감 · 점검 줄을 만든다.
+
+★ 2026-09-30 재구성 BL-018: `master/backtest_runner.py` 에서 옮겼다 — `_ONE_WON`, `_ZERO`,
+  `_OBSERVED_AT_LABELS`, `_CLOSING_STATUSES`, `_EXPENSE_SETTLEMENT_STATUSES`, `WalkIncident`,
+  `CashIdentity`, `LedgerBlocks`, `_approval_key`, `WalkResult`, `_CASH_FLOWS`,
+  `_NULLABLE_CASH_COLUMNS`, `_won`, `_won_or_none`, `moment_on`, `_or_unknown`, `_krw`,
+  `_krw_or_none`, `_기록된_날수`, `_cash_lines`, `_moment_line`, `_closing_line`,
+  `_ledger_block_line`, `_inspection_line`, `format_summary`.
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal
+from itertools import pairwise
+from typing import Any, get_args
+
+from app.contracts.envelope import LLM_STATUSES
+from app.master.domain.ledger import LEDGER_BLOCK_KINDS, PERMANENT_BLOCK_KINDS
+from app.master.domain.purchase_ids import purchase_id_prefix_for
+from app.master.domain.scheduler import EXPENSE_SETTLEMENT_STATUSES, DayRunOutcome, deadline_at
+from app.master.repository.ledger import (
+    BASE_CASH_BALANCE,
+    COLLECTION_CASH_IN,
+    LOGISTICS_CASH_OUT,
+    NET_CASH,
+    OPERATING_EXPENSE_CASH_OUT,
+    PAYROLL_INTEREST_CASH_OUT,
+    PURCHASE_CASH_OUT,
+)
+from app.master.schemas.closing import ClosingOut
+from app.master.schemas.inspection import AFTER_INBOUND, AFTER_OUTBOUND, INSPECTION_STATUSES
+
+#: 같다고 보는 한계. `numeric(18,6)` 이라 소수점 찌꺼기가 남는다 — 그것을 사고로
+#: 세면 매일이 사고가 되고, 사고 목록이 아무것도 안 가리킨다.
+_ONE_WON = Decimal(1)
+
+_ZERO = Decimal(0)
+
+
+#: 관측 기준시점을 세는 **두 칸의 이름** (2026-09-12). 🔴 **여기가 유일한 주인이다.**
+#:
+#: 요약 줄과 세는 자리가 각자 문자열을 적으면 한쪽만 고치는 날 이름이 갈리고,
+#: 성적표는 제가 안 세는 칸을 찍는다 — `llm_outcomes` 가 `envelope.LLM_STATUSES`
+#: 하나를 보는 것과 같은 규율이다.
+#:
+#: 🔴 **두 칸뿐이다.** 세 번째 칸(「미래를 봤다」)은 `observed_at > as_of` 를 막는
+#:   검사를 걸 때 생긴다 — 지금 만들면 아무도 안 채운 상태에서 전부 막힌다.
+#:
+#: ⚠️ **순서가 뜻이다.** 「실었다」가 먼저다 — 그 숫자가 늘어나는 것이 진도이고,
+#:   읽는 사람이 먼저 볼 자리다. 그래서 이 줄만 `sorted` 를 안 쓴다.
+_OBSERVED_AT_LABELS: tuple[str, str] = ("실었다", "안쟀다")
+
+#: 마감 줄이 찍는 어휘 (2026-09-16). 🔴 **여기서 이름을 안 적는다** — `ClosingOut.status`
+#: 의 다섯 값과, 단계를 안 탄 날 `DayRunOutcome` 이 두는 기본값 그대로다
+#: (`inspection_statuses` 가 `DayRunOutcome` 기본값을 읽는 것과 같은 결).
+_CLOSING_STATUSES: tuple[str, ...] = (
+    *get_args(ClosingOut.model_fields["status"].annotation),
+    DayRunOutcome.closing_status,
+)
+
+#: 운영비 지급 줄이 찍는 어휘 (2026-09-17). 🔴 **여기서 이름을 안 적는다** —
+#: `scheduler.EXPENSE_SETTLEMENT_STATUSES` 의 셋과, 단계를 안 탄 날 `DayRunOutcome` 이
+#: 두는 기본값 그대로다 (`_CLOSING_STATUSES` · `inspection_statuses` 와 같은 결).
+_EXPENSE_SETTLEMENT_STATUSES: tuple[str, ...] = (
+    *EXPENSE_SETTLEMENT_STATUSES,
+    DayRunOutcome.expense_settlement_status,
+)
+
+
+@dataclass(frozen=True)
+class WalkIncident:
+    """걷다 만난 사고 하나. **날짜와 사유만 든다.**
+
+    ★ 사유 문장은 `scheduler` 가 낸 값을 그대로 옮긴다. 여기서 다시 이름 붙이면
+      같은 사실에 이름이 둘이 된다.
+    """
+
+    as_of: date
+    reason: str
+
+
+@dataclass(frozen=True)
+class CashIdentity:
+    """현금 항등식 한 판 (2026-09-12). **잔액이 흐름만큼 움직였는가.**
+
+    ```text
+    기초잔액 = 첫 마감행의 잔액 − 첫 마감행의 순현금
+    Δ잔액    = 마지막 마감행의 잔액 − 기초잔액
+    Σ순현금  = 순현금 합
+    성립     = |Δ잔액 − Σ순현금| < 1원
+    ```
+
+    ★★ **V7 걷기에서 매입 현금유출 27,122,228 원이 흐름에는 잡히고 잔액에서는
+      안 빠졌다** (실측 2026-09-12). 재무가 *"recognition 과 settlement 사이에 빠진
+      계층"* 으로 정리했고 지급 전이를 세우는 중이다 — **그 수정은 재무 몫이고**
+      이 값이 하는 일은 그 불일치를 걷기가 **스스로 말하게** 하는 것뿐이다.
+
+    🔴 **여기서 아무것도 고치지 않는다.** 잔액을 다시 세지도, 맞춰 주지도 않는다.
+      마스터가 부서 값을 고치기 시작하면 같은 사실의 주인이 둘이 된다.
+    """
+
+    #: 걷기 앞에 서 있던 잔액. **첫 행이 말한다** — 표는 그 앞을 말하지 않는다.
+    opening_balance_krw: Decimal
+    #: 기초에서 기말까지 잔액이 움직인 폭.
+    balance_delta_krw: Decimal
+    #: 그 구간 순현금 합.
+    net_cash_krw: Decimal
+    #: 하루 단위로 어긋난 날 수. 🔴 **첫날은 안 센다** — 앞 잔액이 없다.
+    #:
+    #: ★ 합만 맞고 날마다 어긋나는 판이 있다. 그 둘은 다른 사실이라 따로 센다.
+    mismatched_days: int
+
+    @property
+    def gap_krw(self) -> Decimal:
+        """Δ잔액 − Σ순현금. **0 이면 성립이다.**"""
+        return self.balance_delta_krw - self.net_cash_krw
+
+    @property
+    def holds(self) -> bool:
+        """성립하는가. `|차이| < 1원`."""
+        return abs(self.gap_krw) < _ONE_WON
+
+
+@dataclass(frozen=True)
+class LedgerBlocks:
+    """승인은 났는데 **매입 원장에 한 행도 안 남은** 것들 (2026-09-16).
+
+    🔴 **크기와 소음을 한 수로 접지 않는다.**
+
+    ```text
+    unique          고유 미기록 승인 건수 — 같은 승인은 한 번만 센다   ← 크기
+    retries         그 건들이 다음 날 재시도에서 다시 막힌 횟수        ← 소음
+    permanent       그중 영영 안 될 것. **고유 건수로 센다**           ← 크기
+    unique_by_kind  갈래별 고유 건수. 0 인 갈래도 든다
+    ```
+
+    ★★ **접으면 한 건이 며칠치로 부푼다.** `retry_pending_transitions` 가 같은 약정을
+      날마다 다시 세우고 같은 사유로 또 막히기 때문이다 — 실측에서 `NOT_APPLIED 12`
+      였는데 복수 등급 승인안은 **실제로 1건**이었다.
+
+    ⚠️ **`unique_by_kind` 의 합이 `unique` 보다 클 수 있다.** 한 승인이 날을 달리해
+      다른 갈래로 막히면 양쪽에 다 든다 — 그 승인을 **한쪽에서 빼면** 그 갈래가
+      실제보다 적어 보인다. `unique` 는 그때도 승인 수를 말한다.
+    """
+
+    unique_by_kind: Mapping[str, int]
+    unique: int
+    retries: int
+    permanent: int
+
+
+def _approval_key(request_id: str | None, decision_seq: int | None, run_id: str = "") -> str:
+    """승인 하나를 가르는 키. 🔴 **여기서 규칙을 짓지 않는다.**
+
+    ★ 주인은 `transition.purchase_id_prefix_for` 다 — 그 함수가 *"여기까지가 승인
+      하나를 가리킨다"* 고 적어 둔 앞머리이고, **원장 행 ID 를 짓는 규칙과 같은
+      함수**라 둘이 갈릴 수가 없다 (`PUR-{request_id}-D{decision_seq}-S`).
+
+    🔴 **`request_id` 하나로 접지 않는다.** 같은 업무 키에 결정이 여러 번 붙을 수
+       있고 (`decision_seq` 가 그래서 있다), 접으면 서로 다른 승인 둘이 한 건이 된다.
+
+    ⚠️ **키를 못 만들면 조용히 빼지 않는다.** 실행 행 하나는 승인 하나를 넘지 않으므로
+      `run_id` 로 떨어뜨린다 — 같은 승인을 두 건으로 셀지언정 **안 센 것으로 만들지는
+      않는다.** (막힌 행은 승인 문을 지난 행이라 여기 오는 일이 없어야 한다.)
+    """
+    if request_id and decision_seq is not None:
+        return purchase_id_prefix_for(request_id, decision_seq)
+    return f"RUN:{run_id}"
+
+
+@dataclass(frozen=True)
+class WalkResult:
+    """걷기 한 번의 결과.
+
+    ⚠️ **`days` 는 실제로 하루 실행을 부른 날만 든다.** 휴장일은 `skipped_days` 로
+      간다 — 둘을 섞으면 *"179일 중 몇 날을 돌았나"* 를 못 센다.
+    """
+
+    start: date
+    end: date
+    #: 하루 실행을 부른 날의 결과. **부른 순서 그대로.**
+    days: tuple[DayRunOutcome, ...] = ()
+    #: 달력이 *"안 선다"* 고 한 날.
+    skipped_days: tuple[date, ...] = ()
+    #: 사고 목록. **터진 날도 걷기는 이어졌다** (상한에 닿기 전까지).
+    incidents: tuple[WalkIncident, ...] = ()
+    #: 걷기가 끝까지 못 갔으면 멈춘 날. 끝까지 갔으면 `None`.
+    stopped_at: date | None = None
+    #: 멈춘 사유. 🔴 **`stopped_at` 과 짝이다** — 하나만 있으면 안 된다.
+    stopped_reason: str | None = None
+    #: 소요 시간(초). 벽시계가 아니라 단조 시계로 잰다 (아래 `ticks` 주석).
+    elapsed_seconds: float = 0.0
+    #: 그 구간의 마감행 (2026-09-12). 🔴 **재무가 적은 값을 그대로 든다.**
+    #:
+    #: ★ **여기서 다시 세지 않는다.** 마스터가 부서 값을 재계산하면 같은 사실의
+    #:   주인이 둘이 되고, 재무가 세는 값과 갈리는 날 **에러 없이 손익만 틀린다.**
+    #:
+    #: ⚠️ **한 행도 없으면 빈 튜플이고 그것이 답이다** — 0 으로 메운 행을 지어내지
+    #:   않는다. *"마감이 안 돌았다"* 와 *"돌았는데 0 이다"* 는 다른 사실이다.
+    closings: tuple[Mapping[str, Any], ...] = ()
+    #: 마감행을 **못 읽었으면** 그 사유 (2026-09-12). 읽었으면 `None`.
+    #:
+    #: 🔴 **「0행」과 접지 않는다.** *"못 읽었다"* 를 *"없다"* 로 적으면 DB 가 죽은
+    #:   판과 마감이 한 번도 안 돈 판이 화면에서 같아진다.
+    closings_reason: str | None = None
+    #: 걷기가 받은 `--now` **문자열 그대로** (2026-09-13). 안 받았으면 `None`.
+    #:
+    #: 🔴 **정규화하지 않는다.** 사람이 준 것과 코드가 쓰는 것(그 시각 부분)이 둘 다
+    #:   보여야 같은 코드로 건 두 판이 왜 갈렸는지가 읽힌다 — V8(16:00) 과
+    #:   V9①(09:00) 이 그 한 값으로 통째로 갈렸다.
+    walked_now: str | None = None
+
+    @property
+    def completed(self) -> bool:
+        """끝까지 걸었는가."""
+        return self.stopped_reason is None
+
+    @property
+    def actions(self) -> Mapping[str, int]:
+        """판단 분포. **`SchedulerAction` 값을 센다** — 새 이름을 안 붙인다."""
+        return Counter(one.action for one in self.days)
+
+    @property
+    def end_codes(self) -> Mapping[str, int]:
+        """품목 종료 코드 분포. **못 돈 품목은 `FAILED` 로 센다.**
+
+        ★ `end_code` 가 `None` 인 것은 *"코드가 없었다"* 이고, 그 자리는 `status` 가
+          이미 `FAILED` 라고 말한다 (`ItemRunOutcome` 의 어휘 그대로).
+        """
+        return Counter(
+            one.end_code if one.end_code is not None else one.status
+            for day in self.days
+            for one in day.items
+        )
+
+    @property
+    def sales_end_codes(self) -> Mapping[str, int]:
+        """판매 판단의 품목 종료 코드 분포 (2026-09-10). 🔴 **매입과 한 칸에 안 담는다.**
+
+        ★ **왜 `end_codes` 와 가르나.** 어휘가 다르다 — 매입은 `E1`·`E4`, 판매는
+          `SL1`·`SL4` 다. 한 Counter 에 담으면 *"오늘 어느 사이클이 어떻게 끝났나"*
+          가 두 어휘가 섞인 한 표가 되고, 어느 쪽 수가 는 것인지를 못 읽는다.
+
+        🔴 **접지 않는다.** `SL1_PRESENTED` 를 *"돌았다"* 로 묶으면 걷기 179일에
+          **후보가 실제로 나온 날이 며칠인지**를 성적표가 못 답한다 — 이 판이
+          존재하는 이유가 그 숫자다.
+        """
+        return Counter(
+            one.end_code if one.end_code is not None else one.status
+            for day in self.days
+            for one in day.sales_items
+        )
+
+    @property
+    def llm_outcomes(self) -> Mapping[str, int]:
+        """그 걷기에서 **LLM 이 실제로 돌았나** (2026-09-12). 🔴 **넷을 접지 않는다.**
+
+        ```text
+        DISABLED           설정으로 껐다 — 🟢 정상이다
+        SKIPPED_TEMPLATE   켜져 있는데 부를 조건이 아니었다 — 🟢 정상이다
+        SUCCESS            불렀고 쓸 수 있는 답을 받았다
+        FALLBACK           🔴 불렀는데 실패했다 — 규칙이 대신 답했다
+        ```
+
+        ★★ **이 줄이 없어서 71영업일을 `SUCCESS` 0건으로 걷고도 아무도 몰랐다**
+          (`SIM-CHAIN-V6` 실측 2026-09-12). 재무가 918건 전부 `FALLBACK` 이었고
+          2026-09-11 19시대 뒤로는 성공이 한 건도 없었는데, 원장에는 처음부터 다
+          적혀 있었고 **요약에 안 나와서 아무도 안 봤다.** `plan.py:62` 가 이미
+          적어 둔 위험 그대로다 — *"규칙 경로로 떨어져도 산출물은 멀쩡해 보인다."*
+
+        🔴 **0 인 어휘를 빼지 않는다.** 여기가 다른 어휘 줄과 갈리는 자리다.
+          저쪽은 *"그 사건이 없었다"* 를 빈 칸으로 말하지만, 이쪽에서 `SUCCESS` 가
+          없다는 것은 **그 자체가 사고**다 — 빼고 찍으면 오늘 이 사태의 모양이
+          그대로 다시 선다. 네 값은 늘 닫힌 집합이라 채울 수 있고, 채워야 한다.
+
+        ★ **부서별로 안 가른다.** 지금 필요한 것은 *"돌았나 안 돌았나"* 이고,
+          합계에서 `FALLBACK` 이 0 이 아니면 그때 파고들면 된다.
+
+        ★ **이름의 주인은 `envelope.LLMStatus` 다.** 여기서 새 이름을 안 붙이고
+          세기만 한다 — `end_codes` 가 `scheduler` 의 값을 그대로 세는 것과 같다.
+        """
+        total: Counter[str] = Counter(dict.fromkeys(LLM_STATUSES, 0))
+        for day in self.days:
+            for one in (*day.items, *day.sales_items):
+                total.update(one.llm_statuses)
+        return total
+
+    @property
+    def observation_coverage(self) -> Mapping[str, int]:
+        """그 걷기에서 **부서가 관측 기준시점을 실었나** (2026-09-12). 두 칸뿐이다.
+
+        ```text
+        실었다   부서가 `AgentReply.observed_at` 을 채워 보냈다
+        안쟀다   🔴 안 채워 보냈다 — 그 사실을 **언제부터 알 수 있었는지 모른다**
+        ```
+
+        🔴 **0 이어도 찍는다.** `llm_outcomes` 와 같은 규율이다 — 처음에는
+          「실었다」가 0 이고, **그 숫자가 늘어나는 것이 이 일의 진도**다. 0 이라
+          빼면 진도가 안 보이고, 재무·물류가 연결한 날에도 성적표가 아무 말을
+          안 한다.
+
+        🔴 **세 번째 칸(「미래를 봤다」)이 없다.** 그것은 `observed_at > as_of` 를
+          막는 검사를 걸 때 생기는 칸이고, 아무도 안 채운 지금 걸면 전부 막힌다.
+          이 판은 **칸을 여는 데까지**다.
+
+        🔴 **「안 쟀다」를 「미래를 봤다」와 섞지 않는다.** 앞은 *"모른다"* 이고
+          뒤는 *"틀렸다"* 다 — 다음에 할 일이 다르다. 앞은 부서에 연결을 요청하는
+          일이고 뒤는 그 호출을 막는 일이다.
+
+        ★ **마스터가 값을 지어내지 않는다.** 여기서 `as_of` 로 메우면 이 줄은
+          첫날부터 「실었다」가 만 건이라고 말하고, 그 숫자는 한 건도 사실이 아니다.
+
+        ⚠️ **못 돈 품목은 안 세어진다.** 계획이 없으면 `observed_ats` 가 비고,
+          그 자리는 `status=FAILED` 가 이미 말한다 — 여기서 `None` 한 개로
+          채우면 **안 돈 품목이 안 잰 품목으로** 세어진다.
+        """
+        실었다, 안쟀다 = _OBSERVED_AT_LABELS
+        total: Counter[str] = Counter(dict.fromkeys(_OBSERVED_AT_LABELS, 0))
+        for day in self.days:
+            for one in (*day.items, *day.sales_items):
+                for 관측 in one.observed_ats:
+                    total[안쟀다 if 관측 is None else 실었다] += 1
+        return total
+
+    @property
+    def procurement_statuses(self) -> Mapping[str, int]:
+        """매입 판단 단계 분포 (2026-09-13). 🔴 **값을 접지 않고 그대로 센다.**
+
+        ```text
+        RAN            돌았다
+        NOT_ATTEMPTED  거기까지 못 갔다 — 개장 실패 · 장부 관문   ← 사고다
+        NO_ML_BATCH    배치가 원래 없는 날이라 안 돌렸다           ← 사고가 아니다
+        ```
+
+        ★★ **이 줄이 없으면 배치 없는 날이 매입 쪽에서 안 보인다.** 그 날은 품목이
+          없어 `종료코드` 줄에서 빠진다 — 종전 `E4` 42건이 0 이 되는데 그 42건이
+          어디 갔는지를 이 줄이 말한다.
+
+        ★ `sales_statuses` 와 같은 모양이다 — `scheduler` 가 낸 값을 세기만 한다.
+        """
+        return Counter(one.procurement_status for one in self.days)
+
+    @property
+    def sales_statuses(self) -> Mapping[str, int]:
+        """판매 판단 단계 분포. 🔴 **세 값을 접지 않고 그대로 센다.**
+
+        ```text
+        RAN            돌았다
+        FAILED         해 보고 터졌다 — 돈 품목이 하나도 없다   ← "못 했다"
+        NOT_ATTEMPTED  거기까지 못 갔다                        ← "안 했다"
+        NO_ML_BATCH    배치가 원래 없는 날이라 안 돌렸다         ← 2026-09-13
+        ```
+
+        ⚠️ **값이 있는데 성적표가 안 읽으면 없는 것과 같다** — `outbound_status` 를
+          성적표에 태울 때(`#446`) 배운 그것이다.
+        """
+        return Counter(one.sales_status for one in self.days)
+
+    @property
+    def receivable_statuses(self) -> Mapping[str, int]:
+        """채권 발행 단계 분포. 🔴 **다섯 값을 접지 않고 그대로 센다.**
+
+        ```text
+        ISSUED         대상이 있었고 채권이 서 있다
+        NOTHING_DUE    그날 확정된 판매가 없었다     ← "없다"
+        BLOCKED        대상은 있는데 못 세웠다        ← "못 했다"
+        NOT_OPENED     하루가 안 열려서 안 했다       ← "안 했다"
+        FAILED         세워 보다 터졌다
+        ```
+
+        ⚠️ **값이 있는데 성적표가 안 읽으면 없는 것과 같다.** `outbound_status` 를
+          성적표에 태울 때(`#446`) 배운 것이 그것이다 — 단계는 도는데 화면이 그
+          단계를 말하지 않으면 아무도 그 단계가 막힌 것을 모른다.
+        """
+        return Counter(one.receivable_status for one in self.days)
+
+    @property
+    def outbound_statuses(self) -> Mapping[str, int]:
+        """출고 단계 분포. 🔴 **네 값을 접지 않고 그대로 센다.**
+
+        ```text
+        RAN            나갔다
+        NOTHING_DUE    나갈 것이 없었다        ← "없다"
+        FAILED         나가려다 못 나갔다      ← "못 했다"
+        NOT_ATTEMPTED  거기까지 못 갔다        ← "안 했다"
+        ```
+
+        ⚠️ **`RAN` 만 세고 나머지를 묶으면 안 된다.** 손익 곡선이 평평할 때 그것이
+          *"나갈 것이 없어서"* 인지 *"나가려다 못 나가서"* 인지를 성적표가 답해야
+          하고, 묶는 순간 그 답이 사라진다.
+
+        ★ `end_codes` 와 같은 모양이다 — `scheduler` 가 낸 값을 세기만 한다.
+        """
+        return Counter(one.outbound_status for one in self.days)
+
+    @property
+    def closing_statuses(self) -> Mapping[str, int]:
+        """재무 일마감 단계 분포 (2026-09-16). 🔴 **여섯 값을 접지 않는다 · 0 도 든다.**
+
+        ```text
+        CLOSED         그날을 닫았다
+        NOTHING_DUE    닫을 움직임이 없었다 · 또는 미등록이다
+        BLOCKED        장부가 안 서서 못 닫았다
+        NOT_OPENED     하루가 안 열려서 안 물었다
+        FAILED         닫아 보다 터졌다        ← 🔴 사고다 (`_incident_reason`)
+        NOT_ATTEMPTED  단계를 안 탔다
+        ```
+
+        ★★ **이 줄이 없어서 3월 초부터 마감이 멈춘 것을 아무도 못 봤다** (실측 2026-09-16).
+          `SIM-CHAIN-CHECK-0916` 요약은 「사고 0건 · 현금항등식 🟢」 이었는데
+          `daily_closings` 는 03-06 뒤로 0행이었다. 값은 `DayRunOutcome.closing_status` 에
+          안 접힌 채 있었고 **재는 줄만 없었다** (`maintenance_statuses` 때와 같은 모양).
+
+        🔴 **`FAILED` 0 을 빼지 않는다.** 키가 안 보이면 *"없었다"* 와 *"안 셌다"* 가 같아진다.
+        """
+        total: Counter[str] = Counter(dict.fromkeys(_CLOSING_STATUSES, 0))
+        for day in self.days:
+            total[day.closing_status] += 1
+        return total
+
+    @property
+    def last_closed_on(self) -> date | None:
+        """마지막으로 `CLOSED` 가 선 날. 한 번도 안 섰으면 `None`.
+
+        ★ **분포만으로는 언제 멈췄는지를 못 읽는다.** `CLOSED 45` 는 1월부터 45일인지
+          3월까지 45일인지를 말하지 않는다.
+        """
+        닫은날 = [day.as_of for day in self.days if day.closing_status == "CLOSED"]
+        return max(닫은날) if 닫은날 else None
+
+    @property
+    def first_closing_failure(self) -> tuple[date, str] | None:
+        """처음으로 마감이 `FAILED` 인 날과 그 사유. 없으면 `None`.
+
+        🔴 **사유를 짓지 않는다.** 주인은 `ClosingOut.reason` 이고, 낸 값이 없으면
+          (마감이 예외로 터졌으면) `모름` 이다 — 그날 사고 줄이 note 전체를 나른다.
+        """
+        for day in self.days:
+            if day.closing_status == "FAILED":
+                사유 = day.closing.reason if day.closing is not None else None
+                return day.as_of, _or_unknown(사유 or None)
+        return None
+
+    @property
+    def approval_statuses(self) -> Mapping[str, int]:
+        """자동 승인 **단계** 분포 (2026-09-11). 🔴 **네 값을 접지 않고 그대로 센다.**
+
+        ```text
+        NOT_ATTEMPTED  안 켰다 — --auto-approve 를 안 줬다        ← "안 했다"
+        RAN            승인 문까지 돌았다
+        NO_RULE        켰는데 그 실행이 규칙을 안 들었다           ← "못 했다"
+        FAILED         돌리다 터졌다
+        ```
+
+        ⚠️ **매입과 판매를 한 통에 센다.** 어느 사이클이 안 섰는지는 `days` 의 두
+          칸이 그대로 들고 있고, 여기서 묻는 것은 *"며칠에 승인 단계가 돌았나"* 다.
+
+        ⚠️ **값이 있는데 성적표가 안 읽으면 없는 것과 같다** — `outbound_status` 를
+          성적표에 태울 때(`#446`) 배운 그것이다.
+        """
+        return Counter(
+            status
+            for day in self.days
+            for status in (day.procurement_approval_status, day.sales_approval_status)
+        )
+
+    @property
+    def transition_outcomes(self) -> Mapping[str, int]:
+        """미적용 전이 재시도의 **승인별** 결과 분포 (2026-09-11). 🔴 **넷을 접지 않는다.**
+
+        ```text
+        APPLIED         원장에 닿았다
+        NOT_APPLIED     아직 쓸 것이 없다      ← "없다"
+        FAILED          쓰려다 터졌다          ← "못 했다"
+        NOT_BUILDABLE   약정을 못 만들었다     ← 전이 앞에서 끝났다
+        ```
+
+        ★★ **이 줄이 없어서 「승인 15건 RECORDED」 를 보고 원장에 닿은 줄 알았다**
+          (실측 2026-09-11). `approval_outcomes` 는 *"승인을 적었나"* 까지만 답한다 —
+          그 승인이 **장부에 닿았나**는 축이 하나 더 뒤다.
+
+        🔴 **`approval_outcomes` 와 한 칸에 담지 않는다.** 어휘가 다르고 축이 다르다 —
+          담으면 *"적었다"* 와 *"닿았다"* 가 한 표에 섞여 어느 쪽 수가 는 것인지를
+          못 읽는다 (`end_codes` 와 `sales_end_codes` 를 가른 것과 같은 이유).
+
+        ★ **이름의 주인은 `pending_transition.py` 다.** 여기서 새 이름을 안 붙이고
+          세기만 한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            if day.pending_transition is not None:
+                total.update(day.pending_transition.outcomes)
+        return total
+
+    @property
+    def ledger_blocks(self) -> LedgerBlocks:
+        """승인은 났는데 **매입 원장에 한 행도 안 남은** 것들 (2026-09-16).
+
+        ```text
+        등급 둘        purchase_items 는 품목당 한 줄인데 등급이 둘이다
+        회차금액 없음   회차가 둘 이상인데 어느 회차 금액이 비었다
+        지급일 없음     purchases.payment_due_date 를 만들 값이 없다
+        도착분 없음     목표 상태일에 앞으로 올 도착분이 하나도 없다
+        ```
+
+        ★★ **이 줄이 없어서 6건 726kg 255,287원(수량 0.76% · 금액 0.46%)이 조용히
+          사라졌다** (확인 걷기 CHECK-0916 · 매입 파트가 A/B 실험 중 발견). 승인은
+          `RECORDED` 로 찍히고 전이는 `NOT_APPLIED` 한 값에 묻혀, **요약만 봐서는
+          원장이 비었다는 사실이 아무 데도 안 보였다.**
+
+        🔴 **막히는 경로가 둘이라 둘 다 본다.**
+
+        ```text
+        당일 전이      backfill 이 승인하며 부른 apply_approval  (BackfilledRun)
+        다음 날 재시도  retry_pending_transitions                 (RetriedTransition)
+        ```
+
+        한쪽만 보면 수가 **조용히 작아진다** — 오류가 안 나고 그냥 적게 나온다.
+
+        🔴 **크기와 소음을 따로 센다** (매입 파트 회신 2026-09-16). `retry_pending_
+           transitions` 가 같은 약정을 **날마다** 다시 세우고 같은 사유로 또 막힌다 —
+           날짜별로 세면 한 건이 며칠치로 부푼다. 실측에서 `NOT_APPLIED 12` 였는데
+           복수 등급 승인안은 **실제로 1건**이었다. 12 와 1 이 이만큼 벌어진다.
+
+        🔴 **사유 문장이 아니라 갈래로 센다.** 문장에는 등급 이름과 회차 번호가
+           박혀 있어 (`등급이 2개인데 매입 줄이 하나다 (특/상)`) 약정마다 다른 키가
+           되고, 그러면 세는 뜻이 없어진다. 이름의 주인은 `ledger` 다.
+
+        🔴 **0 인 갈래도 든다.** 키가 빠지면 *"없었다"* 와 *"안 셌다"* 가 같아진다
+           (`inspection_statuses` · `observation_coverage` 와 같은 규율).
+        """
+        갈래별: dict[str, set[str]] = {갈래: set() for 갈래 in LEDGER_BLOCK_KINDS}
+        모두: set[str] = set()
+        재시도 = 0
+
+        def 담는다(키: str, 갈래: str) -> None:
+            갈래별.setdefault(갈래, set()).add(키)
+            모두.add(키)
+
+        for day in self.days:
+            # ① 당일 전이 — 승인 문이 그날 바로 부른 자리. **첫 시도라 소음이 아니다.**
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is None:
+                    continue
+                for one in approval.runs:
+                    if one.transition_block_kind:
+                        담는다(
+                            _approval_key(one.request_id, one.decision_seq, one.run_id),
+                            one.transition_block_kind,
+                        )
+            # ② 다음 날 재시도 — 원장에 안 닿은 것을 다시 세우는 자리. **여기가 소음이다.**
+            if day.pending_transition is not None:
+                for retried in day.pending_transition.retried:
+                    if retried.block_kind:
+                        재시도 += 1
+                        # 🔴 **당일 경로와 같은 문을 쓴다.** 여기서 키를 따로 지으면
+                        #    두 경로가 같은 승인을 다른 키로 보고, 같은 승인이 둘로
+                        #    세어지는 날이 온다.
+                        담는다(
+                            _approval_key(retried.request_id, retried.decision_seq),
+                            retried.block_kind,
+                        )
+
+        # 🔴 **영영 안 될 것도 고유로 센다.** 이 수가 곧 발표에서 말할 크기다 —
+        #    날짜별로 세면 재시도가 도는 날수만큼 부풀고, 그러면 *"복수 등급 1건"* 이
+        #    *"12건"* 으로 나간다.
+        영영: set[str] = set()
+        for 갈래 in PERMANENT_BLOCK_KINDS:
+            영영 |= 갈래별.get(갈래, set())
+        return LedgerBlocks(
+            unique_by_kind={갈래: len(키들) for 갈래, 키들 in 갈래별.items()},
+            unique=len(모두),
+            retries=재시도,
+            permanent=len(영영),
+        )
+
+    @property
+    def maintenance_statuses(self) -> Mapping[str, int]:
+        """물류 유지보수 **단계** 분포 (2026-09-11). `approval_statuses` 와 같은 자리다.
+
+        🔴 **Lot 축 한 줄로는 「안 켰다」와 「켰는데 0 Lot」이 안 갈린다.** 둘 다 `{}`
+           로 나오고, 그러면 성적표를 보는 사람이 *"폐기할 것이 없었구나"* 로 읽는다 —
+           실제로는 안 켠 것일 수 있다.
+
+        ★★ 구현이 이 구멍을 보고했고 값은 이미 `DayRunOutcome.maintenance_status` 에
+          안 접힌 채 있었다. **재는 줄만 없었다.** 승인이 `승인`·`승인어휘` 두 줄인
+          것과 같은 이유로 여기도 둘이다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            total[day.maintenance_status] += 1
+        return total
+
+    @property
+    def inspection_statuses(self) -> Mapping[str, Mapping[str, int]]:
+        """물류 점검 **칸별** 상태 분포 (2026-09-14). 🔴 **넷을 접지 않는다 · 0 도 든다.**
+
+        ```text
+        NOT_ATTEMPTED  칸을 안 탔다 — 개장 실패 · 안 도는 날     ← "안 했다"
+        RAN            문제를 열었거나 갱신했거나 닫았다
+        NOTHING_DUE    확인했고 손댈 것이 없었다 — 🟢 정상이다
+        FAILED         보려다 터졌다 — 🔴 **그래도 하루는 계속 간다**  ← "못 했다"
+        ```
+
+        ★★ **이 줄이 없어서 걷기 끝에 「점검이 실패한 날이 있었나」 를 증명할 수
+          없었다.** 값은 `DayRunOutcome.inspection_*_status` 에 안 접힌 채 있었고
+          **재는 줄만 없었다** (`maintenance_statuses` 때와 같은 모양).
+
+        🔴 **`FAILED` 0 을 빼지 않는다.** 여기서 묻는 것은 *"실패가 없었다"* 이고, 키가
+          안 보이면 *"없었다"* 와 *"안 셌다"* 가 같아진다 (`llm_outcomes` 와 같은 규율).
+
+        🔴 **두 칸을 한 통에 담지 않는다.** 닫는 자리는 `AFTER_OUTBOUND` 하나라 둘을
+          합치면 *"입고 뒤는 늘 돌고 출고 뒤만 터진다"* 가 안 읽힌다.
+
+        ⚠️ **사고가 아니다.** `_incident_reason` 은 이 값을 안 본다 — 점검이 터진 날도
+          하루는 끝까지 갔고, 그것은 요약에 보이는 사실이다.
+
+        ★ **이름의 주인은 `inspection.py` 다** (`INSPECTION_STATUSES` · 칸 이름).
+          `NOT_ATTEMPTED` 는 `DayRunOutcome` 의 기본값을 그대로 읽는다.
+        """
+        어휘 = (*INSPECTION_STATUSES, DayRunOutcome.inspection_inbound_status)
+        칸별: dict[str, Counter[str]] = {
+            AFTER_INBOUND: Counter(dict.fromkeys(어휘, 0)),
+            AFTER_OUTBOUND: Counter(dict.fromkeys(어휘, 0)),
+        }
+        for day in self.days:
+            칸별[AFTER_INBOUND][day.inspection_inbound_status] += 1
+            칸별[AFTER_OUTBOUND][day.inspection_outbound_status] += 1
+        return 칸별
+
+    @property
+    def inspection_counts(self) -> Mapping[str, int]:
+        """물류 점검이 **연 · 갱신한 · 닫은** 문제 수 합계 (2026-09-14). 두 칸을 더한다.
+
+        ★ **여기서 다시 세지 않는다.** 주인은 `DetectOut.counts` 이고 이쪽은 날마다
+          `InspectionOut.counts` 를 더하기만 한다.
+
+        ⚠️ **결과가 한 번도 없었으면 빈 칸이다.** 전부 `FAILED` 거나 칸을 안 탄 걷기에서
+          `opened 0` 을 채우면 *"봤는데 없었다"* 로 읽힌다 — 실제로는 **못 봤다.**
+          그 사실은 `inspection_statuses` 가 말한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            for out in (day.inspection_inbound, day.inspection_outbound):
+                if out is not None:
+                    total.update(out.counts)
+        return total
+
+    @property
+    def maintenance_outcomes(self) -> Mapping[str, int]:
+        """물류 유지보수의 **Lot 별** 결과 분포 (2026-09-11). 🔴 **넷을 접지 않는다.**
+
+        ```text
+        DISPOSED                 전량 폐기했다 · 자리도 돌려줬다
+        SKIPPED_HELD_ALLOCATION  살아있는 할당이 있어 **손대지 않았다** ← 사람 몫이다
+        PALLETS_EMPTIED          잔량이 이미 0 이라 자리만 돌려줬다
+        FAILED                   도메인이 거절했다                     ← "못 했다"
+        ```
+
+        ★★ **`SKIPPED_HELD_ALLOCATION` 이 안 보이면 자동화가 왜 덜 했는지를 성적표가
+          못 답한다.** 물류가 *"자동 부분 폐기를 하지 않는다 — 남은 판단은 사람
+          몫이다"* 로 일부러 남긴 줄이고, 창고가 안 비는 날 **거기부터 봐야** 한다.
+
+        ★ **이름의 주인은 `logistics/auto_maintenance.py` 다.** 여기서 새 이름을
+          안 붙이고 세기만 한다 (`transition_outcomes` 와 같은 모양).
+
+        🔴 **`approval_outcomes` 와 한 칸에 담지 않는다.** 어휘가 다르고 축이 다르다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            if day.maintenance is not None:
+                total.update(day.maintenance.outcomes)
+        return total
+
+    @property
+    def approval_outcomes(self) -> Mapping[str, int]:
+        """승인 **행별** 어휘 분포 (2026-09-11). 🔴 **여덟을 접지 않는다.**
+
+        ```text
+        RECORDED · ALREADY_DECIDED · NOT_APPROVABLE · NO_RULE_FOR_CYCLE
+        LABEL_NOT_OFFERED · AMBIGUOUS_TYPE · BLOCKED_BY_BOUNDARY · FAILED
+        ```
+
+        ★ **이름의 주인은 `backfill.py` 다.** 여기서 새 이름을 안 붙이고 세기만
+          한다 — `end_codes` 가 `scheduler` 의 값을 그대로 세는 것과 같은 모양이다.
+
+        🔴 **`approval_statuses` 와 축이 다르다.** 저쪽은 하루의 단계이고 이쪽은
+          실행 이력 한 행이다 — 묶으면 *"승인이 왜 0건인가"* 를 성적표가 못 답한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is not None:
+                    total.update(approval.outcomes)
+        return total
+
+    @property
+    def confirmation_outcomes(self) -> Mapping[str, int]:
+        """판매 확정 어휘 분포 (2026-09-11). 🔴 **셋을 접지 않는다.**
+
+        ```text
+        CONFIRMED  sales · sale_items 가 섰다
+        BLOCKED    확정할 수 없었다 — 아무것도 안 썼다
+        FAILED     쓰려다 실패했다 — 롤백했다
+        ```
+
+        ★★ **이 줄이 없어서 「승인 7건 RECORDED · 재검증 PASSED 7건」 을 보고 판매가
+          선 줄 알았다** (실측 2026-09-11). `sales` 는 0행이었고, 확정이 매번
+          `BLOCKED` 였는데 그 사실이 성적표 어디에도 안 남아 사람이 손으로 재현해서야
+          찾았다.
+
+        🔴 **`approval_outcomes` 와 한 칸에 담지 않는다.** 어휘가 다르고 축이 다르다 —
+          `RECORDED` 는 *"승인이 적혔다"* 일 뿐 *"판매가 섰다"* 가 아니다
+          (`transition_outcomes` 를 가른 것과 같은 이유).
+
+        ★ **이름의 주인은 `backfill.py` 다.** 여기서 새 이름을 안 붙이고 세기만 한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is not None:
+                    total.update(approval.confirmation_outcomes)
+        return total
+
+    @property
+    def reservation_outcomes(self) -> Mapping[str, int]:
+        """확정분 예약 어휘 분포 (2026-09-12). 🔴 **둘을 접지 않는다.**
+
+        ```text
+        RESERVED  요구량만큼 잡았다
+        SHORT     모자랐다 — 확정은 CONFIRMED 인데 재고는 그만큼 없었다
+        ```
+
+        ★★ **이 줄이 없어서 「확정 34건」 을 보고 재고가 잡힌 줄 알았다**
+          (`SIM-CHAIN-V4` 실측). 확정 뒤 예약이 안 걸려 물류가 다음 날 같은 재고를
+          다시 가용으로 보고했고, 14건 15,474kg 이 미출고로 남았다.
+
+        ★ **이름의 주인은 `sales_approval.SaleConfirmationOut` 이다.** 여기서 새
+          이름을 안 붙이고 세기만 한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is not None:
+                    total.update(approval.reservation_outcomes)
+        return total
+
+    @property
+    def outbound_failure_lines(self) -> tuple[str, ...]:
+        """출고가 **터진** 판매 품목마다 한 줄 (2026-09-15 · 물류 문서 24 §5-㉣).
+
+        ```text
+        as_of · sale_id · sale_item_id · reservation_id · item_id ·
+        required · reserved · 후보 n · 후보합 · error_type · message · release
+        ```
+
+        🔴 **`FAILED` 만.** `SHORT` 는 사업 결과이지 터진 것이 아니다 (`OutboundOut.failed_items`
+          와 같은 선).
+
+        ★ **값을 새로 만들지 않는다.** 칸의 주인은 `SaleItemOutcome` 이고 여기는 옮겨
+          적는다. 모르는 칸(`None`)은 `모름` 으로 적는다 — 0 으로 접으면 «후보 0건» 과
+          «후보를 못 읽었다» 가 같아진다. `message` 는 사유 문장 그대로다.
+        """
+        out: list[str] = []
+        for day in self.days:
+            출고 = day.outbound
+            if 출고 is None:
+                continue
+            for one in 출고.items:
+                if one.status != "FAILED":
+                    continue
+                칸 = [
+                    출고.as_of.isoformat(),
+                    one.sale_id,
+                    one.sale_item_id,
+                    one.reservation_id,
+                    _or_unknown(one.item_id),
+                    f"required {one.required_qty_kg}",
+                    f"reserved {_or_unknown(one.reserved_qty_kg)}",
+                    f"후보 {_or_unknown(one.candidate_lot_count)}",
+                    f"후보합 {_or_unknown(one.candidate_available_kg)}",
+                    _or_unknown(one.error_type),
+                    one.reason,
+                    f"release {_or_unknown(one.release_outcome)}",
+                ]
+                out.append(" · ".join(칸))
+        return tuple(out)
+
+    @property
+    def expense_settlement_statuses(self) -> Mapping[str, int]:
+        """운영비 지급 **단계** 분포 (2026-09-17). 🔴 **넷을 접지 않는다 · 0 도 든다.**
+
+        ```text
+        NOT_ATTEMPTED  안 켰다 — --auto-settle-expenses 를 안 줬다 · 관문이 막은 날이다
+        RAN            지급한 건이 있었다
+        NOTHING_DUE    확인했고 지급일이 된 것이 없었다 — 🟢 정상이다
+        FAILED         하려다 터졌다 — 🔴 **그날 마감이 BLOCKED 다** (`_incident_reason`)
+        ```
+
+        ★★ **날짜 줄 하나로는 「안 켰다」와 「켰는데 0건」이 안 갈린다.** 둘 다
+          `expense_settlement_lines` 가 빈 튜플이고, 그러면 성적표를 보는 사람이
+          *"지급할 것이 없었구나"* 로 읽는다 — 실제로는 안 켠 것일 수 있다.
+          `maintenance` 가 `유지보수`·`유지어휘` 두 줄인 것과 같은 이유로 여기도 둘이다.
+
+        🔴 **`FAILED` 0 을 빼지 않는다.** 여기서 묻는 것은 *"지급이 터진 날이 없었다"*
+          이고, 키가 안 보이면 *"없었다"* 와 *"안 셌다"* 가 같아진다 — 마감 줄이
+          03-06 뒤로 멈춘 것을 아무도 못 본 그 모양(`closing_statuses`)을 되풀이하지
+          않으려고 처음부터 채운다.
+
+        ★ **여기서 금액을 세지 않는다.** 얼마가 나갔나의 주인은 `ExpenseSettlement` 이고
+          `expense_settlement_lines` 가 그것을 나른다 — 이 줄은 **날을 센다.**
+        """
+        total: Counter[str] = Counter(dict.fromkeys(_EXPENSE_SETTLEMENT_STATUSES, 0))
+        for day in self.days:
+            total[day.expense_settlement_status] += 1
+        return total
+
+    @property
+    def expense_settlement_lines(self) -> tuple[str, ...]:
+        """운영비가 **실제로 나간 날마다** 한 줄 (2026-09-17).
+
+        ```text
+        2026-01-10  운영비 지급 1건 / 3,855,000원
+        ```
+
+        🔴 **0건인 날은 줄이 안 는다.** 179일 중 지급이 있는 날은 몇 날뿐이고, 없는
+          날까지 찍으면 그 몇 줄이 179줄 사이에 묻힌다 — `출고실패` 줄과 같은 규율이다.
+
+        ★ **값을 새로 만들지 않는다.** 건수와 금액의 주인은 `ExpenseSettlement` 이고
+          여기는 세어 옮겨 적는다. 지급을 안 켠 날과 켰는데 없던 날은 둘 다 줄이 안
+          느는데, 그 둘을 가르는 것은 `DayRunOutcome.expense_settlement_status` 다.
+        """
+        out: list[str] = []
+        for day in self.days:
+            if not day.expense_settlements:
+                continue
+            합계 = sum((one.amount_krw for one in day.expense_settlements), Decimal(0))
+            out.append(
+                f"{day.as_of.isoformat()}  운영비 지급"
+                f" {len(day.expense_settlements)}건 / {_krw(합계)}원"
+            )
+        return tuple(out)
+
+    @property
+    def confirmation_reasons(self) -> tuple[str, ...]:
+        """확정이 못 선 이유들. **`CONFIRMED` 가 아닌 것만.**
+
+        ⚠️ **코드만 나르면 오늘 밤이 반복된다.** `{BLOCKED: 7}` 만 보고는 무엇이
+          막았는지를 못 읽는다 — 그날의 이유는 `ValidationError:
+          reported_sales_amount_krw` 였고 그것은 문장을 봐야 보인다.
+
+        ★ **같은 문장을 한 번만 싣는다.** 이레 내내 같은 이유면 줄이 일곱이 아니라
+          하나여야 읽힌다. **본 순서는 지킨다** — 무엇이 먼저 막았는지가 순서다.
+        """
+        out: list[str] = []
+        for day in self.days:
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is None:
+                    continue
+                for one in approval.runs:
+                    사유 = one.confirmation_reason
+                    if (
+                        one.confirmation_status not in (None, "CONFIRMED")
+                        and 사유
+                        and 사유 not in out
+                    ):
+                        out.append(사유)
+        return tuple(out)
+
+    @property
+    def label_outcomes(self) -> Mapping[str, int]:
+        """**어느 라벨이 실제로 섰나** (2026-09-11). 🔴 **접지 않는다.**
+
+        ★★ **규칙에 순서가 생긴 순간 이 줄이 필요해졌다** (`backfill.FIRST_OFFERED`).
+          규칙 파일에 순서가 적혀 있어도 **그날 무엇이 섰는지**는 그날 제시된 안이
+          정한다 — 이 줄이 없으면 **곡선이 한 규칙의 것이 아니게 되고**, 사람이
+          날마다 결정 행을 되짚어야 한다.
+
+        🔴 **`approval_outcomes` 와 한 칸에 담지 않는다.** 어휘가 다르고 축이 다르다 —
+          저쪽은 *"승인을 적었나"* 이고 이쪽은 *"무엇을 골랐나"* 다
+          (`confirmation_outcomes` · `transition_outcomes` 와 같은 규율).
+
+        ★ **이름의 주인은 매입이다.** 여기서 새 이름을 안 붙이고 세기만 한다.
+        """
+        total: Counter[str] = Counter()
+        for day in self.days:
+            for approval in (day.procurement_approval, day.sales_approval):
+                if approval is not None:
+                    total.update(approval.label_outcomes)
+        return total
+
+    @property
+    def cash(self) -> Mapping[str, Decimal | None] | None:
+        """그 구간의 현금 축 (2026-09-12). **마감행이 0행이면 `None`.**
+
+        ```text
+        네 유출·유입    그 구간 합
+        순현금          그 구간 합
+        기말잔액        🔴 합이 아니라 **마지막 날의 잔액**이다
+        ```
+
+        ★★ **걷기가 현금 축을 아예 안 보고 있었다.** 칸은 `daily_closings` 에
+          처음부터 있었고 아무도 안 봤다 — `llm_outcomes` 가 서기 전과 같은 모양이다.
+
+        🔴 **0 인 칸을 빼지 않는다.** 네 유출이 전부 0 인 채로 V4~V6 세 판이
+          「성립」을 통과했다. 그 0 이 안 보이면 그 성립이 **무엇을 통과시킨
+          것인지**를 성적표가 못 답한다.
+
+        ★ **이름의 주인은 `ledger_repository` 다.** 여기서 새 이름을 안 붙이고
+          나르기만 한다 — `end_codes` 가 `scheduler` 의 값을 그대로 세는 것과 같다.
+
+        🔴 **`_NULLABLE_CASH_COLUMNS` 의 칸은 하루라도 `None` 이면 합이 `None` 이다**
+          (2026-09-16). 그 `None` 은 「0원이었다」가 아니라 **「그날 이 축을 안 셌다」**다
+          (재무 `schemas.py` 의 뜻).
+
+        🔴 **기록된 날만 더해서 합으로 내지 않는다.** 그러면 구간 합인 척하는
+          **부분합**이 찍히고, 읽는 사람은 그 수가 며칠치인지 알 길이 없다 —
+          `SIM-CHAIN-CHECK-0916` 에서 매입유출이 조용히 작아졌던 그 모양이다.
+          모르는 것은 **모른다고 적는다.**
+        """
+        if not self.closings:
+            return None
+        total: dict[str, Decimal | None] = {}
+        for _, column in _CASH_FLOWS:
+            if column not in _NULLABLE_CASH_COLUMNS:
+                total[column] = sum((_won(row, column) for row in self.closings), _ZERO)
+                continue
+            값들 = [_won_or_none(row, column) for row in self.closings]
+            total[column] = None if any(one is None for one in 값들) else sum(값들, _ZERO)
+        # ★ **기말잔액만 합이 아니다.** 잔액은 그날의 상태이지 그날의 움직임이
+        #   아니다 — 더하면 179일치 잔액을 합한 뜻 없는 수가 나온다.
+        total[BASE_CASH_BALANCE] = _won(self.closings[-1], BASE_CASH_BALANCE)
+        return total
+
+    @property
+    def cash_identity(self) -> CashIdentity | None:
+        """현금 항등식 (2026-09-12). **마감행이 0행이면 `None`.**
+
+        🔴 **대출 포함 곡선(`loan_cash_balance_krw`)을 여기 안 넣는다.** 차입과
+          상환이 들어가 축이 다르다 — 대출이 실행된 날은 **잔액이 순현금과 달라야
+          맞다.** 지금 네 판 다 대출이 0 이라 두 곡선이 안 갈리지만, **안 갈린다고
+          한 축으로 접으면** 차입이 한 번 서는 날 항등식이 조용히 거짓말을 한다
+          (`end_codes` 와 `sales_end_codes` 를 가른 것과 같은 규율).
+
+        🔴 **깨져도 `incidents` 에 안 넣는다.** 재무 지급 전이가 서기 전에는 **매일
+          깨지고**, 사고로 세면 `max_consecutive_failures` 에 걸려 걷기가 못 끝난다 —
+          그러면 정본 판을 못 돌린다. 🟢 세고 찍고 판정은 낸다 · 🔴 걷기를 멈추지
+          않고 `사고` 줄 숫자를 안 건드린다. `사고` 는 자기 축을 그대로 지키고
+          현금항등식은 **자기 줄**을 갖는다.
+
+        ★ **여기는 `_won` 을 그대로 쓴다** (2026-09-16). 이 항등식이 읽는 칸은
+          `BASE_CASH_BALANCE` 와 `NET_CASH` 둘뿐이고 **둘 다 `NOT NULL` 이다** —
+          `_NULLABLE_CASH_COLUMNS` 에 없다. 그래서 운영비 칸이 `None` 이 되어도
+          이 줄은 종전과 같은 값을 낸다. **다음 사람이 같은 걱정을 다시 하지 않게
+          여기 적어 둔다.**
+        """
+        rows = self.closings
+        if not rows:
+            return None
+        opening = _won(rows[0], BASE_CASH_BALANCE) - _won(rows[0], NET_CASH)
+        return CashIdentity(
+            opening_balance_krw=opening,
+            balance_delta_krw=_won(rows[-1], BASE_CASH_BALANCE) - opening,
+            net_cash_krw=sum((_won(row, NET_CASH) for row in rows), _ZERO),
+            # ★ **첫날은 안 센다** — 앞 잔액이 없다. 세면 기초를 아는 판마다
+            #   하루가 늘 어긋난 것으로 나온다.
+            mismatched_days=sum(
+                1
+                for 앞, 뒤 in pairwise(rows)
+                if abs(
+                    (_won(뒤, BASE_CASH_BALANCE) - _won(앞, BASE_CASH_BALANCE)) - _won(뒤, NET_CASH)
+                )
+                >= _ONE_WON
+            ),
+        )
+
+
+#: 현금 줄이 찍는 칸. **왼쪽은 사람이 읽는 이름 · 오른쪽은 재무의 칸이다.**
+#:
+#: 🔴 **여섯이 전부 합이고 기말잔액만 여기 없다** — 그쪽은 마지막 날의 값이라
+#:   같은 자리에 두면 합으로 읽힌다.
+#:
+#: 🔴 **운영비 칸이 빠져 있으면 찍힌 유출의 합이 순현금과 안 맞는다.** 재무가 순현금에서
+#:   이미 뺀 값이라 순현금은 맞는데, 그 차이를 설명하는 칸이 표에 없어서 읽는 사람이
+#:   «어디서 샜지» 를 되짚을 수가 없다.
+_CASH_FLOWS = (
+    ("매입유출", PURCHASE_CASH_OUT),
+    ("물류유출", LOGISTICS_CASH_OUT),
+    ("인건이자", PAYROLL_INTEREST_CASH_OUT),
+    ("운영비유출", OPERATING_EXPENSE_CASH_OUT),
+    ("수금", COLLECTION_CASH_IN),
+    ("순현금", NET_CASH),
+)
+
+#: 🔴 **값이 `None` 으로 올 수 있는 현금 칸** (2026-09-16). 나머지 칸은 `NOT NULL` 이다.
+#:
+#: ★ **왜 이 칸만 다른가.** 운영비 유출은 **나중에 생긴 축**이다. 이 칸이 서기 전에
+#:   돈 실행들(SIM-CHAIN-V2~V13 · WALK-* · PREFINAL)이 DB 에 그대로 남아 있고,
+#:   **그 실행들은 이 축을 한 번도 안 셌다.** 그래서 그쪽의 빈 값은 「0원이 나갔다」가
+#:   아니라 **「안 셌다」**다 — 재무가 `finance/schemas.py` 에
+#:   `operating_expense_cash_out_krw: Decimal | None` 로, `api/finance/presenter.py` 에
+#:   `"기록 없음" if ... is None` 으로 적어 둔 그 뜻이다.
+#:
+#: ⚠️ **지금 이 갈래는 실제로 안 탄다.** `haetdeul.daily_closings` 의 이 칸은 아직
+#:   `NOT NULL DEFAULT 0` 이라 DB 가 `None` 을 못 준다 (실측 2026-09-16).
+#:   **그런데도 미리 세운다** — 칸의 주인은 재무이고, 재무가 코드 뜻대로 칸을
+#:   바로잡는 날 이쪽이 준비돼 있지 않으면 **그날 걷기 요약이
+#:   `decimal.InvalidOperation` 으로 통째로 죽는다.** 179일을 다 걷고 마지막 줄에서
+#:   죽으면 성적을 통째로 잃는다 — 우리는 그 자리를 이미 한 번 밟았다
+#:   (`use_utf8_output`). 🔴 **여기는 「DB 가 언제 바뀌어도 안 죽는다」를 세우는 자리다.**
+#:
+#: 🔴 **여기에 칸을 늘리는 것은 «그 칸의 `None` 을 0 으로 안 읽겠다» 는 선언이다.**
+#:   NOT NULL 로 남을 칸을 넣으면 안 된다 — 넣는 순간 「안 셌다」가 없는 자리에 생긴다.
+_NULLABLE_CASH_COLUMNS = frozenset({OPERATING_EXPENSE_CASH_OUT})
+
+
+def _won(row: Mapping[str, Any], column: str) -> Decimal:
+    """마감행 한 칸을 원으로. **없는 칸은 터진다 — 0 으로 안 메운다.**
+
+    ⚠️ `numeric` 은 `Decimal` 로 온다. `float` 로 낮추면 179일을 더하는 동안
+      원 단위가 조용히 어긋나고, 그 어긋남이 **항등식의 판정**이 된다.
+
+    🔴 **`NOT NULL` 칸 전용이다.** 값이 `None` 이면 `Decimal("None")` 을 만들려다
+      `InvalidOperation` 으로 터진다 — 그래야 맞다. `None` 이 올 수 있는 칸은
+      `_won_or_none` 을 쓴다 (`_NULLABLE_CASH_COLUMNS`).
+    """
+    value = row[column]
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _won_or_none(row: Mapping[str, Any], column: str) -> Decimal | None:
+    """마감행 한 칸을 원으로. **값이 `None` 이면 `None` 이다 — 0 으로 안 메운다.**
+
+    ```text
+    칸이 없다        터진다        ← `_won` 과 같다. 표가 바뀐 것을 조용히 못 넘긴다
+    값이 None 이다   None          ← 「안 셌다」. 0 이 아니다
+    ```
+
+    🔴 **`row.get(column, 0)` 으로 바꾸지 않는다.** 그러면 칸이 사라진 날과
+      값이 0 인 날이 화면에서 같아진다 — `_won` 이 지키던 규율 그대로다.
+    """
+    value = row[column]
+    if value is None:
+        return None
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def moment_on(day: date, now: datetime) -> datetime:
+    """받은 시각의 **시각 부분**을 그날에 붙인다.
+
+    🔴 **왜 필요한가.** `plan_next_action` 은 `now` 와 그날 10:30 을 비교한다. 받은
+      `now` 를 179일에 그대로 쓰면 첫날 말고는 전부 마감이 한참 지난 것으로 읽히고,
+      `NONE_READY` 인 날이 전부 `RUN_AND_RECORD` 가 된다.
+
+    ★ **시간대를 새로 만들지 않는다.** `timetz()` 가 받은 값의 것을 그대로 나른다.
+    """
+    return datetime.combine(day, now.timetz())
+
+
+def _or_unknown(value: Any) -> str:
+    """모르는 칸은 `모름`. 🔴 **0 으로 접지 않는다** — 없는 것과 0 은 다른 사실이다."""
+    return "모름" if value is None else str(value)
+
+
+def _krw(value: Decimal) -> str:
+    """금액 한 칸. **원 단위로 자리를 끊어 찍는다.** `Decimal` 전용이다."""
+    return f"{value:,.0f}"
+
+
+def _krw_or_none(value: Decimal | None, *, recorded: int, total: int) -> str:
+    """금액 한 칸 — **`None` 은 「기록 없음」이다. 🔴 0 이 아니다** (2026-09-16).
+
+    ```text
+    값이 있다              1,234,567
+    한 날도 안 기록됐다    기록 없음
+    일부만 기록됐다        기록 없음 (179일 중 120일)
+    ```
+
+    🔴 **0 과 「기록 없음」을 한 글자로 접지 않는다.** *"0원이 나갔다"* 와
+      *"이 축을 안 셌다"* 를 같은 0 으로 적으면, 고칠 것이 있는 판과 없는 판이
+      화면에서 같아진다 — 이 함수가 있는 이유가 그것 하나다.
+
+    ★ **일부만 기록된 판은 몇 날인지까지 찍는다.** 「기록 없음」만 찍으면 «한 날도
+      안 셌다» 로 읽히는데, 사실은 **섞여 있다** 는 것이 그 판의 사실이다.
+    """
+    if value is not None:
+        return _krw(value)
+    if recorded == 0:
+        return "기록 없음"
+    return f"기록 없음 ({total}일 중 {recorded}일)"
+
+
+def _기록된_날수(rows: Sequence[Mapping[str, Any]], column: str) -> int:
+    """그 칸을 **실제로 기록한** 마감행이 몇 날인가. 🔴 **없는 칸은 터진다.**"""
+    return sum(1 for row in rows if row[column] is not None)
+
+
+def _cash_lines(result: WalkResult) -> list[str]:
+    """현금 두 줄 (2026-09-12). 🔴 **맞아도 찍고 · 0 도 찍고 · 없으면 「없음」이다.**
+
+    ```text
+    현금        {매입유출: n · 물류유출: n · 인건이자: n · 수금: n · 순현금: n · 기말잔액: n}
+    현금항등식  Δ잔액 n · Σ순현금 n · 차이 n · 어긋난 날 n일 → 🔴 깨짐
+    ```
+
+    🔴 **네 상태를 접지 않는다.**
+
+    ```text
+    마감행이 있다      숫자와 판정을 찍는다 (성립이어도 찍는다)
+    0행이다            「없음」 — 마감이 한 번도 안 돌았다
+    못 읽었다          「못 읽음」 — 0행과 다른 사실이다
+    칸을 안 셌다       「기록 없음」 — 마감은 섰는데 그 축을 안 센 것이다 (2026-09-16)
+    ```
+
+    ⚠️ **0 으로 메우지 않는다.** *"마감이 안 돌았다"* 와 *"돌았는데 0 이다"* 를
+      같은 0 으로 적으면, 고칠 것이 있는 판과 없는 판이 화면에서 같아진다.
+      **「안 셌다」도 마찬가지다** — `_krw_or_none` 이 그 자리를 지킨다.
+    """
+    if result.closings_reason is not None:
+        못읽음 = f"못 읽음 — {result.closings_reason}"
+        return [f"현금        {못읽음}", f"현금항등식  {못읽음}"]
+
+    현금 = result.cash
+    항등식 = result.cash_identity
+    # 🔴 **현금 합은 마감이 선 날만의 합이다** (2026-09-16). 그 사실을 줄에 드러낸다 —
+    #    `SIM-CHAIN-CHECK-0916` 에서 매입유출이 1,625만 으로 찍혔는데 purchases 는 5,586만
+    #    이었다. 03-06 뒤로 마감이 안 서서 합이 조용히 작아진 것이다.
+    일수 = f"마감이 선 날 {len(result.closings)}일 / 돈 날 {len(result.days)}일"
+    if 현금 is None or 항등식 is None:
+        없음 = "없음 — 그 구간에 마감행이 0행이다"
+        return [f"현금        {없음} · {일수}", f"현금항등식  {없음}"]
+
+    # 🔴 **0 인 칸도 그대로 찍는다.** 빼면 V4~V6 세 판을 통과시킨 그 0 이 사라진다.
+    # 🔴 **그리고 「기록 없음」을 0 으로 접지 않는다** (2026-09-16). 운영비 축은 나중에
+    #    생겨서 그 축을 안 센 실행이 DB 에 남아 있다 — 그쪽의 빈 값은 「0원」이 아니다.
+    #    ⚠️ 칸이 아직 `NOT NULL DEFAULT 0` 이라 이 갈래는 **오늘은 안 탄다.** 칸의 주인인
+    #       재무가 코드 뜻대로 바로잡는 날 탄다 — 그때 안 죽으려고 미리 세운다.
+    def _칸값(column: str) -> str:
+        return _krw_or_none(
+            현금[column],
+            recorded=_기록된_날수(result.closings, column),
+            total=len(result.closings),
+        )
+
+    칸 = " · ".join(f"{이름}: {_칸값(column)}" for 이름, column in _CASH_FLOWS)
+    판정 = "🟢 성립" if 항등식.holds else "🔴 깨짐"
+    항등식줄 = (
+        f"Δ잔액 {_krw(항등식.balance_delta_krw)}"
+        f" · Σ순현금 {_krw(항등식.net_cash_krw)}"
+        f" · 차이 {_krw(항등식.gap_krw)}"
+        f" · 어긋난 날 {항등식.mismatched_days}일 → {판정}"
+    )
+    # ★ **기말잔액은 `_krw` 그대로다** — `base_cash_balance_krw` 는 `NOT NULL` 이라
+    #   `_NULLABLE_CASH_COLUMNS` 에 없고, 「기록 없음」이 설 수 없는 칸이다.
+    return [
+        f"현금        {{{칸} · 기말잔액: {_krw(현금[BASE_CASH_BALANCE])}}} · {일수}",
+        f"현금항등식  {항등식줄}",
+    ]
+
+
+def _moment_line(result: WalkResult) -> str:
+    """기준 시각 한 줄 (2026-09-13). 🔴 **마감 전이면 그 사실을 찍는다.**
+
+    ```text
+    기준시각  2026-09-13T16:00+09:00 · 날마다 16:00 · 마감 10:30 뒤
+    기준시각  2026-09-13T09:00+09:00 · 날마다 09:00 · 🔴 마감 10:30 전
+              — 예측이 늦는 날이 통째로 안 돈다      (실제로는 한 줄이다)
+    ```
+
+    ★★ **이 한 줄이 없어서 한 판을 버렸다.** V9① 을 09:00 으로 걸었더니 ML 배치가
+      없는 날이 전부 `WAIT` 이 되어 14일이 영영 안 돌았고, 매입 셀 213 → 171 ·
+      `E4` 42 → 0 · 폐기 16 → 59 로 통째로 갈렸다. **코드가 아니라 입력 하나였다.**
+
+    🔴 **경고 문장이 「예측이 늦는 날」이다 · 「배치 없는 날」이 아니다** (2026-09-13).
+      배치 없는 날은 `NO_ML_BATCH` 가 되어 마감과 무관하게 장부가 돈다
+      (`scheduler.plan_next_action` 이 게이트 **앞**에서 가른다). 마감 전 시각에 안
+      도는 것은 **배치가 도는 날인데 예측이 아직 안 온 날**뿐이다 — 옛 문장을 두면
+      V9① 을 고친 판이 그 사실을 거꾸로 말한다.
+
+    ★ **받은 문자열을 먼저 찍는다.** 날짜 부분은 안 쓰이지만 사람이 준 것과 코드가
+      쓰는 것(`날마다`)이 둘 다 보여야 왜 갈렸는지 읽힌다.
+
+    🔴 **전/뒤를 여기서 따로 판정하지 않는다.** 걷기가 쓰는 그대로(`moment_on`)
+      붙인 시각을 `scheduler.deadline_at` 과 비교한다 — `plan_next_action` 이
+      `now >= deadline` 을 뒤로 보는 그 경계 그대로다.
+    """
+    if result.walked_now is None:
+        return "기준시각  🟡 안 받았다 — 이 걷기가 어느 시각으로 걸렸는지 원장에 안 남는다"
+    날 = result.start
+    날마다 = moment_on(날, datetime.fromisoformat(result.walked_now))
+    마감 = deadline_at(날)
+    시각 = f"{날마다:%H:%M}" if not (날마다.second or 날마다.microsecond) else f"{날마다:%H:%M:%S}"
+    머리 = f"기준시각  {result.walked_now} · 날마다 {시각} · "
+    if 날마다 < 마감:
+        return 머리 + f"🔴 마감 {마감:%H:%M} 전 — 예측이 늦는 날이 통째로 안 돈다"
+    return 머리 + f"마감 {마감:%H:%M} 뒤"
+
+
+def _closing_line(result: WalkResult) -> str:
+    """재무 일마감 한 줄 (2026-09-16). 🔴 **0 인 칸도 찍는다.**
+
+    ⚠️ **빈 자리를 「없음」 으로 안 적는다.** 그 말은 현금 줄이 「마감행 0행」 에 쓰고, 「못
+      읽음」 과 안 섞이는지를 검사가 요약 전체에서 잰다 — 여기는 「안 섰다」·「안 났다」 다.
+
+    ```text
+    마감      {'BLOCKED': 0, 'CLOSED': 45, 'FAILED': 3, ...} · 마지막 마감일 2026-03-06
+              · 첫 실패일 2026-03-09 (마감 실패: ...)      (실제로는 한 줄이다)
+    ```
+
+    ★★ **이 줄이 없어서 마감이 3월 초에 멈춘 것을 아무도 못 봤다.**
+    """
+    마지막 = result.last_closed_on
+    첫실패 = result.first_closing_failure
+    return (
+        f"마감      {dict(sorted(result.closing_statuses.items()))}"
+        f" · 마지막 마감일 {마지막.isoformat() if 마지막 is not None else '안 섰다'}"
+        + (
+            f" · 첫 실패일 {첫실패[0].isoformat()} ({첫실패[1]})"
+            if 첫실패 is not None
+            else " · 첫 실패일 안 났다"
+        )
+    )
+
+
+def _ledger_block_line(result: WalkResult) -> str:
+    """원장못씀 한 줄 (2026-09-16). 🔴 **0 건이어도 찍고 · 0 인 갈래도 찍는다.**
+
+    ```text
+    원장못씀  고유 2건 {등급 둘: 1 · 회차금액 없음: 1 · 지급일 없음: 0 · 도착분 없음: 0}
+              · 재시도 12회 · 영영 안 될 것 1건       ← 실제로는 한 줄이다
+    ```
+
+    🔴 **세 수를 낸다.** 「고유」가 크기이고 「재시도」가 소음이다 — 한 수로 접으면
+       같은 승인이 날마다 다시 막히는 것이 건수로 읽혀 한 건이 며칠치로 부푼다.
+       **「영영 안 될 것」도 고유 건수다** — 그 수가 곧 발표에서 말할 크기다.
+
+    ★ **갈래 순서는 `LEDGER_BLOCK_KINDS` 그대로다** — 가나다순으로 세우지 않는다.
+      순서가 뜻이라 `관측시점` 줄과 같은 규율이다.
+
+    🔴 **세고 찍기만 한다.** 이 함수도 이 줄도 걷기가 고르는 안·재시도·분류 결과를
+       바꾸지 않는다.
+    """
+    센것 = result.ledger_blocks
+    갈래 = " · ".join(f"{이름}: {수}" for 이름, 수 in 센것.unique_by_kind.items())
+    return (
+        f"원장못씀  고유 {센것.unique}건 {{{갈래}}}"
+        f" · 재시도 {센것.retries}회 · 영영 안 될 것 {센것.permanent}건"
+    )
+
+
+def _inspection_line(result: WalkResult) -> str:
+    """물류 점검 한 줄. **칸 순서는 하루 안의 순서 그대로**, 칸 안은 가나다순이다."""
+    칸별 = {칸: dict(sorted(분포.items())) for 칸, 분포 in result.inspection_statuses.items()}
+    return f"물류점검  {칸별} · 문제 {dict(sorted(result.inspection_counts.items()))}"
+
+
+def format_summary(result: WalkResult) -> str:
+    """걷기 결과를 사람이 읽을 줄로. **값을 새로 만들지 않는다.**"""
+    lines = [
+        f"범위      {result.start.isoformat()} ~ {result.end.isoformat()}",
+        # 🔴 **기준시각 줄을 지우지 않는다** (2026-09-13). 「이 판이 무엇 위에
+        #    섰나」 자리다 — 걷기 요약에는 기준커밋 줄이 없어 범위 바로 아래다.
+        #    이 줄이 없어서 같은 코드로 건 두 판이 왜 갈렸는지 아무도 못 읽었다.
+        _moment_line(result),
+        f"돈 날     {len(result.days)}일 · 휴장 {len(result.skipped_days)}일",
+        f"판단      {dict(sorted(result.actions.items()))}",
+        # 🔴 **매입 줄을 판단 줄에 접지 않는다** (2026-09-13). 배치 없는 날은 품목이
+        #    없어 `종료코드` 줄에서 빠진다 — 그 날들이 어디 갔는지를 이 줄이 말한다.
+        f"매입      {dict(sorted(result.procurement_statuses.items()))}",
+        # 🔴 **원장못씀 줄을 매입 줄에 접지 않는다** (2026-09-16). *"매입 판단이
+        #    돌았나"* 와 *"그 승인이 매입 원장에 닿았나"* 는 축이 다르다 — 이 줄이
+        #    없어서 확인 걷기에서 6건 726kg 255,287원(수량 0.76% · 금액 0.46%)이
+        #    승인은 났는데 원장에 한 행도 안 남은 채 요약 어디에도 안 보였다.
+        _ledger_block_line(result),
+        f"종료코드  {dict(sorted(result.end_codes.items()))}",
+        f"채권      {dict(sorted(result.receivable_statuses.items()))}",
+        f"판매      {dict(sorted(result.sales_statuses.items()))}",
+        f"판매코드  {dict(sorted(result.sales_end_codes.items()))}",
+        f"출고      {dict(sorted(result.outbound_statuses.items()))}",
+        # 🔴 **승인 줄을 접지 않는다** (2026-09-11). 단계와 어휘가 축이 다르므로
+        #    두 줄이다 — 한 줄로 묶으면 *"안 켰다"* 와 *"켰는데 0건"* 이 같아 보인다.
+        f"승인      {dict(sorted(result.approval_statuses.items()))}",
+        f"승인어휘  {dict(sorted(result.approval_outcomes.items()))}",
+        # 🔴 **확정 줄을 접지 않는다** (2026-09-11). *"승인을 적었다"* 와 *"판매가
+        #    섰다"* 는 축이 다르다 — 이 줄이 없어서 `RECORDED 7 · 재검증 PASSED 7` 을
+        #    보고 판매가 선 줄 알았고, `sales` 는 0행이었다.
+        f"확정어휘  {dict(sorted(result.confirmation_outcomes.items()))}",
+        # 🔴 **예약 줄을 확정 줄에 접지 않는다** (2026-09-12). *"판매가 섰다"* 와
+        #    *"그만큼 재고를 잡았다"* 는 축이 다르다 — 이 줄이 없어서 확정 34건을
+        #    보고 재고가 잡힌 줄 알았고, 같은 재고가 다음 날 또 팔렸다.
+        f"예약어휘  {dict(sorted(result.reservation_outcomes.items()))}",
+        # 🔴 **라벨 줄을 접지 않는다** (2026-09-11). 규칙이 순서를 갖게 되면서
+        #    *"규칙이 무엇을 적었나"* 와 *"그날 무엇이 섰나"* 가 갈릴 수 있다 —
+        #    이 줄이 그 둘을 잇는 유일한 자리다.
+        f"라벨어휘  {dict(sorted(result.label_outcomes.items()))}",
+        # 🔴 **전이 줄을 접지 않는다** (2026-09-11). *"승인을 적었다"* 와 *"그 승인이
+        #    원장에 닿았다"* 는 축이 다르다 — 이 줄이 없어서 `RECORDED 15` 를 보고
+        #    원장에 닿은 줄 알았고, `purchases` 는 0행이었다.
+        f"전이      {dict(sorted(result.transition_outcomes.items()))}",
+        # 🔴 **유지보수 줄을 접지 않는다** (2026-09-11). 몇 Lot 이 없어졌고 몇이
+        #    **사람 몫으로 남았는지**가 보여야 한다 — 창고가 안 비는 날 봐야 할
+        #    자리가 `SKIPPED_HELD_ALLOCATION` 이고, 접으면 그 줄이 사라진다.
+        f"유지보수  {dict(sorted(result.maintenance_statuses.items()))}",
+        f"유지어휘  {dict(sorted(result.maintenance_outcomes.items()))}",
+        # 🔴 **물류점검 줄을 접지 않는다 · 0 도 찍는다** (2026-09-14). 이 줄이 없어서
+        #    걷기 끝에 「점검이 실패한 날이 있었나」 를 증명할 수 없었다. `FAILED` 0 이
+        #    안 보이면 *"없었다"* 와 *"안 셌다"* 가 같아진다.
+        _inspection_line(result),
+        # 🔴 **LLM 줄은 0 인 어휘도 찍는다** (2026-09-12). 다른 어휘 줄과 여기서
+        #    갈린다 — 저쪽의 0 은 *"그 사건이 없었다"* 이고 이쪽의 `SUCCESS` 0 은
+        #    **그 자체가 사고**다. 71영업일을 `SUCCESS` 0건으로 걷고도 아무도
+        #    모른 것이 「0이라 안 보임」의 모양이었다 (`SIM-CHAIN-V6`).
+        f"LLM어휘   {dict(sorted(result.llm_outcomes.items()))}",
+        # 🔴 **관측 줄도 0 인 칸을 찍는다** (2026-09-12). `LLM어휘` 와 같은 규율이다 —
+        #    처음에는 「실었다」가 0 이고 **그 숫자가 늘어나는 것이 이 일의 진도**다.
+        #    0 이라 빼면 부서가 연결한 날에도 성적표가 아무 말을 안 한다.
+        #
+        # ⚠️ **이 줄만 `sorted` 를 안 쓴다.** 순서가 뜻이라 `_OBSERVED_AT_LABELS` 가
+        #    정한 그대로 찍는다 — 가나다순으로 세우면 「안쟀다」가 앞에 온다.
+        f"관측시점  {dict(result.observation_coverage)}",
+        # 🔴 **현금 두 줄을 접지 않는다** (2026-09-12). *"현금이 얼마 움직였나"* 와
+        #    *"그만큼 잔액이 움직였나"* 는 축이 다르다 — 이 줄이 없어서 V7 에서
+        #    매입 유출 27,122,228 원이 잔액에서 안 빠진 것을 179일 동안 아무도
+        #    못 봤다. 🔴 **맞아도 찍는다** — 0 이라 안 보이면 아무도 안 본다.
+        # 🔴 **마감 줄을 현금 줄 바로 위에 둔다** (2026-09-16). 현금 합이 어느 날들의
+        #    합인지가 이 줄에 있다 — 이 줄이 없어서 03-06 뒤로 마감이 0행인 판을
+        #    「사고 0건 · 현금항등식 🟢」 으로 읽었다.
+        # 🔴 **운영비 줄을 마감 줄과 현금 줄 사이에 둔다** (2026-09-17). 지급은 마감
+        #    바로 앞 단계이고, 현금 줄의 운영비 칸이 그 결과다 — 이 줄이 없으면 그 칸이
+        #    0 일 때 «안 켰다» 와 «지급할 것이 없었다» 와 «지급이 터졌다» 가 한 글자로
+        #    접힌다. 마감 줄이 없어서 03-06 뒤를 아무도 못 본 그 모양과 같다.
+        f"운영비    {dict(sorted(result.expense_settlement_statuses.items()))}",
+        _closing_line(result),
+        *_cash_lines(result),
+        f"사고      {len(result.incidents)}건",
+        f"소요      {result.elapsed_seconds:.1f}초",
+    ]
+    # ⚠️ **사유를 코드 밑에 붙인다.** `{BLOCKED: 7}` 만으로는 무엇이 막았는지를
+    #    못 읽고, 그것이 오늘 밤 사람이 손으로 재현해야 했던 이유다.
+    lines += [f"  확정막힘  {사유}" for 사유 in result.confirmation_reasons]
+    # 🔴 **출고실패 줄을 사고 줄에 접지 않는다** (2026-09-15). 사고 줄은 날 단위이고
+    #    이 줄은 품목 단위다 — 고아 예약 미설명 6건을 되짚으려면 터진 순간의 후보가
+    #    몇 개 · 몇 kg 이었는지가 한 줄에 있어야 한다.
+    lines += [f"  출고실패  {줄}" for 줄 in result.outbound_failure_lines]
+    # 🔴 **운영비가 나간 날은 요약에 보여야 한다** (2026-09-17). 이 줄이 없으면 걷기를
+    #    다 걷고도 *"지급이 돌긴 했나"* 를 성적표만 보고는 못 답한다 — 현금 줄의
+    #    운영비 칸은 마감이 적은 값이라, 그 칸이 0 일 때 «안 켰다» 와 «지급할 것이
+    #    없었다» 와 «지급은 했는데 마감이 못 읽었다» 가 한 글자로 접힌다.
+    lines += [f"  {줄}" for 줄 in result.expense_settlement_lines]
+    lines += [f"  사고 {one.as_of.isoformat()}  {one.reason}" for one in result.incidents]
+    if result.stopped_reason is not None:
+        lines.append(f"멈춤      {result.stopped_at} — {result.stopped_reason}")
+    return "\n".join(lines)

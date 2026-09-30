@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import LLMStatus
 
 #: LLM 호출이 최종적으로 실패한 원인 분류. 최종 상태만 기록한다 — 재시도 후 성공하면
 #: None 이다(중간 실패는 로그 몫). API Key 원문 같은 세부 정보는 어디에도 싣지 않는다.

@@ -22,14 +22,14 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.purchase_agent.adapter import validate_forecast
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.classify_situation import is_gate_excluded
-from app.purchase_agent.nodes.package_scenarios import (
-    _forecast_risks,
+from app.purchase_agent.domain.classify_situation import is_gate_excluded
+from app.purchase_agent.domain.package_scenarios import (
     compute_max_price,
+    forecast_risks,
     usable_forecast_window,
 )
+from app.purchase_agent.domain.payload import validate_forecast
 
 AS_OF = date(2026, 8, 21)
 
@@ -120,28 +120,28 @@ def test_the_window_can_be_emptied_and_says_so() -> None:
 
 
 def test_use_recommended_false_blocks_the_run() -> None:
-    missing = validate_forecast(_forecast(use_recommended=False), AS_OF)
+    missing = validate_forecast(_forecast(use_recommended=False), AS_OF, load_constraints())
     assert "forecast.use_recommended" in missing
 
 
 def test_use_recommended_true_or_absent_passes() -> None:
     """🔴 ``None`` 은 안 건다 (규칙 3) — mock 에는 이 칸이 아예 없다."""
-    assert validate_forecast(_forecast(use_recommended=True), AS_OF) == []
-    assert validate_forecast(_forecast(), AS_OF) == []
-    assert validate_forecast(_forecast(use_recommended=None), AS_OF) == []
+    assert validate_forecast(_forecast(use_recommended=True), AS_OF, load_constraints()) == []
+    assert validate_forecast(_forecast(), AS_OF, load_constraints()) == []
+    assert validate_forecast(_forecast(use_recommended=None), AS_OF, load_constraints()) == []
 
 
 def test_a_quality_gated_judgment_row_blocks_the_run() -> None:
     """판정일 한 줄로 ci_width 를 재므로, 그 줄이 quality 면 판정이 성립하지 않는다."""
     day = load_constraints()["situation"]["ci_judgment_day"]
     forecast = _forecast(daily=_daily({day: {"gate_reason": "quality"}}))
-    assert "forecast.daily.gate_reason" in validate_forecast(forecast, AS_OF)
+    assert "forecast.daily.gate_reason" in validate_forecast(forecast, AS_OF, load_constraints())
 
 
 def test_a_lead_time_judgment_row_does_not_block() -> None:
     day = load_constraints()["situation"]["ci_judgment_day"]
     forecast = _forecast(daily=_daily({day: {"gate_reason": "lead_time"}}))
-    assert validate_forecast(forecast, AS_OF) == []
+    assert validate_forecast(forecast, AS_OF, load_constraints()) == []
 
 
 def test_the_shortest_coverage_window_is_guarded_at_the_door() -> None:
@@ -149,19 +149,17 @@ def test_the_shortest_coverage_window_is_guarded_at_the_door() -> None:
     shortest = min(load_constraints()["coverage_days"]["by_label"].values())
     gated = {offset: {"gate_reason": "quality"} for offset in range(1, shortest + 1)}
     forecast = _forecast(daily=_daily(gated))
-    assert "forecast.daily.gate_reason" in validate_forecast(forecast, AS_OF)
+    assert "forecast.daily.gate_reason" in validate_forecast(forecast, AS_OF, load_constraints())
 
 
-def test_the_guard_reads_the_declaration_not_a_hard_coded_window(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_the_guard_reads_the_declaration_not_a_hard_coded_window() -> None:
     """🔴 규칙 8 — 선언을 바꾸면 판정이 따라 바뀌는가.
 
     창을 하나 넓히면 **더 많은 행이 quality 여야** 막힌다. 코드가 ``2`` 를 박고 있으면
     넓힌 창의 세 번째 행을 안 보므로 여기서 운다.
     """
-    from app.purchase_agent import adapter
-
+    # 2026-09-29 재구성 BL-016 보완: 수신 검사(`domain/payload.py`)는 선언을 읽지 않고 인자로
+    #   받는다 — 넓힌 선언을 그대로 넘긴다 (선언은 어댑터가 요청마다 읽어 넘긴다).
     real = load_constraints()
     widened = {
         **real,
@@ -170,14 +168,12 @@ def test_the_guard_reads_the_declaration_not_a_hard_coded_window(
             "by_label": {**real["coverage_days"]["by_label"], "보수": 3},
         },
     }
-    monkeypatch.setattr(adapter, "load_constraints", lambda: widened)
-
     two_gated = {offset: {"gate_reason": "quality"} for offset in (1, 2)}
-    assert validate_forecast(_forecast(daily=_daily(two_gated)), AS_OF) == []
+    assert validate_forecast(_forecast(daily=_daily(two_gated)), AS_OF, widened) == []
 
     three_gated = {offset: {"gate_reason": "quality"} for offset in (1, 2, 3)}
     assert "forecast.daily.gate_reason" in validate_forecast(
-        _forecast(daily=_daily(three_gated)), AS_OF
+        _forecast(daily=_daily(three_gated)), AS_OF, widened
     )
 
 
@@ -192,7 +188,7 @@ def test_a_copied_row_that_sets_the_ceiling_gets_a_notice() -> None:
     ⇒ 아래 두 주장을 같이 잠근다 — **옛 문면이 없을 것** · **새 문면이 있을 것.**
     """
     forecast = _forecast(daily=_daily({2: {"upper": 9_999, "is_filled": True}}))
-    risks = _forecast_risks(forecast, 5)
+    risks = forecast_risks(forecast, 5, load_constraints())
     assert len(risks) == 1
     assert "9999원" in risks[0] and "그 날짜 예측이 없어" in risks[0]
     assert "장이" not in risks[0] and "휴장" not in risks[0], risks[0]
@@ -201,12 +197,12 @@ def test_a_copied_row_that_sets_the_ceiling_gets_a_notice() -> None:
 def test_a_copied_row_that_does_not_set_the_ceiling_stays_quiet() -> None:
     """🔴 창 전체를 세면 실측 48/63 에 붙는다 — 매일 붙는 줄은 신호가 아니다."""
     forecast = _forecast(daily=_daily({1: {"upper": 100, "is_filled": True}}))
-    assert _forecast_risks(forecast, 5) == []
+    assert forecast_risks(forecast, 5, load_constraints()) == []
 
 
 def test_no_copy_column_means_no_notice() -> None:
     """mock 4앵커가 이 경로다 — 없는 칸을 ``false`` 로 읽지 않는다 (규칙 3)."""
-    assert _forecast_risks(_forecast(), 5) == []
+    assert forecast_risks(_forecast(), 5, load_constraints()) == []
 
 
 def test_the_notice_never_cuts_a_scenario() -> None:

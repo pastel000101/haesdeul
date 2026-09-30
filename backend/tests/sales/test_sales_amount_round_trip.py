@@ -38,7 +38,9 @@
 
 from __future__ import annotations
 
+import importlib
 import inspect
+import pkgutil
 from decimal import Decimal
 from typing import Any
 
@@ -46,7 +48,7 @@ import pytest
 from pydantic import AliasChoices, BaseModel
 
 from app.sales import schemas as 판매스키마
-from app.sales.schemas import SalesScenario
+from app.sales.schemas.proposal import SalesScenario
 
 _전선이름 = "reported_sales_amount_krw"
 _안쪽이름 = "sales_amount_krw"
@@ -143,8 +145,16 @@ def test_모르는_칸은_여전히_막힌다() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _sales_schema_modules() -> list[Any]:
+    """`app/sales/schemas/` 패키지의 모듈 전부. **2026-09-29 BL-013 에 한 파일이 패키지가 됐다.**"""
+    return [
+        importlib.import_module(info.name)
+        for info in pkgutil.iter_modules(판매스키마.__path__, f"{판매스키마.__name__}.")
+    ]
+
+
 def _별칭_붙은_칸() -> list[tuple[str, str, str, Any]]:
-    """`app/sales/schemas.py` 안에서 `serialization_alias` 가 붙은 칸 전부.
+    """`app/sales/schemas/` 안에서 `serialization_alias` 가 붙은 칸 전부.
 
     ```text
     (모델 이름, 칸 이름, 전선 이름, validation_alias)
@@ -154,12 +164,13 @@ def _별칭_붙은_칸() -> list[tuple[str, str, str, Any]]:
       잡히고, 왕복을 안 열었으면 아래 검사가 그 자리에서 빨개진다.
     """
     out: list[tuple[str, str, str, Any]] = []
-    for 이름, 물건 in inspect.getmembers(판매스키마, inspect.isclass):
-        if not issubclass(물건, BaseModel) or 물건.__module__ != 판매스키마.__name__:
-            continue
-        for 칸이름, 칸 in 물건.model_fields.items():
-            if 칸.serialization_alias is not None:
-                out.append((이름, 칸이름, 칸.serialization_alias, 칸.validation_alias))
+    for module in _sales_schema_modules():
+        for 이름, 물건 in inspect.getmembers(module, inspect.isclass):
+            if not issubclass(물건, BaseModel) or 물건.__module__ != module.__name__:
+                continue
+            for 칸이름, 칸 in 물건.model_fields.items():
+                if 칸.serialization_alias is not None:
+                    out.append((이름, 칸이름, 칸.serialization_alias, 칸.validation_alias))
     return out
 
 
@@ -172,7 +183,7 @@ def test_쓸개가_실제로_칸을_찾는다() -> None:
     잡힌것 = _별칭_붙은_칸()
 
     assert 잡힌것, (
-        "app/sales/schemas.py 에서 serialization_alias 가 붙은 칸을 하나도 못 찾았다 "
+        "app/sales/schemas/ 에서 serialization_alias 가 붙은 칸을 하나도 못 찾았다 "
         "— 쓸개가 고장 났다"
     )
     assert (

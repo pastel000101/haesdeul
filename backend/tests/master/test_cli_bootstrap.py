@@ -3,7 +3,7 @@
 🔴 **안 찼다.** 범위 러너를 실제로 걸었더니 5일이 5일 다 사고였다.
 
 ```text
-python -m app.master.backtest_runner --start 2026-01-05 --end 2026-01-09 \
+python -m app.master.cli.backtest_runner --start 2026-01-05 --end 2026-01-09 \
     --now 2026-09-09T10:00+09:00
 
 판단   {'RUN_NOW': 5}
@@ -39,18 +39,18 @@ from datetime import date
 
 import pytest
 
-from app.master import (
-    backtest_runner,
-    cancellation,
-    closing,
-    collection,
-    day_open,
-    inbound,
-    transition,
-    wiring,
-)
-from app.master.backtest_runner import WalkResult
-from app.master.bootstrap import wire_registries
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli import console
+from app.master.registry import cancellation as registry_cancellation
+from app.master.registry import closing as registry_closing
+from app.master.registry import collection as registry_collection
+from app.master.registry import day_open as registry_day_open
+from app.master.registry import inbound as registry_inbound
+from app.master.registry import transition as registry_transition
+from app.master.registry import wiring as registry_wiring
+from app.master.registry.bootstrap import wire_registries
+from app.master.report import walk_summary
+from app.master.report.walk_summary import WalkResult
 
 # ── 등록소 여섯을 한 함수로 읽는다 ──────────────────────────────────────
 #
@@ -61,13 +61,13 @@ from app.master.bootstrap import wire_registries
 def _등록_현황() -> dict[str, tuple[str, ...]]:
     """지금 등록된 이름들. **판단하지 않는다 — 세기만 한다.**"""
     return {
-        "agents": wiring.registry().registered,
-        "transition": tuple(sorted(transition.registered())),
-        "day_open": tuple(sorted(day_open.registered())),
-        "cancellation": tuple(sorted(cancellation.registered_cancellations())),
-        "inbound": tuple(sorted(inbound.registered())),
-        "collection": tuple(sorted(collection.registered())),
-        "closing": tuple(sorted(closing.registered())),
+        "agents": registry_wiring.registry().registered,
+        "transition": tuple(sorted(registry_transition.registered())),
+        "day_open": tuple(sorted(registry_day_open.registered())),
+        "cancellation": tuple(sorted(registry_cancellation.registered_cancellations())),
+        "inbound": tuple(sorted(registry_inbound.registered())),
+        "collection": tuple(sorted(registry_collection.registered())),
+        "closing": tuple(sorted(registry_closing.registered())),
     }
 
 
@@ -78,13 +78,13 @@ def _빈_등록소(현황: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
 
 def _모두_비운다() -> None:
     """여섯을 다 비운다. **CLI 프로세스가 시작할 때의 상태다.**"""
-    wiring.reset()
-    transition.reset()
-    day_open.reset()
-    cancellation.reset()
-    inbound.reset()
-    collection.reset()
-    closing.reset()
+    registry_wiring.reset()
+    registry_transition.reset()
+    registry_day_open.reset()
+    registry_cancellation.reset()
+    registry_inbound.reset()
+    registry_collection.reset()
+    registry_closing.reset()
 
 
 @pytest.fixture(autouse=True)
@@ -100,36 +100,36 @@ def _등록소를_되돌린다() -> Iterator[None]:
       다시 등록해야 하고, 그래서 여기서는 여섯을 다 떠 놓고 나간다.
     """
     저장 = {
-        "agents": wiring.snapshot(),
-        "transition": dict(transition.registered()),
-        "day_open": dict(day_open.registered()),
-        "cancellation": dict(cancellation.registered_cancellations()),
-        "inbound": dict(inbound.registered()),
-        "collection": dict(collection.registered()),
-        "closing": dict(closing.registered()),
+        "agents": registry_wiring.snapshot(),
+        "transition": dict(registry_transition.registered()),
+        "day_open": dict(registry_day_open.registered()),
+        "cancellation": dict(registry_cancellation.registered_cancellations()),
+        "inbound": dict(registry_inbound.registered()),
+        "collection": dict(registry_collection.registered()),
+        "closing": dict(registry_closing.registered()),
     }
     try:
         yield
     finally:
-        wiring.restore(저장["agents"])
-        transition.reset()
+        registry_wiring.restore(저장["agents"])
+        registry_transition.reset()
         for part, impl in 저장["transition"].items():
-            transition.register_transition(part, impl)
-        day_open.reset()
+            registry_transition.register_transition(part, impl)
+        registry_day_open.reset()
         for part, impl in 저장["day_open"].items():
-            day_open.register_day_opening(part, impl)
-        cancellation.reset()
+            registry_day_open.register_day_opening(part, impl)
+        registry_cancellation.reset()
         for part, impl in 저장["cancellation"].items():
-            cancellation.register_cancellation(part, impl)
-        inbound.reset()
+            registry_cancellation.register_cancellation(part, impl)
+        registry_inbound.reset()
         for part, impl in 저장["inbound"].items():
-            inbound.register_inbound(part, impl)
-        collection.reset()
+            registry_inbound.register_inbound(part, impl)
+        registry_collection.reset()
         for part, impl in 저장["collection"].items():
-            collection.register_collection(part, impl)
-        closing.reset()
+            registry_collection.register_collection(part, impl)
+        registry_closing.reset()
         for part, impl in 저장["closing"].items():
-            closing.register_closing(part, impl)
+            registry_closing.register_closing(part, impl)
 
 
 # ── ① 자기 생존 — 안 부르면 빨간불이어야 한다 ───────────────────────────
@@ -178,7 +178,7 @@ def test_하루_넘김에_재무와_물류가_다_있다():
 
     wire_registries()
 
-    assert tuple(sorted(day_open.registered())) == ("finance", "logistics")
+    assert tuple(sorted(registry_day_open.registered())) == ("finance", "logistics")
 
 
 def test_두_번_불러도_안전하다():
@@ -201,8 +201,8 @@ def test_조립_뿌리가_재무_마감을_등록한다():
 
     wire_registries()
 
-    assert closing.missing() == ()
-    assert tuple(closing.registered()) == ("finance",)
+    assert registry_closing.missing() == ()
+    assert tuple(registry_closing.registered()) == ("finance",)
 
 
 # ── ③ 두 진입점이 같은 것을 등록한다 ────────────────────────────────────
@@ -240,10 +240,10 @@ def test_러너가_걷기_전에_등록소를_채운다(monkeypatch: pytest.Monk
         본것.update(_등록_현황())
         return WalkResult(start=kwargs["start"], end=kwargs["end"])
 
-    monkeypatch.setattr(backtest_runner, "walk", _대역)
+    monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
     _모두_비운다()
 
-    code = backtest_runner.main(
+    code = cli_backtest_runner.main(
         [
             "--sim-run-id",
             "SIM-TEST-CLI",
@@ -273,11 +273,11 @@ def test_러너가_걷기_전에_안_채우면_빈_채로_걷는다(monkeypatch:
         본것.update(_등록_현황())
         return WalkResult(start=kwargs["start"], end=kwargs["end"])
 
-    monkeypatch.setattr(backtest_runner, "walk", _대역)
-    monkeypatch.setattr(backtest_runner, "wire_registries", lambda: None)
+    monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
+    monkeypatch.setattr(cli_backtest_runner, "wire_registries", lambda: None)
     _모두_비운다()
 
-    backtest_runner.main(
+    cli_backtest_runner.main(
         [
             "--sim-run-id",
             "SIM-TEST-CLI",
@@ -312,12 +312,12 @@ def _요약() -> str:
     ⚠️ 사고가 없는 결과로는 이 자리를 못 잰다 — `—` 는 사고 사유와 멈춘 사유에만
       나온다. 실제로 터진 것도 사고가 5일 연속이던 그 걷기다.
     """
-    return backtest_runner.format_summary(
+    return walk_summary.format_summary(
         WalkResult(
             start=date(2026, 1, 5),
             end=date(2026, 1, 9),
             incidents=(
-                backtest_runner.WalkIncident(
+                walk_summary.WalkIncident(
                     as_of=date(2026, 1, 5),
                     reason=(
                         "판단 단계를 안 탔다 (개장: NOT_OPENED · 입고: NOT_ATTEMPTED"
@@ -348,7 +348,7 @@ def test_cp949_스트림에_찍어도_안_죽는다(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(sys, "stdout", stream)
     monkeypatch.setattr(sys, "stderr", stream)
 
-    backtest_runner._use_utf8_output()
+    console.use_utf8_output()
     print(_요약())
     stream.flush()
 

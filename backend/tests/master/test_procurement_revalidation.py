@@ -34,12 +34,15 @@ from uuid import uuid4
 
 import pytest
 
-from app.master import decision_service as svc
-from app.master import persistence, wiring
-from app.master.commitment import ApprovedCommitment
-from app.master.decision import AUTO_BACKFILL, DecisionIn, DecisionOut
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master.transition import TransitionOut
+from app.contracts.commitment import ApprovedCommitment
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.readmodel import approvals
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.schemas.transition import TransitionOut
+from app.master.service import decision
+from app.master.service import persistence as service_persistence
 
 실행축 = "SIM-TEST-PURREC"
 업무키 = "REQ-DAILY-SIM-TEST-PURREC-20260105-배추"
@@ -119,10 +122,10 @@ class _부서:
 
 @pytest.fixture
 def 부서들() -> dict[str, _부서]:
-    wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
+    registry_wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 파일 밖으로 안 샌다
     등록 = {"finance": _부서(), "inventory": _부서()}
     for 이름, 포트 in 등록.items():
-        wiring.register(이름, 포트)
+        registry_wiring.register(이름, 포트)
     return 등록
 
 
@@ -143,16 +146,18 @@ def 세상(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         state["applied"].append(commitment)
         return TransitionOut(status="APPLIED", parts=["finance", "logistics"])
 
-    monkeypatch.setattr(svc, "_run_for", lambda request_id, history_run_id: state["row"])
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [])
-    monkeypatch.setattr(svc, "save_decision", _save)
-    monkeypatch.setattr(svc, "apply_approval", _apply)
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: state["runs"].append(kw))
+    monkeypatch.setattr(approvals, "run_for", lambda request_id, history_run_id: state["row"])
+    monkeypatch.setattr(decision, "run_for", lambda request_id, history_run_id: state["row"])
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "save_decision", _save)
+    monkeypatch.setattr(decision, "apply_approval", _apply)
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: state["runs"].append(kw))
     return state
 
 
 def _승인(decided_by: str = "이현서") -> DecisionOut:
-    return svc.record_decision(
+    return decision.record_decision(
         업무키, DecisionIn(decision="APPROVE", scenario_label="보수", decided_by=decided_by)
     )
 
@@ -257,14 +262,20 @@ def test_판매_실행이_아니면_판매_재검증으로_간다(
 ) -> None:
     """⑥ 사이클은 실행 행이 정한다. 매입이 아닌 행은 지금까지의 경로 그대로다."""
     seen: list[str] = []
-    monkeypatch.setattr(svc, "revalidate_scenario", lambda **kw: seen.append("sales") or _통과())
     monkeypatch.setattr(
-        svc, "revalidate_procurement_scenario", lambda **kw: seen.append("procurement") or _통과()
+        decision, "revalidate_scenario", lambda **kw: seen.append("sales") or _통과()
+    )
+    monkeypatch.setattr(
+        decision,
+        "revalidate_procurement_scenario",
+        lambda **kw: seen.append("procurement") or _통과(),
     )
     row = _실행행(cycle="")
 
-    svc._revalidate_scenario_of(row, row["response_payload"], "보수", _안(), 1, sim_run_id=실행축)
-    svc._revalidate_scenario_of(
+    decision._revalidate_scenario_of(
+        row, row["response_payload"], "보수", _안(), 1, sim_run_id=실행축
+    )
+    decision._revalidate_scenario_of(
         _실행행(), _실행행()["response_payload"], "보수", _안(), 1, sim_run_id=실행축
     )
 
@@ -272,6 +283,6 @@ def test_판매_실행이_아니면_판매_재검증으로_간다(
 
 
 def _통과():
-    from app.master.revalidation import Revalidation
+    from app.master.schemas.revalidation import Revalidation
 
     return Revalidation(outcome="PASSED", request_id="REV-X")

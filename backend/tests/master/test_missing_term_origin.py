@@ -33,8 +33,8 @@ from typing import Any
 
 import pytest
 
-from app.master import sales_approval
-from app.master.sales_flow import CandidateVerdict
+from app.master.domain import sales_approval as domain_sales_approval
+from app.master.domain.sales_flow import CandidateVerdict
 
 납품일 = "2026-09-20"
 
@@ -94,7 +94,9 @@ def test_보냈는데_결과에_없으면_TERMS_UNRESOLVED_다(field: str):
     """🔴 **② 를 잡는 자리.** 사용자가 말했는데 후보에 안 실렸다 — 화면은 할 일을 했다.
     **정한 사람이 없는 것**이고 볼 곳은 판매·계약이다.
     """
-    보냄 = {sales_approval.preferred_request_field(field): (납품일 if "date" in field else 30)}
+    보냄 = {
+        domain_sales_approval.preferred_request_field(field): (납품일 if "date" in field else 30)
+    }
     후보 = _판정(user_request=보냄, **{field: None})
 
     assert 후보.missing_terms == (f"TERMS_UNRESOLVED_{field}",)
@@ -157,7 +159,7 @@ def test_요청_칸_이름은_preferred_접두다(field: str):
 
     ★ 그 대응은 마스터가 실제로 싣는 칸 이름이다 (`service._sales_user_request`).
     """
-    assert sales_approval.preferred_request_field(field) == f"preferred_{field}"
+    assert domain_sales_approval.preferred_request_field(field) == f"preferred_{field}"
 
 
 def test_preferred_payment_days_0_은_실린_값이다():
@@ -185,7 +187,7 @@ def test_빈_문자열은_안_실린_것으로_센다():
 
 
 def test_어휘는_필수조건_목록에서_나온다():
-    assert sales_approval.missing_term_origin_vocabulary() == (
+    assert domain_sales_approval.missing_term_origin_vocabulary() == (
         "REQUEST_MISSING_delivery_date",
         "TERMS_UNRESOLVED_delivery_date",
         "REQUEST_MISSING_payment_days",
@@ -198,13 +200,13 @@ def test_필수조건이_늘면_어휘도_같이_는다(monkeypatch):
     나간다 — 그러면 그 칸은 *"누가 고쳐야 하나"* 를 영원히 못 말한다.
     """
     monkeypatch.setattr(
-        sales_approval,
+        domain_sales_approval,
         "REQUIRED_COMMERCIAL_TERMS",
         ("delivery_date", "payment_days", "carrier"),
     )
 
-    assert "REQUEST_MISSING_carrier" in sales_approval.missing_term_origin_vocabulary()
-    assert "TERMS_UNRESOLVED_carrier" in sales_approval.missing_term_origin_vocabulary()
+    assert "REQUEST_MISSING_carrier" in domain_sales_approval.missing_term_origin_vocabulary()
+    assert "TERMS_UNRESOLVED_carrier" in domain_sales_approval.missing_term_origin_vocabulary()
     assert _판정(user_request={}, carrier=None).missing_terms == (
         "REQUEST_MISSING_carrier",
     )
@@ -215,7 +217,7 @@ def test_칸_이름을_접두에서_되꺼낼_수_있다(field: str):
     """★ 화면이 필드 이름만 필요할 수도 있다. 문자열을 화면이 직접 자르기 시작하면
     접두를 바꾸는 날 조용히 틀린 이름이 뜬다."""
     for prefix in ("REQUEST_MISSING_", "TERMS_UNRESOLVED_"):
-        assert sales_approval.term_of_origin(f"{prefix}{field}") == field
+        assert domain_sales_approval.term_of_origin(f"{prefix}{field}") == field
 
 
 # ---------------------------------------------------------------------------

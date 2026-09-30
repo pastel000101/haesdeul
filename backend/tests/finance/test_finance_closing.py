@@ -15,8 +15,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance import closing
-from app.finance.db import FinanceDataNotReady, InventorySnapshot
+from app.finance.repository import closing as closing_repository
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service import closing
 
 SIM_RUN_ID = "SIM-WALK-202601"
 AS_OF = date(2026, 1, 5)
@@ -290,7 +292,8 @@ class _Connection:
 
 @pytest.fixture(autouse=True)
 def _schema_and_inventory(monkeypatch):
-    monkeypatch.setattr(closing, "get_db_schema", lambda: "test_schema")
+    #  2026-09-29 재구성 BL-014: 마감 SQL 은 `repository/closing.py` 가 짓는다.
+    monkeypatch.setattr(closing_repository, "get_db_schema", lambda: "test_schema")
     calls = []
 
     def inventory_snapshot(*args, **kwargs):
@@ -310,7 +313,7 @@ def _schema_and_inventory(monkeypatch):
 
 
 def _close(conn, *, as_of=AS_OF, sim_run_id=SIM_RUN_ID):
-    return closing.FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=sim_run_id)
+    return closing.close_finance_day_on(conn, as_of=as_of, sim_run_id=sim_run_id)
 
 
 def _row(conn, *, as_of=AS_OF, sim_run_id=SIM_RUN_ID):

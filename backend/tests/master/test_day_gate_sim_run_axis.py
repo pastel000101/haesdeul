@@ -49,11 +49,13 @@ from typing import Any
 
 import pytest
 
-from app.master import closing, collection, day_open
-from app.master import day_gate as 관문모듈
-from app.master.day_gate import check_day_gate
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import SimRunBound
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import day_open as registry_day_open
+from app.master.registry.sim_run_binding import SimRunBound
+from app.master.service import closing as service_closing
+from app.master.service import collection as service_collection
+from app.master.service import day_gate
+from app.master.service.day_gate import check_day_gate
 
 AS_OF = date(2026, 1, 7)
 
@@ -72,10 +74,14 @@ def _NFC(값: str) -> str:
 
 class _가짜커넥션:
     def __init__(self) -> None:
-        self.closed = 0
+        self.returned = 0
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _축따라_열리는_파트:
@@ -100,12 +106,12 @@ class _축따라_열리는_파트:
 
 @pytest.fixture(autouse=True)
 def _빈_등록소() -> Any:
-    before = dict(day_open.registered())
-    day_open.reset()
+    before = dict(registry_day_open.registered())
+    registry_day_open.reset()
     yield
-    day_open.reset()
+    registry_day_open.reset()
     for part, impl in before.items():
-        day_open.register_day_opening(part, impl)
+        registry_day_open.register_day_opening(part, impl)
 
 
 def _등록(through: date | None) -> list[str]:
@@ -116,8 +122,8 @@ def _등록(through: date | None) -> list[str]:
         만든축.append(axis)
         return _축따라_열리는_파트(axis, through)
 
-    for part in day_open.PARTS:
-        day_open.register_day_opening(part, SimRunBound(공장))
+    for part in registry_day_open.PARTS:
+        registry_day_open.register_day_opening(part, SimRunBound(공장))
     return 만든축
 
 
@@ -132,7 +138,7 @@ def test_관문이_묶인_어댑터에_묻는다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "PASS", f"열려 있는 날이 막혔다: {gate.result} · {gate.reason!r}"
     assert gate.result == "ALREADY_OPENED"
@@ -145,7 +151,7 @@ def test_묶지_않은_실패가_사유로만_숨지_않는다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert "AttributeError" not in gate.reason, (
         f"표시 객체에 어댑터 메서드를 불렀다: {gate.reason!r}"
@@ -157,16 +163,16 @@ def test_관문은_여전히_열지_않는다() -> None:
     """★ 묶고 나서도 여는 것은 `open_day` 다 — `_축따라_열리는_파트.open_day` 가 터진다."""
     _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
 
 def test_커넥션을_닫는다() -> None:
     conn = _가짜커넥션()
     _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: conn, sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: conn, sim_run_id=걷기축)
 
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 # ── ② 넘긴 축의 어댑터가 선다 (남의 축 것이 아니다) ─────────────────────────
@@ -180,9 +186,9 @@ def test_넘긴_축으로_어댑터를_묶는다() -> None:
     """
     만든축 = _등록(AS_OF)
 
-    check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
-    assert 만든축 == [걷기축] * len(day_open.PARTS), f"묶인 축이 다르다: {만든축}"
+    assert 만든축 == [걷기축] * len(registry_day_open.PARTS), f"묶인 축이 다르다: {만든축}"
     assert BURN_IN_SIM_RUN_ID not in 만든축
 
 
@@ -193,7 +199,7 @@ def test_남의_축으로_물으면_안_열린_것으로_보인다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=남의축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=남의축)
 
     assert gate.gate == "BLOCKED"
 
@@ -209,7 +215,7 @@ def test_뒤로_걷는_자리도_묶인_것에_묻는다() -> None:
     """
     _등록(AS_OF - timedelta(days=5))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "BLOCKED"
     assert gate.result == "NOT_OPENED"
@@ -223,7 +229,7 @@ def test_뒤로_걷는_자리도_묶인_것에_묻는다() -> None:
 
 def test_뒤로_걷는_자리가_등록소를_다시_읽지_않는다() -> None:
     """★ **원문으로 잠근다.** 여기서 `registered()` 를 다시 부르면 묶는 자리가 둘이 된다."""
-    tree = ast.parse(inspect.getsource(관문모듈._last_opened).lstrip())
+    tree = ast.parse(inspect.getsource(day_gate._last_opened).lstrip())
     불린것 = {
         node.func.id
         for node in ast.walk(tree)
@@ -248,7 +254,7 @@ def test_원문에_묶지_않고_쓰는_경로가_없다() -> None:
 
     ★ 나머지는 전부 **표시 객체를 어댑터인 척 쓰는 것**이다.
     """
-    tree = ast.parse(pathlib.Path(관문모듈.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path(day_gate.__file__).read_text(encoding="utf-8"))
 
     def _등록소_호출(node: ast.AST) -> set[int]:
         return {
@@ -285,7 +291,7 @@ def test_원문에_묶지_않고_쓰는_경로가_없다() -> None:
 
 
 def _관문기록(받은: dict[str, Any]) -> Any:
-    from app.master.day_gate import DayGate
+    from app.master.schemas.day_gate import DayGate
 
     def 관문(as_of: date, **kw: Any) -> DayGate:
         받은.update(kw)
@@ -303,9 +309,11 @@ def _관문기록(받은: dict[str, Any]) -> Any:
 def test_수금이_자기_축을_관문에_넘긴다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 안 넘기면 관문이 번인 축으로 묶고, 걷기 실행의 열린 날을 **안 열린 날**로 읽는다."""
     받은: dict[str, Any] = {}
-    monkeypatch.setattr(collection, "check_day_gate", _관문기록(받은))
+    monkeypatch.setattr(service_collection, "check_day_gate", _관문기록(받은))
 
-    out = collection.collect_receipts(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    out = service_collection.collect_receipts(
+        AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축
+    )
 
     assert out.status == "NOT_OPENED", "대역 관문이 안 불렸다 — 이 검사가 아무것도 안 잰다"
     assert 받은.get("sim_run_id") == 걷기축, f"수금이 관문에 넘긴 축: {받은!r}"
@@ -314,9 +322,9 @@ def test_수금이_자기_축을_관문에_넘긴다(monkeypatch: pytest.MonkeyP
 def test_마감이_자기_축을_관문에_넘긴다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 마감은 이미 `sim_run_id` 를 인자로 받는다 — 관문에만 안 넘기면 축이 갈린다."""
     받은: dict[str, Any] = {}
-    monkeypatch.setattr(closing, "check_day_gate", _관문기록(받은))
+    monkeypatch.setattr(service_closing, "check_day_gate", _관문기록(받은))
 
-    out = closing.close_day(AS_OF, sim_run_id=걷기축, connect=lambda: _가짜커넥션())
+    out = service_closing.close_day(AS_OF, sim_run_id=걷기축, borrow=lambda: _가짜커넥션())
 
     assert out.status == "NOT_OPENED", "대역 관문이 안 불렸다 — 이 검사가 아무것도 안 잰다"
     assert 받은.get("sim_run_id") == 걷기축, f"마감이 관문에 넘긴 축: {받은!r}"
@@ -332,9 +340,9 @@ def test_못_물어보면_여전히_사람을_부른다() -> None:
         def is_open(self, conn: Any, *, as_of: date) -> bool:
             raise RuntimeError("연결 없음")
 
-    day_open.register_day_opening("finance", SimRunBound(lambda axis: _터지는파트()))
+    registry_day_open.register_day_opening("finance", SimRunBound(lambda axis: _터지는파트()))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.gate == "BLOCKED"
     assert gate.next_action == "CONTACT_OPERATOR"
@@ -349,7 +357,7 @@ def test_축이_비면_막고_사유를_낸다() -> None:
     """
     _등록(AS_OF)
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id="")
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id="")
 
     assert gate.gate == "BLOCKED"
     assert gate.next_action == "CONTACT_OPERATOR"
@@ -368,12 +376,12 @@ def test_기본값이_없어_축을_안_주면_부르지_못한다() -> None:
 
     _등록(AS_OF)
     with pytest.raises(TypeError, match="sim_run_id"):
-        check_day_gate(AS_OF, connect=lambda: _가짜커넥션())  # type: ignore[call-arg]
+        check_day_gate(AS_OF, borrow=lambda: _가짜커넥션())  # type: ignore[call-arg]
 
 
 def test_등록이_0건이면_축이_없어도_통과한다() -> None:
     """⚠️ **미등록은 통과다.** 묶기 전에 돌아서므로 빈 축으로도 안 터진다."""
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id="")
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id="")
 
     assert gate.gate == "PASS"
 
@@ -389,10 +397,10 @@ def test_막힌_날_연속_실패도_받은_축의_개장_정본에서_센다(mo
     def 정본(**kw: Any) -> None:
         읽은축.append(kw["sim_run_id"])
 
-    monkeypatch.setattr(관문모듈, "read_day_opening", 정본)
+    monkeypatch.setattr(day_gate, "read_day_opening", 정본)
     _등록(AS_OF - timedelta(days=2))
 
-    gate = check_day_gate(AS_OF, connect=lambda: _가짜커넥션(), sim_run_id=걷기축)
+    gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=걷기축)
 
     assert gate.next_action == "RETRY_OPEN_DAY", "전제가 깨졌다 — 정본을 읽는 분기가 아니다"
     assert 읽은축 == [걷기축], f"개장 정본을 남의 축으로 읽었다: {읽은축}"
@@ -422,10 +430,12 @@ def test_관문을_부르는_자리가_전부_축을_넘긴다() -> None:
       `check_day_gate(...)` 를 전부 모으고, `sim_run_id` 를 안 넘기는 것이 있으면
       빨개진다 — 새 호출부가 생기는 날 **그 자리에서** 걸린다.
     """
-    뿌리 = pathlib.Path(관문모듈.__file__).parent
+    # ★ 2026-09-30 재구성 BL-018: 관문이 `service/day_gate.py` 로 갔다 — 훑는 뿌리는 여전히
+    #   `app/master/` 전체다.
+    뿌리 = pathlib.Path(day_gate.__file__).parent.parent
     샌것: list[tuple[str, int]] = []
     센_것 = 0
-    for 파일 in sorted(뿌리.glob("*.py")):
+    for 파일 in sorted(뿌리.rglob("*.py")):
         나무 = ast.parse(파일.read_text(encoding="utf-8"))
         for 마디 in ast.walk(나무):
             if not isinstance(마디, ast.Call):

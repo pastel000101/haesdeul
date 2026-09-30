@@ -8,9 +8,21 @@ from uuid import UUID
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.sales import adapter
-from app.sales.schemas import SalesProposalReply
+from app.sales.domain.status_facts import review_sentence
+from app.sales.readmodel import status as sales_status
+from app.sales.schemas.proposal import SalesProposalReply
+from app.sales.service import proposal_generation as generation
+from tests.sales.sales_fake_connection import FakeConnection, lend
+
+
+@pytest.fixture(autouse=True)
+def lent_connection(monkeypatch) -> FakeConnection:
+    """★ 2026-09-29 BL-013: 어댑터는 번역만 한다. 판매 후보 생성의 실행과 이력 저장은
+    `service/proposal_generation.py` 이고, 이력은 풀에서 빌린 연결 하나 · 트랜잭션 하나로
+    남긴다. 대역은 그 모듈의 `run_proposal` · `save_sales_agent_run` 과 풀 대여 입구다."""
+    return lend(monkeypatch)
 
 
 def _context() -> ExecutionContext:
@@ -63,15 +75,15 @@ def _request(
     )
 
 
-def test_generate_sales_proposal_returns_ready_ok_with_payload(monkeypatch):
+def test_generate_sales_proposal_returns_ready_ok_with_payload(monkeypatch, lent_connection):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
     saved = {}
 
-    def fake_save_sales_agent_run(**kwargs):
+    def fake_save_sales_agent_run(_conn, **kwargs):
         saved.update(kwargs)
         return {**kwargs, "run_id": kwargs["run_id"]}
 
-    monkeypatch.setattr(adapter, "save_sales_agent_run", fake_save_sales_agent_run)
+    monkeypatch.setattr(generation, "save_sales_agent_run", fake_save_sales_agent_run)
 
     reply, metadata = adapter.sales_port(_request())
 
@@ -86,22 +98,25 @@ def test_generate_sales_proposal_returns_ready_ok_with_payload(monkeypatch):
     assert saved["runtime_status"] == "READY"
     assert saved["response_payload"]["payload"]["status"] == "SCENARIOS_GENERATED"
     assert metadata.llm_status == "SKIPPED_TEMPLATE"
+    #  ★ 이력 한 건 = 빌린 연결 하나 · commit 한 번 (종전 `execute_returning_one` 경계).
+    assert lent_connection.borrows == ["write"]
+    assert lent_connection.events == ["commit", "returned:write"]
 
 
 def test_request_context_becomes_sales_execution_identity(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     def fake_run(request):
         captured.update(request.model_dump(mode="json"))
         return _reply(status="INPUT_INCOMPLETE", missing_data=["x"])
 
-    monkeypatch.setattr(adapter, "run_proposal", fake_run)
+    monkeypatch.setattr(generation, "run_proposal", fake_run)
 
     reply, _ = adapter.sales_port(_request())
 
@@ -119,11 +134,11 @@ def test_optional_key_absence_is_not_filled(monkeypatch):
         captured["fields"] = request.model_fields_set
         return _reply()
 
-    monkeypatch.setattr(adapter, "run_proposal", fake_run)
+    monkeypatch.setattr(generation, "run_proposal", fake_run)
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     adapter.sales_port(_request(_payload()))
@@ -141,11 +156,11 @@ def test_explicit_none_is_preserved(monkeypatch):
         captured["contract_context"] = request.contract_context
         return _reply()
 
-    monkeypatch.setattr(adapter, "run_proposal", fake_run)
+    monkeypatch.setattr(generation, "run_proposal", fake_run)
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     adapter.sales_port(_request(_payload(contract_context=None)))
@@ -158,9 +173,9 @@ def test_feedback_attempt_comes_from_payload_not_call_seq(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     def fake_run(request):
@@ -169,7 +184,7 @@ def test_feedback_attempt_comes_from_payload_not_call_seq(monkeypatch):
         captured["is_refeed"] = request.is_refeed
         return _reply()
 
-    monkeypatch.setattr(adapter, "run_proposal", fake_run)
+    monkeypatch.setattr(generation, "run_proposal", fake_run)
 
     adapter.sales_port(_request(_payload(feedback_attempt=2), call_seq=9))
 
@@ -183,11 +198,11 @@ def test_all_infeasible_candidates_are_still_ready_ok(monkeypatch):
     dumped["scenarios"][0]["required_validations"] = []
     dumped["recommended_scenario_id"] = None
     fake = SalesProposalReply.model_validate(dumped)
-    monkeypatch.setattr(adapter, "run_proposal", lambda _request: fake)
+    monkeypatch.setattr(generation, "run_proposal", lambda _request: fake)
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     reply, _ = adapter.sales_port(_request())
@@ -199,7 +214,7 @@ def test_all_infeasible_candidates_are_still_ready_ok(monkeypatch):
 
 def test_input_incomplete_maps_to_not_ready_and_carries_missing(monkeypatch):
     monkeypatch.setattr(
-        adapter,
+        generation,
         "run_proposal",
         lambda _request: _reply(
             status="INPUT_INCOMPLETE",
@@ -209,9 +224,9 @@ def test_input_incomplete_maps_to_not_ready_and_carries_missing(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        adapter,
+        generation,
         "save_sales_agent_run",
-        lambda **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
+        lambda _conn, **kwargs: {**kwargs, "run_id": kwargs["run_id"]},
     )
 
     reply, _ = adapter.sales_port(_request())
@@ -226,14 +241,17 @@ def test_input_incomplete_maps_to_not_ready_and_carries_missing(monkeypatch):
     )
 
 
-def test_generated_without_scenarios_is_contract_error(monkeypatch):
-    monkeypatch.setattr(adapter, "run_proposal", lambda _request: _reply(scenarios=[]))
+def test_generated_without_scenarios_is_contract_error(monkeypatch, lent_connection):
+    monkeypatch.setattr(generation, "run_proposal", lambda _request: _reply(scenarios=[]))
 
-    reply, _ = adapter.sales_port(_request())
+    reply, metadata = adapter.sales_port(_request())
 
     assert reply.runtime_status == "ERROR"
     assert reply.business_status == "skipped"
     assert reply.payload["validation_errors"] == ["scenarios"]
+    #  🔴 계약을 못 지킨 회신은 이력에 남기지 않는다 — 연결을 빌리지도 않는다.
+    assert lent_connection.borrows == []
+    assert metadata.used_tools == ()
 
 
 def test_unsupported_mode_uses_adapter_not_implemented_convention():
@@ -298,7 +316,7 @@ def _history_run(
 
 
 def _proposal(item: str, scenario_type: str, **over: Any):
-    from app.sales.console_proposals import ConsoleSalesProposal
+    from app.sales.schemas.console_proposals import ConsoleSalesProposal
 
     data: dict[str, Any] = {
         "request_id": f"REQ-{item}",
@@ -347,7 +365,7 @@ def _proposal(item: str, scenario_type: str, **over: Any):
 
 
 def _proposals(rows, *, request_count: int | None = None, hidden: int = 0):
-    from app.sales.console_proposals import ConsoleSalesProposalsResponse
+    from app.sales.schemas.console_proposals import ConsoleSalesProposalsResponse
 
     return ConsoleSalesProposalsResponse(
         sim_run_id="SIM-SALES-ADAPTER",
@@ -386,7 +404,7 @@ _RAW = (
 def _status(monkeypatch, proposals, runs=None):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
     monkeypatch.setattr(
-        adapter,
+        sales_status,
         "list_sales_runs",
         lambda **_kwargs: (
             runs
@@ -394,7 +412,7 @@ def _status(monkeypatch, proposals, runs=None):
             else [_history_run(UUID("11111111-1111-1111-1111-111111111111"))]
         ),
     )
-    monkeypatch.setattr(adapter, "get_console_sales_proposals", lambda **_kwargs: proposals)
+    monkeypatch.setattr(sales_status, "get_console_sales_proposals", lambda **_kwargs: proposals)
     return adapter.sales_port(_request(mode="STATUS_QUERY", payload={}))
 
 
@@ -433,8 +451,8 @@ def test_status_query_answers_in_words_a_user_reads(monkeypatch):
 
 def test_the_master_speech_bubble_carries_no_machine_words(monkeypatch):
     """마스터가 실제로 렌더링한 문자열로 확인한다 — payload 만 보면 펴는 방식이 바뀐 날 놓친다."""
-    from app.master.answer import facts_from_status, render_answer
-    from app.master.status_flow import StatusOutcome
+    from app.master.domain.answer import facts_from_status, render_answer
+    from app.master.domain.status_flow import StatusOutcome
 
     reply, _ = _status(
         monkeypatch,
@@ -482,12 +500,12 @@ def test_status_query_names_an_empty_day_with_nothing_to_sell(monkeypatch):
 
 def test_unreadable_proposals_are_not_reported_as_no_sales(monkeypatch):
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
-    monkeypatch.setattr(adapter, "list_sales_runs", lambda **_kwargs: [])
+    monkeypatch.setattr(sales_status, "list_sales_runs", lambda **_kwargs: [])
 
     def broken(**_kwargs):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(adapter, "get_console_sales_proposals", broken)
+    monkeypatch.setattr(sales_status, "get_console_sales_proposals", broken)
     reply, _ = adapter.sales_port(_request(mode="STATUS_QUERY", payload={}))
 
     assert reply.payload["오늘 판매안"].startswith("판매안 정보를 읽지 못했습니다")
@@ -506,8 +524,8 @@ def test_status_query_answers_only_for_this_run(monkeypatch):
         return _proposals([_proposal("배추", "CONSERVATIVE")])
 
     monkeypatch.setenv("SALES_LLM_ENABLED", "false")
-    monkeypatch.setattr(adapter, "list_sales_runs", lambda **_kwargs: [theirs, mine])
-    monkeypatch.setattr(adapter, "get_console_sales_proposals", proposals)
+    monkeypatch.setattr(sales_status, "list_sales_runs", lambda **_kwargs: [theirs, mine])
+    monkeypatch.setattr(sales_status, "get_console_sales_proposals", proposals)
     reply, _ = adapter.sales_port(_request(mode="STATUS_QUERY", payload={}))
 
     assert reply.run_id == "11111111-1111-1111-1111-111111111111"
@@ -517,7 +535,7 @@ def test_status_query_answers_only_for_this_run(monkeypatch):
 def test_generate_persists_actual_llm_metadata(monkeypatch):
     saved = {}
 
-    def fake_save_sales_agent_run(**kwargs):
+    def fake_save_sales_agent_run(_conn, **kwargs):
         saved.update(kwargs)
         return {**kwargs, "run_id": kwargs["run_id"]}
 
@@ -537,11 +555,11 @@ def test_generate_persists_actual_llm_metadata(monkeypatch):
     }
     proposal_dump["recommendation"] = proposal_dump["llm"]
     monkeypatch.setattr(
-        adapter,
+        generation,
         "run_proposal",
         lambda _request: SalesProposalReply.model_validate(proposal_dump),
     )
-    monkeypatch.setattr(adapter, "save_sales_agent_run", fake_save_sales_agent_run)
+    monkeypatch.setattr(generation, "save_sales_agent_run", fake_save_sales_agent_run)
 
     reply, metadata = adapter.sales_port(_request())
 
@@ -556,16 +574,16 @@ def test_generate_persists_actual_llm_metadata(monkeypatch):
 def test_generate_then_status_query_uses_same_run_id(monkeypatch):
     saved = {}
 
-    def fake_save_sales_agent_run(**kwargs):
+    def fake_save_sales_agent_run(_conn, **kwargs):
         saved.update(kwargs)
         return {**kwargs, "run_id": kwargs["run_id"]}
 
-    monkeypatch.setattr(adapter, "save_sales_agent_run", fake_save_sales_agent_run)
+    monkeypatch.setattr(generation, "save_sales_agent_run", fake_save_sales_agent_run)
 
     generated, _ = adapter.sales_port(_request())
 
     monkeypatch.setattr(
-        adapter, "list_sales_runs", lambda **_kwargs: [_history_run(saved["run_id"])]
+        sales_status, "list_sales_runs", lambda **_kwargs: [_history_run(saved["run_id"])]
     )
 
     queried, metadata = adapter.sales_port(_request(mode="STATUS_QUERY", payload={}))
@@ -598,7 +616,7 @@ def test_additional_supply_context_routes_to_purchase_boundary_query():
     as ``GENERATE_SCENARIOS`` -- the latter would build a procurement plan inside the
     sales cycle, silently and without error.
     """
-    from app.master.envelope import CAPABILITY_ROUTING
+    from app.contracts.envelope import CAPABILITY_ROUTING
 
     assert CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"] == (
         "purchase",
@@ -678,4 +696,4 @@ def _recommendation(candidate_id: str | None) -> dict[str, Any]:
     ],
 )
 def test_the_review_sentence_is_chosen_from_the_finance_verdicts(verdicts, sentence):
-    assert adapter.review_sentence(verdicts) == sentence
+    assert review_sentence(verdicts) == sentence

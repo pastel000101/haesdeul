@@ -27,14 +27,13 @@ from typing import Any
 
 import pytest
 
-from app.master import outbound_flow
-from app.master.outbound_flow import (
-    DueSaleItem,
-    SaleItemOutcome,
-    fully_shipped_sales,
-    ship_due_sales,
-)
-from app.master.sim_time import phase_instant
+from app.master.domain import outbound_flow as domain_outbound_flow
+from app.master.domain.outbound_flow import fully_shipped_sales
+from app.master.domain.sim_time import phase_instant
+from app.master.repository import outbound_flow as repository_outbound_flow
+from app.master.schemas.outbound_flow import DueSaleItem, SaleItemOutcome
+from app.master.service import outbound_flow as service_outbound_flow
+from app.master.service.outbound_flow import ship_due_sales
 
 AS_OF = date(2026, 9, 8)
 OTHER_DAY = date(2026, 9, 9)
@@ -53,7 +52,7 @@ class _Conn:
 
     def __init__(self) -> None:
         self.events: list[str] = []
-        self.closed = False
+        self.returned = False
 
     def commit(self) -> None:
         self.events.append("commit")
@@ -61,8 +60,12 @@ class _Conn:
     def rollback(self) -> None:
         self.events.append("rollback")
 
-    def close(self) -> None:
-        self.closed = True
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려줬다 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned = True
 
 
 #: 판매 한 줄이 요구하는 양. `_row` 가 이 값으로 판매 품목을 만든다.
@@ -156,7 +159,7 @@ def _run(
     out = ship_due_sales(
         AS_OF,
         sim_run_id=축,
-        connect=lambda: conn,
+        borrow=lambda: conn,
         due_fn=lambda _conn, *, as_of, sim_run_id: tuple(rows),
         reserve_fn=spies["reserve"],
         allocate_fn=spies["allocate"],
@@ -249,7 +252,7 @@ def test_나갈_것이_없으면_NOTHING_DUE_이고_BLOCKED_가_아니다():
     assert out.status == "NOTHING_DUE"
     assert out.status not in ("BLOCKED", "FAILED")
     assert spies["reserve"].calls == []
-    assert conn.closed is True
+    assert conn.returned is True
 
 
 def test_조회가_터지면_FAILED_이고_NOTHING_DUE_가_아니다():
@@ -259,7 +262,7 @@ def test_조회가_터지면_FAILED_이고_NOTHING_DUE_가_아니다():
         raise RuntimeError("DB 가 죽었다")
 
     conn = _Conn()
-    out = ship_due_sales(AS_OF, sim_run_id=축, connect=lambda: conn, due_fn=_boom)
+    out = ship_due_sales(AS_OF, sim_run_id=축, borrow=lambda: conn, due_fn=_boom)
 
     assert out.status == "FAILED"
     assert "DB 가 죽었다" in out.reason
@@ -430,7 +433,7 @@ def test_확보량을_못_읽으면_예전대로_할당까지_간다():
     out = ship_due_sales(
         AS_OF,
         sim_run_id=축,
-        connect=lambda: conn,
+        borrow=lambda: conn,
         due_fn=lambda _conn, *, as_of, sim_run_id: (_row("SALE-A", 1),),
         reserve_fn=spies["reserve"],
         allocate_fn=spies["allocate"],
@@ -463,8 +466,13 @@ def test_ship_이_터져도_allocate_는_커밋된_뒤다():
 
 
 def test_되돌리는_함수를_임포트조차_안_한다():
-    """★ `cancel_allocation` 이 이 모듈에 없다 — 실수로 부를 자리가 없다."""
-    assert not hasattr(outbound_flow, "cancel_allocation")
+    """★ `cancel_allocation` 이 이 모듈에 없다 — 실수로 부를 자리가 없다.
+
+    ★ 2026-09-30 재구성 BL-018: 출고 흐름이 순서(service) · 판정(domain) · 조회(repository) 셋으로
+      갈렸다 — 셋 다 본다.
+    """
+    for 모듈 in (service_outbound_flow, domain_outbound_flow, repository_outbound_flow):
+        assert not hasattr(모듈, "cancel_allocation"), 모듈.__name__
 
 
 # ── 순서 · 어휘 ────────────────────────────────────────────────────────
@@ -488,7 +496,7 @@ def test_출고일은_as_of_다():
 
 def test_전량_예약_함수를_안_부른다():
     """🔴 시뮬레이션 경로는 `reserve_confirmed_sale_available` 이다."""
-    assert outbound_flow.ship_due_sales.__defaults__ is None
+    assert service_outbound_flow.ship_due_sales.__defaults__ is None
     import inspect
 
     기본값 = inspect.signature(ship_due_sales).parameters["reserve_fn"].default
@@ -543,7 +551,7 @@ def test_놓아주기가_터져도_하루는_계속_간다():
         "release": _Boom("release", conn2),
     }
     out2 = ship_due_sales(
-        AS_OF, sim_run_id=축, connect=lambda: conn2,
+        AS_OF, sim_run_id=축, borrow=lambda: conn2,
         due_fn=lambda _c, *, as_of, sim_run_id: (_row("SALE-A", 1), _row("SALE-B", 1)),
         reserve_fn=spies2["reserve"], allocate_fn=spies2["allocate"], ship_fn=spies2["ship"],
         deliver_fn=spies2["deliver"], release_fn=spies2["release"],

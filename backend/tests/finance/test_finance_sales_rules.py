@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.rules import (
+from app.finance.domain.rules import (
     aggregate_sales_finance_rules,
     evaluate_sales_amount_integrity,
     evaluate_sales_cashflow_rule,

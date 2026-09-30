@@ -5,18 +5,25 @@
 
 ★ 사용자에게 나가는 문장 자체는 `app.finance.user_messages` 소유다. 여기서는 **어느 문장을
   고를지**만 정한다 — 문장을 여기 두면 Provider 코드마다 조금씩 다른 말투가 생긴다.
+
+★ 요청을 보내는 줄은 `app.core.llm` 이다 (2026-09-30 재구성 BL-020). 재시도하지 않는다 —
+  Gemini 가 못 받으면 `planner` 의 가용성 대체가 Ollama Finalizer 로 한 번 옮긴다.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import urllib.request
 
 from app.contracts.core import Evidence
-from app.finance.llm.client import _finance_model, _gemini_generate
-from app.finance.schemas import FinanceMode
-from app.finance.user_messages import FINANCE_EXPLANATIONS, explanation_keys
+from app.core.llm.providers import chat_messages, ollama_chat_request, ollama_request, send_json
+from app.finance.domain.messages import FINANCE_EXPLANATIONS, explanation_keys
+from app.finance.llm.client import (
+    finance_model,
+    gemini_generate,
+    llm_timeout_seconds,
+    ollama_base_url,
+)
+from app.finance.schemas.agent import FinanceMode
 
 #: 사용자에게 그대로 보이는 확정 설명. **정본은 `app.finance.user_messages`** 다.
 #:
@@ -48,12 +55,16 @@ _FINALIZER_SYSTEM_PROMPT = (
 
 
 class OllamaFinanceFinalizer:
-    """조사 Planner와 분리된 Evidence 전용 LLM finalization."""
+    """조사 Planner와 분리된 Evidence 전용 LLM finalization.
+
+    ★ 주소 · timeout 은 **만들 때** 읽는다(부를 때마다 다시 읽지 않는다 — 옮기기 전 그대로).
+      전송 예외를 감싸지 않는다(가용성 판별이 본다).
+    """
 
     def __init__(self, *, model: str | None = None) -> None:
-        self.model = model or _finance_model("ollama")
-        self.base_url = os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-        self.timeout = float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+        self.model = model or finance_model("ollama")
+        self.base_url = ollama_base_url()
+        self.timeout = llm_timeout_seconds()
         self.attempts = 0
 
     def finalize(
@@ -68,40 +79,28 @@ class OllamaFinanceFinalizer:
         allowed = explanation_keys(
             mode, business_status, has_verified_adjustment=has_verified_adjustment
         )
-        body = {
-            "model": self.model,
-            "stream": False,
-            "think": False,
-            "format": {
+        body = ollama_request(
+            self.model,
+            chat_messages(
+                _FINALIZER_SYSTEM_PROMPT,
+                json.dumps(
+                    {
+                        "mode": mode,
+                        "business_status": business_status,
+                        "verified_claims": [item.claim for item in evidences],
+                        "allowed_explanation_keys": allowed,
+                    }
+                ),
+            ),
+            response_format={
                 "type": "object",
                 "properties": {"explanation_key": {"type": "string", "enum": allowed}},
                 "required": ["explanation_key"],
                 "additionalProperties": False,
             },
-            "messages": [
-                {"role": "system", "content": _FINALIZER_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "mode": mode,
-                            "business_status": business_status,
-                            "verified_claims": [item.claim for item in evidences],
-                            "allowed_explanation_keys": allowed,
-                        }
-                    ),
-                },
-            ],
-            "options": {"temperature": 0},
-        }
-        req = urllib.request.Request(
-            f"{self.base_url}/api/chat",
-            data=json.dumps(body).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            options={"temperature": 0},
         )
-        with urllib.request.urlopen(req, timeout=self.timeout) as response:
-            raw = json.loads(response.read().decode())
+        raw = send_json(ollama_chat_request(self.base_url, body), timeout=self.timeout)
         selected = json.loads(raw["message"]["content"])["explanation_key"]
         if selected not in allowed:
             raise ValueError("Finance finalization selected an unsupported explanation")
@@ -112,7 +111,7 @@ class GeminiFinanceFinalizer:
     """검증된 Evidence에서 설명 키만 고르는 Gemini Finalizer."""
 
     def __init__(self) -> None:
-        self.model = _finance_model("gemini")
+        self.model = finance_model("gemini")
         self.attempts = 0
 
     def finalize(
@@ -128,7 +127,7 @@ class GeminiFinanceFinalizer:
             mode, business_status, has_verified_adjustment=has_verified_adjustment
         )
         selected = json.loads(
-            _gemini_generate(
+            gemini_generate(
                 model=self.model,
                 system_prompt=_FINALIZER_SYSTEM_PROMPT,
                 user_payload={

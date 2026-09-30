@@ -30,10 +30,9 @@ from app.purchase_agent.features import (
     SELF_REVIEW,
     SPLIT_ALLOCATION,
 )
-from app.purchase_agent.graph import build_graph, run_purchase_agent
 from app.purchase_agent.llm import runtime
 from app.purchase_agent.llm.runtime import ENV_PREFIX, build_provider, get_llm_settings
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.service.graph import build_graph, build_initial_state, run_purchase_agent
 
 ITEM = "배추"
 AS_OF = date(2026, 8, 21)

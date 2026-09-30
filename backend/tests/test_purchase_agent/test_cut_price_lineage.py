@@ -45,17 +45,20 @@ from pathlib import Path
 
 import pytest
 
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes import package_scenarios
-from app.purchase_agent.nodes.package_scenarios import build_payment_schedule
-from app.purchase_agent.nodes.self_check import check_max_price
+from app.purchase_agent.domain import package_scenarios as package_rules
+from app.purchase_agent.domain.package_scenarios import build_payment_schedule
+from app.purchase_agent.domain.self_check import check_max_price
+from app.purchase_agent.service.graph import run_purchase_agent
+from app.purchase_agent.service.nodes import package_scenarios
 from tests.test_purchase_agent._ast_helpers import references, references_in
 
 ANCHOR = date(2025, 12, 31)
 ITEMS = ("배추", "무", "양파")
 
+#: ⑥ 은 2026-09-29 재구성 BL-016 뒤 두 파일이다 — 조립(노드 함수)과 판정 · 계산.
 _PACKAGE = Path(package_scenarios.__file__)
-_SELF_CHECK = Path(package_scenarios.__file__).with_name("self_check.py")
+_PACKAGE_RULES = Path(package_rules.__file__)
+_SELF_CHECK = Path(package_rules.__file__).with_name("self_check.py")
 
 
 # ── 지금 상태 ────────────────────────────────────────────────────────────
@@ -164,7 +167,7 @@ def test_the_payment_schedule_cannot_see_the_cut_ceiling() -> None:
     params = inspect.signature(build_payment_schedule).parameters
     assert "max_price" in params
     assert "cut_unit_price" not in params
-    assert not references_in(_PACKAGE, "build_payment_schedule", "cut_unit_price")
+    assert not references_in(_PACKAGE_RULES, "build_payment_schedule", "cut_unit_price")
 
 
 def test_the_payment_schedule_is_fed_the_stress_ceiling() -> None:
@@ -182,9 +185,11 @@ def test_the_payment_schedule_is_fed_the_stress_ceiling() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "_payment_schedule_field"
+        and node.func.id == "payment_schedule_field"
     ]
-    assert calls, "_payment_schedule_field 호출을 못 찾았다 — 이름이 바뀌었는가"
+    # 2026-09-29 재구성 BL-016: 조립부(노드 함수)가 ``service/nodes`` 로 가며 도우미가
+    #   ``domain`` 의 공개 이름 ``payment_schedule_field`` 가 됐다.
+    assert calls, "payment_schedule_field 호출을 못 찾았다 — 이름이 바뀌었는가"
     for call in calls:
         ceiling = call.args[1]
         assert isinstance(ceiling, ast.Name), "상한을 변수로 넘겨야 이 검사가 읽는다"

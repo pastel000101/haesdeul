@@ -21,7 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import LLMStatus
+
 JudgeVerdict = Literal["PASS", "FAIL"]
 
 

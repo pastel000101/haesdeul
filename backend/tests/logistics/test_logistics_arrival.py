@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 
-from app.logistics import arrival
-from app.logistics.arrival import ArrivalSelection, select_due_inbound
-from app.logistics.schemas import InTransitItem
+from app.logistics.domain import arrival
+from app.logistics.domain.arrival import ArrivalSelection, select_due_inbound
+from app.logistics.schemas.snapshot import InTransitItem
 
 AS_OF = date(2026, 1, 7)
 
@@ -387,7 +387,8 @@ def test_14b_임포트에_DB_모듈이_없다():
         "dataclasses",
         "datetime",
         "typing",
-        "app.logistics.schemas",
+        # ★ 2026-09-30 재구성 BL-015: `app.logistics.schemas` 가 패키지로 나뉘었다.
+        "app.logistics.schemas.snapshot",
     }, 모듈
 
 

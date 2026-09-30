@@ -22,9 +22,10 @@ from 개장정본_격리 import (
     개장_정본_이름을_가져간_모듈들,
 )
 
-from app.master.inputs import MasterInputs, SourcedInput
 from app.master.llm.answer_runtime import NarrativeService
 from app.master.llm.runtime import LLMSettings
+from app.master.schemas.inputs import MasterInputs, SourcedInput
+from tests.fake_core_db import patch_sql_helpers
 
 _OFFLINE = LLMSettings(
     enabled=False,  # 꺼 두면 프로바이더를 만들지도, 부르지도 않는다
@@ -51,7 +52,7 @@ def 응답_생성_LLM_을_끈다(monkeypatch: pytest.MonkeyPatch) -> None:
     (`test_answer.py`).
     """
     monkeypatch.setattr(
-        "app.master.ask_service.get_narrative_service",
+        "app.master.service.ask.get_narrative_service",
         lambda: NarrativeService(_OFFLINE, _NeverCalled()),
     )
 
@@ -78,8 +79,12 @@ def 입력_적재를_끈다(monkeypatch: pytest.MonkeyPatch) -> None:
       하나뿐이라 셋을 모으지 않는다 — 그래서 `collect_inputs` 만 막으면 `run_sales` 가
       **조용히 실 DB 를 친다.** 두 자리를 같이 막는다.
     """
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: _NOT_LOADED)
-    monkeypatch.setattr("app.master.service.load_forecast", lambda *a, **k: _NOT_LOADED.forecast)
+    monkeypatch.setattr(
+        "app.master.service.procurement.collect_inputs", lambda *a, **k: _NOT_LOADED
+    )
+    monkeypatch.setattr(
+        "app.master.service.sales.load_forecast", lambda *a, **k: _NOT_LOADED.forecast
+    )
 
 
 class _공휴일이_없는_달력:
@@ -152,7 +157,7 @@ def 개장_관문을_통과시킨다(monkeypatch: pytest.MonkeyPatch) -> None:
       복사해 두었으므로 여기서 원본을 바꿔도 진짜를 잰다. 여기서는 *"관문 때문에 다른
       검사가 막히지 않는다"* 만 보장한다 — 공휴일 달력을 가짜로 주는 것과 같은 이유다.
     """
-    from app.master.day_gate import DayGate
+    from app.master.schemas.day_gate import DayGate
 
     def 통과(as_of: date, **kw: object) -> DayGate:
         return DayGate(as_of=as_of, gate="PASS", result="ALREADY_OPENED", last_opened_date=as_of)
@@ -170,8 +175,13 @@ def 공휴일_달력을_가짜로_준다(monkeypatch: pytest.MonkeyPatch) -> Non
 
     ⚠️ **둘 다 꽂는다.** 축이 둘이라 한쪽만 막으면 나머지가 조용히 실 DB 를 친다.
     """
-    monkeypatch.setattr("app.master.service.get_calendar", lambda: _공휴일이_없는_달력())
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: _주말만_쉬는_시장())
+    monkeypatch.setattr(
+        "app.master.service.procurement.get_calendar", lambda: _공휴일이_없는_달력()
+    )
+    monkeypatch.setattr("app.master.service.sales.get_calendar", lambda: _공휴일이_없는_달력())
+    monkeypatch.setattr(
+        "app.master.service.procurement.get_market_calendar", lambda: _주말만_쉬는_시장()
+    )
 
 
 class _배치가_늘_도는_달력:
@@ -198,16 +208,23 @@ def 배치_달력을_가짜로_준다(monkeypatch: pytest.MonkeyPatch) -> None:
       가 없는 자리에서는 `BLOCKED` 로 빨개지고, 있는 자리에서는 **그날 표에 따라** 답이
       갈린다 — 둘 다 다른 사람 손에서 재현되지 않는다.
     """
-    monkeypatch.setattr("app.master.ml_batch_calendar._BATCH", _배치가_늘_도는_달력())
+    monkeypatch.setattr("app.master.readmodel.ml_batch_calendar._BATCH", _배치가_늘_도는_달력())
 
 
-#: 미적용 전이를 찾는 두 조회가 **DB 로 나가는 문**. 🔴 **여기 하나만 막으면 된다.**
+#: 미적용 전이를 찾는 두 조회가 **DB 로 나가는 문** — 조회 모듈 하나에 모여 있다.
 #:
 #: ★ **`approved_decisions` 를 갈아 끼우지 않는 이유.** 그 이름은
 #:   `retry_pending_transitions` 의 **기본 인자로 이미 묶여 있어** 모듈 속성을 바꿔도
 #:   안 바뀐다 (기본값이 `None` 이 아니라 함수 자체인 규율의 대가다). 진짜 함수가
-#:   호출 때 찾아가는 이름은 `fetch_all` 이고, 그것이 실제 문이다.
-미적용_조회_문 = "app.master.pending_transition_repository.fetch_all"
+#:   호출 때 찾아가는 이름을 막는다.
+#:
+#: ★ 2026-09-30 재구성 BL-018: 문이 바뀌었다. 전에는 두 함수가 `fetch_all` 헬퍼 하나(연결 대여 +
+#:   실행)를 불렀고 그것 하나를 막았다. 지금은 `readmodel/pending_transitions.py` 가 조회 연결을
+#:   빌려(`core_db.read_connection`) repository 의 SELECT 둘을 부른다 — **그 모듈의** 대여를 가짜
+#:   연결로 바꾸고 결과를 빈 목록으로 준다. 문장 짓기(repository)는 종전처럼 진짜로 돈다. `core_db`
+#: 는
+#:   이 모듈 안의 이름만 바꾸므로 다른 모듈의 대여는 막지 않는다.
+미적용_조회_모듈 = "app.master.readmodel.pending_transitions"
 
 
 @pytest.fixture(autouse=True)
@@ -232,7 +249,7 @@ def 미적용_전이_조회를_막는다(monkeypatch: pytest.MonkeyPatch) -> Non
     def 아무것도_없다(*args: object, **kwargs: object) -> list[object]:
         return []
 
-    monkeypatch.setattr(미적용_조회_문, 아무것도_없다)
+    patch_sql_helpers(monkeypatch, 미적용_조회_모듈, fetch_all=아무것도_없다)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -271,7 +288,7 @@ def 스키마_이름을_환경에_둔다(
 
 
 #: 매입 경계를 읽는 조회가 **DB 로 나가는 문**.
-매입_경계_조회_문 = "app.master.procurement_boundary.list_runs"
+매입_경계_조회_문 = "app.master.readmodel.procurement_boundary.list_runs"
 
 
 @pytest.fixture(autouse=True)
@@ -302,34 +319,7 @@ def 매입_경계_조회를_막는다(
     monkeypatch.setattr(매입_경계_조회_문, 행이_없다)
 
 
-class 실_DB_연결을_열었다(AssertionError):
-    """`db` 마크가 없는 검사가 `psycopg.connect` 까지 갔다."""
-
-
-@pytest.fixture(autouse=True)
-def 실_DB_연결을_막는다(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """🔴 **`db` 마크가 없는 검사가 연결을 열려 하면 그 자리에서 예외를 던진다.**
-
-    ★ **문이 하나다.** 재무 · 물류 · 매입 · 판매 · ML 의 `get_connection` 이 전부
-      `psycopg.connect` 를 부른다. 이름을 복사해 간 모듈이 많아도 끝은 여기라, 여기
-      하나를 막으면 새 경로가 생겨도 실 DB 까지는 안 간다.
-
-    ★ **`.env` 가 있는 자리를 없는 자리와 같게 만든다.** 없는 자리에서는 환경변수
-      확인이 먼저 터져 여기까지 안 온다. 있는 자리에서는 이 가드가 없으면 새는 검사가
-      **팀 공용 DB 를 조용히 치고** 답이 그날 표에 따라 갈린다.
-
-    ⚠️ **예외를 삼키는 경로는 이 가드로 빨개지지 않는다.** 검사 뒤에 「불렸다」로
-      실패시키면 기존 검사 204건이 빨개져서(측정 2026-09-14 · 가짜 접속 환경변수)
-      그 판정은 넣지 않았다. 삼키는 경로도 **실 DB 에는 닿지 않는다.**
-    """
-    if _실_DB_검사다(request):
-        return
-
-    import psycopg
-
-    def 막는다(*args: object, **kwargs: object) -> object:
-        raise 실_DB_연결을_열었다(
-            f"db 마크가 없는 검사가 실 DB 연결을 열었다: {request.node.nodeid}"
-        )
-
-    monkeypatch.setattr(psycopg, "connect", 막는다)
+# 🔴 **실 DB 연결 가드는 루트 `tests/conftest.py::실_DB_연결을_막는다` 로 올렸다**
+#    (2026-09-29 · 풀 전환). 2026-09-14 부터 이 폴더에만 있던 가드다 — 연결을 이제
+#    `app/core/db.py` 의 풀이 만들어 문이 `psycopg.connect` 하나가 아니게 됐고, 가드가
+#    이 폴더에만 있으면 다른 폴더의 검사가 풀을 통해 샌다.

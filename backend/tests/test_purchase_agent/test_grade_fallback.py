@@ -18,7 +18,7 @@ from copy import deepcopy
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.allocate_sourcing import base_grade_for
+from app.purchase_agent.domain.allocate_sourcing import base_grade_for
 
 
 @pytest.fixture
@@ -127,7 +127,7 @@ def test_the_two_fallbacks_deliberately_disagree(constraints: dict) -> None:
     ⚠️ 둘을 같은 값으로 잠그는 검사를 두면 한쪽을 고칠 때 다른 쪽이 따라가야 하는 것처럼
       보인다. **지금은 값이 달라야 맞다.** 그래서 「갈렸다」를 잠근다.
     """
-    from app.purchase_agent.nodes.draft_plan import reference_unit_price
+    from app.purchase_agent.domain.draft_plan import reference_unit_price
 
     quotes = [{"market": "가락", "grade": g, "price": p} for g, p in REAL_DAY.items()]
     estimated = reference_unit_price(quotes, "상")

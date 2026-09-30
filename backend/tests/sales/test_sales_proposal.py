@@ -3,8 +3,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.sales.proposal import _generate_scenarios, run_proposal, self_check_scenarios
-from app.sales.schemas import SalesProposalInput
+from app.sales.domain.proposal import self_check_scenarios
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.service.proposal import run_proposal
+from tests.sales.planned_scenarios import plan_and_generate_scenarios
 
 
 def _request(**overrides):
@@ -570,8 +572,15 @@ def test_proposal_core_runs_without_touching_any_repository(monkeypatch):
     def _explode(*args, **kwargs):
         raise AssertionError("proposal core must not read a repository")
 
-    for name in ("fetch_one", "fetch_all", "execute_returning_one", "get_db_schema"):
-        monkeypatch.setattr(f"app.sales.db.{name}", _explode, raising=True)
+    #  ★ 2026-09-29 BL-013: 판매 SQL 은 빌린 연결로만 돈다(`sales/db.py` 는 없어졌다). 풀에서
+    #    연결을 빌리는 입구를 전부 막아 두고도 제안이 끝까지 서야 한다.
+    for target in (
+        "app.core.db.connection",
+        "app.core.db.read_connection",
+        "app.core.db.DatabasePool.connection",
+        "app.core.db.DatabasePool.read_connection",
+    ):
+        monkeypatch.setattr(target, _explode, raising=True)
 
     reply = run_proposal(independence_request(user=independence_user()))
 
@@ -580,19 +589,28 @@ def test_proposal_core_runs_without_touching_any_repository(monkeypatch):
 
 
 def test_proposal_module_does_not_import_any_repository():
-    """구조로도 확인한다 — Core 는 저장소 모듈을 import 하지 않는다."""
-    import app.sales.proposal as module
+    """구조로도 확인한다 — Core 는 저장소 모듈을 import 하지 않는다.
 
-    tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
-    imported: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module)
+    ★ 2026-09-29 BL-013: Core 는 계산(`domain/proposal.py`)과 그래프(`service/proposal.py`)
+      두 파일이 됐다. 둘 다 SQL · 조회 계층 · 연결 모듈을 import 하지 않는다.
+    """
+    import app.sales.domain.proposal as core
+    import app.sales.service.proposal as graph
 
-    for forbidden in ("app.sales.db", "app.sales.runs", "app.sales.runs"):
-        assert forbidden not in imported, forbidden
+    for module in (core, graph):
+        tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
+        imported: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module)
+
+        for forbidden in ("app.sales.repository", "app.sales.readmodel", "app.core.db"):
+            assert not {name for name in imported if name.startswith(forbidden)}, (
+                module.__name__,
+                forbidden,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -602,23 +620,25 @@ def test_proposal_module_does_not_import_any_repository():
 
 def test_proposal_core_does_not_call_the_legacy_allocation_flow():
     """최종 Core 는 레거시 Cycle B 를 끌어다 쓰지 않는다."""
-    import app.sales.proposal as module
+    import app.sales.domain.proposal as core
+    import app.sales.service.proposal as graph
 
-    source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    called = {
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
+    for module in (core, graph):
+        source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
 
-    for legacy in ("run_allocation", "run_floor_reply", "_self_check"):
-        assert legacy not in called, legacy
+        for legacy in ("run_allocation", "run_floor_reply", "_self_check"):
+            assert legacy not in called, (module.__name__, legacy)
 
 
 def test_proposal_core_does_not_use_the_legacy_external_validation_contract():
     """신규 Domain Reply 정본은 SalesDomainReply 다."""
-    import app.sales.proposal as module
+    import app.sales.domain.proposal as module
 
     tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
     imported_names: set[str] = set()
@@ -687,7 +707,7 @@ def test_business_facts_do_not_depend_on_the_llm(monkeypatch):
     with_llm_off = run_proposal(request)
 
     monkeypatch.setattr(
-        "app.sales.proposal.interpret_candidates",
+        "app.sales.service.proposal.interpret_candidates",
         lambda candidates, **_kwargs: with_llm_off.llm.model_copy(
             update={"summary": "완전히 다른 문장"}
         ),
@@ -1080,7 +1100,7 @@ def test_scenario_types_come_from_the_closed_vocabulary():
     """
     from typing import get_args
 
-    from app.sales.schemas import ScenarioType
+    from app.sales.schemas.proposal import ScenarioType
 
     reply = run_proposal(boundaries_request(1000, 3000))
     types = [scenario.scenario_type for scenario in reply.scenarios]
@@ -1093,7 +1113,7 @@ def test_scenario_types_come_from_the_closed_vocabulary():
 
 def test_scenario_count_is_not_locked_by_the_schema():
     """개수를 계약으로 승격하지 않았다는 사실 자체를 남긴다."""
-    from app.sales.schemas import SalesProposalReply
+    from app.sales.schemas.proposal import SalesProposalReply
 
     metadata = SalesProposalReply.model_fields["scenarios"].metadata
 
@@ -1287,7 +1307,7 @@ def test_balanced_requested_quantity_cannot_be_executable_above_confirmed_supply
     payload["feedback"]["scenario_feedback"].append(
         {"scenario_id": "SALES-001-B", "reply_refs": ["PUR-1", "FIN-1"]}
     )
-    scenarios = _generate_scenarios(SalesProposalInput.model_validate(payload))
+    scenarios = plan_and_generate_scenarios(SalesProposalInput.model_validate(payload))
     balanced = next(item for item in scenarios if item.scenario_type == "BALANCED")
 
     assert balanced.quantity_kg == Decimal(5000)
@@ -1304,7 +1324,7 @@ def test_self_check_rejects_executable_quantity_above_confirmed_supply():
     payload["feedback"]["scenario_feedback"].append(
         {"scenario_id": "SALES-001-B", "reply_refs": ["PUR-1", "FIN-1"]}
     )
-    scenarios = _generate_scenarios(SalesProposalInput.model_validate(payload))
+    scenarios = plan_and_generate_scenarios(SalesProposalInput.model_validate(payload))
     balanced = next(item for item in scenarios if item.scenario_type == "BALANCED")
     invalid = balanced.model_copy(update={"status": "EXECUTABLE"})
 

@@ -53,10 +53,16 @@ from typing import Any
 import pytest
 from psycopg import sql
 
-from app.master import forecast_gate, inputs, sales_terms
-from app.master import service as service_mod
-from app.master.backfill import ML_CURRENT_PRICE, SalesTermsRule
-from app.master.schemas import SalesRunRequest
+from app.master.domain import inputs as domain_inputs
+from app.master.domain.backfill import ML_CURRENT_PRICE, SalesTermsRule
+from app.master.readmodel import forecast_gate as readmodel_forecast_gate
+from app.master.readmodel import inputs as readmodel_inputs
+from app.master.repository import inputs as repository_inputs
+from app.master.schemas import inputs as schemas_inputs
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import sales
+from app.master.service import sales_terms as service_sales_terms
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2025, 12, 31)
 ITEM = "배추"
@@ -75,7 +81,16 @@ _ROW: dict[str, Any] = {
     "quality_note": "",
 }
 
-_INPUTS_PY = Path(inputs.__file__)
+#: ★ 2026-09-30 재구성 BL-018: 옛 `inputs.py` 가 넷으로 갈렸다 — 계열 상수(`schemas/inputs.py`) ·
+#:   조회 SQL
+#:   (`repository/inputs.py`) · 조립(`readmodel/inputs.py`) · 계산(`domain/inputs.py`). 리터럴
+#: 세기는
+#:   넷을 함께, 상수 선언은 상수 자리에서 잰다.
+_INPUTS_PYS = tuple(
+    Path(모듈.__file__)
+    for 모듈 in (schemas_inputs, repository_inputs, readmodel_inputs, domain_inputs)
+)
+_INPUTS_PY = Path(schemas_inputs.__file__)
 
 
 def _요청() -> SalesRunRequest:
@@ -101,9 +116,9 @@ def 본_조회(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, ...]]:
         if "v_ml_price_forecast" in _sql_text(query):
             본것.append(tuple(params))
 
-    monkeypatch.setattr(inputs, "fetch_one", fetch_one)
-    monkeypatch.setattr(inputs, "fetch_all", lambda *a: [])
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=fetch_one)
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=lambda *a: [])
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
     return 본것
 
 
@@ -113,7 +128,7 @@ def 판매_적재를_되살린다(monkeypatch: pytest.MonkeyPatch) -> None:
 
     ⚠️ DB 는 그대로 안 탄다 — `본_조회` 가 `fetch_one` 을 갈아 끼운다.
     """
-    monkeypatch.setattr(service_mod, "load_forecast", inputs.load_forecast)
+    monkeypatch.setattr(sales, "load_forecast", readmodel_inputs.load_forecast)
 
 
 # ── 잠금 ① 매입 AUC · 판매 WHSL ─────────────────────────────────────────
@@ -124,14 +139,14 @@ def test_매입과_판매가_다른_계열을_읽는다(본_조회, 판매_적�
 
     🔴 갈리지 않으면 경매가로 사서 경매가로 판다 — 마진이 설 자리가 없다.
     """
-    inputs.collect_inputs(ITEM, AS_OF, sim_run_id="SIM-TEST-WHSL")
+    readmodel_inputs.collect_inputs(ITEM, AS_OF, sim_run_id="SIM-TEST-WHSL")
     매입 = 본_조회[-1]
 
-    service_mod._sales_forecast(_요청())
+    sales._sales_forecast(_요청())
     판매 = 본_조회[-1]
 
-    assert 매입 == (ITEM, AS_OF, inputs.PROCUREMENT_TARGET_KIND) == (ITEM, AS_OF, "AUC")
-    assert 판매 == (ITEM, AS_OF, inputs.SALES_TARGET_KIND) == (ITEM, AS_OF, "WHSL")
+    assert 매입 == (ITEM, AS_OF, schemas_inputs.PROCUREMENT_TARGET_KIND) == (ITEM, AS_OF, "AUC")
+    assert 판매 == (ITEM, AS_OF, schemas_inputs.SALES_TARGET_KIND) == (ITEM, AS_OF, "WHSL")
     assert 매입 != 판매, "매입과 판매가 같은 시세를 본다 — 경매가로 사서 경매가로 판다"
 
 
@@ -147,7 +162,7 @@ def test_판매_단가_규칙도_중도매를_읽는다(본_조회):
         payment_days=30,
         unit_price_source=ML_CURRENT_PRICE,
     )
-    sales_terms.apply_sales_terms(_요청(), 규칙)
+    service_sales_terms.apply_sales_terms(_요청(), 규칙)
 
     assert 본_조회 == [(ITEM, AS_OF, "WHSL")], "판매 단가가 경매 계열을 읽는다"
 
@@ -158,7 +173,7 @@ def test_매입_예측_관문은_경매_그대로다(본_조회):
     판매를 중도매로 옮기면서 매입 관문까지 끌려가면 **매입이 조용히 다른 시세로
     산다.** 그 사고는 값이 아니라 등급으로 나타나 눈에 안 띈다.
     """
-    forecast_gate.check_forecast_gate(ITEM, AS_OF)
+    readmodel_forecast_gate.check_forecast_gate(ITEM, AS_OF)
 
     assert 본_조회 == [(ITEM, AS_OF, "AUC")], "매입 관문이 경매를 안 읽는다"
 
@@ -173,7 +188,7 @@ def test_계열은_기본값_없는_키워드다():
     그 상태였다. `revalidation.revalidate_scenario` 가 `as_of` 에 대해 같은 결론을
     냈다: 안 넘기면 터져야 한다.
     """
-    param = inspect.signature(inputs.load_forecast).parameters["target_kind"]
+    param = inspect.signature(readmodel_inputs.load_forecast).parameters["target_kind"]
     왜 = "기본값이 생겼다 — 안 넘긴 자리가 조용히 경매가로 답한다"
 
     assert param.kind is inspect.Parameter.KEYWORD_ONLY, "위치 인자면 순서로 섞인다"
@@ -181,11 +196,11 @@ def test_계열은_기본값_없는_키워드다():
 
 
 def test_계열을_안_넘기면_터진다(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(inputs, "fetch_one", lambda *a: None)
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=lambda *a: None)
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
 
     with pytest.raises(TypeError):
-        inputs.load_forecast(ITEM, AS_OF)  # type: ignore[call-arg]
+        readmodel_inputs.load_forecast(ITEM, AS_OF)  # type: ignore[call-arg]
 
 
 # ── 잠금 ③ 출처가 계열을 나른다 ──────────────────────────────────────────
@@ -197,10 +212,12 @@ def test_출처에_계열_이름이_그대로_남는다(monkeypatch: pytest.Monk
 
     지금까지는 늘 경매라 이 칸이 잠들어 있었다 — **이제 실제로 갈린다.**
     """
-    monkeypatch.setattr(inputs, "fetch_one", lambda *a: {**_ROW, "target_kind": 계열})
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(
+        monkeypatch, readmodel_inputs, fetch_one=lambda *a: {**_ROW, "target_kind": 계열}
+    )
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
 
-    got = inputs.load_forecast(ITEM, AS_OF, target_kind=계열)
+    got = readmodel_inputs.load_forecast(ITEM, AS_OF, target_kind=계열)
 
     assert got.grade == "MEASURED"
     assert got.source == f"v_ml_price_forecast(as_of={AS_OF}, {계열})"
@@ -241,10 +258,10 @@ def test_AUC_리터럴이_상수_정의_한_자리에만_있다():
     ★ 「0건을 세면 그것도 막는다」 — 세는 방법이 깨져 0이 나오면 이 검사는 아무것도
       안 막으면서 통과한다. 그래서 0도 실패로 둔다.
     """
-    tree = ast.parse(_INPUTS_PY.read_text(encoding="utf-8"))
     쓰인곳 = [
         unicodedata.normalize("NFC", node.value)
-        for node in _문자열_상수(tree)
+        for 파일 in _INPUTS_PYS
+        for node in _문자열_상수(ast.parse(파일.read_text(encoding="utf-8")))
         if "AUC" in unicodedata.normalize("NFC", node.value)
     ]
 
@@ -266,4 +283,4 @@ def test_두_계열이_이름_붙은_상수로_선다():
 
     assert 선언.get("PROCUREMENT_TARGET_KIND") == "AUC"
     assert 선언.get("SALES_TARGET_KIND") == "WHSL"
-    assert inputs.PROCUREMENT_TARGET_KIND != inputs.SALES_TARGET_KIND
+    assert schemas_inputs.PROCUREMENT_TARGET_KIND != schemas_inputs.SALES_TARGET_KIND

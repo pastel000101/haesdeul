@@ -18,12 +18,19 @@
     ② 못 읽은 행 id 는 None 이다 — 지어내지 않는다
     ③ state 네 갈래가 실제 상태를 가린다 (후보 · 승인됨 · 매입 기록됨)
     ④ approved 가 그대로 있다 — 읽는 자리가 있다 (대시보드 서버 · 09-17 정정)
-    ⑤ 상태 어휘의 주인이 하나다 (`app/api/plan_state.py`) — 대시보드와 같은 것
+    ⑤ 상태 어휘의 주인이 하나다 (`app/master/domain/plan_state.py`) — 대시보드와 같은 것
+       (2026-09-29 재구성 BL-012 전 자리는 `app/api/plan_state.py`. 안 이름을 쪼개는
+       `plan_item` · `recorded_for` 는 이름을 짓는 매입 탭 `presenter` 에 남았다)
     ⑥ 「승인 대기」는 요청(품목·날) 단위다 — 형제 안이 결정되면 대기가 아니다 (09-17)
     ⑦ 결정은 **최대 회차 하나만** 유효하다 — 되돌린 승인은 「승인됨」이 아니다 (09-17)
 
 🔴 **실 DB 에 안 닿는다.** `_read` 와 실매입 기록 조회를 대역으로 세우고, 「읽어 온 값을
    어떻게 싣는가」만 본다.
+
+★ 2026-09-29 재구성 BL-014: 화면의 `_read` 는 마스터 조회
+  `app/master/readmodel/purchase_tab.py::read_purchase_tab` 이 되었고, 그 SQL 은
+  `app/master/purchase_tab_repository.py` 가 짓는다(`finance.db.fetch_all` 대역 → 그 모듈의
+  `fetch_all`). 읽기 순서 · 문면 · 대여는 그대로다.
 """
 
 from __future__ import annotations
@@ -33,9 +40,11 @@ from typing import Any
 
 import pytest
 
-from app.api import plan_state
-from app.api.purchase import query as purchase_query
-from app.master.purchase_record_repository import RecordedTotals
+from app.api.purchase import presenter as purchase_presenter
+from app.master.domain import plan_state
+from app.master.readmodel.purchase_record import RecordedTotals
+from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 4, 13)
 AXIS = "SIM-CHECK-HOLIDAY-0916"
@@ -97,14 +106,14 @@ def tab(monkeypatch):
 
     #  ⚠️ `**_` 다 — `build` 가 `window_days=` 를 넘긴다 (`#740`). 안 받으면 `TypeError`
     #     가 나고 `build` 의 `except Exception` 이 그것을 삼켜 조용히 예시값이 나간다.
-    monkeypatch.setattr(purchase_query, "_read", lambda _as_of, **_: state["data"])
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda _as_of, **_: state["data"])
     monkeypatch.setattr(
-        purchase_query, "recorded_totals_by_plan", lambda **_: state["records"]
+        purchase_presenter, "recorded_totals_by_plan", lambda **_: state["records"]
     )
 
     def _build(**over: Any):
         state.update(over)
-        return purchase_query.build(AS_OF, AXIS)
+        return purchase_presenter.build(AS_OF, AXIS)
 
     return _build
 
@@ -213,17 +222,17 @@ def test_축이_없으면_기록을_안_맞춘다(monkeypatch):
     불렀나: list[Any] = []
 
     monkeypatch.setattr(
-        purchase_query,
-        "_read",
+        purchase_presenter,
+        "read_purchase_tab",
         lambda _as_of, **_: _data(
             [_run("REQ-A", _scenario("기본"), sim_run_id=None)], [_approval("REQ-A", "기본")]
         ),
     )
     monkeypatch.setattr(
-        purchase_query, "recorded_totals_by_plan", lambda **kw: 불렀나.append(kw) or {}
+        purchase_presenter, "recorded_totals_by_plan", lambda **kw: 불렀나.append(kw) or {}
     )
 
-    plan = purchase_query.build(AS_OF).plans[0]
+    plan = purchase_presenter.build(AS_OF).plans[0]
 
     assert 불렀나 == [], "축 없이 기록 표를 물으면 안 된다"
     assert plan.state == "승인됨"
@@ -235,7 +244,7 @@ def test_기록을_못_읽어도_안_목록은_산다(tab, monkeypatch):
     def _터진다(**_: Any):
         raise RuntimeError("DB 가 죽었다")
 
-    monkeypatch.setattr(purchase_query, "recorded_totals_by_plan", _터진다)
+    monkeypatch.setattr(purchase_presenter, "recorded_totals_by_plan", _터진다)
 
     tabout = tab(data=_data([_run("REQ-A", _scenario("기본"))], [_approval("REQ-A", "기본")]))
 
@@ -273,9 +282,13 @@ def test_approved_가_그대로_있다(tab):
 
 def test_상태_어휘는_공용_자리에서_온다():
     """🔴 두 벌로 짜면 한쪽만 고치는 날 **같은 안이 화면마다 다른 상태**로 뜬다."""
-    from app.api.dashboard import query as dashboard_query
+    from app.api.dashboard import presenter as dashboard_presenter
 
-    assert dashboard_query.PLAN_STATES is plan_state.PLAN_STATES
+    assert dashboard_presenter.PLAN_STATES is plan_state.PLAN_STATES
+    #  ★ 안 이름을 쪼개 기록을 맞추는 규칙도 한 벌이다 — 매입 탭이 이름을 짓고 대시보드가
+    #    같은 함수로 읽는다 (2026-09-29 · 전에는 둘 다 `app/api/plan_state.py` 를 읽었다).
+    assert dashboard_presenter._plan_item is purchase_presenter.plan_item
+    assert dashboard_presenter._recorded is purchase_presenter.recorded_for
 
 
 def test_매입_탭이_내는_낱말은_그_넷_안이다(tab):
@@ -430,7 +443,6 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
     대역 검사들은 `_read` 를 통째로 갈아 끼우므로 이 칸이 빠져도 안 운다 — 질의 문면을
     직접 본다.
     """
-    import app.finance.db as finance_db
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     문면: list[str] = []
@@ -439,9 +451,9 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
         문면.append(query.as_string(None))
         return []
 
-    monkeypatch.setattr(finance_db, "fetch_all", _record)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=_record)
 
-    purchase_query._read(AS_OF, sim_run_id=AXIS)
+    read_purchase_tab(AS_OF, sim_run_id=AXIS)
 
     (결정,) = [t for t in 문면 if "master_decisions" in t]
     assert "decision_seq" in 결정

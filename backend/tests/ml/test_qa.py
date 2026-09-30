@@ -14,8 +14,11 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from app.ml import qa_graph, qa_llm, qa_tools
-from app.ml.qa_schemas import QaRequest
+from app.ml import config
+from app.ml.llm import qa as qa_llm
+from app.ml.readmodel import qa_answer
+from app.ml.schemas.qa import QaRequest
+from app.ml.service import qa_graph
 
 BASE = date(2026, 9, 14)
 
@@ -54,20 +57,20 @@ def 도구를_갈아_끼운다(monkeypatch: pytest.MonkeyPatch):
             raise RuntimeError("connection refused")
 
         monkeypatch.setattr(
-            qa_graph.qa_tools, "latest_base_date",
+            qa_graph.qa_reads, "latest_base_date",
             _raise if boom else (lambda as_of=None: base),
         )
         monkeypatch.setattr(
-            qa_graph.qa_tools, "forecast_rows", lambda *a, **k: list(rows or [])
+            qa_graph.qa_reads, "forecast_rows", lambda *a, **k: list(rows or [])
         )
-        monkeypatch.setattr(qa_graph.qa_tools, "today_row", lambda *a, **k: today)
-        monkeypatch.setattr(qa_graph.qa_tools, "accuracy", lambda *a, **k: acc)
-        monkeypatch.setattr(qa_graph.qa_tools, "usability", lambda *a, **k: usab or {})
+        monkeypatch.setattr(qa_graph.qa_reads, "today_row", lambda *a, **k: today)
+        monkeypatch.setattr(qa_graph.qa_reads, "accuracy", lambda *a, **k: acc)
+        monkeypatch.setattr(qa_graph.qa_reads, "usability", lambda *a, **k: usab or {})
         #   ★ 현재 모델도 DB 를 읽는다. **기본은 «교체 이력 표가 없다»** 다 —
         #     2026-09-16 실측에서 두 창고 다 `model_cutover` 가 없었다.
         #     따로 잴 검사는 `모델도구를_갈아_끼운다` 로 덮어쓴다.
         monkeypatch.setattr(
-            qa_graph.qa_tools, "current_models",
+            qa_graph.qa_reads, "current_models",
             lambda: _models(cutover=False, read="absent"),
         )
 
@@ -155,7 +158,7 @@ def test_쓰지_말라는_판정은_meta_로_간다(도구를_갈아_끼운다):
 
 def test_평균_오차는_화면과_같은_값을_쓴다(도구를_갈아_끼운다):
     """★ prediction_log 를 다시 집계하지 않는다 — 한 사실에 두 숫자가 돌면 안 된다."""
-    도구를_갈아_끼운다(rows=[_row(1)], acc=qa_tools.SEALED_ACCURACY[("AUC", "배추")])
+    도구를_갈아_끼운다(rows=[_row(1)], acc=config.SEALED_ACCURACY[("AUC", "배추")])
     out = qa_graph.answer(QaRequest(item="배추", kind="AUC"))
     #   ★ 문장에서는 뺐고 meta 로 옮겼다. **값과 조건이 늘 같이 간다** —
     #     조건 없는 수치는 어디에도 안 남긴다 (CLAUDE.md §11).
@@ -171,7 +174,7 @@ def test_설명_줄을_문장에서_빼고_meta_로_옮겼다(도구를_갈아_�
     🔴 **빼는 것이 아니라 옮기는 것이다.** 출발점·오차·규격이 통째로 사라지면
        19.7% 틀리는 값을 확정값처럼 읽게 된다.
     """
-    도구를_갈아_끼운다(rows=[_row(1)], acc=qa_tools.SEALED_ACCURACY[("AUC", "배추")])
+    도구를_갈아_끼운다(rows=[_row(1)], acc=config.SEALED_ACCURACY[("AUC", "배추")])
     out = qa_graph.answer(QaRequest(item="배추", kind="AUC"))
     for gone in ("출발점", "평균 오차", "값의 정체", "486일치"):
         assert gone not in out.markdown, gone
@@ -225,7 +228,7 @@ def test_당일_값은_고른_기준일로_읽는다_미래를_안_본다(도구
         }
 
     도구를_갈아_끼운다(rows=[], base=화면_기준일)
-    monkeypatch.setattr(qa_graph.qa_tools, "today_row", 당일)
+    monkeypatch.setattr(qa_graph.qa_reads, "today_row", 당일)
     out = qa_graph.answer(QaRequest(item="배추", kind="AUC", as_of=화면_기준일))
     assert 받은_기준일 == [화면_기준일]                      # 전체 최신이 아니라 그날
     assert "오늘 2026-07-01" in out.markdown
@@ -280,8 +283,8 @@ def test_쓰지_말라는_경고는_문장에서_빠지고_표만_남는다(도�
 
 def test_상수표는_아홉_칸이_다_있다():
     """중도매가·소매가도 답해야 한다. 화면에는 경락가 세 칸만 적혀 있다."""
-    assert len(qa_tools.SEALED_ACCURACY) == 9
-    assert qa_tools.SEALED_ACCURACY[("RTL", "배추")]["pct"] == "12.7"
+    assert len(config.SEALED_ACCURACY) == 9
+    assert config.SEALED_ACCURACY[("RTL", "배추")]["pct"] == "12.7"
 
 
 def _llm(monkeypatch, answer):
@@ -339,7 +342,7 @@ def test_짝지어_물으면_안_물어본_조합은_안_나온다(도구를_갈
         return [_row(5)] if targets else []
 
     도구를_갈아_끼운다(rows=[_row(5)])
-    monkeypatch.setattr(qa_graph.qa_tools, "forecast_rows", 읽은_것을_적는다)
+    monkeypatch.setattr(qa_graph.qa_reads, "forecast_rows", 읽은_것을_적는다)
     _llm(monkeypatch, {
         "route": "forecast", "items": [], "kinds": [], "dates": [],
         "asks": [
@@ -447,7 +450,7 @@ def test_날짜를_안_말하면_오늘_값과_그_이유를_준다(도구를_�
     #   ★ 더 볼 수 있다고 알려준다. **「전부」라고 권하지 않는다** (2026-09-16 ·
     #     사용자 지시) — 그 말은 우리 해석기만 알아듣고 마스터를 거쳐 오면
     #     못 알아듣는다. 되는 말을 예로 보인다
-    assert qa_graph.ASK_DATE_HINT in out.markdown
+    assert qa_answer.ASK_DATE_HINT in out.markdown
     assert "「전부」라고 하시면" not in out.markdown
     #   🔴 **꼬리 한 줄을 글자 그대로** 잰다. 조각으로만 재면 문장이 어디서
     #     끊기거나 띄어쓰기가 달라져도 통과한다 — 사람이 보는 것은 줄 전체다
@@ -480,7 +483,7 @@ def test_오늘_값이_없으면_내일로_물러서고_그렇게_말한다(도�
         calls.append(list(targets))
         return [_row(1)] if len(calls) > 1 else []
 
-    monkeypatch.setattr(qa_graph.qa_tools, "forecast_rows", 두_번째부터_행이_나온다)
+    monkeypatch.setattr(qa_graph.qa_reads, "forecast_rows", 두_번째부터_행이_나온다)
     out = qa_graph.answer(QaRequest(item="배추", kind="AUC"))
     assert out.meta.status == "OK"
     assert "오늘 값이 아직 없어" in out.markdown and "내일" in out.markdown
@@ -488,7 +491,7 @@ def test_오늘_값이_없으면_내일로_물러서고_그렇게_말한다(도�
     #     오늘을 줬든 내일로 물러섰든 똑같이 필요하다
     assert (
         "> 날짜를 따로 말씀하지 않으셔서 오늘 값이 아직 없어 **내일** 값을 보여드립니다. "
-        f"{qa_graph.ASK_DATE_HINT}"
+        f"{qa_answer.ASK_DATE_HINT}"
     ) in out.markdown
     assert calls[0] == []                                    # 첫 조회는 읽을 날이 없었다
     assert calls[1] == [BASE + timedelta(days=1)]            # 물러선 뒤엔 내일을 읽는다
@@ -556,7 +559,7 @@ def test_스위치를_끄면_해석기가_아예_안_부른다(monkeypatch):
 
     monkeypatch.setenv("ML_LLM_ENABLED", "0")
     monkeypatch.setenv("ML_GEMINI_API_KEY", "있는-척-하는-키")
-    monkeypatch.setattr(qa_llm.urllib.request, "urlopen", _절대_안_불려야_한다)
+    monkeypatch.setattr("app.core.llm.providers.urllib.request.urlopen", _절대_안_불려야_한다)
     assert qa_llm.interpret("내일 배추 얼마야?", BASE) is None
 
 
@@ -788,24 +791,24 @@ def 배치도구를_갈아_끼운다(monkeypatch: pytest.MonkeyPatch):
             for name, value in (reports or {}).items()
         }
         monkeypatch.setattr(
-            qa_graph.qa_tools, "batch_run",
+            qa_graph.qa_reads, "batch_run",
             _raise if boom_batch else (lambda on: run),
         )
         monkeypatch.setattr(
-            qa_graph.qa_tools, "failed_stages", lambda run_id: list(fails or [])
+            qa_graph.qa_reads, "failed_stages", lambda run_id: list(fails or [])
         )
         monkeypatch.setattr(
-            qa_graph.qa_tools, "agent_report",
+            qa_graph.qa_reads, "agent_report",
             _raise if boom_report else (lambda name, on: (found.get(name) or [None])[-1]),
         )
         monkeypatch.setattr(
-            qa_graph.qa_tools, "agent_reports",
+            qa_graph.qa_reads, "agent_reports",
             _raise if boom_report else (lambda name, on: list(found.get(name) or [])),
         )
         #   🔴 **이건 HTTP 다.** 안 갈아 끼우면 검사가 진짜 8102 를 부른다 —
         #     그 서버가 떠 있느냐에 따라 검사 결과가 달라진다. 기본은 «후보 없음».
         monkeypatch.setattr(
-            qa_graph.qa_tools, "retrain_pending",
+            qa_graph.ml_backend, "retrain_pending",
             _raise if boom_pending else (lambda: list(pending or [])),
         )
 
@@ -899,7 +902,7 @@ def test_성능을_물으면_봉인_아홉칸과_조건을_적는다(
     _routes(monkeypatch, ["perf"])
     out = qa_graph.answer(QaRequest(question="모델 성능 어때?", as_of=date(2026, 9, 16)))
     assert out.meta.routes == ["perf"]
-    assert qa_tools.SEALED_SOURCE in out.markdown
+    assert config.SEALED_SOURCE in out.markdown
     for 숫자 in ("19.7", "9.0", "12.7", "8.3"):
         assert 숫자 in out.markdown
     #   ★ «후보 없음» 이 아니라 «기록이 없다» 로 바꿨다 (2026-09-16 · 결정 ①).
@@ -960,7 +963,7 @@ def test_바꿀_후보가_있으면_한_줄과_버튼이_같이_나간다(
     버튼 = "[모델 업데이트 — 소매가](action:retrain-apply?kind=rtl)"
     assert 한_줄 in out.markdown
     assert 버튼 in out.markdown
-    assert qa_graph.UPDATE_UNREADABLE not in out.markdown
+    assert qa_answer.UPDATE_UNREADABLE not in out.markdown
 
     #   ★ **맨 아래다** (2026-09-16 · 사용자 지시). 누를지 정할 근거(검증 표)를
     #     다 보인 뒤라야 한다 — 표보다 먼저 나오면 «보기 전에 누르라» 가 된다.
@@ -1027,7 +1030,7 @@ def test_바꿀_후보가_없으면_버튼도_문장도_없다(
     assert "action:" not in out.markdown
     assert "모델 업데이트" not in out.markdown
     assert "업데이트할 수 있습니다" not in out.markdown
-    assert qa_graph.UPDATE_UNREADABLE not in out.markdown
+    assert qa_answer.UPDATE_UNREADABLE not in out.markdown
 
 
 def test_콘솔을_못_읽으면_확인_불가라고_적고_버튼은_안_그린다(
@@ -1042,11 +1045,11 @@ def test_콘솔을_못_읽으면_확인_불가라고_적고_버튼은_안_그린
     _routes(monkeypatch, ["perf"])
     out = qa_graph.answer(QaRequest(question="모델 성능 어때?", as_of=date(2026, 9, 16)))
 
-    assert qa_graph.UPDATE_UNREADABLE in out.markdown
+    assert qa_answer.UPDATE_UNREADABLE in out.markdown
     assert "action:" not in out.markdown
     assert "업데이트할 수 있습니다" not in out.markdown
     #   성능표는 살아 있다
-    assert qa_tools.SEALED_SOURCE in out.markdown
+    assert config.SEALED_SOURCE in out.markdown
     assert "19.7" in out.markdown
 
 
@@ -1055,14 +1058,14 @@ def test_보고서_제목의_가격종류_코드는_사람_말로_바꾼다():
 
     🔴 판정 문구는 손대지 않는다 — «1주 연속 앵커에 밀렸습니다» 는 그대로다.
     """
-    assert qa_graph._kindly("rtl 무 — 1주 연속 앵커에 밀렸습니다 · 재학습 후보") == (
+    assert qa_answer._kindly("rtl 무 — 1주 연속 앵커에 밀렸습니다 · 재학습 후보") == (
         "소매가 무 — 1주 연속 앵커에 밀렸습니다 · 재학습 후보"
     )
-    assert qa_graph._kindly("auc — 학습이 990일 전에서 멈춰 있습니다") == (
+    assert qa_answer._kindly("auc — 학습이 990일 전에서 멈춰 있습니다") == (
         "경락가 — 학습이 990일 전에서 멈춰 있습니다"
     )
     #   가격 종류로 시작하지 않으면 한 글자도 안 바꾼다
-    assert qa_graph._kindly("배추 — 판정 불가") == "배추 — 판정 불가"
+    assert qa_answer._kindly("배추 — 판정 불가") == "배추 — 판정 불가"
 
 
 def test_갈래_둘을_고르면_둘_다_답한다(
@@ -1076,7 +1079,7 @@ def test_갈래_둘을_고르면_둘_다_답한다(
     )
     assert out.meta.routes == ["batch", "perf"]
     assert CHECK_BODY in out.markdown
-    assert qa_tools.SEALED_SOURCE in out.markdown
+    assert config.SEALED_SOURCE in out.markdown
 
 
 def test_가격과_배치를_같이_물으면_표와_배치가_같이_나온다(
@@ -1106,7 +1109,7 @@ def test_한_갈래가_실패해도_다른_갈래_답은_나간다(
     _routes(monkeypatch, ["batch", "perf"])
     out = qa_graph.answer(QaRequest(question="오늘 상태랑 성능", as_of=date(2026, 9, 16)))
     assert "읽지 못했습니다" in out.markdown                # 배치는 실패
-    assert qa_tools.SEALED_SOURCE in out.markdown           # 성능은 나간다
+    assert config.SEALED_SOURCE in out.markdown           # 성능은 나간다
     assert out.meta.status == "PARTIAL"
 
 
@@ -1157,7 +1160,7 @@ def test_배치_갈래는_예측표가_없어도_답한다(
 
 
 def _models(*, cutover: bool = True, read: str = "ok") -> dict:
-    """`qa_tools.current_models()` 가 돌려주는 모양. **실측 값 그대로** (2026-09-16).
+    """`qa_reads.current_models()` 가 돌려주는 모양. **실측 값 그대로** (2026-09-16).
 
     ★ 만든 날은 `prediction_log` 의 최신 기준일 행에서 읽은 것이다.
       소매가만 2026-09-12 인 것이 09-15 저녁 교체의 흔적이다.
@@ -1172,7 +1175,7 @@ def _models(*, cutover: bool = True, read: str = "ok") -> dict:
         "models": [
             {
                 "kind": kind,
-                "model_ver": qa_tools.OPS_MODEL[kind],
+                "model_ver": config.OPS_MODEL[kind],
                 "created_at": made[kind],
                 "base_dt": date(2026, 9, 16),
                 "train_end": date(2025, 12, 31) if cutover else None,
@@ -1201,7 +1204,7 @@ def 모델도구를_갈아_끼운다(monkeypatch: pytest.MonkeyPatch):
             return found if found is not None else _models(cutover=False, read="absent")
 
         monkeypatch.setattr(
-            qa_graph.qa_tools, "current_models", _raise if boom else _give
+            qa_graph.qa_reads, "current_models", _raise if boom else _give
         )
 
     return install
@@ -1314,7 +1317,7 @@ def test_성능_답_맨_위에_현재_모델_표가_온다(
     #     그것이 말하려던 «시각이 추정이다» 는 «(시각 미상)» 표시가 대신한다.
     assert "사람이 눌러 바꿈" not in out.markdown
     #   맨 위다 — 봉인 개봉 표보다 앞선다
-    assert out.markdown.index("현재 모델") < out.markdown.index(qa_tools.SEALED_SOURCE)
+    assert out.markdown.index("현재 모델") < out.markdown.index(config.SEALED_SOURCE)
 
 
 def test_교체_이력_표가_없어도_안_죽고_없다고_적는다(
@@ -1341,7 +1344,7 @@ def test_현재_모델을_못_읽어도_성능표는_나간다(
     _routes(monkeypatch, ["perf"])
     out = qa_graph.answer(QaRequest(question="모델 성능 어때?", as_of=date(2026, 9, 16)))
     assert "현재 모델을 읽지 못했습니다" in out.markdown
-    assert qa_tools.SEALED_SOURCE in out.markdown
+    assert config.SEALED_SOURCE in out.markdown
 
 
 def test_그날_재학습_보고서를_전부_보여준다(
@@ -1423,14 +1426,14 @@ def test_학습_끝이_다르면_그_줄이_안_붙는다(
 def test_보고서_가격_종류는_payload_kind_를_먼저_본다():
     """★ 다른 일꾼이 `kind` 칸을 붙이면 그것을, 아니면 제목 맨 앞 낱말을 본다."""
     붙은_것 = {"payload": {"kind": "WHSL", "findings": [{"title": "배추 — 판정 불가"}]}}
-    assert qa_graph._report_kind(붙은_것) == "중도매가"
+    assert qa_answer._report_kind(붙은_것) == "중도매가"
 
     제목만 = {"payload": {"findings": [{"title": "rtl 무 — 재학습 후보"}]}}
-    assert qa_graph._report_kind(제목만) == "소매가"
+    assert qa_answer._report_kind(제목만) == "소매가"
 
     #   🔴 둘 다 없으면 **지어내지 않는다** (검증 보고서가 실제로 이렇다)
     아무것도 = {"payload": {"findings": [{"title": "배추 — 판정 불가"}]}}
-    assert qa_graph._report_kind(아무것도) == "(가격 종류 미상)"
+    assert qa_answer._report_kind(아무것도) == "(가격 종류 미상)"
 
 
 # ── 품목·가격 종류를 안 말하면 전부 답한다 (2026-09-16 · 사용자 지시) ──────
@@ -1642,7 +1645,7 @@ def test_한_조합이라도_막히면_전부_쓰지_말라고_적는다(도구�
             return {"use_recommended": False, "quality_note": "세 구간 중 1개만 통과"}
         return {"use_recommended": True}
 
-    monkeypatch.setattr(qa_graph.qa_tools, "usability", 양파_중도매가만_막혔다)
+    monkeypatch.setattr(qa_graph.qa_reads, "usability", 양파_중도매가만_막혔다)
     _llm(monkeypatch, {"route": "forecast", "item": None, "kind": None,
                        "dates": [BASE + timedelta(days=1)]})
     out = qa_graph.answer(QaRequest(question="가격 알려줘"))
@@ -1687,7 +1690,7 @@ def test_막힌_것을_모르는_조합이_섞이면_단정하지_않는다(도�
     def 양파만_모른다(item, kind):
         return {} if item == "양파" else {"use_recommended": True}
 
-    monkeypatch.setattr(qa_graph.qa_tools, "usability", 양파만_모른다)
+    monkeypatch.setattr(qa_graph.qa_reads, "usability", 양파만_모른다)
     _llm(monkeypatch, {"route": "forecast", "item": None, "kind": "AUC",
                        "dates": [BASE + timedelta(days=1)]})
     out = qa_graph.answer(QaRequest(question="경락가 알려줘"))
@@ -1724,10 +1727,10 @@ def _날짜를_적어_둔다(monkeypatch, *, runs=None, reports=None, retrains=N
         seen["retrain"].append(on)
         return list(retrains.get(on) or [])
 
-    monkeypatch.setattr(qa_graph.qa_tools, "batch_run", _batch_run)
-    monkeypatch.setattr(qa_graph.qa_tools, "failed_stages", lambda run_id: [])
-    monkeypatch.setattr(qa_graph.qa_tools, "agent_report", _agent_report)
-    monkeypatch.setattr(qa_graph.qa_tools, "agent_reports", _agent_reports)
+    monkeypatch.setattr(qa_graph.qa_reads, "batch_run", _batch_run)
+    monkeypatch.setattr(qa_graph.qa_reads, "failed_stages", lambda run_id: [])
+    monkeypatch.setattr(qa_graph.qa_reads, "agent_report", _agent_report)
+    monkeypatch.setattr(qa_graph.qa_reads, "agent_reports", _agent_reports)
     return seen
 
 
@@ -1756,7 +1759,7 @@ def test_재학습_기록이_없는_날도_같은_꼴로_적는다(
     _routes(monkeypatch, ["perf"])
     out = qa_graph.answer(QaRequest(question="모델 성능 어때?", as_of=AS_OF))
     assert "기준일(2026-09-16)에 대한 재학습 판정 기록이 없습니다" in out.markdown
-    assert qa_tools.SEALED_SOURCE in out.markdown
+    assert config.SEALED_SOURCE in out.markdown
     assert "19.7" in out.markdown
 
 
@@ -1797,7 +1800,7 @@ def test_가격_날짜만_있는_배치는_오늘을_본다(도구를_갈아_끼
         QaRequest(question="5일 뒤 배추 경락가랑 배치 상태", as_of=AS_OF)
     )
     assert seen["batch"] == [AS_OF]
-    assert qa_graph.AHEAD_BATCH not in out.markdown
+    assert qa_answer.AHEAD_BATCH not in out.markdown
 
 
 # ── 앞날을 콕 집어 물으면 기준일 뒤는 안 보여준다 (2026-09-16) ────────────────
@@ -1819,7 +1822,7 @@ def test_앞날_배치는_기준일_뒤는_못_본다고_한_줄로_말한다(�
     _routes(monkeypatch, ["batch"], dates=[내일])
     out = qa_graph.answer(QaRequest(question="내일 배치 알려줘", as_of=AS_OF))
 
-    assert out.markdown.strip() == qa_graph.AHEAD_BATCH
+    assert out.markdown.strip() == qa_answer.AHEAD_BATCH
     assert seen["batch"] == [] and seen["report"] == []       # 읽으러 가지도 않는다
     assert "배치 — " not in out.markdown                      # 오늘 표가 없다
     assert "점검 보고서" not in out.markdown
@@ -1830,7 +1833,7 @@ def test_앞날_배치는_기준일_뒤는_못_본다고_한_줄로_말한다(�
 
 def test_앞날_배치도_어댑터는_고장이_아니라고_낸다(도구를_갈아_끼운다, monkeypatch):
     """🔴 `RUNTIME_NOT_READY` 로 올리면 마스터가 이 한 줄을 **버린다.**"""
-    from app.master import envelope as E
+    from app.contracts import envelope as E
     from app.ml import adapter
 
     도구를_갈아_끼운다(rows=[])
@@ -1870,8 +1873,8 @@ def test_어제랑_내일을_같이_물으면_어제는_답하고_앞날은_한_
     assert seen["batch"] == [어제]
     assert "배치 — 2026-09-15" in out.markdown
     assert "배치 — 2026-09-17" not in out.markdown
-    assert out.markdown.count(qa_graph.AHEAD_BATCH) == 1
-    assert out.markdown.rstrip().endswith(qa_graph.AHEAD_BATCH)
+    assert out.markdown.count(qa_answer.AHEAD_BATCH) == 1
+    assert out.markdown.rstrip().endswith(qa_answer.AHEAD_BATCH)
 
 
 def test_앞날_재학습도_같은_규칙이고_봉인_성능표는_그대로다(
@@ -1885,9 +1888,9 @@ def test_앞날_재학습도_같은_규칙이고_봉인_성능표는_그대로�
     out = qa_graph.answer(QaRequest(question="내일 재학습 어때?", as_of=AS_OF))
 
     assert seen["retrain"] == []
-    assert qa_graph.AHEAD_PERF in out.markdown
+    assert qa_answer.AHEAD_PERF in out.markdown
     assert "재학습 판정 기록이 없습니다" not in out.markdown
-    assert qa_tools.SEALED_SOURCE in out.markdown            # 봉인 성능표는 그대로
+    assert config.SEALED_SOURCE in out.markdown            # 봉인 성능표는 그대로
     assert "19.7" in out.markdown
 
 
@@ -1953,3 +1956,17 @@ def test_지시문이_지난_날을_어떻게_고를지_말해_준다():
     prompt = qa_llm._prompt(BASE)
     for 낱말 in ("어제", "그저께", "지난 날"):
         assert 낱말 in prompt, 낱말
+
+
+def test_interpreter_reads_the_backend_env_then_the_repo_root_env():
+    """★ 해석기 파일이 `app/ml/llm/qa.py` 로 한 단 깊어졌다 (2026-09-29 재구성 BL-017).
+
+    `.env` 두 자리가 옮기기 전과 같은 파일(`backend/.env` → 저장소 루트 `.env`)인지 잰다 —
+    어긋나면 키를 못 찾고 조용히 «해석 못 함» 이 된다. 2026-09-30 BL-020 부터 두 자리는
+    `app.core.llm.runtime.ENV_FILES` 이고, 해석기는 그중 **있는 파일만** 읽는다.
+    """
+    from app.core.llm import runtime as llm_runtime
+    from app.core.settings import ENV_FILE
+
+    assert llm_runtime.ENV_FILES == (ENV_FILE, ENV_FILE.parent.parent / ".env")
+    assert qa_llm.ENV_FILES is llm_runtime.ENV_FILES

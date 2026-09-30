@@ -34,7 +34,7 @@ from app.contracts.core import (
     RuntimeStatus,
     Verdict,
 )
-from app.master.envelope import (
+from app.contracts.envelope import (
     LLM_STATUSES,
     PASSING_VERDICTS,
     RUNTIME_STATUSES,
@@ -153,7 +153,7 @@ def test_어휘_밖의_값은_이제_통과로_읽히지_않는다():
       다른 일**이고 둘 다 필요하다 — 지적은 실행 계획으로 가고 통과 판정은
       `_acceptable` 이 정한다. 전에는 앞의 것만 있었다.
     """
-    from app.master.flow import ProcurementFlow
+    from app.master.service.flow import ProcurementFlow
 
     acceptable = ProcurementFlow._acceptable
     verdicts = {"inventory": {"business_status": "FAIL"}}

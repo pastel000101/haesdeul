@@ -13,10 +13,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from app.contracts.envelope import LLMStatus
 from app.purchase_agent.llm.runtime import MixSelectionService, get_mix_selection_service
 from app.purchase_agent.llm.schemas import (
     InterpretationResult,
-    LLMStatus,
     MixCandidate,
     SanitizedLLMContext,
 )

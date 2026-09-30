@@ -23,12 +23,15 @@ from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
+import psycopg
 import pytest
 
-from app.api.logistics import query as logistics_query
+from app.api.logistics import presenter as logistics_presenter
 from app.api.logistics import routes as logistics_routes
-from app.api.shown_run import SHOWN_SIM_RUN_ID
-from app.logistics.monitoring.schemas import ExceptionEvidence, ExceptionRow
+from app.core.settings import SHOWN_SIM_RUN_ID
+from app.logistics.readmodel import console as console_readmodel
+from app.logistics.schemas.historical import RuntimeSnapshotCoverage
+from app.logistics.schemas.monitoring import ExceptionEvidence, ExceptionRow
 
 AS_OF = date(2026, 3, 10)
 ITEM_ON_SCREEN = "배추"
@@ -160,19 +163,19 @@ def 화면(monkeypatch):
         lots: list[Any] | None = None,
     ) -> Any:
         inv = 재고(items if items is not None else [품목(ITEM_ON_SCREEN)], capacity, lots)
-        monkeypatch.setattr(logistics_query, "get_connection", lambda: _커넥션())
+        monkeypatch.setattr(console_readmodel.core_db, "connection", lambda: _커넥션())
         monkeypatch.setattr(
-            logistics_query,
+            console_readmodel,
             "runtime_coverage_at",
             lambda *a, **k: SimpleNamespace(has_snapshot=True, first_as_of=AS_OF, last_as_of=AS_OF),
         )
         #  ★ Runtime 읽기는 한 판에 한 번 — 대역은 «그날 스냅샷 없음» 으로 둔다.
-        monkeypatch.setattr(logistics_query, "load_console_runtime", lambda **k: None)
+        monkeypatch.setattr(console_readmodel, "load_console_runtime", lambda **k: None)
         #  그날 예약을 한 판에 한 번 읽는다 (#760) — 콘솔 대역이 값을 무시하므로 빈 축.
-        monkeypatch.setattr(logistics_query, "reservation_state_at", lambda *a, **k: ())
-        monkeypatch.setattr(logistics_query, "get_inventory_console", lambda **k: inv)
+        monkeypatch.setattr(console_readmodel, "reservation_state_at", lambda *a, **k: ())
+        monkeypatch.setattr(console_readmodel, "get_inventory_console", lambda **k: inv)
         monkeypatch.setattr(
-            logistics_query,
+            console_readmodel,
             "get_inbound_console",
             lambda **k: SimpleNamespace(
                 in_transit=[],
@@ -182,7 +185,7 @@ def 화면(monkeypatch):
             ),
         )
         monkeypatch.setattr(
-            logistics_query, "get_outbound_console", lambda **k: SimpleNamespace(reservations=[])
+            console_readmodel, "get_outbound_console", lambda **k: SimpleNamespace(reservations=[])
         )
 
         def 살아있는(conn: Any, *, sim_run_id: str, as_of: date) -> Any:
@@ -193,20 +196,29 @@ def 화면(monkeypatch):
             잡은["resolved"] = (sim_run_id, as_of)
             return resolved
 
-        monkeypatch.setattr(logistics_query, "live_exceptions_at", 살아있는)
-        monkeypatch.setattr(logistics_query, "resolved_exceptions_on", 닫힌)
-        return logistics_query.build_result(AS_OF, "summary")
+        monkeypatch.setattr(console_readmodel, "live_exceptions_at", 살아있는)
+        monkeypatch.setattr(console_readmodel, "resolved_exceptions_on", 닫힌)
+        return logistics_presenter.build_result(AS_OF, "summary")
 
     세우기.잡은 = 잡은  # type: ignore[attr-defined]
     return 세우기
 
 
 class _커넥션:
+    """공통 풀에서 빌린 연결의 대역 — `read_console_page` 가 한 판을 한 트랜잭션으로 읽는다
+    (종전 `build_result` 의 경계 그대로 · 2026-09-30 재구성 BL-015)."""
+
     def __enter__(self) -> Any:
         return self
 
     def __exit__(self, *_: object) -> bool:
         return False
+
+    def commit(self) -> None:
+        return None
+
+    def rollback(self) -> None:
+        return None
 
 
 def _도착요약() -> Any:
@@ -223,8 +235,8 @@ def _도착요약() -> Any:
 
 
 def test_화면_탭은_넷이고_창고_배치는_없다():
-    assert logistics_query.PANES == ("summary", "stock", "inbound", "outbound")
-    assert "warehouse" not in logistics_query.PANES
+    assert logistics_presenter.PANES == ("summary", "stock", "inbound", "outbound")
+    assert "warehouse" not in logistics_presenter.PANES
 
 
 def test_기본_탭은_한눈에_보기다():
@@ -233,15 +245,22 @@ def test_기본_탭은_한눈에_보기다():
 
 
 def test_그날이_없는_날도_한눈에_보기로_연다(monkeypatch):
-    monkeypatch.setattr(logistics_query, "get_connection", lambda: _커넥션())
+    #  ★ 2026-09-30 재구성 BL-015: 화면이 readmodel 결과를 타입(`RuntimeSnapshotCoverage`)으로
+    #    가르게 되어 대역도 진짜 타입을 쓴다. 이름만 같은 대역은 «그날 없음» 이 아니라 읽기
+    #    실패(500) 경로로 빠지는데도 아래 두 줄은 통과했다 — 그래서 경로를 함께 잰다.
+    monkeypatch.setattr(console_readmodel.core_db, "connection", lambda: _커넥션())
     monkeypatch.setattr(
-        logistics_query,
+        console_readmodel,
         "runtime_coverage_at",
-        lambda *a, **k: SimpleNamespace(has_snapshot=False, first_as_of=AS_OF, last_as_of=AS_OF),
+        lambda *a, **k: RuntimeSnapshotCoverage(
+            as_of=AS_OF, has_snapshot=False, first_as_of=AS_OF, last_as_of=AS_OF
+        ),
     )
-    tab = logistics_query.build_result(AS_OF, "summary").tab
+    result = logistics_presenter.build_result(AS_OF, "summary")
+    tab = result.tab
     assert tab.selected == "summary"
     assert [p.key for p in tab.panes] == ["summary", "stock", "inbound", "outbound"]
+    assert (result.http_status, tab.source.status) == (200, "NO_DATA")
 
 
 #  ── 실행 축 ──────────────────────────────────────────────────────────────
@@ -492,7 +511,7 @@ def _가짜_후보(물은것: list[tuple[str, ...]]):
 
 def test_FEFO_는_미할당이_남은_예약에만_그리고_끝난_예약은_표에서_뺀다(monkeypatch):
     물은것: list[tuple[str, ...]] = []
-    monkeypatch.setattr(logistics_query, "get_fefo_candidates_by_item", _가짜_후보(물은것))
+    monkeypatch.setattr(logistics_presenter, "get_fefo_candidates_by_item", _가짜_후보(물은것))
     ob = SimpleNamespace(reservations=[
         #  전량 출고 · Lot 아직 안 고름 · 배정됐지만 미출고 · 놓아줌
         _resv("R-DONE", status="ALLOCATED", allocated="0", unallocated="0", shipped=True),
@@ -500,7 +519,7 @@ def test_FEFO_는_미할당이_남은_예약에만_그리고_끝난_예약은_�
         _resv("R-HOLD", status="ALLOCATED", allocated="100", unallocated="0", shipped=False),
         _resv("R-GONE", status="RELEASED", allocated="0", unallocated="0", shipped=False),
     ])
-    pane = logistics_query._outbound_pane(ob, _INV)
+    pane = logistics_presenter._outbound_pane(ob, _INV)
     #  🔴 품목마다 한 번 묻고(164번 묻던 자리), 표에는 미할당이 남은 예약만 오른다.
     assert 물은것 == [(ITEM_ON_SCREEN,)]
     #  🔴 raw Reservation ID 를 싣지 않는다 — **카드 제목이 품목**이다.
@@ -519,12 +538,12 @@ def test_FEFO_후보는_품목당_한_벌이고_예약마다_복제되지_않는
     따로 있는 값이 아니라 **그 Lot 하나에 남은 몫**이라 그렇게 읽히면 안 된다.
     """
     물은것: list[tuple[str, ...]] = []
-    monkeypatch.setattr(logistics_query, "get_fefo_candidates_by_item", _가짜_후보(물은것))
+    monkeypatch.setattr(logistics_presenter, "get_fefo_candidates_by_item", _가짜_후보(물은것))
     ob = SimpleNamespace(reservations=[
         _resv("R-1", status="RESERVED", allocated="0", unallocated="100", shipped=False),
         _resv("R-2", status="RESERVED", allocated="0", unallocated="50", shipped=False),
     ])
-    pane = logistics_query._outbound_pane(ob, _INV)
+    pane = logistics_presenter._outbound_pane(ob, _INV)
     assert 물은것 == [(ITEM_ON_SCREEN,)]
     #  ★ 카드가 품목마다 하나다 — 한 표에 몰면 품목 칸이 줄마다 되풀이된다.
     카드하나 = 카드(pane, f"fefo-{ITEM_ON_SCREEN}")
@@ -543,11 +562,11 @@ def test_FEFO_후보는_품목당_한_벌이고_예약마다_복제되지_않는
 
 def test_그릴_예약이_없으면_FEFO_를_묻지도_않는다(monkeypatch):
     물은것: list[tuple[str, ...]] = []
-    monkeypatch.setattr(logistics_query, "get_fefo_candidates_by_item", _가짜_후보(물은것))
+    monkeypatch.setattr(logistics_presenter, "get_fefo_candidates_by_item", _가짜_후보(물은것))
     ob = SimpleNamespace(reservations=[
         _resv("R-HOLD", status="ALLOCATED", allocated="100", unallocated="0", shipped=False),
     ])
-    pane = logistics_query._outbound_pane(ob, _INV)
+    pane = logistics_presenter._outbound_pane(ob, _INV)
     assert 물은것 == []
     assert 통계(pane, "출고 후보 Lot").value == "0"
     assert 카드(pane, "fefo").lead is None
@@ -606,7 +625,7 @@ def test_입고는_기준일_하루만_세고_날짜를_적는다(화면):
         in_transit=[], in_transit_status="CONFIRMED_ZERO",
         receipts=[오늘, 어제], arrival_summary=_도착요약(),
     )
-    pane = logistics_query._inbound_pane(inb, AS_OF)  # AS_OF = 2026-03-10
+    pane = logistics_presenter._inbound_pane(inb, AS_OF)  # AS_OF = 2026-03-10
     도착 = 통계(pane, "기준일 도착")
     assert 도착.value == "1"  # 어제 건은 안 센다 — 같은 달이어도
     assert 도착.detail == "03-10 하루"
@@ -625,7 +644,7 @@ def test_안_끝난_입고는_그날_것이_아니어도_표와_처리중에_남
         in_transit=[], in_transit_status="CONFIRMED_ZERO",
         receipts=[막힌것], arrival_summary=_도착요약(),
     )
-    pane = logistics_query._inbound_pane(inb, AS_OF)
+    pane = logistics_presenter._inbound_pane(inb, AS_OF)
     assert 통계(pane, "기준일 도착").value == "0"  # 오늘 도착은 없다
     assert 통계(pane, "처리 중").value == "1"      # 그래도 할 일은 남아 있다
     행 = 카드(pane, "receipt").table.rows
@@ -644,7 +663,7 @@ def test_마지막_입고는_맨_뒤에_서고_당일이면_오늘이라고_적�
         in_transit=[], in_transit_status="CONFIRMED_ZERO",
         receipts=[오늘도착], arrival_summary=_도착요약(),
     )
-    pane = logistics_query._inbound_pane(inb, AS_OF)
+    pane = logistics_presenter._inbound_pane(inb, AS_OF)
     assert [s.label for s in pane.stats][-1] == "마지막 입고"
     assert 통계(pane, "마지막 입고").detail == "오늘"
 
@@ -657,7 +676,7 @@ def test_그날_입고가_없어도_마지막_입고는_말한다(화면):
         in_transit=[], in_transit_status="CONFIRMED_ZERO",
         receipts=[지난달], arrival_summary=_도착요약(),
     )
-    pane = logistics_query._inbound_pane(inb, AS_OF)
+    pane = logistics_presenter._inbound_pane(inb, AS_OF)
     assert 통계(pane, "기준일 도착").value == "0"
     마지막 = 통계(pane, "마지막 입고")
     assert 마지막.value == "02-25" and 마지막.detail == "13일 전"
@@ -694,12 +713,12 @@ def test_FEFO_에는_그날_예약을_전부_넘긴다(monkeypatch):
         받은예약.extend(reservations)
         return {}
 
-    monkeypatch.setattr(logistics_query, "get_fefo_candidates_by_item", 대역)
+    monkeypatch.setattr(logistics_presenter, "get_fefo_candidates_by_item", 대역)
     ob = SimpleNamespace(reservations=[
         _resv("R-WAIT", status="RESERVED", allocated="0", unallocated="100", shipped=False),
         _resv("R-HOLD", status="ALLOCATED", allocated="100", unallocated="0", shipped=False),
     ])
-    logistics_query._outbound_pane(ob, _INV)
+    logistics_presenter._outbound_pane(ob, _INV)
     #  표에 오르는 것은 R-WAIT 하나지만, 넘기는 것은 둘 다여야 한다.
     assert [r.reservation_id for r in 받은예약] == ["R-WAIT", "R-HOLD"]
 
@@ -714,8 +733,8 @@ def test_화면_한_판은_커넥션_하나로_읽는다(화면, monkeypatch):
 
     result = 화면(live=(), resolved=())
     assert result.http_status == 200
-    monkeypatch.setattr(logistics_query, "get_connection", 세는_커넥션)
-    logistics_query.build_result(AS_OF, "summary")
+    monkeypatch.setattr(console_readmodel.core_db, "connection", 세는_커넥션)
+    logistics_presenter.build_result(AS_OF, "summary")
     assert len(열린것) == 1
 
 
@@ -740,8 +759,11 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
     코드가 그것을 부르는 것은 다른 일이고, 이 함수는 뒤엣것만 잡는다.
 
       · `ast.Call`      — `get_connection()` · `x.get_connection()` · `psycopg.connect()`
+                          · 공통 풀 대여 `core_db.connection()` · `core_db.read_connection()`
       · `ast.Import`    — `import psycopg` (다음 줄에서 `psycopg.connect()` 할 수 있다)
       · `ast.ImportFrom`— `from ... import get_connection` · `from psycopg import connect`
+                          · 연결 모듈 `from app.core import db` · `from app.core.db import …`
+                          (2026-09-29 풀 전환 — 연결을 여는 문이 풀로 옮겨 갔다)
 
     독스트링 · 주석 · 문자열 리터럴 안의 낱말은 세지 않는다.
     `from psycopg import sql` 은 SQL 조립이라 걸리지 않는다.
@@ -755,6 +777,10 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
             elif isinstance(부름, ast.Attribute) and (
                 부름.attr == "get_connection"
                 or (부름.attr == "connect" and _뿌리_이름(부름.value) == "psycopg")
+                or (
+                    부름.attr in {"connection", "read_connection"}
+                    and _뿌리_이름(부름.value) == "core_db"
+                )
             ):
                 걸린것.append(f"부름 {ast.unparse(부름)}()")
         elif isinstance(노드, ast.Import):
@@ -765,8 +791,11 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
         elif isinstance(노드, ast.ImportFrom):
             뿌리 = (노드.module or "").split(".")[0]
             for 이름 in 노드.names:
-                if 이름.name == "get_connection" or (
-                    뿌리 == "psycopg" and 이름.name == "connect"
+                if (
+                    이름.name == "get_connection"
+                    or (뿌리 == "psycopg" and 이름.name == "connect")
+                    or (노드.module == "app.core" and 이름.name == "db")
+                    or 노드.module == "app.core.db"
                 ):
                     걸린것.append(f"들임 from {노드.module} import {이름.name}")
     return 걸린것
@@ -784,6 +813,10 @@ def _커넥션을_여는_자리(소스: str) -> list[str]:
         ("빌려서_부른다", "conn = db.get_connection()\n", True),
         ("들이기만_한다", "from app.logistics.db import get_connection\n", True),
         ("모듈을_들인다", "import psycopg\n", True),
+        ("풀에서_빌린다", "with core_db.connection() as conn:\n    pass\n", True),
+        ("조회를_빌린다", "with core_db.read_connection() as conn:\n    pass\n", True),
+        ("연결_모듈을_들인다", "from app.core import db as core_db\n", True),
+        ("대여_함수를_들인다", "from app.core.db import connection\n", True),
     ],
 )
 def test_커넥션_검사는_낱말이_아니라_부름을_본다(
@@ -794,13 +827,224 @@ def test_커넥션_검사는_낱말이_아니라_부름을_본다(
     assert bool(걸린것) is 잡아야_하나, f"{이름}: {걸린것}"
 
 
-def test_console_service_는_커넥션을_열지_않는다() -> None:
-    """★ 커넥션의 주인은 `build_result` 다 — 조회 계층이 자기 것을 열면 다시 늘어난다."""
+def test_조회_입구_둘만_커넥션을_빌린다() -> None:
+    """★ 한 판 = 커넥션 하나 — 조회 함수마다 자기 것을 열면 다시 늘어난다.
+
+    ★ 2026-09-30 재구성 BL-015: 종전에는 커넥션의 주인이 화면 `build_result` ·
+      `dashboard_stock` 였고 `console_service` 는 하나도 열지 않았다. 이제 화면은 물류 DB 를
+      직접 다루지 않고 `readmodel/console` 의 입구 둘이 종전 화면과 같은 방식으로 빌린다 —
+      한 판(`read_console_page`)은 `connection()` 하나, 재고 그래프(`read_stock_chart`)는
+      판정 · 누계 · 도착 표시 블록마다 하나씩 셋. 나머지 조회 함수는 받은 연결로만 읽는다.
+    """
     import inspect
 
-    from app.logistics import console_service
+    소스 = inspect.getsource(console_readmodel)
+    걸린곳: dict[str, list[str]] = {}
+    for 노드 in ast.parse(소스).body:
+        if isinstance(노드, ast.FunctionDef):
+            걸린것 = _커넥션을_여는_자리(ast.get_source_segment(소스, 노드) or "")
+            if 걸린것:
+                걸린곳[노드.name] = 걸린것
+    assert 걸린곳 == {
+        "read_console_page": ["부름 core_db.connection()"],
+        "read_stock_chart": ["부름 core_db.connection()"] * 3,
+    }
 
-    assert _커넥션을_여는_자리(inspect.getsource(console_service)) == []
+
+def test_화면은_커넥션을_열지_않는다() -> None:
+    """★ 2026-09-30 재구성 BL-015: 화면(`api/logistics/presenter.py`)은 연결을 빌리지도 들이지도
+    않는다 — 한 판의 연결은 `readmodel/console` 입구가 빌린다."""
+    import inspect
+
+    #  ⚠️ 들임 하나는 남는다 — 읽기 실패를 503/500 으로 가르는 예외 분류 **이름 하나**
+    #     (`app.core.db.is_unavailable`)만 들인다. 연결을 빌리는 함수는 들이지 않고, 부름은
+    #     하나도 없어야 한다. (2026-09-30 재구성 BL-019 전에는 이 자리가 `import psycopg` 였다 —
+    #     `_DB_UNAVAILABLE = (psycopg.OperationalError,)` 를 화면이 직접 들고 있었다.)
+    걸린것 = _커넥션을_여는_자리(inspect.getsource(logistics_presenter))
+    assert 걸린것 == ["들임 from app.core.db import is_unavailable"]
+    assert "psycopg.connect(" not in inspect.getsource(logistics_presenter)
+    assert "psycopg" not in {
+        name.split(".")[0]
+        for node in ast.walk(ast.parse(inspect.getsource(logistics_presenter)))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+        )
+    }
+
+
+#  ── 연결 · 트랜잭션 경계 — 종전 화면 그대로 (2026-09-30 재구성 BL-015) ─────────────
+#
+#  한 판은 `connection()` 하나 · `transaction` 블록 하나, 재고 그래프는 판정 · 누계 · 도착
+#  표시마다 블록 하나씩. BL-015 에서 한때 조회 연결(autocommit)로 바꿨다가 같은 날 되돌렸다.
+#  `core_db.transaction` 은 진짜를 쓰고 연결만 대역이다 — commit · rollback 을 누가 부르는지는
+#  진짜 경계 함수가 정한다.
+
+
+class _기록하는_커넥션:
+    """빌림 · commit · rollback · 돌려줌을 조회 이름과 한 줄에 적는 연결 대역."""
+
+    def __init__(self, 기록: list[str]) -> None:
+        self._기록 = 기록
+
+    def __enter__(self) -> Any:
+        self._기록.append("빌림")
+        return self
+
+    def __exit__(self, *_: object) -> bool:
+        self._기록.append("돌려줌")
+        return False
+
+    def commit(self) -> None:
+        self._기록.append("commit")
+
+    def rollback(self) -> None:
+        self._기록.append("rollback")
+
+
+def _조회_대역(기록: list[str], 이름: str, 결과: Any, 실패: str | None) -> Any:
+    def 대역(*args: Any, **kwargs: Any) -> Any:
+        기록.append(이름)
+        if 이름 == 실패:
+            raise psycopg.OperationalError("대역: DB 끊김")
+        return 결과
+
+    return 대역
+
+
+_한판_조회 = ["판정", "runtime", "예약", "재고", "입고", "출고", "살아있는 문제", "닫힌 문제"]
+
+
+@pytest.mark.parametrize(
+    ("열림", "실패", "기대_기록", "기대_코드"),
+    [
+        (True, None, ["빌림", *_한판_조회, "commit", "돌려줌"], 200),
+        (False, None, ["빌림", "판정", "commit", "돌려줌"], 200),
+        (True, "판정", ["빌림", "판정", "rollback", "돌려줌"], 503),
+        (True, "살아있는 문제", ["빌림", *_한판_조회[:7], "rollback", "돌려줌"], 503),
+    ],
+    ids=["열린_날", "안_연_날", "첫_조회에서_끊김", "문제_장부에서_끊김"],
+)
+def test_화면_한_판은_연결_하나_트랜잭션_하나로_읽는다(
+    monkeypatch, 열림: bool, 실패: str | None, 기대_기록: list[str], 기대_코드: int
+) -> None:
+    """🔴 정상 · 안 연 날은 블록 끝 commit 한 번, 조회 중 실패는 rollback 한 번 뒤 503."""
+    기록: list[str] = []
+    열린것 = RuntimeSnapshotCoverage(
+        as_of=AS_OF, has_snapshot=열림, first_as_of=AS_OF, last_as_of=AS_OF
+    )
+    도착 = SimpleNamespace(
+        in_transit=[], in_transit_status="OK", receipts=[], arrival_summary=_도착요약()
+    )
+    문제 = SimpleNamespace(rows=(), membership_dates=(), uncertainties=())
+    대역들 = {
+        "runtime_coverage_at": ("판정", 열린것),
+        "load_console_runtime": ("runtime", None),
+        "reservation_state_at": ("예약", ()),
+        "get_inventory_console": ("재고", 재고([품목(ITEM_ON_SCREEN)], None, None)),
+        "get_inbound_console": ("입고", 도착),
+        "get_outbound_console": ("출고", SimpleNamespace(reservations=[])),
+        "live_exceptions_at": ("살아있는 문제", 문제),
+        "resolved_exceptions_on": ("닫힌 문제", ()),
+    }
+    monkeypatch.setattr(console_readmodel.core_db, "connection", lambda: _기록하는_커넥션(기록))
+    for 함수, (이름, 결과) in 대역들.items():
+        monkeypatch.setattr(console_readmodel, 함수, _조회_대역(기록, 이름, 결과, 실패))
+
+    result = logistics_presenter.build_result(AS_OF, "summary")
+
+    assert 기록 == 기대_기록
+    assert result.http_status == 기대_코드
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "retry_hint"),
+    [
+        (psycopg.OperationalError("대역: DB 끊김"), 503, True),
+        (ValueError("대역: 계보 무결성"), 500, False),
+        (psycopg.ProgrammingError("대역: SQL 잘못"), 500, False),
+    ],
+    ids=["db-unreachable", "code-broken", "sql-broken"],
+)
+def test_read_failure_status_separates_unreachable_db_from_broken_code(
+    monkeypatch, error: BaseException, status: int, retry_hint: bool
+) -> None:
+    """🔴 DB 에 닿지 못한 실패만 503(«잠시 뒤 다시») 이고, 우리 코드가 깨진 실패는 500 이다.
+
+    ★ 2026-09-30 재구성 BL-019: 그 분류가 `app/core/db.py::is_unavailable` 로 옮겨 갔다 — 두 갈래를
+      함께 잰다(전에는 503 갈래만 붙잡혀 있었다).
+    """
+
+    def fail(**_: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(console_readmodel.core_db, "connection", lambda: _기록하는_커넥션([]))
+    monkeypatch.setattr(
+        console_readmodel,
+        "runtime_coverage_at",
+        lambda *a, **k: RuntimeSnapshotCoverage(
+            as_of=AS_OF, has_snapshot=True, first_as_of=AS_OF, last_as_of=AS_OF
+        ),
+    )
+    monkeypatch.setattr(console_readmodel, "load_console_runtime", lambda **k: None)
+    monkeypatch.setattr(console_readmodel, "reservation_state_at", lambda *a, **k: ())
+    monkeypatch.setattr(console_readmodel, "get_inventory_console", fail)
+
+    result = logistics_presenter.build_result(AS_OF, "summary")
+    lead = 카드(한눈에(result.tab.panes), "state").lead
+
+    assert result.http_status == status
+    assert result.tab.source.status == "ERROR"
+    assert type(error).__name__ in (result.tab.source.note or "")
+    assert lead is not None
+    assert ("잠시 뒤 다시 열어 보세요." in lead.text) is retry_hint
+
+@pytest.mark.parametrize(
+    ("열림", "실패", "기대_기록", "오류"),
+    [
+        (
+            True,
+            None,
+            ["빌림", "판정", "commit", "돌려줌", "빌림", "누계", "열린 날", "commit", "돌려줌",
+             "빌림", "runtime", "입고", "commit", "돌려줌"],
+            False,
+        ),
+        (False, None, ["빌림", "판정", "commit", "돌려줌"], False),
+        (
+            True,
+            "누계",
+            ["빌림", "판정", "commit", "돌려줌", "빌림", "누계", "rollback", "돌려줌"],
+            True,
+        ),
+    ],
+    ids=["열린_날", "안_연_날", "누계에서_끊김"],
+)
+def test_재고_그래프는_판정_누계_도착표시를_블록_셋으로_읽는다(
+    monkeypatch, 열림: bool, 실패: str | None, 기대_기록: list[str], 오류: bool
+) -> None:
+    """🔴 블록마다 끝에서 commit, 실패한 블록만 rollback 하고 뒤 블록은 빌리지 않는다."""
+    기록: list[str] = []
+    열린것 = RuntimeSnapshotCoverage(
+        as_of=AS_OF, has_snapshot=열림, first_as_of=AS_OF, last_as_of=AS_OF
+    )
+    대역들 = {
+        "runtime_coverage_at": ("판정", 열린것),
+        "onhand_total_by_day": ("누계", {}),
+        "snapshot_days_between": ("열린 날", set()),
+        "load_console_runtime": ("runtime", None),
+        "get_inbound_console": ("입고", SimpleNamespace(in_transit=[])),
+    }
+    monkeypatch.setattr(console_readmodel.core_db, "connection", lambda: _기록하는_커넥션(기록))
+    for 함수, (이름, 결과) in 대역들.items():
+        monkeypatch.setattr(console_readmodel, 함수, _조회_대역(기록, 이름, 결과, 실패))
+
+    chart = logistics_presenter.dashboard_stock(10, 5, AS_OF)
+
+    assert 기록 == 기대_기록
+    assert chart.note is not None
+    assert ("못 읽었습니다" in chart.note.text) is 오류
 
 
 #  ── #805 입고 처리 완료 != 재고 반영 완료 ────────────────────────────────
@@ -832,7 +1076,7 @@ def _입고_카드(rows: list[Any]) -> Any:
         in_transit=[], in_transit_status="CONFIRMED_ZERO",
         receipts=rows, arrival_summary=_도착요약(),
     )
-    return 카드(logistics_query._inbound_pane(inb, AS_OF), "receipt").table
+    return 카드(logistics_presenter._inbound_pane(inb, AS_OF), "receipt").table
 
 
 #  ── #812: 전 줄이 같은 값인 칸은 세우지 않는다 ───────────────────────────
@@ -868,7 +1112,7 @@ def test_품목별_입고는_수용량을_더한다():
     양파 = _입고행(state="PUTAWAY_DONE", stock_applied=True, settled=None)
     양파.item_name = "양파"
     양파.accepted_qty_kg = Decimal(30)
-    rows = logistics_query._receipt_by_item([배추, 양파, 배추])
+    rows = logistics_presenter._receipt_by_item([배추, 양파, 배추])
     #  많이 들어온 품목이 위에 온다.
     assert [r["item"] for r in rows] == [ITEM_ON_SCREEN, "양파"]
     assert [r["count"] for r in rows] == [2, 1]
@@ -880,7 +1124,7 @@ def test_품목별_입고는_못_읽은_건이_섞이면_합계를_안_낸다():
     아는것 = _입고행(state="PUTAWAY_DONE", stock_applied=True, settled=None)
     모름 = _입고행(state="PUTAWAY_DONE", stock_applied=True, settled=None)
     모름.accepted_qty_kg = None
-    rows = logistics_query._receipt_by_item([아는것, 모름])
+    rows = logistics_presenter._receipt_by_item([아는것, 모름])
     assert rows[0]["acc"] is None
 
 

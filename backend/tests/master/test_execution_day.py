@@ -41,8 +41,8 @@ from typing import Any
 
 import pytest
 
-from app.master import execution_day
-from app.master.execution_day import is_execution_day, next_execution_day
+from app.master.domain import execution_day as domain_execution_day
+from app.master.domain.execution_day import is_execution_day, next_execution_day
 
 # 2026-09-07(월) ~ 2026-09-13(일). 한 주를 통째로 돈다.
 _MONDAY = date(2026, 9, 7)
@@ -132,14 +132,14 @@ def test_자기_자신은_세지_않는다():
 def test_원문에_경과일수를_세는_코드가_없다():
     """🔴 **같은 사실의 주인이 둘이 되면 안 된다.**
 
-    경과일수는 `app/master/verifier.py` 의 `_day_gap` 이 소유한다 (calendar day,
+    경과일수는 `app/master/domain/verifier.py` 의 `_day_gap` 이 소유한다 (calendar day,
     영업일 보정 없음). 여기서 날짜 차를 세기 시작하면 언젠가 둘이 갈리고, 갈린 날
     아무도 어느 쪽이 맞는지 말해 주지 않는다.
 
     ★ **주석·docstring 은 세지 않는다.** 문서로 `_day_gap` 을 가리키는 것은
       권장이지 위반이 아니다 — `ast` 로 실행되는 코드만 본다.
     """
-    tree = ast.parse(inspect.getsource(execution_day))
+    tree = ast.parse(inspect.getsource(domain_execution_day))
 
     subtractions = [
         node
@@ -160,7 +160,7 @@ def test_원문에_경과일수를_세는_코드가_없다():
 
 def test_경과일수의_주인을_문서가_가리킨다():
     """★ 주인이 어디인지 **읽는 사람에게** 적혀 있어야 한다."""
-    doc = execution_day.__doc__ or ""
+    doc = domain_execution_day.__doc__ or ""
 
     assert "verifier.py" in doc and "_day_gap" in doc, (
         "경과일수의 주인을 안 가리킨다 — 다음 사람이 여기서 세기 시작한다"
@@ -173,7 +173,7 @@ def test_경과일수의_주인을_문서가_가리킨다():
 
 
 def _port(payload: dict[str, Any] | None = None):
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 
     def port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
         run_id = f"{request.agent.upper()}-{request.call_seq}"
@@ -196,8 +196,8 @@ def _port(payload: dict[str, Any] | None = None):
 
 def _wire_all() -> list[str]:
     """세 부서를 다 등록하고, **불린 부서 이름**을 모으는 목록을 돌려준다."""
-    from app.master import wiring
-    from app.master.envelope import AgentRequest
+    from app.contracts.envelope import AgentRequest
+    from app.master.registry import wiring as registry_wiring
 
     called: list[str] = []
 
@@ -207,15 +207,15 @@ def _wire_all() -> list[str]:
             return _port({"scenarios": [{"scenario_id": "SCN-1"}]})(request)
         return _port()(request)
 
-    wiring.reset()
-    wiring.register("finance", watching)
-    wiring.register("inventory", watching)
-    wiring.register("purchase", watching)
+    registry_wiring.reset()
+    registry_wiring.register("finance", watching)
+    registry_wiring.register("inventory", watching)
+    registry_wiring.register("purchase", watching)
     return called
 
 
 def _loaded_inputs():
-    from app.master.inputs import MasterInputs, SourcedInput
+    from app.master.schemas.inputs import MasterInputs, SourcedInput
 
     return MasterInputs(
         forecast=SourcedInput("forecast", {"horizon_days": 18}, "MEASURED", "뷰", ""),
@@ -233,13 +233,15 @@ def 적재를_지켜본다(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, A
         return "RUN-FAKE-1"
 
     monkeypatch.setattr("app.master.service.persistence.record", record)
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: _loaded_inputs())
+    monkeypatch.setattr(
+        "app.master.service.procurement.collect_inputs", lambda *a, **k: _loaded_inputs()
+    )
     return recorded
 
 
 def _run(as_of: date, request_id: str):
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     return run_procurement(
         ProcurementRunRequest(
@@ -307,10 +309,10 @@ def test_주말_가드가_어댑터_검사보다_먼저다(적재를_지켜본�
     *"어댑터 미등록"* 이 된다. 그러면 어댑터를 다 붙인 뒤에야 *"주말이었다"* 를
     알게 된다 — 안 도는 진짜 이유가 한 겹 뒤에 숨는다.
     """
-    from app.master import wiring
+    from app.master.registry import wiring as registry_wiring
 
-    wiring.reset()  # 아무도 등록하지 않는다 — `wiring.missing()` 이 셋을 다 낸다
-    assert wiring.missing(), "이 검사가 의미 있으려면 어댑터가 미등록이어야 한다"
+    registry_wiring.reset()  # 아무도 등록하지 않는다 — `wiring.missing()` 이 셋을 다 낸다
+    assert registry_wiring.missing(), "이 검사가 의미 있으려면 어댑터가 미등록이어야 한다"
 
     response = _run(_SATURDAY, "REQ-WEEKEND-6")
 

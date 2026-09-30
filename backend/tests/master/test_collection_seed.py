@@ -42,15 +42,14 @@ from typing import Any, Self
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady, FinanceRuntimeAxis
-from app.master import day_open
-from app.master.collection_seed import (
-    CollectionSeedOutcome,
-    CollectionSeedResult,
-    seed_collection_events,
-    seed_day,
-)
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import FinanceRuntimeAxis
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import day_open as registry_day_open
+from app.master.repository.collection_seed import seed_collection_events
+from app.master.schemas.collection_seed import CollectionSeedOutcome, CollectionSeedResult
+from app.master.service import day_open as service_day_open
+from app.master.service.collection_seed import seed_day
 
 AS_OF = date(2026, 1, 10)
 """토요일이다. **입금은 토요일에도 찍힌다** — 수금은 달력일이다."""
@@ -120,7 +119,7 @@ class _가짜DB:
     쓰기_예외: Exception | None = None
     committed: int = 0
     rolled_back: int = 0
-    closed: int = 0
+    returned: int = 0
     문장들: list[str] = field(default_factory=list)
 
     def cursor(self) -> _가짜커서:
@@ -132,8 +131,12 @@ class _가짜DB:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 class _가짜커서:
@@ -313,7 +316,7 @@ def test_PARTIAL_은_잔여만_들어온다() -> None:
     🔴 **delta 를 여기서 계산하지 않는다.** 재무 `build_collection_transition` 이
       한다 — 여기서는 그 계산이 잔여를 내는지만 확인한다.
     """
-    from app.finance.collection import build_collection_transition
+    from app.finance.domain.collections import build_collection_transition
 
     db = _가짜DB(receivables=[일부])
     _만든다(db)
@@ -569,7 +572,7 @@ def test_financing_mode_를_재무_축에서_받는다() -> None:
     결과 = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=lambda: db,
+        borrow=lambda: db,
         read_axis=_축(financing_mode=남의_모드),
     )
 
@@ -591,7 +594,7 @@ def test_축의_실행이_다르면_막는다() -> None:
     결과 = seed_day(
         AS_OF,
         sim_run_id=BURN_IN_SIM_RUN_ID,
-        connect=lambda: db,
+        borrow=lambda: db,
         read_axis=_축(sim_run_id=남의_실행),
     )
 
@@ -630,7 +633,7 @@ def test_쓰기가_실패하면_UNREADABLE_이다() -> None:
     db = _가짜DB(receivables=[열림], 쓰기_예외=RuntimeError("relation does not exist"))
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축()
     )
 
     assert 결과.status == "UNREADABLE", f"실패가 {결과.status} 로 접혔다"
@@ -645,7 +648,7 @@ def test_낼_것이_없으면_NOTHING_DUE_다() -> None:
     db = _가짜DB(receivables=[완료])
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축()
     )
 
     assert 결과 == CollectionSeedOutcome(status="NOTHING_DUE", created=0, skipped=0)
@@ -659,7 +662,7 @@ def test_커넥션을_못_열어도_UNREADABLE_이다() -> None:
         raise FinanceDataNotReady("connection refused")
 
     결과 = seed_day(
-        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=못_연다, read_axis=_축()
+        AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=못_연다, read_axis=_축()
     )
 
     assert 결과.status == "UNREADABLE"
@@ -669,10 +672,10 @@ def test_커넥션을_못_열어도_UNREADABLE_이다() -> None:
 def test_성공하면_커밋하고_닫는다() -> None:
     db = _가짜DB(receivables=[열림])
 
-    seed_day(AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, connect=lambda: db, read_axis=_축())
+    seed_day(AS_OF, sim_run_id=BURN_IN_SIM_RUN_ID, borrow=lambda: db, read_axis=_축())
 
     assert db.committed == 1
-    assert db.closed == 1
+    assert db.returned == 1
 
 
 # ---------------------------------------------------------------------------
@@ -705,7 +708,10 @@ class _개장커넥션:
     def rollback(self) -> None:
         return None
 
-    def close(self) -> None:
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
         return None
 
 
@@ -718,20 +724,20 @@ def 등록소를_비운다() -> None:
 
     ★ 개장 정본 적재는 `tests/master/conftest.py` 가 이미 막는다.
     """
-    day_open.reset()
+    registry_day_open.reset()
 
 
 def test_개장이_성공하면_사건을_만든다(등록소를_비운다: None) -> None:
     """🔴 **조건 `⑥` — 개장 시 대상 채권을 확인해 없는 건만 생성한다.**"""
-    day_open.register_day_opening("finance", _열려있다())
+    registry_day_open.register_day_opening("finance", _열려있다())
     불린것: list[tuple[date, str]] = []
 
     def 대역(as_of: date, *, sim_run_id: str, **_: Any) -> CollectionSeedOutcome:
         불린것.append((as_of, sim_run_id))
         return CollectionSeedOutcome(status="SEEDED", created=3, skipped=1)
 
-    out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
+    out = service_day_open.open_day(
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "ALREADY_OPENED"
@@ -746,13 +752,13 @@ def test_사건_생성이_터져도_하루는_열린다(등록소를_비운다: 
 
     ⚠️ 다만 *"못 했다"* 가 응답에 실려야 한다 — `0 건` 으로 접히면 실패다.
     """
-    day_open.register_day_opening("finance", _열려있다())
+    registry_day_open.register_day_opening("finance", _열려있다())
 
     def 터진다(as_of: date, **_: Any) -> CollectionSeedOutcome:
         raise RuntimeError("수금 사건 표가 없다")
 
-    out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=터진다, sim_run_id=BURN_IN_SIM_RUN_ID
+    out = service_day_open.open_day(
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=터진다, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "ALREADY_OPENED", f"사건 생성이 하루를 막았다: {out.status}"
@@ -773,15 +779,15 @@ def test_하루가_안_열리면_시도하지_않는다(등록소를_비운다: 
       다시 흘러들면 209일을 걷고 나서 *"시드 안 된 날"* 을 셀 때 개장 안 한 날과 축이
       깨진 날이 같이 잡힌다.
     """
-    day_open.register_day_opening("finance", _못연다())
+    registry_day_open.register_day_opening("finance", _못연다())
     불렸나: list[Any] = []
 
     def 대역(as_of: date, **_: Any) -> CollectionSeedOutcome:
         불렸나.append(as_of)
         return CollectionSeedOutcome(status="SEEDED", created=1)
 
-    out = day_open.open_day(
-        AS_OF, connect=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
+    out = service_day_open.open_day(
+        AS_OF, borrow=lambda: _개장커넥션(), seed_collection=대역, sim_run_id=BURN_IN_SIM_RUN_ID
     )
 
     assert out.status == "NOT_OPENED"
@@ -793,11 +799,11 @@ def test_하루가_안_열리면_시도하지_않는다(등록소를_비운다: 
 
 def test_낼_것이_없는_날은_NOTHING_DUE_로_실린다(등록소를_비운다: None) -> None:
     """★ 표가 비어 있는 지금, 이것이 매일 나오는 답이다."""
-    day_open.register_day_opening("finance", _열려있다())
+    registry_day_open.register_day_opening("finance", _열려있다())
 
-    out = day_open.open_day(
+    out = service_day_open.open_day(
         AS_OF,
-        connect=lambda: _개장커넥션(),
+        borrow=lambda: _개장커넥션(),
         seed_collection=lambda as_of, **_: CollectionSeedOutcome(status="NOTHING_DUE"),
         sim_run_id=BURN_IN_SIM_RUN_ID,
     )

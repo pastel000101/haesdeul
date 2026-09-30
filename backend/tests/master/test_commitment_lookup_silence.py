@@ -28,9 +28,9 @@ from datetime import date
 
 import pytest
 
-from app.master.decision import ArrivalLegOut, CommitmentOut
-from app.master.schemas import ProcurementRunRequest
-from app.master.service import _approved_commitments
+from app.master.schemas.decision import ArrivalLegOut, CommitmentOut
+from app.master.schemas.procurement import ProcurementRunRequest
+from app.master.service.procurement import _approved_commitments
 
 AS_OF = date(2026, 1, 2)
 
@@ -64,7 +64,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, result) -> None:
             raise result
         return result
 
-    monkeypatch.setattr("app.master.service.commitments_before", fake)
+    monkeypatch.setattr("app.master.service.procurement.commitments_before", fake)
 
 
 # ── ① 핵심 — 못 읽은 것을 없는 것으로 만들지 않는다 ──────────────────────────
@@ -172,7 +172,7 @@ def test_품목이_없으면_조회_자체를_안_한다(monkeypatch: pytest.Mon
         called.append(item)
         raise AssertionError("품목이 없는데 조회했다")
 
-    monkeypatch.setattr("app.master.service.commitments_before", fake)
+    monkeypatch.setattr("app.master.service.procurement.commitments_before", fake)
 
     lookup = _approved_commitments(_request(item=None))
 

@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import LLMStatus
 
 #: 스프레드 라벨. 숫자(0.212)를 그대로 주면 LLM이 그 숫자를 사유에 베껴 쓰고,
 #: 그 순간 "LLM이 만든 숫자"가 출력에 실린다. 판정은 규칙이 이미 끝냈으므로 결론만 준다.
@@ -64,7 +64,7 @@ class GradeMixInterpretation(BaseModel):
 
 #: 우열표가 ⑤ 의 후보를 하나로 좁힌 날의 신호 (E3-12).
 #:
-#: 🔴 **여기 두는 이유는 import 방향이다.** 값을 세우는 곳은 ``nodes/allocate_sourcing``
+#: 🔴 **여기 두는 이유는 import 방향이다.** 값을 세우는 곳은 ``service/nodes/allocate_sourcing``
 #: 이고 읽는 곳은 ``llm/runtime.needs_llm`` 인데, ``runtime`` 은 노드를 못 가져온다
 #: (노드가 ``runtime`` 을 가져온다). 둘 다 가져오는 가장 아래가 이 파일이다.
 #:

@@ -19,8 +19,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady
-from app.finance.settlement import settle_recognized_payables
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.service.settlement import settle_recognized_payables
 
 SIM_RUN_ID = "SIM-CONSOLE-A"
 OTHER_RUN = "SIM-CONSOLE-B"
@@ -165,7 +165,7 @@ def _recognition(
 
 @pytest.fixture(autouse=True)
 def _schema(monkeypatch):
-    monkeypatch.setattr("app.finance.settlement.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.settlement.get_db_schema", lambda: "haetdeul")
 
 
 # ---------------------------------------------------------------------------

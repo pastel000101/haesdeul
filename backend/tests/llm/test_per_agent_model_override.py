@@ -25,7 +25,7 @@ def _clear(monkeypatch):
     ★ 런타임이 매번 `load_dotenv(.env)` 를 부르므로, 지운 변수가 .env 값으로 되살아난다.
       이 테스트가 보려는 것은 **해석 순서**이지 .env 내용이 아니므로 로딩 자체를 끊는다.
     """
-    monkeypatch.setattr("app.master.critic.llm.runtime.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *a, **k: False)
     for key in _KEYS:
         monkeypatch.delenv(key, raising=False)
         monkeypatch.delenv(f"CRITIC_{key}", raising=False)

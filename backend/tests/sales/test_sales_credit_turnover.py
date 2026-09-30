@@ -18,11 +18,13 @@ from typing import Any
 
 import pytest
 
-from app.sales import adapter, console_proposals
-from app.sales.adapter import with_partner_payment_days
-from app.sales.persistence import build_sale_confirmation_plan
-from app.sales.proposal import run_proposal
-from app.sales.schemas import SalesConfirmationInput, SalesProposalInput
+from app.sales.domain.proposal_input import with_partner_payment_days
+from app.sales.domain.sale_ledger import build_sale_confirmation_plan
+from app.sales.readmodel import console_proposals
+from app.sales.schemas.proposal import SalesProposalInput
+from app.sales.schemas.sale_ledger import SalesConfirmationInput
+from app.sales.service import proposal_generation
+from app.sales.service.proposal import run_proposal
 
 PARTNER = "KIMCHI_FACTORY_001"
 
@@ -131,9 +133,10 @@ def test_a_failing_contract_lookup_leaves_the_term_open(monkeypatch):
     def broken(*, partner_id):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(adapter, "get_partner_profile", broken)
+    #  ★ 2026-09-29 BL-013: 계약 결제일수를 읽는 자리는 판매 후보 생성 service 다.
+    monkeypatch.setattr(proposal_generation, "get_partner_profile", broken)
 
-    assert adapter._partner_contract_payment_days(PARTNER) is None
+    assert proposal_generation._partner_contract_payment_days(PARTNER) is None
 
 
 # ── 7일 결제로 선 안 ──────────────────────────────────────────────────────
@@ -327,7 +330,9 @@ def _proposal_rows(summary: dict[str, Any]):
 
 def test_console_proposals_expose_the_collection_needed_before_the_sale(monkeypatch):
     monkeypatch.setattr(
-        console_proposals, "load_proposal_rows", lambda **_: _proposal_rows(_CREDIT_SUMMARY)
+        console_proposals,
+        "load_proposal_rows",
+        lambda _conn, **_: _proposal_rows(_CREDIT_SUMMARY),
     )
 
     row = console_proposals.get_console_sales_proposals(
@@ -348,12 +353,16 @@ def test_console_proposals_keep_zero_collection_apart_from_unknown(monkeypatch):
         "required_collection_before_sale_krw": "0",
         "expected_credit_recovery_date": None,
     }
-    monkeypatch.setattr(console_proposals, "load_proposal_rows", lambda **_: _proposal_rows(zero))
+    monkeypatch.setattr(
+        console_proposals, "load_proposal_rows", lambda _conn, **_: _proposal_rows(zero)
+    )
     zero_row = console_proposals.get_console_sales_proposals(
         sim_run_id="S", as_of=date(2026, 1, 8)
     ).rows[0]
 
-    monkeypatch.setattr(console_proposals, "load_proposal_rows", lambda **_: _proposal_rows({}))
+    monkeypatch.setattr(
+        console_proposals, "load_proposal_rows", lambda _conn, **_: _proposal_rows({})
+    )
     unknown_row = console_proposals.get_console_sales_proposals(
         sim_run_id="S", as_of=date(2026, 1, 8)
     ).rows[0]

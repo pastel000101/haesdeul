@@ -16,7 +16,18 @@ from decimal import Decimal
 
 import pytest
 
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
+from app.logistics.domain import agent_evidence, agent_replies
+from app.logistics.domain.rules import (
+    BUSINESS_SIGNALS,
+    CAPACITY_TIGHT,
+    FRESHNESS_QUALITY_RISK,
+    INVENTORY_FRESHNESS_PRESSURE,
+    SCENARIO_ADJUSTMENT_REQUIRED,
+)
+from app.logistics.domain.tools import build_lot_constraints as real_build_lot_constraints
+from app.logistics.llm import interpretation
 from app.logistics.llm import runtime as llm_runtime
 from app.logistics.llm.runtime import (
     InterpretationService,
@@ -28,15 +39,8 @@ from app.logistics.llm.runtime import (
     needs_llm,
 )
 from app.logistics.llm.schemas import SanitizedLLMContext
-from app.logistics.repository import LogisticsRead
-from app.logistics.rules import (
-    BUSINESS_SIGNALS,
-    CAPACITY_TIGHT,
-    FRESHNESS_QUALITY_RISK,
-    INVENTORY_FRESHNESS_PRESSURE,
-    SCENARIO_ADJUSTMENT_REQUIRED,
-)
-from app.logistics.schemas import (
+from app.logistics.schemas.current import LogisticsRead
+from app.logistics.schemas.snapshot import (
     InventoryLogisticsSnapshot,
     InventoryLotSnapshot,
     ItemStoragePolicyFact,
@@ -44,8 +48,8 @@ from app.logistics.schemas import (
     OutboundCommitment,
     ScheduledQuantity,
 )
-from app.logistics.tools import build_lot_constraints as real_build_lot_constraints
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.logistics.service import agent_read
+from tests.logistics.mode_modules import swap_in_modes
 
 AS_OF = date(2025, 12, 31)
 
@@ -179,8 +183,8 @@ def _read(snapshot=None, policy=None, *, route=_ROUTE, route_error=False):
 
 @pytest.fixture
 def wired(monkeypatch):
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read())
-    monkeypatch.setattr(adapter, "build_lot_constraints", lambda snapshot: list(_LOTS))
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read())
+    swap_in_modes(monkeypatch, "build_lot_constraints", lambda snapshot: list(_LOTS))
 
 
 @pytest.fixture(autouse=True)
@@ -258,9 +262,9 @@ def test_DB_에_없는_정책값은_출처_부재를_밝힌다(wired):
 def test_cap_by_date_는_리드타임_다음날부터_창_길이만큼이다(wired):
     reply, _ = adapter.logistics_port(req())
     cap = reply.payload["cap_by_date"]
-    assert len(cap) == adapter._CAP_WINDOW_DAYS
+    assert len(cap) == agent_evidence.CAP_WINDOW_DAYS
     assert min(cap) == "2026-01-02"  # as_of + inbound_lead_days(2)
-    assert reply.payload["cap_by_date_window_days"] == adapter._CAP_WINDOW_DAYS
+    assert reply.payload["cap_by_date_window_days"] == agent_evidence.CAP_WINDOW_DAYS
 
 
 def test_조회_창을_payload_에_밝힌다(wired):
@@ -272,8 +276,12 @@ def test_조회_창을_payload_에_밝힌다(wired):
 def test_리드타임이_없으면_cap_by_date_를_비우지_않고_밝힌다(wired, monkeypatch):
     """빈 dict 를 실으면 *못 받은 것* 과 *받았는데 빈 것* 이 구분되지 않는다."""
 
-    monkeypatch.setattr(
-        adapter, "_load_read", lambda *, as_of, sim_run_id: _read(_snapshot(inbound_lead_days=None))
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *,
+        as_of,
+        sim_run_id: _read(_snapshot(inbound_lead_days=None)),
     )
     reply, _ = adapter.logistics_port(req())
     assert "cap_by_date" not in reply.payload
@@ -406,10 +414,12 @@ def test_정책값이_없는_품목은_근거를_만들지_않는다(wired):
 
 def test_보관정책이_미조회면_빈_배열로_덮지_않는다(wired, monkeypatch):
     """`None`(미조회)과 `[]`(정책 0 건 확인)은 다르다 (§1.2-10)."""
-    monkeypatch.setattr(
-        adapter,
-        "_load_read",
-        lambda *, as_of, sim_run_id: _read(_snapshot(item_storage_policies=None)),
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *,
+        as_of,
+        sim_run_id: _read(_snapshot(item_storage_policies=None)),
     )
     reply, _ = adapter.logistics_port(req())
     assert "item_storage_policies" not in reply.payload
@@ -437,7 +447,7 @@ def test_스냅샷_기준일이_다르면_판단하지_않는다(wired):
 
 def test_스냅샷이_없으면_ERROR_가_아니라_NOT_READY(wired, monkeypatch):
     """다시 불러도 같다 — 재시도 가치가 다르다 (M-1 §5.1)."""
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: None)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: None)
     reply, _ = adapter.logistics_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert reply.business_status == "skipped"
@@ -519,7 +529,7 @@ def test_어댑터가_얹은_키는_걸러_낸다(wired):
     """`allowed_axes` 가 들어 있어도 되살리기가 실패하지 않는다."""
     payload = _proposal_payload()
     assert "allowed_axes" in payload
-    proposal = adapter._as_proposal(payload)
+    proposal = agent_evidence.as_proposal(payload)
     assert proposal is not None
     assert proposal.meta.item == "배추"
 
@@ -540,9 +550,9 @@ def test_도착일은_리드타임을_더한_날이다(wired):
 
 def test_REVIEW_REQUIRED_는_conditional_로_옮긴다():
     """재무와 같은 매핑이다 (정의서 §7.1)."""
-    assert adapter._VERDICT_MAP["REVIEW_REQUIRED"] == "conditional"
-    assert adapter._VERDICT_MAP["PASS"] == "ok"
-    assert adapter._VERDICT_MAP["FAIL"] == "reject"
+    assert agent_evidence.VERDICT_MAP["REVIEW_REQUIRED"] == "conditional"
+    assert agent_evidence.VERDICT_MAP["PASS"] == "ok"
+    assert agent_evidence.VERDICT_MAP["FAIL"] == "reject"
 
 
 def test_모르는_mode_는_능력_없음으로_답한다():
@@ -557,7 +567,7 @@ def test_모르는_mode_는_능력_없음으로_답한다():
     `missing_capability` 로 이름을 남기는 것이 이 함수의 일이다.
     """
     request = req(mode="SCENARIO_VALIDATION")  # 봉투가 허용하는 아무 mode
-    reply, _ = adapter._not_implemented(request)
+    reply, _ = agent_replies.not_implemented_reply(request)
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert reply.missing_capability == ("SCENARIO_VALIDATION 번역",)
     # RUNTIME_NOT_READY 는 이름이 비면 ContractViolation 이다 (M-1 §5.1)
@@ -585,7 +595,7 @@ def test_봉투의_inbound_lead_days_는_int_다(wired):
     나갔다 — 물류 내부(`schemas.py`)도 IO Contract §3 도 `int` 인데 봉투만 달랐다.
 
     받는 쪽 셋이 전부 방어를 만들어 뒀다(`critic_bridge.py` `_int_of` ·
-    `commitment.py` · `purchase_agent/adapter.py` 의 `lead != int(lead)`).
+    `commitment.py` · `purchase_agent/domain/payload.py` 의 `lead != int(lead)`).
     생산자가 맞게 보내면 그 방어들이 무해해진다.
 
     ⚠️ `2.0 == 2` 가 참이라 값 비교로는 안 잡힌다. **타입을 직접 잰다.**
@@ -643,8 +653,8 @@ def test_조회는_가장_짧은_신선도만_밝힌다(wired):
 
 def test_신선도가_하나도_없으면_이름을_남긴다(wired, monkeypatch):
     """Lot 은 있는데 신선도가 안 실린 것은 **"0 일 남았다" 가 아니다** (§1.2-10)."""
-    monkeypatch.setattr(
-        adapter, "build_lot_constraints", lambda snapshot: [_Lot("LOT-C", "100", None)]
+    swap_in_modes(
+        monkeypatch, "build_lot_constraints", lambda snapshot: [_Lot("LOT-C", "100", None)]
     )
     reply, _ = adapter.logistics_port(req(mode="STATUS_QUERY"))
     assert "min_remaining_freshness_days" not in reply.payload
@@ -668,25 +678,17 @@ def test_물류가_NOT_READY_면_반드시_이름이_남는다(wired, monkeypatc
     지금은 `rental_cap_kg@policy_source_ref` 가 늘 들어 있어 우연히 안 비어 있다.
     **DB 에 그 키가 등록되는 날 터진다.** 그때를 미리 재현한다.
     """
-    monkeypatch.setattr(
-        adapter,
-        "_load_read",
-        lambda *, as_of, sim_run_id: _read(
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(
             policy=_policy().model_copy(
                 update={"source_refs": {**_policy().source_refs, "rental_cap_kg": "MVP:RENTAL"}}
             )
-        ),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "evaluate_procurement_rules",
-        lambda **kw: {
+        ))
+    swap_in_modes(monkeypatch, "evaluate_procurement_rules", lambda **kw: {
             "runtime_status": "RUNTIME_NOT_READY",
             "calculation_ready": True,  # 계산은 됐는데 Rule 이 막은 경우
             "hard_constraints": [_Check("IN_TRANSIT_SCHEDULE_UNRESOLVED", "UNRESOLVED")],
             "soft_warnings": [],
-        },
-    )
+        })
     reply, _ = adapter.logistics_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert reply.missing_data  # 비어 있으면 봉투가 던진다
@@ -715,8 +717,8 @@ def test_lots_에_grade_를_실어_나른다(wired, monkeypatch):
     8/28 `lots` 필드 매핑 회신에서 짚은 것으로, 물류가 `LotConstraint.grade` 를
     나르게 되면서(#77) 마스터도 payload 로 옮긴다.
     """
-    monkeypatch.setattr(
-        adapter, "build_lot_constraints", lambda snapshot: [_Lot("LOT-G", "100", 5, grade="특")]
+    swap_in_modes(
+        monkeypatch, "build_lot_constraints", lambda snapshot: [_Lot("LOT-G", "100", 5, grade="특")]
     )
     reply, _ = adapter.logistics_port(req())
     assert reply.payload["lots"][0]["grade"] == "특"
@@ -788,10 +790,8 @@ def stocked(wired, monkeypatch):
       두면 payload 의 `lots`(배추 500.5)와 `inventory_by_item`(배추 180)이 **서로 다른
       재고**에서 나와, 두 필드의 정합을 보려는 후속 테스트가 헛돈다 (검증 발견 7).
     """
-    monkeypatch.setattr(
-        adapter, "_load_read", lambda *, as_of, sim_run_id: _read(_stocked_snapshot())
-    )
-    monkeypatch.setattr(adapter, "build_lot_constraints", real_build_lot_constraints)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(_stocked_snapshot()))
+    swap_in_modes(monkeypatch, "build_lot_constraints", real_build_lot_constraints)
 
 
 def test_품목별_가용재고를_PRE_payload_에_싣는다(stocked):
@@ -838,10 +838,12 @@ def test_출고_귀속_불명이면_가용재고를_지어내지_않는다(stock
     임의 배분 대신 키를 생략하고 이름을 남긴다 — `[]`(품목 0건 확인)로 위장하면
     *"재고가 없다"* 로 읽힌다 (§1.2-10).
     """
-    monkeypatch.setattr(
-        adapter,
-        "_load_read",
-        lambda *, as_of, sim_run_id: _read(_stocked_snapshot(outbound_commitments=None)),
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *,
+        as_of,
+        sim_run_id: _read(_stocked_snapshot(outbound_commitments=None)),
     )
     reply, _ = adapter.logistics_port(req())
     assert "inventory_by_item" not in reply.payload
@@ -894,7 +896,7 @@ def test_업무_위험_signal_이_soft_warnings_로_합류한다(wired, monkeypa
             ]
         }
     )
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(pressured))
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(pressured))
     reply, _ = adapter.logistics_port(req(mode="SCENARIO_VALIDATION", payload=_proposal_payload()))
     assert "INVENTORY_FRESHNESS_PRESSURE" in reply.payload["soft_warnings"]
 
@@ -904,11 +906,11 @@ def test_우선_조정_축은_있을_때만_실린다(wired, monkeypatch):
 
     `None`(혼재·0건)이면 키를 싣지 않는다 — 근거 없이 하나를 고르지 않는다.
     """
-    monkeypatch.setattr(adapter, "derive_preferred_adjustment", lambda results: "quantity")
+    swap_in_modes(monkeypatch, "derive_preferred_adjustment", lambda results: "quantity")
     reply, _ = adapter.logistics_port(req(mode="SCENARIO_VALIDATION", payload=_proposal_payload()))
     assert reply.payload["preferred_adjustment"] == "quantity"
 
-    monkeypatch.setattr(adapter, "derive_preferred_adjustment", lambda results: None)
+    swap_in_modes(monkeypatch, "derive_preferred_adjustment", lambda results: None)
     reply, _ = adapter.logistics_port(req(mode="SCENARIO_VALIDATION", payload=_proposal_payload()))
     assert "preferred_adjustment" not in reply.payload
 
@@ -916,7 +918,7 @@ def test_우선_조정_축은_있을_때만_실린다(wired, monkeypatch):
 def test_시나리오_상세를_실어도_봉투_검증을_통과한다(wired, monkeypatch):
     """signal·상세·근거가 다 실린 상태로 봉투 규칙 전체를 통과해야 한다."""
     pressured = _stocked_snapshot(freshness_pressure_ratio=Decimal("0.30"))
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(pressured))
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(pressured))
     request = req(mode="SCENARIO_VALIDATION", payload=_proposal_payload())
     reply, meta = adapter.logistics_port(request)
     assert reply.payload["scenario_results"]
@@ -1027,7 +1029,7 @@ def test_판정_스킵_사실은_soft_warnings_에만_남는다(wired):
 def test_우선_조정_축은_판정으로_선언되고_근거가_붙는다(wired, monkeypatch):
     """`quantity` 는 소문자라 봉투의 대문자 라벨 휴리스틱을 지나친다 — 직접 선언하지
     않으면 매입 행동을 바꾸는 판정이 근거 없이 나간다 (검증 발견 2)."""
-    monkeypatch.setattr(adapter, "derive_preferred_adjustment", lambda results: "quantity")
+    swap_in_modes(monkeypatch, "derive_preferred_adjustment", lambda results: "quantity")
     request = req(mode="SCENARIO_VALIDATION", payload=_proposal_payload())
     reply, meta = adapter.logistics_port(request)
     assert "preferred_adjustment" in reply.judgment_fields
@@ -1125,7 +1127,7 @@ def _llm(provider: _Provider, *, enabled: bool = True) -> InterpretationService:
 
 def _inject(monkeypatch, service: InterpretationService) -> None:
     """주입 seam — `logistics_port` 시그니처는 그대로고 팩토리만 갈아 끼운다."""
-    monkeypatch.setattr(adapter, "master_interpretation_service", lambda: service)
+    swap_in_modes(monkeypatch, "master_interpretation_service", lambda: service)
 
 
 def _business_view(reply) -> dict:
@@ -1162,7 +1164,7 @@ def _trace_view(meta) -> dict:
         "observations": tuple(
             item
             for item in meta.observations
-            if json.loads(item).get("observation_type") != adapter._LLM_TRACE_OBSERVATION
+            if json.loads(item).get("observation_type") != agent_replies.LLM_TRACE_OBSERVATION
         ),
     }
 
@@ -1184,7 +1186,7 @@ def test_opt_in_이_없으면_DISABLED_이고_Provider_클라이언트를_만들
     # 해석 칸은 있되 무숫자 Template 다 — signal 코드는 그대로 보존된다
     assert reply.payload["interpretation"]["risks"] == _business_signals(reply)
     assert not any(ch.isdigit() for ch in reply.payload["interpretation"]["summary"])
-    service = adapter.master_interpretation_service()
+    service = interpretation.master_interpretation_service()
     assert service.settings.enabled is False
     assert isinstance(service.provider, UnavailableProvider)
     assert validate_reply(request, reply, meta) == ()
@@ -1269,7 +1271,7 @@ def test_결정론_보존_LLM_상태가_달라도_업무_결과는_구조적으�
     metadata 가 전부 같아야 한다.
     """
     request = req(mode="SCENARIO_VALIDATION", payload=_signal_payload())
-    real_builder = adapter.build_sanitized_context
+    real_builder = interpretation.build_sanitized_context
 
     def incomplete_builder(**kwargs):
         # facts 조립 실패를 흉내 내 게이트를 닫는다 — 같은 요청으로 SKIPPED 를 만든다
@@ -1287,7 +1289,7 @@ def test_결정론_보존_LLM_상태가_달라도_업무_결과는_구조적으�
     traces: dict[str, dict] = {}
     for name, (service, builder) in cases.items():
         _inject(monkeypatch, service)
-        monkeypatch.setattr(adapter, "build_sanitized_context", builder)
+        swap_in_modes(monkeypatch, "build_sanitized_context", builder)
         reply, meta = adapter.logistics_port(request)
         assert meta.llm_status == name.split("/")[0], name
         assert validate_reply(request, reply, meta) == (), name
@@ -1406,7 +1408,7 @@ def test_inputs_used_키는_마스터가_합성하는_check_id_다(wired):
     이름의 주인은 마스터(`critic_bridge.DEPT_CAP_CHECK_ID`)이고, 물류는 거기에 맞출
     뿐이다. 물류는 문자열을 베끼지 않고 그 상수를 참조한다 (#137).
     """
-    from app.master.critic_bridge import DEPT_CAP_CHECK_ID
+    from app.contracts.envelope import DEPT_CAP_CHECK_ID
 
     _, meta = adapter.logistics_port(req())
     assert list(_dept_meta(meta)["inputs_used"]) == [DEPT_CAP_CHECK_ID["inventory"]]
@@ -1419,7 +1421,7 @@ def test_마스터가_실제로_합성한_check_와_키가_맞는다(wired):
     Critic 은 `inputs_used.get(chk.check_id, ())` 로 대조하므로, 여기서 어긋나면
     검사가 돌면서 빈 튜플을 보고 **조용히 통과**한다 (`critic_v0_4.py:643`).
     """
-    from app.master.critic_bridge import _replies_in
+    from app.master.adapters.critic_bridge import _replies_in
 
     reply, meta = adapter.logistics_port(req())
     synthesized = _replies_in({"inventory": reply.payload}, {"inventory": reply.evidences})
@@ -1440,16 +1442,15 @@ def test_check_id_문자열을_물류가_들고_있지_않다():
     의존을 줄이려고 문자열을 다시 박아 넣는 경우다. 그 순간 마스터가 이름을 바꾸면
     물류 검사만 조용히 죽고, 마스터 대조 테스트는 초록불이다.
     """
-    import inspect
 
-    from app.master.critic_bridge import DEPT_CAP_CHECK_ID
+    from app.contracts.envelope import DEPT_CAP_CHECK_ID
 
-    source = inspect.getsource(adapter)
+    source = chr(10).join(_adapter_sources())
     literal = DEPT_CAP_CHECK_ID["inventory"]
     assert f'"{literal}"' not in source, (
         f"물류 소스에 {literal!r} 리터럴이 있다 — 마스터 상수를 참조해야 한다"
     )
-    assert adapter._CAP_CHECK_ID == literal
+    assert agent_replies.CAP_CHECK_ID == literal
 
 
 def test_선언한_입력에_매입_시나리오_이름이_없다(wired):
@@ -1462,7 +1463,7 @@ def test_선언한_입력에_매입_시나리오_이름이_없다(wired):
     from app.master.critic.critic_v0_4 import FORBIDDEN_SCENARIO_INPUTS
 
     _, meta = adapter.logistics_port(req())
-    declared = set(_dept_meta(meta)["inputs_used"][adapter._CAP_CHECK_ID])
+    declared = set(_dept_meta(meta)["inputs_used"][agent_replies.CAP_CHECK_ID])
     assert FORBIDDEN_SCENARIO_INPUTS & declared == set()
 
 
@@ -1472,25 +1473,25 @@ def test_안_돈_Tool_의_입력은_실리지_않는다():
 
     같은 mode 를 Tool 목록만 바꿔 부르면 선언이 따라 바뀌어야 한다.
     """
-    only_lots = adapter._inventory_dept_meta("PRE_PURCHASE", {}, [adapter._T_LOTS])
-    with_rules = adapter._inventory_dept_meta(
-        "PRE_PURCHASE", {}, [adapter._T_LOTS, adapter._T_RULES]
+    only_lots = agent_replies.inventory_dept_meta("PRE_PURCHASE", {}, [agent_replies.T_LOTS])
+    with_rules = agent_replies.inventory_dept_meta(
+        "PRE_PURCHASE", {}, [agent_replies.T_LOTS, agent_replies.T_RULES]
     )
-    band = set(adapter._ADAPTER_BAND_INPUTS)
-    assert set(only_lots["inputs_used"][adapter._CAP_CHECK_ID]) == band | set(
-        adapter._TOOL_INPUTS[adapter._T_LOTS]
+    band = set(agent_replies.ADAPTER_BAND_INPUTS)
+    assert set(only_lots["inputs_used"][agent_replies.CAP_CHECK_ID]) == band | set(
+        agent_replies.TOOL_INPUTS[agent_replies.T_LOTS]
     )
     # Rule **만** 읽는 입력(어댑터 밴드·Lots 와 겹치지 않는 것)은 Rule 이 돌기
     # 전에는 실리지 않는다. `on_hand_by_lot` 처럼 공유되는 입력은 돈 Tool 이 데려오므로
     # 배타 입력으로 봐야 실행 의존이 실제로 검증된다.
     rule_only = (
-        set(adapter._TOOL_INPUTS[adapter._T_RULES])
+        set(agent_replies.TOOL_INPUTS[agent_replies.T_RULES])
         - band
-        - set(adapter._TOOL_INPUTS[adapter._T_LOTS])
+        - set(agent_replies.TOOL_INPUTS[agent_replies.T_LOTS])
     )
     assert rule_only
-    assert rule_only.isdisjoint(only_lots["inputs_used"][adapter._CAP_CHECK_ID])
-    assert rule_only <= set(with_rules["inputs_used"][adapter._CAP_CHECK_ID])
+    assert rule_only.isdisjoint(only_lots["inputs_used"][agent_replies.CAP_CHECK_ID])
+    assert rule_only <= set(with_rules["inputs_used"][agent_replies.CAP_CHECK_ID])
 
 
 def test_produced_fields_는_실제로_실린_필드다(wired):
@@ -1519,19 +1520,19 @@ def test_빈_inputs_used_가_경계_관측을_덮지_않는다(wired, stocked):
     """마스터가 두 mode 의 관측을 **합쳐서** 나른다 (`critic_bridge._dept_meta_in`).
     시나리오 관측의 빈 `inputs_used` 가 마지막이라 경계 것을 덮으면, 검사가 돌면서
     아무것도 안 보게 된다."""
-    from app.master.critic_bridge import _dept_meta_in
+    from app.master.adapters.critic_bridge import _dept_meta_in
 
     _, pre_meta = adapter.logistics_port(req())
     _, sv_meta = adapter.logistics_port(
         req(mode="SCENARIO_VALIDATION", payload=_proposal_payload())
     )
     merged = _dept_meta_in({"inventory": [*pre_meta.observations, *sv_meta.observations]})
-    assert merged["inventory"]["inputs_used"][adapter._CAP_CHECK_ID]
+    assert merged["inventory"]["inputs_used"][agent_replies.CAP_CHECK_ID]
 
 
 def test_못_낸_회신에는_관측을_달지_않는다(monkeypatch):
     """ "안 돌았는데 무엇을 읽었다" 가 되면 안 된다."""
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: None)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: None)
     reply, meta = adapter.logistics_port(req())
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert _dept_meta(meta) is None
@@ -1539,9 +1540,9 @@ def test_못_낸_회신에는_관측을_달지_않는다(monkeypatch):
 
 def test_스냅샷_실행오류_회신에도_관측을_달지_않는다(monkeypatch):
     def _boom(*, as_of, sim_run_id):
-        raise adapter._SnapshotLoadError("db down")
+        raise agent_read.SnapshotLoadError("db down")
 
-    monkeypatch.setattr(adapter, "_load_read", _boom)
+    swap_in_modes(monkeypatch, "load_read", _boom)
     reply, meta = adapter.logistics_port(req())
     assert reply.runtime_status == "ERROR"
     assert _dept_meta(meta) is None
@@ -1550,20 +1551,20 @@ def test_스냅샷_실행오류_회신에도_관측을_달지_않는다(monkeypa
 def test_모든_Tool_이_입력_계약을_가진다():
     """Tool 을 새로 만들고 계약을 안 적으면 조용한 누락이 아니라 **import 실패**여야
     한다. 빈 `inputs_used` 는 Critic 이 통과로 읽으므로 크게 실패하는 편이 낫다."""
-    declared = set(adapter._TOOL_INPUTS)
+    declared = set(agent_replies.TOOL_INPUTS)
     assert {
-        adapter._T_RULES,
-        adapter._T_CAP,
-        adapter._T_ARRIVAL,
-        adapter._T_LOTS,
-        adapter._T_INVENTORY,
-        adapter._T_SIGNALS,
+        agent_replies.T_RULES,
+        agent_replies.T_CAP,
+        agent_replies.T_ARRIVAL,
+        agent_replies.T_LOTS,
+        agent_replies.T_INVENTORY,
+        agent_replies.T_SIGNALS,
     } <= declared
 
 
 def test_계약_없는_Tool_은_조용히_0개가_아니라_예외다():
-    with pytest.raises(adapter._ToolInputContractMissing):
-        adapter._inventory_dept_meta("PRE_PURCHASE", {}, ["nonexistent_tool"])
+    with pytest.raises(agent_replies.ToolInputContractMissing):
+        agent_replies.inventory_dept_meta("PRE_PURCHASE", {}, ["nonexistent_tool"])
 
 
 def test_시나리오_Tool_은_금지_이름을_정직하게_선언한다():
@@ -1571,7 +1572,7 @@ def test_시나리오_Tool_은_금지_이름을_정직하게_선언한다():
     경계 경로로 새면 Critic 이 잡아야 하므로 계약을 비워 두지 않는다."""
     from app.master.critic.critic_v0_4 import FORBIDDEN_SCENARIO_INPUTS
 
-    assert FORBIDDEN_SCENARIO_INPUTS & set(adapter._TOOL_INPUTS[adapter._T_ARRIVAL])
+    assert FORBIDDEN_SCENARIO_INPUTS & set(agent_replies.TOOL_INPUTS[agent_replies.T_ARRIVAL])
 
 
 # ---------------------------------------------------------------------------
@@ -1616,7 +1617,7 @@ def test_봉투가_준_실행_축을_그대로_조회에_넘긴다(monkeypatch, 
     `BURN_IN_SIM_RUN_ID` 를 박아 넣은 뮤턴트가 살아남을 수 있다.
     """
     calls: list[dict] = []
-    monkeypatch.setattr(adapter, "get_current_logistics_read", _recorder(calls))
+    monkeypatch.setattr(agent_read, "read_current_logistics", _recorder(calls))
 
     request = req(mode=mode, payload=payload_factory(), sim_run_id=실행)
     adapter.logistics_port(request)
@@ -1636,7 +1637,7 @@ def test_실행_축이_비면_조회하지_않고_이름을_남긴다(monkeypatc
     #   삼켜 ERROR 로 나오고, 문이 사라진 날 실패 문구가 *"어댑터가 뭉갠다"* 로
     #   읽힌다 — 세고 나서 비었는지 묻는 편이 무엇이 깨졌는지 곧바로 말한다.
     calls: list[dict] = []
-    monkeypatch.setattr(adapter, "get_current_logistics_read", _recorder(calls))
+    monkeypatch.setattr(agent_read, "read_current_logistics", _recorder(calls))
 
     request = req(mode=mode, payload=payload_factory(), sim_run_id="")
     reply, meta = adapter.logistics_port(request)
@@ -1696,7 +1697,7 @@ def test_미구현_mode_는_여전히_번역이_없다고_답한다():
       **그 handler 가 무엇을 말하는가**다.
     """
     request = req(mode="STATUS_QUERY")
-    reply, meta = adapter._not_implemented(request)
+    reply, meta = agent_replies.not_implemented_reply(request)
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
     assert reply.missing_data == ("STATUS_QUERY_translation",)
@@ -1713,7 +1714,7 @@ def test_읽는_함수는_실행_축을_이름으로_받는다():
     """
     import inspect
 
-    축 = inspect.signature(adapter._load_read).parameters["sim_run_id"]
+    축 = inspect.signature(agent_read.load_read).parameters["sim_run_id"]
     assert 축.kind is inspect.Parameter.KEYWORD_ONLY
     assert 축.default is inspect.Parameter.empty, "선택 인자로 두면 fail-open 이 돌아온다"
 
@@ -1781,7 +1782,7 @@ def _sales_snapshot(**overrides) -> InventoryLogisticsSnapshot:
 
 def _with_read(monkeypatch, snapshot):
     """`_load_read` 만 갈아 끼운다 — Tool 은 진짜를 돌린다."""
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(snapshot))
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(snapshot))
 
 
 @pytest.fixture
@@ -1808,24 +1809,38 @@ def _all_keys(value) -> set[str]:
     return keys
 
 
+def _adapter_path_modules() -> tuple[object, ...]:
+    """어댑터 경로의 파일들 — 종전 `adapter.py` 한 파일이 2026-09-30 재구성 BL-015 부터 이렇게
+    갈렸다(등록소 표면 · 봉투 분기 · mode 조립 넷 · 스냅샷 읽기 · 회신 · 근거 · 판매 입력 판단)."""
+    from app.logistics.domain import pre_sales as pre_sales_domain
+    from tests.logistics.mode_modules import MODE_MODULES
+
+    return (adapter, *MODE_MODULES, agent_read, agent_replies, agent_evidence, pre_sales_domain)
+
+
+def _adapter_sources() -> list[str]:
+    import inspect
+
+    return [inspect.getsource(module) for module in _adapter_path_modules()]
+
+
 def _adapter_imports() -> tuple[set[str], set[str]]:
-    """어댑터가 **실제로 들여온** (모듈, 이름).
+    """어댑터 경로가 **실제로 들여온** (모듈, 이름) — 경로의 파일 전부를 합친다.
 
     ★ 소스 문자열로 재지 않는다 — docstring 이 금지 함수 이름을 설명으로 적고 있어
       문자열 검색은 그것까지 잡는다. import 만 보면 *"부를 수 있는가"* 를 정확히 잰다.
     """
     import ast
-    import inspect
 
-    tree = ast.parse(inspect.getsource(adapter))
     modules: set[str] = set()
     names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            modules.add(node.module)
-            names |= {alias.name for alias in node.names}
-        elif isinstance(node, ast.Import):
-            modules |= {alias.name for alias in node.names}
+    for source in _adapter_sources():
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules.add(node.module)
+                names |= {alias.name for alias in node.names}
+            elif isinstance(node, ast.Import):
+                modules |= {alias.name for alias in node.names}
     return modules, names
 
 
@@ -2099,7 +2114,9 @@ def test_회전관리_축을_이번_판에서_읽지_않는다():
     """
     modules, names = _adapter_imports()
 
-    assert "app.logistics.turnover" not in modules
+    # ★ 2026-09-30 재구성 BL-015: 회전 모듈이 계층마다 한 파일(`domain` · `readmodel` ·
+    #   `repository` · `schemas` 의 `turnover.py`)로 갈렸다 — 어느 것도 들여오지 않는다.
+    assert {module for module in modules if module.rsplit(".", 1)[-1] == "turnover"} == set()
     assert not {"load_lot_turnover", "sell_priority_of", "derive_turnover_status"} & names
 
 
@@ -2136,11 +2153,21 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
     """
     modules, names = _adapter_imports()
 
+    # ★ 2026-09-30 재구성 BL-015: 옛 이름 → 새 자리. 독립 Service(`service.py`)는
+    #   `service/cycle.py`, 실행이력(`run_repository.py`)은 `service/run_history.py` ·
+    #   `repository/runs.py`, 출고(`outbound.py`)는 계층마다 한 파일이다. `app.logistics.service`
+    #   는 이제 mode 조립도 담는 패키지라 통째로 막지 않고 그 안의 옛 Service 자리를 막는다.
     금지_모듈 = {
-        "app.logistics.service",
-        "app.logistics.run_repository",
+        "app.logistics.service.cycle",
+        "app.logistics.service.run_history",
+        "app.logistics.repository.runs",
         "app.logistics.db",
-        "app.logistics.outbound",
+        # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문 — 옛 `get_connection` 과 같은 자리다.
+        "app.core.db",
+        "app.logistics.service.outbound",
+        "app.logistics.repository.outbound",
+        "app.logistics.domain.outbound",
+        "app.logistics.schemas.outbound",
         "app.logistics.llm.runtime",
         "app.master.cycle_llm",
     }
@@ -2323,7 +2350,7 @@ def test_조회_범위를_추론해_넓히지_않는다(wired_sales):
 
 def test_스냅샷을_못_읽으면_이름을_밝힌다(monkeypatch):
     """RUNTIME_NOT_READY 에 이름이 없으면 마스터가 무엇을 요청할지 모른다 (M-1 §5.1)."""
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: None)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: None)
     request, reply, meta = _pre_sales_reply()
 
     assert reply.runtime_status == "RUNTIME_NOT_READY"
@@ -2371,9 +2398,9 @@ def test_조회가_실행_오류로_실패하면_ERROR_다(monkeypatch):
     """부재(다시 불러도 같다)와 실행 실패(재시도 가치가 있다)를 가른다 (M-1 §5.1)."""
 
     def _boom(*, as_of, sim_run_id):
-        raise adapter._SnapshotLoadError
+        raise agent_read.SnapshotLoadError
 
-    monkeypatch.setattr(adapter, "_load_read", _boom)
+    swap_in_modes(monkeypatch, "load_read", _boom)
     _, reply, _ = _pre_sales_reply()
 
     assert reply.runtime_status == "ERROR"
@@ -2466,7 +2493,7 @@ def test_payload_가_판매_계약으로_그대로_읽힌다(wired_sales):
     """
     from pydantic import ValidationError
 
-    from app.sales.schemas import (
+    from app.sales.schemas.proposal import (
         LogisticsDeliveryFeasibility,
         LogisticsSellableSupply,
         SalesLogisticsContext,
@@ -2632,7 +2659,7 @@ def test_보관한계_부재_Lot_이_판매_계약으로도_읽힌다(monkeypatc
     `LogisticsLotConstraint` 는 두 칸을 `int | None` 으로 열어 두었다 — 그 계약이
     좁아지는 날 물류가 낼 수 있는 사실이 경계에서 막힌다.
     """
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _with_read(
         monkeypatch,
@@ -2717,10 +2744,12 @@ def _fact_snapshot(**overrides) -> InventoryLogisticsSnapshot:
 
 def _status_reply(monkeypatch, snapshot=None, policy=None):
     """운영 Fact 를 실은 STATUS_QUERY 회신 — 요청까지 함께 돌려준다 (봉투 검증용)."""
-    monkeypatch.setattr(
-        adapter,
-        "_load_read",
-        lambda *, as_of, sim_run_id: _read(snapshot or _fact_snapshot(), policy or _fact_policy()),
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *,
+        as_of,
+        sim_run_id: _read(snapshot or _fact_snapshot(), policy or _fact_policy()),
     )
     request = req(mode="STATUS_QUERY")
     reply, meta = adapter.logistics_port(request)
@@ -3103,8 +3132,8 @@ def _golden_run(monkeypatch, *, capacity_tight, freshness_pressure, adjustment_r
         freshness_pressure=freshness_pressure,
         **kwargs.pop("snapshot_overrides", {}),
     )
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(snapshot))
-    monkeypatch.setattr(adapter, "build_lot_constraints", real_build_lot_constraints)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(snapshot))
+    swap_in_modes(monkeypatch, "build_lot_constraints", real_build_lot_constraints)
     request = req(
         mode="SCENARIO_VALIDATION",
         payload=_golden_payload(adjustment_required=adjustment_required),
@@ -3383,10 +3412,10 @@ def test_어댑터가_넘기는_게이트_인자를_직접_고정한다(monkeypa
     """
     provider = _Provider()
     service = _RecordingService(_llm(provider).settings, provider)
-    monkeypatch.setattr(adapter, "master_interpretation_service", lambda: service)
+    swap_in_modes(monkeypatch, "master_interpretation_service", lambda: service)
     snapshot = _golden_snapshot(capacity_tight=False, freshness_pressure=True, **snapshot_overrides)
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(snapshot))
-    monkeypatch.setattr(adapter, "build_lot_constraints", real_build_lot_constraints)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(snapshot))
+    swap_in_modes(monkeypatch, "build_lot_constraints", real_build_lot_constraints)
     request = req(mode="SCENARIO_VALIDATION", payload=_golden_payload(adjustment_required=False))
     adapter.logistics_port(request)
 
@@ -3403,13 +3432,13 @@ def test_차단_facts_조립이_불완전하면_부르지_않는다(monkeypatch)
     signal 은 섰는데 판정 수치가 전달되지 않은 상태는 Rule to Service 배선이 깨진
     것이라, 확인된 fact 없이 해석시키지 않고 무숫자 Template 으로 남긴다.
     """
-    real_builder = adapter.build_sanitized_context
+    real_builder = interpretation.build_sanitized_context
 
     def incomplete_builder(**kwargs):
         context, _ = real_builder(**kwargs)
         return context, True
 
-    monkeypatch.setattr(adapter, "build_sanitized_context", incomplete_builder)
+    swap_in_modes(monkeypatch, "build_sanitized_context", incomplete_builder)
     _, reply, meta, provider = _golden_run(
         monkeypatch,
         capacity_tight=False,
@@ -3521,8 +3550,8 @@ def test_summary_는_fact_표기를_인용해_Template_이_못_내는_문장을_
     provider = _CitingProvider()
     _inject(monkeypatch, _llm(provider))
     snapshot = _golden_snapshot(capacity_tight=True, freshness_pressure=False)
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(snapshot))
-    monkeypatch.setattr(adapter, "build_lot_constraints", real_build_lot_constraints)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(snapshot))
+    swap_in_modes(monkeypatch, "build_lot_constraints", real_build_lot_constraints)
     request = req(mode="SCENARIO_VALIDATION", payload=_golden_payload(adjustment_required=True))
     reply, meta = adapter.logistics_port(request)
 
@@ -3567,7 +3596,7 @@ def _llm_trace(meta) -> dict | None:
     found = [
         json.loads(item)
         for item in meta.observations
-        if json.loads(item).get("observation_type") == adapter._LLM_TRACE_OBSERVATION
+        if json.loads(item).get("observation_type") == agent_replies.LLM_TRACE_OBSERVATION
     ]
     return found[0] if found else None
 
@@ -3641,10 +3670,10 @@ def test_부르지_않은_실행에는_LLM_관측을_남기지_않는다(
     이미 `llm_status` + `llm_attempts=0` 이 정확히 말하므로 관측은 중복이자 오독의
     씨앗이다. 결정론 관측(`inventory_dept_meta`)은 영향받지 않는다.
     """
-    real_builder = adapter.build_sanitized_context
+    real_builder = interpretation.build_sanitized_context
     if builder_incomplete:
-        monkeypatch.setattr(
-            adapter,
+        swap_in_modes(
+            monkeypatch,
             "build_sanitized_context",
             lambda **kwargs: (real_builder(**kwargs)[0], True),
         )
@@ -3746,7 +3775,7 @@ def test_결정론_비교에서_제외되는_것은_LLM_관측_하나뿐이다(m
 
 def test_관측_이름을_문자열로_베끼지_않는다():
     """이름이 바뀌는 날 `_trace_view` 의 제외 필터만 조용히 빗나가면 안 된다."""
-    assert adapter._LLM_TRACE_OBSERVATION == "inventory_llm_trace"
+    assert agent_replies.LLM_TRACE_OBSERVATION == "inventory_llm_trace"
 
 
 # ---------------------------------------------------------------------------
@@ -3859,10 +3888,10 @@ def test_미호출_실행에는_usage_를_이유로_관측을_만들지_않는�
     usage 를 적을 자리가 생겼다고 부르지 않은 실행에 관측을 만들면, 그 실행이 이
     Provider 를 *"썼다"* 로 읽힌다.
     """
-    real_builder = adapter.build_sanitized_context
+    real_builder = interpretation.build_sanitized_context
     if builder_incomplete:
-        monkeypatch.setattr(
-            adapter,
+        swap_in_modes(
+            monkeypatch,
             "build_sanitized_context",
             lambda **kwargs: (real_builder(**kwargs)[0], True),
         )
@@ -3885,8 +3914,8 @@ def test_usage_관측에는_Provider_원본_필드명이_오지_않는다(monkey
     provider = _Provider(usage=_TRACE_USAGE)
     _inject(monkeypatch, _llm(provider))
     snapshot = _golden_snapshot(capacity_tight=True, freshness_pressure=True)
-    monkeypatch.setattr(adapter, "_load_read", lambda *, as_of, sim_run_id: _read(snapshot))
-    monkeypatch.setattr(adapter, "build_lot_constraints", real_build_lot_constraints)
+    swap_in_modes(monkeypatch, "load_read", lambda *, as_of, sim_run_id: _read(snapshot))
+    swap_in_modes(monkeypatch, "build_lot_constraints", real_build_lot_constraints)
     _, meta = adapter.logistics_port(
         req(mode="SCENARIO_VALIDATION", payload=_golden_payload(adjustment_required=True))
     )
@@ -4061,7 +4090,7 @@ def test_단가를_못_읽은_Lot_을_헐어야_하면_원가가_서지_않는�
 
 def test_재고원가는_판매_DTO_를_그대로_통과한다(monkeypatch):
     """물류가 낸 모양을 판매가 **손대지 않고** 받는지 — 경계 한 번을 실제로 건넌다."""
-    from app.sales.schemas import SalesLogisticsContext
+    from app.sales.schemas.proposal import SalesLogisticsContext
 
     _with_read(monkeypatch, _costed_sales_snapshot())
     _, reply, _ = _pre_sales_reply(

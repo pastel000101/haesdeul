@@ -12,7 +12,6 @@ from app.master.llm.schemas import (
     Intent,
     IntentAction,
     IntentResult,
-    LLMStatus,
     Narrative,
     NarrativeResult,
 )
@@ -21,7 +20,6 @@ __all__ = [
     "Intent",
     "IntentAction",
     "IntentResult",
-    "LLMStatus",
     "Narrative",
     "NarrativeResult",
 ]

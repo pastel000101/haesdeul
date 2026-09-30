@@ -12,8 +12,7 @@
 import ast
 from pathlib import Path
 
-from app.purchase_agent import allocation
-from app.purchase_agent.nodes import package_scenarios, split_plan
+from app.purchase_agent.domain import allocation, package_scenarios, split_plan
 
 SOURCE = Path(allocation.__file__)
 
@@ -35,7 +34,10 @@ def test_순수층은_노드를_import_하지_않는다() -> None:
     ``split_plan`` 이 이 모듈을 쓰고, ``package_scenarios``·``self_check`` 도 쓴다.
     여기서 그중 아무나 되짚으면 import 가 고리를 이룬다.
     """
-    노드를_가리키는_것 = [m for m in _imported_modules(SOURCE) if ".nodes" in m]
+    # 2026-09-29 재구성 BL-016: 노드는 `service/nodes/` 로 옮겨 갔다 — 노드 층(service)을 본다.
+    노드를_가리키는_것 = [
+        m for m in _imported_modules(SOURCE) if ".nodes" in m or ".service" in m
+    ]
     assert 노드를_가리키는_것 == []
 
 
@@ -62,6 +64,9 @@ def test_옮긴_이름이_원래_자리에서도_그대로_불린다() -> None:
     ``tests/test_split.py`` 는 ``nodes.split_plan`` 에서 ``equal_ratios`` 를,
     ``nodes.package_scenarios`` 에서 ``split_offsets`` 를 가져온다. 옮기면서 그 경로가
     끊기면 「옮기기만 했다」가 아니게 된다.
+
+    🟢 2026-09-29 재구성 BL-016 뒤에는 노드의 판정 · 계산이 같은 이름의 ``domain/`` 모듈로
+    옮겨 갔다 — 그 모듈이 쓰는 이름이 ``allocation`` 의 **같은 객체**인지를 본다(두 벌이 아니다).
     """
     assert package_scenarios.split_offsets is allocation.split_offsets
     assert package_scenarios.split_quantities is allocation.split_quantities

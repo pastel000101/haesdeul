@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-from app.master.verifier import VerificationResult
+from app.master.domain.verifier import VerificationResult
 from tests.master.test_flow import advisor, happy
 
 

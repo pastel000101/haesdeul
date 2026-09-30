@@ -22,14 +22,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.logistics.monitoring.schemas import DetectOut
-from app.master.inspection import (
-    AFTER_INBOUND,
-    AFTER_OUTBOUND,
-    InspectionOut,
-    run_logistics_inspection,
-)
-from app.master.scheduler import ScheduledAction, run_scheduled_day
+from app.logistics.schemas.monitoring import DetectOut
+from app.master.domain.scheduler import ScheduledAction
+from app.master.schemas.inspection import AFTER_INBOUND, AFTER_OUTBOUND, InspectionOut
+from app.master.service.inspection import run_logistics_inspection
+from app.master.service.scheduler import run_scheduled_day
 
 SEOUL = ZoneInfo("Asia/Seoul")
 AS_OF = date(2026, 1, 7)
@@ -281,7 +278,7 @@ class _FakeConn:
     def __init__(self) -> None:
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
 
     def commit(self) -> None:
         self.committed += 1
@@ -289,8 +286,12 @@ class _FakeConn:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 def test_성공하면_한_번_커밋하고_닫는다() -> None:
@@ -302,11 +303,11 @@ def test_성공하면_한_번_커밋하고_닫는다() -> None:
         AS_OF,
         sim_run_id=SIM,
         phase=AFTER_OUTBOUND,
-        connect=lambda: conn,
+        borrow=lambda: conn,
         detect_fn=lambda *a, **kw: 낸값,
     )
 
-    assert (conn.committed, conn.rolled_back, conn.closed) == (1, 0, 1)
+    assert (conn.committed, conn.rolled_back, conn.returned) == (1, 0, 1)
     assert out.status == "RAN"
     assert out.result is 낸값
 
@@ -319,10 +320,10 @@ def test_터지면_롤백하고_FAILED_로_돌아선다() -> None:
         raise RuntimeError("undefined table")
 
     out = run_logistics_inspection(
-        AS_OF, sim_run_id=SIM, phase=AFTER_INBOUND, connect=lambda: conn, detect_fn=터진다
+        AS_OF, sim_run_id=SIM, phase=AFTER_INBOUND, borrow=lambda: conn, detect_fn=터진다
     )
 
-    assert (conn.committed, conn.rolled_back, conn.closed) == (0, 1, 1)
+    assert (conn.committed, conn.rolled_back, conn.returned) == (0, 1, 1)
     assert out.status == "FAILED"
     assert "undefined table" in out.reason
 
@@ -332,7 +333,7 @@ def test_연결이_안_되면_그날을_세우지_않는다() -> None:
         raise OSError("DB 없음")
 
     out = run_logistics_inspection(
-        AS_OF, sim_run_id=SIM, phase=AFTER_INBOUND, connect=못연다
+        AS_OF, sim_run_id=SIM, phase=AFTER_INBOUND, borrow=못연다
     )
 
     assert out.status == "FAILED"
@@ -356,7 +357,7 @@ def test_못_잰_것을_사유에서_지우지_않는다() -> None:
         AS_OF,
         sim_run_id=SIM,
         phase=AFTER_INBOUND,
-        connect=lambda: conn,
+        borrow=lambda: conn,
         detect_fn=lambda *a, **kw: 낸값,
     )
 
@@ -374,7 +375,7 @@ def test_받은_phase_를_그대로_흘려보낸다(phase: str) -> None:
         return DetectOut(as_of=AS_OF, phase=kw["phase"], status="NOTHING_DUE")
 
     run_logistics_inspection(
-        AS_OF, sim_run_id=SIM, phase=phase, connect=_FakeConn, detect_fn=본다
+        AS_OF, sim_run_id=SIM, phase=phase, borrow=_FakeConn, detect_fn=본다
     )
 
     assert 본 == {"sim_run_id": SIM, "as_of": AS_OF, "phase": phase}

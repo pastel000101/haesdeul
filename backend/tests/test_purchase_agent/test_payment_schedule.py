@@ -11,15 +11,13 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.master.envelope import AgentRequest, ExecutionContext, validate_reply
+from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.nodes.package_scenarios import (
-    build_payment_schedule,
-    with_round_amounts,
-)
-from app.purchase_agent.nodes.self_check import check_payment_schedule
+from app.purchase_agent.config import load_constraints
+from app.purchase_agent.domain.package_scenarios import build_payment_schedule, with_round_amounts
+from app.purchase_agent.domain.self_check import check_payment_schedule
+from app.purchase_agent.service.graph import run_purchase_agent
 
 SPLIT_DAY = date(2026, 8, 21)  # 공격안이 2회 분할되는 앵커
 N5 = 7
@@ -187,7 +185,7 @@ def test_self_check_catches_a_broken_schedule(mutate, expected: str) -> None:
     scenario = {**_split_scenario(reply.payload)}
     scenario["payment_schedule"] = [dict(r) for r in scenario["payment_schedule"]]
     mutate(scenario)
-    reason = check_payment_schedule(scenario, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(scenario, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and expected in reason
 
 
@@ -203,7 +201,7 @@ def test_deleting_the_schedule_does_not_bypass_the_check() -> None:
     _, reply, _ = _run("배추", SPLIT_DAY)
     scenario = _split_scenario(reply.payload)
     stripped = {k: v for k, v in scenario.items() if k != "payment_schedule"}
-    reason = check_payment_schedule(stripped, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(stripped, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and "없다" in reason
 
 
@@ -215,7 +213,7 @@ def test_schedule_without_n5_is_rejected() -> None:
     """
     _, reply, _ = _run("배추", SPLIT_DAY)
     scenario = _split_scenario(reply.payload)
-    reason = check_payment_schedule(scenario, _state(None))  # type: ignore[arg-type]
+    reason = check_payment_schedule(scenario, _state(None), load_constraints())  # type: ignore[arg-type]
     assert reason and "N5 미결" in reason
 
 
@@ -229,7 +227,7 @@ def test_stress_amount_is_verified() -> None:
     scenario = {**_split_scenario(reply.payload)}
     scenario["payment_schedule"] = [dict(r) for r in scenario["payment_schedule"]]
     scenario["payment_schedule"][0]["amount_max_krw"] = 0
-    reason = check_payment_schedule(scenario, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(scenario, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and "STRESS" in reason
 
 
@@ -253,7 +251,7 @@ def test_moving_money_between_rounds_is_caught() -> None:
     assert sum(r["qty_kg"] for r in schedule) == scenario["total_qty_kg"]
     assert sum(r["amount_krw"] for r in schedule) == scenario["total_amount_krw"]
 
-    reason = check_payment_schedule(scenario, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(scenario, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and "회차" in reason
 
 
@@ -279,7 +277,7 @@ def test_moving_quantity_is_caught_even_when_stress_is_kept_consistent() -> None
     assert sum(r["amount_krw"] for r in schedule) == scenario["total_amount_krw"]
     assert all(r["amount_max_krw"] == r["qty_kg"] * max_price for r in schedule)
 
-    reason = check_payment_schedule(scenario, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(scenario, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and "수량이 분할과 다르다" in reason
 
 
@@ -322,7 +320,7 @@ def test_schema_rejects_a_wrong_basis_and_boolean_numbers() -> None:
     """
     from pydantic import ValidationError
 
-    from app.purchase_agent.schemas import PaymentScheduleItem
+    from app.purchase_agent.schemas.proposal import PaymentScheduleItem
 
     valid = {
         "seq": 1,
@@ -347,14 +345,17 @@ def test_self_check_rejects_a_schedule_on_a_bulk_scenario() -> None:
     split = _split_scenario(reply.payload)
     bulk = next(s for s in reply.payload["scenarios"] if len(s["split_plan"]) == 1)
     tampered = {**bulk, "payment_schedule": split["payment_schedule"]}
-    reason = check_payment_schedule(tampered, _state())  # type: ignore[arg-type]
+    reason = check_payment_schedule(tampered, _state(), load_constraints())  # type: ignore[arg-type]
     assert reason and "일괄 안에" in reason
 
 
 def test_self_check_is_silent_when_the_key_is_absent() -> None:
     """만들지 않은 경로는 검사 대상이 아니다 — 없는 것이 정상인 날이 있다."""
     proposal = run_purchase_agent("배추", SPLIT_DAY)
-    assert check_payment_schedule(_split_scenario(proposal), _state(None)) is None  # type: ignore[arg-type]
+    assert (
+        check_payment_schedule(_split_scenario(proposal), _state(None), load_constraints())  # type: ignore[arg-type]
+        is None
+    )
 
 
 def test_broken_schedule_reaches_rejected_reasons() -> None:
@@ -363,14 +364,14 @@ def test_broken_schedule_reaches_rejected_reasons() -> None:
     ⚠️ 이 테스트가 없으면 ``check_payment_schedule``을 검사 체인에서 통째로 빼도 전부
     초록불이다. 위 단위 테스트들이 함수를 직접 부르기 때문이다 — 변이로 확인해 드러났다.
     """
-    from app.purchase_agent.nodes.allocate_sourcing import allocate_sourcing
-    from app.purchase_agent.nodes.classify_situation import classify_situation
-    from app.purchase_agent.nodes.collect_context import collect_context
-    from app.purchase_agent.nodes.draft_plan import draft_plan
-    from app.purchase_agent.nodes.package_scenarios import package_scenarios
-    from app.purchase_agent.nodes.self_check import self_check
-    from app.purchase_agent.nodes.split_plan import split_plan
-    from app.purchase_agent.state import build_initial_state
+    from app.purchase_agent.service.graph import build_initial_state
+    from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+    from app.purchase_agent.service.nodes.classify_situation import classify_situation
+    from app.purchase_agent.service.nodes.collect_context import collect_context
+    from app.purchase_agent.service.nodes.draft_plan import draft_plan
+    from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+    from app.purchase_agent.service.nodes.self_check import self_check
+    from app.purchase_agent.service.nodes.split_plan import split_plan
 
     state = build_initial_state("배추", SPLIT_DAY)
     # 어댑터 경로를 흉내낸다 — N5를 실어야 계획이 만들어진다

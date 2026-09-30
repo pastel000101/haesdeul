@@ -19,17 +19,15 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady
-from app.finance.expenses import (
+from app.finance.domain.expenses import effective_paid_date
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.expenses import (
     KNOWN_EXPENSE_CATEGORIES,
     OPERATING_EXPENSE_CATEGORIES,
     PAYROLL_INTEREST_CATEGORIES,
     ExpenseConflict,
-    cancel_expense,
-    create_expense,
-    effective_paid_date,
-    settle_expense,
 )
+from app.finance.service.expenses import cancel_expense, create_expense, settle_expense
 
 SIM_RUN = "SIM-EXP-1"
 MODE = "LOAN_BASELINE"
@@ -120,7 +118,7 @@ class _Connection:
 
 @pytest.fixture(autouse=True)
 def _schema(monkeypatch):
-    monkeypatch.setattr("app.finance.expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.expenses.get_db_schema", lambda: "haetdeul")
 
 
 def _create(conn, **overrides):

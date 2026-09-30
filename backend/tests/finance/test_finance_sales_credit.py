@@ -12,16 +12,16 @@ from decimal import Decimal
 
 import pytest
 
-from app.finance.rules import (
+from app.finance.domain.rules import (
     evaluate_collection_risk_rule,
     evaluate_receivable_capacity_rule,
 )
-from app.finance.sales_validation import PartnerReceivable
-from app.finance.tools import (
+from app.finance.domain.tools import (
     calculate_available_credit,
     calculate_projected_partner_ar,
     summarize_partner_receivables,
 )
+from app.finance.schemas.sales_validation import PartnerReceivable
 
 AS_OF = date(2026, 3, 1)
 

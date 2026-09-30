@@ -34,9 +34,10 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.closing import _expense_cash_out
-from app.finance.db import _fetch_accrued_expense_rows
-from app.finance.expenses import ExpenseConflict, settle_expense
+from app.finance.repository.cash_events import select_accrued_expenses
+from app.finance.schemas.expenses import ExpenseConflict
+from app.finance.service.closing import expense_cash_out as _expense_cash_out
+from app.finance.service.expenses import settle_expense
 
 #: 실측한 기초 상태. **여기서 숫자를 지어내지 않는다.**
 BASELINE_RUN = "SIM-BURNIN-202512"
@@ -51,13 +52,14 @@ FINAL_FIRST_DAY = date(2026, 1, 1)
 
 def test_the_projection_never_reads_an_already_paid_burnin_expense():
     """기초 잔액이 이미 반영한 비용을 «앞으로 나갈 돈» 으로 다시 세지 않는다."""
-    with patch("app.finance.db.fetch_all", return_value=[]) as fetched:
-        _fetch_accrued_expense_rows(
+    with patch("app.finance.repository.cash_events.fetch_all", return_value=[]) as fetched:
+        select_accrued_expenses(
+            None,
             sim_run_id=BASELINE_RUN,
             as_of=BASELINE_STATE_DATE,
             horizon_end=date(2026, 2, 28),
         )
-    text = " ".join(fetched.call_args.args[0].as_string(None).split())
+    text = " ".join(fetched.call_args.args[1].as_string(None).split())
 
     #  🔴 PAID 17건이 걸릴 수 있는 문은 이 한 줄이 닫는다.
     assert "status = 'ACCRUED'" in text
@@ -119,7 +121,7 @@ def _burnin_row(day: int):
 
 @pytest.fixture(autouse=True)
 def _schema(monkeypatch):
-    monkeypatch.setattr("app.finance.closing.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.closing.get_db_schema", lambda: "haetdeul")
 
 
 def test_a_december_expense_is_not_cash_out_on_a_january_closing():
@@ -210,7 +212,7 @@ def test_settling_an_already_paid_burnin_expense_never_touches_the_baseline_cash
       못 가게 세워 두었고, 그래서 이 검사가 통과한다는 것은 현금 경로에 닿지 않았다는
       뜻이다.
     """
-    monkeypatch.setattr("app.finance.expenses.get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr("app.finance.repository.expenses.get_db_schema", lambda: "haetdeul")
     conn = _SettleConnection()
 
     with pytest.raises(ExpenseConflict) as error:

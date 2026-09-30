@@ -9,16 +9,13 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.cancellation import (
-    FinanceCancellationAdapter,
-    FinanceCancellationConflict,
-    cancel_finance_payables,
-)
-from app.finance.db import (
-    FinanceDataNotReady,
-    InventorySnapshot,
-    _fetch_open_payable_events,
-)
+from app.finance.adapter import FinanceCancellationAdapter
+from app.finance.domain.cash_events import payable_cash_events
+from app.finance.repository.cash_events import select_open_payables
+from app.finance.schemas.cancellation import FinanceCancellationConflict
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service.cancellation import cancel_finance_payables
 
 AS_OF = date(2026, 1, 5)
 TARGET = date(2026, 1, 6)
@@ -28,7 +25,7 @@ FINANCING_MODE = "NONE"
 @pytest.fixture(autouse=True)
 def _inventory_snapshot():
     with patch(
-        "app.finance.cancellation.load_inventory_snapshot_as_of",
+        "app.finance.service.cancellation.load_inventory_snapshot_as_of",
         return_value=InventorySnapshot(Decimal(1), Decimal(401), Decimal(351)),
     ):
         yield
@@ -588,15 +585,14 @@ def test_weekend_target_is_accepted_and_caller_connection_is_not_managed():
 def test_cancelled_payables_are_excluded_from_projection_by_status_contract():
     captured = {}
 
-    def fake_fetch(query, params):
+    def fake_fetch(_conn, query, params):
         captured["query"] = str(query)
         captured["params"] = params
         return []
 
-    with patch("app.finance.db.fetch_all", side_effect=fake_fetch):
-        rows, events = _fetch_open_payable_events(
-            sim_run_id="SIM-1", as_of=AS_OF, horizon_end=TARGET
-        )
+    with patch("app.finance.repository.cash_events.fetch_all", side_effect=fake_fetch):
+        rows = select_open_payables(None, sim_run_id="SIM-1", horizon_end=TARGET)
+    events = payable_cash_events(rows, as_of=AS_OF)
 
     assert rows == events == []
     assert "status = 'OPEN'" in captured["query"]

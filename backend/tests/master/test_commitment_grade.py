@@ -43,13 +43,11 @@ from typing import Any, Self
 
 import pytest
 
-from app.master import ledger, transition
-from app.master.commitment import (
-    ApprovedCommitment,
-    ArrivalLeg,
-    SourcingLine,
-    build_commitment,
-)
+from app.contracts.commitment import ApprovedCommitment, ArrivalLeg, SourcingLine
+from app.master.domain import ledger as domain_ledger
+from app.master.domain import purchase_ids as domain_purchase_ids
+from app.master.domain.commitment import build_commitment
+from app.master.repository import ledger as repository_ledger
 
 AS_OF = date(2025, 12, 31)
 
@@ -136,18 +134,20 @@ def _한줄(*, grade: str = "특") -> list[dict[str, Any]]:
     return [{"grade": grade, "market": "가락", "qty_kg": 3587, "grade_unit_price": 854}]
 
 
-def _원장행(commitment: ApprovedCommitment) -> tuple[ledger.PurchaseWrite, ...]:
+def _원장행(commitment: ApprovedCommitment) -> tuple[domain_ledger.PurchaseWrite, ...]:
     purchase_ids = {
-        leg.seq: transition.purchase_id_for(commitment, leg.seq)
+        leg.seq: domain_purchase_ids.purchase_id_for(commitment, leg.seq)
         for leg in commitment.arrival_schedule
     }
-    return ledger.build_purchase_rows(commitment, purchase_ids=purchase_ids, sim_run_id=실행축)
+    return domain_ledger.build_purchase_rows(
+        commitment, purchase_ids=purchase_ids, sim_run_id=실행축
+    )
 
 
 def _품목줄_파라미터(commitment: ApprovedCommitment) -> list[Any]:
     """`purchase_items` 로 나간 `INSERT` 의 파라미터."""
     conn = 가짜커넥션()
-    ledger.persist_purchases(conn, _원장행(commitment))
+    repository_ledger.persist_purchases(conn, _원장행(commitment))
     return next(
         params for text, params in conn.log if "INSERT INTO" in text and "purchase_items" in text
     )
@@ -211,7 +211,7 @@ def test_같은_등급_두_줄은_등급_하나다() -> None:
 
     assert len(commitment.sourcing_plan) == 2, "줄은 둘 그대로다"
     assert [N(g) for g in commitment.grades] == [N("특")], "등급은 하나다"
-    assert ledger.ledger_block_reason(commitment) == "", "등급이 하나면 막지 않는다"
+    assert domain_ledger.ledger_block_reason(commitment) == "", "등급이 하나면 막지 않는다"
 
 
 # ── ② 그 등급이 purchase_items.grade 에 적힌다 ──────────────────────────
@@ -234,7 +234,7 @@ def test_등급이_시장이나_근거_칸으로_새지_않는다() -> None:
        보인다.
     """
     conn = 가짜커넥션()
-    ledger.persist_purchases(conn, _원장행(_약정(scenario=_안(sourcing_plan=_한줄()))))
+    repository_ledger.persist_purchases(conn, _원장행(_약정(scenario=_안(sourcing_plan=_한줄()))))
     text, params = next((t, p) for t, p in conn.log if "INSERT INTO" in t and "purchase_items" in t)
 
     assert "VALUES (%s, %s, %s, %s, NULL, %s, %s, %s, NULL)" in " ".join(text.split())
@@ -292,7 +292,7 @@ def test_등급으로_읽히지_않으면_NULL_이다(sourcing_plan: Any) -> Non
 
 def test_원장은_등급이_없어도_멈추지_않는다() -> None:
     """★ 등급이 안 온 것은 **정상 상태**다 — 오늘 지나가는 길이 그것이다."""
-    assert ledger.ledger_block_reason(_약정(scenario=_안())) == ""
+    assert domain_ledger.ledger_block_reason(_약정(scenario=_안())) == ""
 
 
 # ── ④ 등급이 둘 이상이면 막는다 ─────────────────────────────────────────
@@ -309,7 +309,7 @@ def test_등급이_둘_이상이면_원장을_막는다() -> None:
     """🔴 `purchase_items` 는 품목당 한 줄이고 `grade` 는 한 칸이다 — 담을 자리가 없다."""
     commitment = _약정(scenario=_안(sourcing_plan=_두등급()))
 
-    사유 = ledger.ledger_block_reason(commitment)
+    사유 = domain_ledger.ledger_block_reason(commitment)
     assert 사유, "막아야 한다"
     assert N("등급이 2개인데 매입 줄이 하나다") in N(사유), "왜 못 쓰는지가 사유에 있어야 한다"
 
@@ -318,7 +318,7 @@ def test_등급이_둘이면_행을_만들지_않는다() -> None:
     """🔴 **아무거나 고르지 않는다.** 고르면 어느 등급이 남는지가 줄 순서에 걸린다."""
     commitment = _약정(scenario=_안(sourcing_plan=_두등급()))
 
-    with pytest.raises(ledger.PurchaseLedgerNotWritable) as 걸림:
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable) as 걸림:
         _원장행(commitment)
 
     assert N("등급이 2개인데 매입 줄이 하나다") in N(str(걸림.value))
@@ -329,15 +329,15 @@ def test_등급이_둘이면_커넥션도_안_연다() -> None:
     conn = 가짜커넥션()
     commitment = _약정(scenario=_안(sourcing_plan=_두등급()))
 
-    with pytest.raises(ledger.PurchaseLedgerNotWritable):
-        ledger.persist_purchases(conn, _원장행(commitment))
+    with pytest.raises(domain_ledger.PurchaseLedgerNotWritable):
+        repository_ledger.persist_purchases(conn, _원장행(commitment))
 
     assert conn.log == []
 
 
 def test_막을_때_등급을_고르지도_합치지도_않는다() -> None:
     """🔴 사유에 **둘 다** 적힌다 — 하나만 적으면 그것을 골랐다는 뜻으로 읽힌다."""
-    사유 = ledger.ledger_block_reason(_약정(scenario=_안(sourcing_plan=_두등급())))
+    사유 = domain_ledger.ledger_block_reason(_약정(scenario=_안(sourcing_plan=_두등급())))
 
     assert N("특") in N(사유) and N("상") in N(사유)
     assert N("특상") not in N(사유), "붙여 합친 등급을 만들지 않는다"
@@ -347,7 +347,7 @@ def test_등급이_셋이면_셋이라고_적는다() -> None:
     """★ *"등급이 여럿"* 처럼 뭉뚱그리지 않는다 — 몇 개인지가 사유에 있어야 한다."""
     셋 = _두등급() + [{"grade": "중", "market": "가락", "qty_kg": 0, "grade_unit_price": 600}]
     셋[0]["qty_kg"] = 2000
-    사유 = ledger.ledger_block_reason(_약정(scenario=_안(sourcing_plan=셋)))
+    사유 = domain_ledger.ledger_block_reason(_약정(scenario=_안(sourcing_plan=셋)))
 
     assert N("등급이 3개인데 매입 줄이 하나다") in N(사유)
 
@@ -366,11 +366,11 @@ def test_등급이_셋이면_셋이라고_적는다() -> None:
 def test_등급이_둘이면_갈래가_등급_둘이다() -> None:
     commitment = _약정(scenario=_안(sourcing_plan=_두등급()))
 
-    막힘 = ledger.ledger_block(commitment)
+    막힘 = domain_ledger.ledger_block(commitment)
 
     assert 막힘 is not None
-    assert 막힘.kind == ledger.BLOCK_GRADES
-    assert 막힘.reason == ledger.ledger_block_reason(commitment), (
+    assert 막힘.kind == domain_ledger.BLOCK_GRADES
+    assert 막힘.reason == domain_ledger.ledger_block_reason(commitment), (
         "문장의 주인은 여전히 한 곳이다 — 갈래를 연다고 문장이 갈리면 안 된다"
     )
 
@@ -379,8 +379,8 @@ def test_막을_것이_없으면_갈래도_없다() -> None:
     """🔴 **막는 판정이 넓어지면 걷기가 고르는 것이 바뀐다.** 종전 그대로여야 한다."""
     commitment = _약정(scenario=_안())
 
-    assert ledger.ledger_block(commitment) is None
-    assert ledger.ledger_block_reason(commitment) == ""
+    assert domain_ledger.ledger_block(commitment) is None
+    assert domain_ledger.ledger_block_reason(commitment) == ""
 
 
 def test_영영_안_될_갈래는_등급_둘_하나다() -> None:
@@ -389,10 +389,10 @@ def test_영영_안_될_갈래는_등급_둘_하나다() -> None:
     회차 금액 · 지급일 · 도착분은 매입·재무·물류가 값을 보내면 다음 날 풀린다.
     등급이 둘인 것은 담을 칸이 없는 것이라 며칠을 재시도해도 같은 이유로 막힌다.
     """
-    assert ledger.PERMANENT_BLOCK_KINDS == (ledger.BLOCK_GRADES,)
-    assert ledger.BLOCK_LEG_AMOUNT not in ledger.PERMANENT_BLOCK_KINDS
-    assert ledger.BLOCK_PAYMENT_DUE not in ledger.PERMANENT_BLOCK_KINDS
-    assert ledger.BLOCK_NO_ARRIVAL not in ledger.PERMANENT_BLOCK_KINDS
+    assert domain_ledger.PERMANENT_BLOCK_KINDS == (domain_ledger.BLOCK_GRADES,)
+    assert domain_ledger.BLOCK_LEG_AMOUNT not in domain_ledger.PERMANENT_BLOCK_KINDS
+    assert domain_ledger.BLOCK_PAYMENT_DUE not in domain_ledger.PERMANENT_BLOCK_KINDS
+    assert domain_ledger.BLOCK_NO_ARRIVAL not in domain_ledger.PERMANENT_BLOCK_KINDS
 
 
 # ── ⑤ 원문 잠금 — 넣지 않기로 한 것이 안 들어갔다 ───────────────────────
@@ -438,7 +438,7 @@ def test_purchase_item_id_규칙이_안_바뀌었다() -> None:
     params = _품목줄_파라미터(commitment)
     assert params[0] == "PITEM-REQ-1-D1-S1-BAECHU", "등급이 키에 안 섞인다"
     assert params[1] == "PUR-REQ-1-D1-S1"
-    assert transition.purchase_item_id_for("PUR-REQ-1-D1-S1", "BAECHU") == params[0]
+    assert domain_purchase_ids.purchase_item_id_for("PUR-REQ-1-D1-S1", "BAECHU") == params[0]
 
 
 def test_등급이_있어도_품목_줄은_하나다() -> None:
@@ -446,7 +446,7 @@ def test_등급이_있어도_품목_줄은_하나다() -> None:
     commitment = _약정(scenario=_안(sourcing_plan=_한줄()))
     conn = 가짜커넥션()
 
-    written = ledger.persist_purchases(conn, _원장행(commitment))
+    written = repository_ledger.persist_purchases(conn, _원장행(commitment))
 
     assert written == {"purchases": 1, "purchase_items": 1}
 

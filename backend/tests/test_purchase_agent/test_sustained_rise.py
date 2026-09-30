@@ -24,9 +24,9 @@ from pathlib import Path
 import pytest
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes import classify_situation as 축_모듈
-from app.purchase_agent.nodes import split_plan as 진입_모듈
-from app.purchase_agent.nodes.classify_situation import (
+from app.purchase_agent.domain import classify_situation as 축_모듈
+from app.purchase_agent.domain import split_plan as 진입_모듈
+from app.purchase_agent.domain.classify_situation import (
     TREND_DECLINED,
     TREND_NO_NET_RISE,
     TREND_RISING,
@@ -41,10 +41,10 @@ from app.purchase_agent.nodes.classify_situation import (
     judge_sustained_rise,
     sustained_rise_sentence,
 )
-from app.purchase_agent.nodes.package_scenarios import _entry_miss_reason
-from app.purchase_agent.nodes.split_plan import evaluate_split_entry
-from app.purchase_agent.schemas import TIMING_AXIS
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain.package_scenarios import _entry_miss_reason
+from app.purchase_agent.domain.split_plan import evaluate_split_entry
+from app.purchase_agent.schemas.proposal import TIMING_AXIS
+from app.purchase_agent.service.graph import build_initial_state
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sustained_rise_real_windows.json"
 MOCK_AS_OF = date(2026, 8, 21)

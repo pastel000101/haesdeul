@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from app.sales.proposal import _confirmed_sellable_qty
-from app.sales.schemas import SalesProposalInput
+from app.sales.domain.proposal import _confirmed_sellable_qty
+from app.sales.schemas.proposal import SalesProposalInput
 from tests.sales.test_sales_proposal import _request
 
 
@@ -41,7 +41,7 @@ def test_사람이_수량을_안_주면_물류_확정값을_쓴다() -> None:
 
 def test_사람이_준_수량이_있으면_그것이_이긴다() -> None:
     """★ 물류 값은 **사람이 말하지 않은 자리만** 채운다."""
-    from app.sales.proposal import _baseline
+    from app.sales.domain.proposal import _baseline
 
     수량, *_ = _baseline(_request(business_mode="SPOT_SALES"))
 
@@ -100,7 +100,7 @@ def test_안이_실제로_그_수량으로_선다() -> None:
       수량 없이 선다. 변이(`if quantity is None` 을 죽임)로 이 구멍을 찾았다 —
       위 검사 여섯이 전부 통과했다.
     """
-    from app.sales.proposal import _baseline
+    from app.sales.domain.proposal import _baseline
 
     수량, *_ = _baseline(_수량없는요청())
 

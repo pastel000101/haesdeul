@@ -34,8 +34,9 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import closing
-from app.finance.db import FinanceDataNotReady, InventorySnapshot
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service import closing
 
 WALK_RUN_ID = "SIM-WALK-2026"
 BURNIN_RUN_ID = "SIM-BURNIN-202512"
@@ -205,7 +206,7 @@ def _walk_conn(
 
 
 def _close(conn, *, as_of=AS_OF, sim_run_id=WALK_RUN_ID):
-    return closing.FinanceDayClosing().close(conn, as_of=as_of, sim_run_id=sim_run_id)
+    return closing.close_finance_day_on(conn, as_of=as_of, sim_run_id=sim_run_id)
 
 
 def _row(conn, *, as_of=AS_OF, sim_run_id=WALK_RUN_ID):
@@ -216,8 +217,8 @@ def _row(conn, *, as_of=AS_OF, sim_run_id=WALK_RUN_ID):
 def _schema():
     snapshot = InventorySnapshot(Decimal(123), Decimal(456), Decimal(456))
     with (
-        patch("app.finance.closing.get_db_schema", return_value="haetdeul"),
-        patch("app.finance.closing.load_inventory_snapshot_as_of", return_value=snapshot),
+        patch("app.finance.repository.closing.get_db_schema", return_value="haetdeul"),
+        patch("app.finance.service.closing.load_inventory_snapshot_as_of", return_value=snapshot),
     ):
         yield
 

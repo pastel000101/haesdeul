@@ -23,13 +23,13 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from app.master import critic_bridge as bridge
-from app.master.critic_bridge import DEPT_CAP_CHECK_ID
+from app.contracts.envelope import DEPT_CAP_CHECK_ID
+from app.master.adapters import critic_bridge
 from tests.master.test_critic_bridge import CONSTRAINTS, EVIDENCES, _proposal
 
 
 def _request(observations=None):
-    return bridge.build_request(
+    return critic_bridge.build_request(
         as_of=date(2025, 12, 31),
         item="배추",
         proposal=_proposal(),

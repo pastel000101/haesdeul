@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.finance.query import STATES, build
+from app.api.finance.presenter import STATES, build
 from app.api.finance.schema import FinanceTab
 
 router = APIRouter(prefix="/finance", tags=["api:finance"])

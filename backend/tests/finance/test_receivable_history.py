@@ -2,15 +2,38 @@
 
 🔴 이 파일은 재무와 판매 **두 벌**을 함께 잠근다. 두 도메인은 서로를 import 하지 않는
    것이 계약이라 규칙이 두 곳에 있고, 갈리는 순간 판정이 갈린다.
+
+★ 2026-09-29 재구성 BL-014: 두 벌 가운데 **상태 규칙**(`projected_status`)은 글자까지 같아
+  계약 `app/contracts/receivable_history.py` 한 벌로 합쳤다. **SQL 조각**(`history_join` ·
+  `history_columns`)은 계약이 DB 를 모르므로 재무 · 판매 repository 에 한 벌씩 남아 있다.
+  그래서 이 파일은 이제 ① 두 SQL 조각이 갈리지 않는지 ② 상태 규칙이 다시 두 벌이 되지
+  않는지를 잠근다. 부서별 대조 이름(`finance` · `sales`)은 그대로 둔다.
 """
 
+import ast
 import pathlib
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
-from app.finance import receivable_history as finance_history
-from app.sales import receivable_history as sales_history
+from app.contracts import receivable_history as contract_rule
+from app.finance.repository import receivable_history as finance_sql
+from app.sales.repository import receivable_history as sales_sql
+
+#: ★ 2026-09-29 BL-013: 판매 쪽은 상태 규칙(`domain/`)과 SQL 조각(`repository/`)으로 나뉘었다.
+#: ★ 2026-09-29 재구성 BL-014: 재무도 같게 나뉘었고, 상태 규칙은 두 부서가 계약 한 벌을 쓴다.
+#:   부서마다 «그 부서가 실제로 쓰는 규칙 + 그 부서의 SQL 조각» 을 한 벌로 묶어 맞댄다.
+finance_history = SimpleNamespace(
+    projected_status=contract_rule.projected_status,
+    history_join=finance_sql.history_join,
+    history_columns=finance_sql.history_columns,
+)
+sales_history = SimpleNamespace(
+    projected_status=contract_rule.projected_status,
+    history_join=sales_sql.history_join,
+    history_columns=sales_sql.history_columns,
+)
 
 MODULES = pytest.mark.parametrize(
     "history", [finance_history, sales_history], ids=["finance", "sales"]
@@ -187,14 +210,84 @@ def test_finance_and_sales_agree_on_every_status_boundary(original, received):
     )
 
 
+def _definitions(path: pathlib.Path) -> dict[str, str]:
+    """모듈 맨 위 정의마다 **그 원문**(바로 위 `#` 주석 줄 포함)."""
+    source = path.read_text(encoding="utf-8")
+    lines = source.splitlines()
+    found: dict[str, str] = {}
+    for node in ast.parse(source).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            name = node.name
+        elif isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+        else:
+            continue
+        start = node.lineno - 1
+        while start > 0 and lines[start - 1].lstrip().startswith("#"):
+            start -= 1
+        found[name] = "\n".join(lines[start : node.end_lineno])
+    return found
+
+
+#: 두 부서 repository 에 한 벌씩 있는 SQL 조각 정의. 파일의 정의가 이것뿐이어야 한다.
+_SQL_BODY = (
+    "_HISTORY_JOIN",
+    "_HISTORY_COLUMNS",
+    "history_join",
+    "history_columns",
+)
+
+#: 계약 한 벌에만 있는 상태 규칙 정의.
+_CONTRACT_BODY = ("_ZERO", "projected_status")
+
+
 def test_the_two_modules_stay_byte_identical_in_their_rule_bodies():
     """한쪽만 고치는 날을 빨간불로 만든다.
 
     ⚠️ 머리말(docstring)은 도메인마다 다를 수 있으므로 **규칙 본문만** 대조한다.
+
+    ★ 2026-09-29 BL-013: 판매 쪽이 두 파일이 되어 «표시 줄 아래 꼬리 전체» 대신 **정의마다
+      원문**(주석 포함)을 맞댄다.
+
+    ★ 2026-09-29 재구성 BL-014: 두 벌로 남은 것은 SQL 조각뿐이다. 두 repository 파일의 정의가
+      이 목록과 **정확히** 같고 글자까지 같아야 한다 — 목록 밖의 정의가 한쪽에 생겨도
+      빨간불이다. 상태 규칙은 계약 한 벌에만 있다.
     """
     root = pathlib.Path("app")
-    marker = "_ZERO = Decimal(0)"
-    finance_body = (root / "finance" / "receivable_history.py").read_text(encoding="utf-8")
-    sales_body = (root / "sales" / "receivable_history.py").read_text(encoding="utf-8")
+    finance = _definitions(root / "finance" / "repository" / "receivable_history.py")
+    sales = _definitions(root / "sales" / "repository" / "receivable_history.py")
+    contract = _definitions(root / "contracts" / "receivable_history.py")
 
-    assert finance_body.split(marker, 1)[1] == sales_body.split(marker, 1)[1]
+    assert list(finance) == list(_SQL_BODY)
+    assert list(sales) == list(_SQL_BODY)
+    for name in _SQL_BODY:
+        assert finance[name] == sales[name], name
+    assert list(contract) == list(_CONTRACT_BODY)
+
+
+def test_the_status_rule_does_not_become_two_copies_again():
+    """★ 2026-09-29 재구성 BL-014: 상태 규칙을 부서 안에 다시 두면 두 벌 대조가 사라진 채 갈린다.
+
+    재무 · 판매 어디에도 `projected_status` 정의가 없고, 쓰는 자리는 계약에서 들여온다.
+    """
+    root = pathlib.Path("app")
+    importers: list[str] = []
+    for department in ("finance", "sales"):
+        for path in sorted((root / department).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    assert node.name != "projected_status", path
+                if isinstance(node, ast.ImportFrom) and any(
+                    alias.name == "projected_status" for alias in node.names
+                ):
+                    assert node.module == "app.contracts.receivable_history", path
+                    importers.append(path.relative_to(root).as_posix())
+
+    assert importers == [
+        "finance/readmodel/console_credit.py",
+        "finance/readmodel/console_receivables.py",
+        "sales/readmodel/console_collections.py",
+        "sales/readmodel/console_partners.py",
+        "sales/readmodel/dashboard.py",
+    ]

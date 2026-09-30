@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.sales.query import build
+from app.api.sales.presenter import build
 from app.api.sales.schema import SalesTab
 
 router = APIRouter(prefix="/sales", tags=["api:sales"])

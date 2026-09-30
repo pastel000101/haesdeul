@@ -29,31 +29,38 @@ from pathlib import Path
 import psycopg
 import pytest
 
-from app.logistics import disposal, ledger, outbound, turnover
-from app.logistics.db import get_connection
-from app.logistics.disposal import (
-    DisposalBlocked,
-    DisposalIntegrityError,
-    InvalidDisposalRequest,
-    confirm_disposal,
-    disposal_move_id_for,
-)
-from app.logistics.ledger import UnsupportedMoveType, record_inventory_move
-from app.logistics.outbound import (
-    AllocationRequest,
-    InvalidOutboundRequest,
-    allocate_stock,
-    recommend_fefo_candidates,
-    reserve_stock,
-)
-from app.logistics.turnover import (
+from app.core import db as core_db
+from app.logistics.domain import disposal as disposal_domain
+from app.logistics.domain import turnover as turnover_domain
+from app.logistics.domain.disposal import disposal_move_id_for
+from app.logistics.domain.turnover import (
     derive_turnover_status,
     elapsed_days,
     is_disposal_candidate,
-    load_lot_turnover,
     remaining_turnover_days,
     sell_priority_of,
 )
+from app.logistics.readmodel import turnover as turnover_readmodel
+from app.logistics.readmodel.turnover import load_lot_turnover
+from app.logistics.repository import disposal as disposal_repository
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import outbound as outbound_repository
+from app.logistics.repository import turnover as turnover_repository
+from app.logistics.schemas import disposal as disposal_schemas
+from app.logistics.schemas import turnover as turnover_schemas
+from app.logistics.schemas.disposal import (
+    DisposalBlocked,
+    DisposalIntegrityError,
+    InvalidDisposalRequest,
+)
+from app.logistics.schemas.ledger import UnsupportedMoveType
+from app.logistics.schemas.outbound import AllocationRequest, InvalidOutboundRequest
+from app.logistics.service import disposal
+from app.logistics.service import ledger as ledger_service
+from app.logistics.service import outbound as outbound_service
+from app.logistics.service.disposal import confirm_disposal
+from app.logistics.service.ledger import record_inventory_move
+from app.logistics.service.outbound import allocate_stock, recommend_fefo_candidates, reserve_stock
 
 pytestmark = pytest.mark.db
 
@@ -82,6 +89,19 @@ CREATE TABLE {TMP_SCHEMA}.sale_items (sale_item_id text PRIMARY KEY);
 """
 
 
+#: 종전 `turnover.py` · `disposal.py` 한 파일씩 — 2026-09-30 재구성 BL-015 부터 네 파일씩이다.
+_회전_모듈 = (turnover_readmodel, turnover_repository, turnover_domain, turnover_schemas)
+_폐기_모듈 = (disposal, disposal_repository, disposal_domain, disposal_schemas)
+
+
+def _코드들(modules: tuple[object, ...]) -> str:
+    """파일마다 docstring · 주석을 걷어내고 잇는다(이어 붙인 뒤 걷으면 둘째 파일부터 모듈
+    docstring 이 남는다)."""
+    return chr(10).join(
+        _코드만(Path(module.__file__).read_text(encoding="utf-8")) for module in modules
+    )
+
+
 def _코드만(source: str) -> str:
     tree = ast.parse(source)
     코드 = source
@@ -104,48 +124,53 @@ def _repo_block(table: str) -> str:
 
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
-    connection = get_connection()
-    connection.autocommit = False
-    try:
-        with connection.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
-            cur.execute(_STUBS)
-            for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-            wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-            wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-            cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
-            nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
-                encoding="utf-8"
-            )
-            nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
-            cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
-
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
-            cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
-            for item, name in ((ITEM_ID, "배추"), (NO_POLICY_ITEM, "건고추")):
-                cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
-                cur.execute(
-                    f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
-                    " (item_id, storage_zone, operational_limit_days,"
-                    " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
-                    (item, ZONE, LIMIT_DAYS),
+    with core_db.connection() as connection:
+        connection.autocommit = False
+        try:
+            with connection.cursor() as cur:
+                cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
+                cur.execute(_STUBS)
+                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
+                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
+                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
+                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
+                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                nullable = (_DB_DIR / "logistics_inventory_lots_nullable.sql").read_text(
+                    encoding="utf-8"
                 )
-            # 🔴 회전 정책은 **한 품목에만** 넣는다 — 실 DB 도 3/5 품목뿐이다.
-            cur.execute(
-                f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
-                " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
-                "  policy_status, evidence_grade, source_ref)"
-                " VALUES (%s, %s, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
-                (ITEM_ID, TARGET, PRIORITY_DAYS),
-            )
-        for module in (turnover, disposal, outbound, ledger):
-            monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
-        yield connection
-    finally:
-        connection.rollback()
-        connection.close()
+                nullable = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", nullable)
+                cur.execute(nullable.replace("haetdeul.", f"{TMP_SCHEMA}."))
+
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.purchase_items VALUES ('PI-TEST')")
+                cur.execute(f"INSERT INTO {TMP_SCHEMA}.sales VALUES (%s)", (SALE_ID,))
+                for item, name in ((ITEM_ID, "배추"), (NO_POLICY_ITEM, "건고추")):
+                    cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (item, name))
+                    cur.execute(
+                        f"INSERT INTO {TMP_SCHEMA}.item_storage_policies"
+                        " (item_id, storage_zone, operational_limit_days,"
+                        " operational_policy_status) VALUES (%s, %s, %s, 'PROVISIONAL')",
+                        (item, ZONE, LIMIT_DAYS),
+                    )
+                # 🔴 회전 정책은 **한 품목에만** 넣는다 — 실 DB 도 3/5 품목뿐이다.
+                cur.execute(
+                    f"INSERT INTO {TMP_SCHEMA}.item_turnover_policies"
+                    " (item_id, operational_turnover_target_days, sell_priority_remaining_days,"
+                    "  policy_status, evidence_grade, source_ref)"
+                    " VALUES (%s, %s, %s, 'SIMULATION_POLICY', 'SIM_FIXED', 'TEST')",
+                    (ITEM_ID, TARGET, PRIORITY_DAYS),
+                )
+            # ★ 2026-09-30 재구성 BL-015: 네 기능의 SQL 은 repository 파일에 있다.
+            for module in (
+                turnover_repository,
+                disposal_repository,
+                outbound_repository,
+                ledger_repository,
+            ):
+                monkeypatch.setattr(module, "get_db_schema", lambda: TMP_SCHEMA)
+            yield connection
+        finally:
+            connection.rollback()
 
 
 # ── 준비 도우미 ─────────────────────────────────────────────────────────
@@ -408,7 +433,7 @@ def test_15_16_17_후보여도_재고와_Capacity_가_그대로다(conn: psycopg
 
 def test_18_목표초과만으로는_후보가_되지_않는다(conn: psycopg.Connection) -> None:
     """🔴 `turnover.py` 가 `disposal.py` 를 임포트하지 않는 것이 그 단방향의 증거다."""
-    코드 = _코드만(Path(turnover.__file__).read_text(encoding="utf-8"))
+    코드 = _코드들(_회전_모듈)
 
     assert "STORAGE_TARGET_EXCEEDED" in 코드, "어휘는 있다"
     assert "disposal" not in 코드.replace("disposal_candidate", ""), "폐기 모듈을 안 부른다"
@@ -689,7 +714,7 @@ def test_34_출고된_수량을_이중_차감하지_않는다(conn: psycopg.Conn
         allocation_basis="HUMAN_OVERRIDE",
         as_of=AS_OF,
     )
-    outbound.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
+    outbound_service.ship_allocated_stock(conn, reservation_id="RSV-1", shipped_at=AS_OF)
     assert _lot행(conn, "LOT-A")["remaining_qty_kg"] == Decimal(70)
     후보날 = AS_OF + __import__("datetime").timedelta(days=LIMIT_DAYS)
 
@@ -704,14 +729,14 @@ def test_35_DISPOSE_외_어휘를_만들지_않는다(conn: psycopg.Connection) 
 
     종류 = {m["move_type"] for m in _moves(conn)}
     assert 종류 == {"DISPOSE"}
-    코드 = _코드만(Path(disposal.__file__).read_text(encoding="utf-8"))
+    코드 = _코드들(_폐기_모듈)
     for 금지 in ("ADJUST", "inventory_count"):
         assert 금지 not in 코드
 
 
 def test_36_37_38_타파트_표를_건드리지_않는다(conn: psycopg.Connection) -> None:
-    for 파일 in (turnover.__file__, disposal.__file__):
-        코드 = _코드만(Path(파일).read_text(encoding="utf-8"))
+    for 모듈 in (*_회전_모듈, *_폐기_모듈):
+        코드 = _코드만(Path(모듈.__file__).read_text(encoding="utf-8"))
         for 금지 in ("app.master", "app.sales", "app.finance", "app.purchase_agent"):
             assert 금지 not in 코드, f"{금지} — 타파트를 끌어오고 있다"
 
@@ -736,7 +761,7 @@ def test_Ledger_는_여전히_IN_OUT_만_받는다(conn: psycopg.Connection) -> 
 
 
 def test_원장_밖에서_잔량을_고치지_않는다(conn: psycopg.Connection) -> None:
-    코드 = _코드만(Path(disposal.__file__).read_text(encoding="utf-8"))
+    코드 = _코드들(_폐기_모듈)
 
     # ⚠️ **대입만 잡는다.** `_mark_disposed` 의 `WHERE ... remaining_qty_kg = 0` 은
     #    "정말 0 일 때만 DISPOSED 를 붙인다" 는 **읽기 가드**라 잡으면 안 된다.
@@ -757,8 +782,11 @@ def test_39_44_경계와_잠금(conn: psycopg.Connection) -> None:
     _폐기한다(conn, "LOT-A", "30")
 
     assert conn.info.transaction_status.name in {"INTRANS", "INERROR"}
-    코드 = _코드만(Path(disposal.__file__).read_text(encoding="utf-8"))
+    코드 = _코드들(_폐기_모듈)
     assert "get_connection" not in 코드
+    # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    assert "core_db" not in 코드
+    assert "app.core" not in 코드
     assert "commit" not in 코드
     assert "rollback" not in 코드
     # ★ 새 잠금을 만들지 않고 출고 잠금을 재사용한다 — 순서 역전이 생길 자리가 없다.
@@ -768,12 +796,12 @@ def test_39_44_경계와_잠금(conn: psycopg.Connection) -> None:
 
 def test_43_잠금_뒤에_한도를_다시_센다(conn: psycopg.Connection) -> None:
     """★ 잠금 → 후보 판정 → 한도 계산 순서다."""
-    코드 = _코드만(Path(disposal.__file__).read_text(encoding="utf-8"))
+    코드 = _코드들(_폐기_모듈)
     본문 = 코드.split("def confirm_disposal(")[1]
 
     잠금 = 본문.index("lock_outbound_writes")
     후보 = 본문.index("load_lot_turnover")
-    한도 = 본문.index("_lot_disposable_qty")
+    한도 = 본문.index("lot_disposable_qty")
     assert 잠금 < 후보 < 한도, "잠금이 먼저이고 그 안에서 다시 센다"
 
 
@@ -839,17 +867,26 @@ def test_DISPOSE_저수준_함수가_공개_API_가_아니다(conn: psycopg.Conn
 
     저수준 함수가 밖에서 보이면 후보 검증·예약 보호를 건너뛰는 우회로가 생긴다.
     """
-    assert not any("disposal" in name for name in ledger.__all__), ledger.__all__
-    assert "record_disposal_move" not in dir(ledger), "밑줄 없는 이름이 남아 있다"
-    assert hasattr(ledger, "_record_disposal_move"), "내부 helper 는 있어야 한다"
+    # ★ 2026-09-30 재구성 BL-015: 원장 진입점은 `service/ledger` 다. 종전 `ledger.__all__` 대신
+    #   그 모듈이 정의한 공개 이름을 본다.
+    공개 = {
+        node.name
+        for node in ast.parse(Path(ledger_service.__file__).read_text(encoding="utf-8")).body
+        if isinstance(node, ast.FunctionDef) and not node.name.startswith("_")
+    }
+    assert not any("disposal" in name for name in 공개), 공개
+    assert "record_disposal_move" not in dir(ledger_service), "밑줄 없는 이름이 남아 있다"
+    assert hasattr(ledger_service, "_record_disposal_move"), "내부 helper 는 있어야 한다"
 
-    # ★ `disposal.py` 만 그 helper 를 쓴다.
+    # ★ 폐기(`service/disposal.py`)만 그 helper 를 쓴다. 물류 전체를 보고, 설명문(주석 ·
+    #   docstring)의 언급은 쓰는 곳으로 세지 않는다.
+    물류 = Path(ledger_service.__file__).parents[1]
     쓰는곳 = [
-        경로.name
-        for 경로 in Path(disposal.__file__).parent.glob("*.py")
-        if "_record_disposal_move" in 경로.read_text(encoding="utf-8")
+        경로.relative_to(물류).as_posix()
+        for 경로 in 물류.rglob("*.py")
+        if "_record_disposal_move" in _코드만(경로.read_text(encoding="utf-8"))
     ]
-    assert sorted(쓰는곳) == ["disposal.py", "ledger.py"], 쓰는곳
+    assert sorted(쓰는곳) == ["service/disposal.py", "service/ledger.py"], 쓰는곳
 
 
 def test_같은_참조에_다른_note_면_충돌이다(conn: psycopg.Connection) -> None:

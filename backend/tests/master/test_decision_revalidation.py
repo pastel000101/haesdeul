@@ -30,8 +30,11 @@ from uuid import UUID, uuid4
 import pytest
 
 import app.master
-from app.master import decision_repository
-from app.master.decision import Decision, DecisionOut, RevalidationOutcome
+from app.master.readmodel import decisions as readmodel_decisions
+from app.master.repository import decisions as repository_decisions
+from app.master.schemas.decision import Decision, DecisionOut, RevalidationOutcome
+from app.master.service import decision
+from tests.fake_core_db import patch_sql_helpers
 
 _DDL = (
     Path(app.master.__file__).parent.parent.parent.parent
@@ -158,9 +161,11 @@ def _insert_columns() -> list[str]:
     """
     import inspect
 
-    source = inspect.getsource(decision_repository.save_decision)
+    # ★ 2026-09-30 재구성 BL-018: INSERT 문은 `save_decision` 이 부르는
+    #   적재(`repository/decisions.insert_decision`)에 있다.
+    source = inspect.getsource(repository_decisions.insert_decision)
     found = _INSERT.search(source)
-    assert found is not None, "save_decision 에서 INSERT 문을 못 찾았다"
+    assert found is not None, "insert_decision(save_decision 의 적재)에서 INSERT 문을 못 찾았다"
 
     columns = [c.strip() for c in found.group("cols").split(",") if c.strip()]
     placeholders = [v.strip() for v in found.group("vals").split(",") if v.strip()]
@@ -190,8 +195,9 @@ def 적재_인자(monkeypatch: pytest.MonkeyPatch):
         # 읽어 내는지까지 같이 본다.
         return {**잡힌_값, "run_id": UUID(잡힌_값["run_id"]), "created_at": datetime.now(UTC)}
 
-    monkeypatch.setattr(decision_repository, "execute_returning_one", _capture)
-    monkeypatch.setattr(decision_repository, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, decision, execute_returning_one=_capture)
+    monkeypatch.setattr(readmodel_decisions, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(decision, "get_db_schema", lambda: "haetdeul")
     return 잡힌_값
 
 
@@ -209,7 +215,7 @@ def _save(**overrides: Any) -> DecisionOut:
         "history_run_id": RUN_UUID,
     }
     payload.update(overrides)
-    return decision_repository.save_decision(**payload)
+    return decision.save_decision(**payload)
 
 
 def test_두_칸이_INSERT_에_실린다(적재_인자):
@@ -270,8 +276,8 @@ def test_안_주면_두_칸이_NULL_로_간다(적재_인자):
 
 def test_조회_컬럼에도_두_칸이_있다():
     """SELECT 에 없으면 적재는 되는데 **되읽을 수가 없다.**"""
-    assert "revalidation_request_id" in decision_repository._COLUMNS
-    assert "revalidation_outcome" in decision_repository._COLUMNS
+    assert "revalidation_request_id" in repository_decisions._COLUMNS
+    assert "revalidation_outcome" in repository_decisions._COLUMNS
 
 
 # ── ④ DDL ──────────────────────────────────────────────────────────────────

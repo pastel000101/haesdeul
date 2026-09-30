@@ -29,12 +29,12 @@ const KEY = "haetdeul.sim_run_id";
  *
  * 🔴 **왜 지금 `SIM-MENTOR-0918` 인가** (2026-09-18).
  *    배포판은 멘토 체험용 축 `SIM-MENTOR-0918` 하나로 돈다.
- *    백엔드 `app/api/shown_run.py` 의 `SHOWN_SIM_RUN_ID` 도 같은 축이다.
+ *    백엔드 `app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 도 같은 축이다.
  *    여기만 `SIM-CHAIN-FINAL-0918` 로 두면 재무·판매 탭만 다른 장부를 읽어
  *    같은 화면 안에서 숫자가 갈린다. 오류 없이 조용히 갈린다.
  *
  * ★ **발표 전 되돌릴 자리** — 원래 값은 `SIM-CHAIN-FINAL-0918` 이다.
- *   되돌릴 때는 아래 한 줄과 `backend/app/api/shown_run.py` 의 `SHOWN_SIM_RUN_ID`,
+ *   되돌릴 때는 아래 한 줄과 `backend/app/core/settings.py` 의 `SHOWN_SIM_RUN_ID`,
  *   `frontend/Dockerfile` 의 `ARG NEXT_PUBLIC_SIM_RUN_ID` 기본값을 같이 바꾼다.
  */
 export const FINANCE_SALES_SIM_RUN_ID = "SIM-MENTOR-0918";

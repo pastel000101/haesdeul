@@ -59,8 +59,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main  # import 시점에 판매 어댑터를 등록한다. 이 검사의 전제다
-from app.master import persistence, wiring
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.registry import wiring as registry_wiring
+from app.master.service import persistence as service_persistence
 from app.sales.adapter import sales_port
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
@@ -80,7 +81,7 @@ def test_판매_필수_어댑터가_전부_등록된다() -> None:
       늘면 검사가 따라와야 한다. 여기에 `("sales", "finance")` 를 베껴 두면 셋째가
       필수가 되는 날 **그 셋째는 아무도 안 본다.**
     """
-    미등록 = wiring.missing(wiring.REQUIRED_FOR_SALES)
+    미등록 = registry_wiring.missing(registry_wiring.REQUIRED_FOR_SALES)
 
     assert 미등록 == (), (
         f"판매 필수 어댑터가 미등록이다: {미등록}. app/main.py 의 register_agent 를 확인한다"
@@ -92,7 +93,7 @@ def test_등록된_것이_판매의_실제_어댑터다() -> None:
 
     `test_inbound_registration.py` 가 물류 구현체를 확인하는 것과 같은 자리다.
     """
-    등록된 = wiring.registry().get("sales")
+    등록된 = registry_wiring.registry().get("sales")
 
     assert 등록된 is sales_port, (
         f"등록된 것이 판매 어댑터가 아니다: {getattr(등록된, '__module__', 등록된)}"
@@ -142,9 +143,12 @@ def 부른_부서(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
        같은 이유로 여기서 판매 쪽을 막는다.
     """
     부른_것: list[tuple[str, str]] = []
-    monkeypatch.setattr("app.sales.adapter.save_sales_agent_run", lambda **kw: None)
-    wiring.register("inventory", _대역(PRE_SALES_PAYLOAD, 부른_것))
-    wiring.register("finance", _대역({"verdict": "ok"}, 부른_것))
+    #  ★ 2026-09-29 BL-013: 이력 적재는 `service/proposal_generation.py` 가 연결을 빌려 한다.
+    monkeypatch.setattr(
+        "app.sales.service.proposal_generation._record_run", lambda *a, **kw: None
+    )
+    registry_wiring.register("inventory", _대역(PRE_SALES_PAYLOAD, 부른_것))
+    registry_wiring.register("finance", _대역({"verdict": "ok"}, 부른_것))
     return 부른_것
 
 
@@ -211,9 +215,10 @@ def test_물류와_판매를_실제로_부른다(client: TestClient, 부른_부�
 def test_판매_회신이_실_어댑터에서_왔다(client: TestClient, 부른_부서) -> None:
     """🔴 **대역이면 이 자리가 조용하다.** 회신의 출처를 회신 자체로 확인한다.
 
-    ★ 대역은 `run_id` 를 `"SALES-2"` 처럼 만들고 실 어댑터는 `uuid4()` 를 쓴다
-      (`app/sales/adapter.py` `_run_id`). 값을 비교하지 않고 **모양이 갈리는 것**만
-      본다 — 값을 박으면 판매가 id 규칙을 바꾸는 날 마스터 검사가 깨진다.
+    ★ 대역은 `run_id` 를 `"SALES-2"` 처럼 만들고 실 판매는 `uuid4()` 를 쓴다
+      (`app/sales/service/proposal_generation.py` `_new_run_id`). 값을 비교하지 않고
+      **모양이 갈리는 것**만 본다 — 값을 박으면 판매가 id 규칙을 바꾸는 날 마스터 검사가
+      깨진다.
     """
     본문 = _본문(client)
 
@@ -233,7 +238,7 @@ def test_이력에_돌긴_돈_날로_적힌다(client: TestClient, 부른_부서
     """
     본문 = _본문(client)
 
-    assert persistence.sales_runtime_status_of(본문["end_code"]) == "READY", (
+    assert service_persistence.sales_runtime_status_of(본문["end_code"]) == "READY", (
         f"판매가 돈 날인데 이력에는 미가동으로 적힌다: {본문['end_code']}"
     )
 
@@ -327,7 +332,7 @@ def test_수량을_실으면_재무_최종검증까지_간다(client: TestClient
         # 🔴 **상업조건 둘도 실어야 제시까지 간다** (2026-09-08 계약).
         #    후보 판정이 `delivery_date` · `payment_days` 를 필수로 잡았고,
         #    판매는 그 둘을 `preferred_*` 에서만 만든다
-        #    (`app/sales/proposal.py` `_baseline`). 안 실으면 후보가 전부
+        #    (`app/sales/domain/proposal.py` `_baseline`). 안 실으면 후보가 전부
         #    *"납품일이 없다"* 로 떨어져 `SL3_ALL_REJECTED` 가 된다.
         preferred_delivery_date="2026-09-17",
         preferred_payment_days=30,

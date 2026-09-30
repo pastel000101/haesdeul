@@ -21,17 +21,13 @@ from typing import Any
 
 import pytest
 
-from app.master.budget import CallBudget
-from app.master.calendar_walk import MAX_WALK_DAYS
-from app.master.envelope import (
-    AgentReply,
-    AgentRequest,
-    ExecutionContext,
-    ExecutionMetadata,
-)
-from app.master.execution_day import CalendarNotCovered
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
+from app.master.domain.calendar_walk import MAX_WALK_DAYS
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2026, 1, 5)  # 월요일
 CALENDAR = {"non_execution_days": ["2026-01-10", "2026-01-11"], "horizon_end": "2026-02-05"}
@@ -117,7 +113,7 @@ def test_봉투가_없으면_칸을_안_만든다():
 
 
 def _wire_capturing() -> list[dict[str, Any]]:
-    from app.master import wiring
+    from app.master.registry import wiring as registry_wiring
 
     seen: list[dict[str, Any]] = []
 
@@ -140,9 +136,9 @@ def _wire_capturing() -> list[dict[str, Any]]:
             run_id=run_id, request_id=request.context.request_id, agent=request.agent
         )
 
-    wiring.reset()
+    registry_wiring.reset()
     for part in ("finance", "inventory", "purchase"):
-        wiring.register(part, port)
+        registry_wiring.register(part, port)
     return seen
 
 
@@ -152,8 +148,8 @@ def 적재를_막는다(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(as_of: date):
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     return run_procurement(
         ProcurementRunRequest(
@@ -189,7 +185,8 @@ def test_봉투가_개장_축을_타고_온다_요일이_아니다(
             return day != 수요일
 
     monkeypatch.setattr(
-        "app.master.service.get_market_calendar", lambda: _토요일은_열고_수요일은_닫는_시장()
+        "app.master.service.procurement.get_market_calendar",
+        lambda: _토요일은_열고_수요일은_닫는_시장(),
     )
     seen = _wire_capturing()
     _run(AS_OF)
@@ -219,8 +216,11 @@ def test_문_앞_축과_봉투_축이_따로_돈다(monkeypatch: pytest.MonkeyPa
         def is_market_open(self, day: date) -> bool:
             return True
 
-    monkeypatch.setattr("app.master.service.get_calendar", lambda: _언제나_공휴일())
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: _언제나_개장())
+    monkeypatch.setattr("app.master.service.procurement.get_calendar", lambda: _언제나_공휴일())
+    monkeypatch.setattr("app.master.service.sales.get_calendar", lambda: _언제나_공휴일())
+    monkeypatch.setattr(
+        "app.master.service.procurement.get_market_calendar", lambda: _언제나_개장()
+    )
     seen = _wire_capturing()
     response = _run(AS_OF)
 
@@ -243,7 +243,9 @@ def test_달력이_끊기면_봉투를_안_싣고_못_봤다고_남긴다(
                 raise CalendarNotCovered(f"{day.isoformat()} 이 달력에 없다")
             return True
 
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: 지평_끝이_없는_시장())
+    monkeypatch.setattr(
+        "app.master.service.procurement.get_market_calendar", lambda: 지평_끝이_없는_시장()
+    )
     seen = _wire_capturing()
     response = _run(AS_OF)
 
@@ -268,7 +270,9 @@ def test_문_앞_판정은_통과하는데_봉투만_못_싣는_경우가_있다
                 raise CalendarNotCovered(f"{day.isoformat()} 이 달력에 없다")
             return True
 
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: 오늘만_아는_시장())
+    monkeypatch.setattr(
+        "app.master.service.procurement.get_market_calendar", lambda: 오늘만_아는_시장()
+    )
     seen = _wire_capturing()
     response = _run(AS_OF)
 

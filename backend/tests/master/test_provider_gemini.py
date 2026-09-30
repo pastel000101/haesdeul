@@ -20,16 +20,25 @@ from typing import Any, Self
 
 import pytest
 
+from app.core.llm.providers import gemini_strict_schema
 from app.master.llm import runtime
 from app.master.llm.answer_runtime import narrative_schema
 from app.master.llm.runtime import (
     GeminiProvider,
     LLMSettings,
     _intent_schema,
-    _to_gemini_schema,
     build_provider,
     get_llm_settings,
 )
+
+
+def _to_gemini_schema(node):
+    """마스터 `GeminiProvider` 가 응답 스키마에 쓰는 변환 — core 의 `gemini_strict_schema`.
+
+    2026-09-30 BL-020 전에는 마스터 파일 안에 같은 이름의 변환이 따로 있었고, core 로 옮긴
+    것이 그 변환 그대로다(부서별 차이는 `tests/llm/test_gemini_schema_by_department.py`).
+    """
+    return gemini_strict_schema(node)
 
 
 def _settings(**over: Any) -> LLMSettings:
@@ -244,7 +253,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     `load_dotenv` 는 os.environ 에 없는 키를 채우므로, 지운 변수를 다시 살려 낸다 —
     그러면 이 검사들이 **개발자 기계의 `.env` 에 따라 결과가 달라진다.**
     """
-    monkeypatch.setattr(runtime, "load_dotenv", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *_a, **_k: None)
     for key in (
         "LLM_PROVIDER",
         "LLM_MODEL",

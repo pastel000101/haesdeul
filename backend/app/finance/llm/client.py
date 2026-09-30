@@ -1,12 +1,13 @@
-"""Finance LLM 전송 계층 — HTTP · 설정 · 가용성 판별.
+"""Finance LLM 전송 계층 — 설정 · 가용성 판별 · 재무 요청 모양.
 
 이 파일이 소유하는 것
-    Finance LLM 설정(활성화 · Provider · 모델) · Gemini/Ollama HTTP 호출 ·
-    응답 파싱 · **가용성 실패 판별** · Gemini 전송 형식 낮추기
+    Finance LLM 설정(활성화 · Provider · 모델) · Gemini/Ollama 에 보낼 **재무 요청 모양**
+    (JSON 선택 · tool calling) · 응답에서 재무가 읽는 것 · **가용성 실패 판별**
 
 여기 **없는 것**
     무엇을 부를지의 판단 · 재무 계산 · 설명 선택
     → `planner` · `capabilities` · `finalizer` 소유다.
+    요청을 보내는 줄(HTTP) · Gemini 스키마 낮추기 → `app.core.llm` (2026-09-30 재구성 BL-020)
 
 ★ 가용성 실패만 Provider 대체 사유다. 429·5xx·타임아웃·네트워크·키 없음은
   *"지금 못 부른다"* 이고, 그 외 오류는 *"불렀는데 답이 틀렸다"* 라 대체로 숨기면
@@ -15,27 +16,46 @@
 ★ 설정이 여기 있는 이유: *"어느 Provider 로 어떤 모델을 부르는가"* 는 전송의 일부다.
   전역 `LLM_PROVIDER` 를 상속하지 않는다 — 전역을 ollama 로 둔 배포에서 재무가 조용히
   Gemini 를 떠나면 값은 멀쩡히 나오고 아무도 눈치채지 못한다.
+
+★ 재시도하지 않는다 — 대체(Gemini → Ollama)는 `planner` 의 가용성 대체가 한 번 한다.
 """
 
 import json
 import os
 import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from app.core.llm.providers import (
+    chat_messages,
+    first_text,
+    gemini_json_request,
+    gemini_parts,
+    gemini_request,
+    gemini_safe_schema,
+    gemini_tool_request,
+    ollama_chat_request,
+    ollama_message,
+    ollama_request,
+    send_json,
+)
+from app.core.llm.runtime import (
+    OLLAMA_BASE_URL,
+    gemini_api_key,
+    load_env_files,
+    read_optional_bool,
+)
 
 # ---------------------------------------------------------------------------
 # Finance LLM 설정
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MODELS = {
+DEFAULT_MODELS = {
     "ollama": "gemma3:4b",
     "gemini": "gemini-3.5-flash-lite",
 }
 
-#: Ollama 로 **Planner** 를 돌릴 때의 기본 모델. `_DEFAULT_MODELS["ollama"]` 와
+#: Ollama 로 **Planner** 를 돌릴 때의 기본 모델. `DEFAULT_MODELS["ollama"]` 와
 #: 일부러 다르다.
 #:
 #: 🔴 재무 Planner 는 tool calling 으로 돈다. `gemma3` 계열은 Ollama 에서 tool 을
@@ -52,13 +72,18 @@ _DEFAULT_MODELS = {
 _DEFAULT_OLLAMA_TOOL_CALLING_MODEL = "llama3.2:3b"
 
 
-def _ollama_tool_calling_model() -> str:
+def ollama_tool_calling_model() -> str:
     """Ollama Planner 모델. 설치된 모델은 배포마다 다르므로 재무 키로 덮을 수 있다."""
     _load_finance_environment()
     return (
         os.getenv("FINANCE_OLLAMA_PLANNER_MODEL")
         or _DEFAULT_OLLAMA_TOOL_CALLING_MODEL
     )
+
+
+#: ⚠️ **`backend/app/.env` · `backend/.env` 를 읽는다** — 다른 부서(`backend/.env` · 저장소 루트)와
+#:   다르다. 재구성 전부터 이 번호였다(파일이 한 단 깊어질 때 번호가 그대로 남은 것으로 보인다).
+#:   2026-09-30 BL-020 은 바꾸지 않았다 — 확인 필요.
 _ENV_FILES = (
     Path(__file__).resolve().parents[2] / ".env",
     Path(__file__).resolve().parents[3] / ".env",
@@ -66,16 +91,7 @@ _ENV_FILES = (
 
 
 def _load_finance_environment() -> None:
-    for env_file in _ENV_FILES:
-        load_dotenv(env_file, override=False)
-
-
-def _read_bool(key: str) -> bool | None:
-    """설정된 경우에만 bool 을 돌려준다. 미설정과 false 를 섞지 않기 위해서다."""
-    value = os.getenv(key)
-    if value is None:
-        return None
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    load_env_files(_ENV_FILES, override=False)
 
 
 def finance_llm_enabled() -> bool:
@@ -83,18 +99,21 @@ def finance_llm_enabled() -> bool:
 
     ``FINANCE_LLM_ENABLED`` → ``LLM_ENABLED`` → 기본 활성. 재무만 끄고 싶은 경우와
     전역으로 끈 경우를 구분한다 (재무 전용 키가 전역 키를 이긴다).
+
+    ⚠️ 빈 값은 **꺼짐**이다(미설정이 아니다 — `read_optional_bool`). 마스터 · 물류처럼 전용 키가
+      비었을 때 전역으로 넘어가지 않는다.
     """
     _load_finance_environment()
-    finance = _read_bool("FINANCE_LLM_ENABLED")
+    finance = read_optional_bool("FINANCE_LLM_ENABLED")
     if finance is not None:
         return finance
-    shared = _read_bool("LLM_ENABLED")
+    shared = read_optional_bool("LLM_ENABLED")
     if shared is not None:
         return shared
     return True
 
 
-def _finance_provider_name() -> str:
+def finance_provider_name() -> str:
     """★ 전역 ``LLM_PROVIDER`` 를 상속하지 않는다.
 
     전역은 레거시 Ollama 해석 계층이 쓰는 값이다. 그것을 상속하면 전역을 ollama 로
@@ -106,12 +125,12 @@ def _finance_provider_name() -> str:
         os.getenv("FINANCE_LLM_PROVIDER")
         or "gemini"
     ).strip().lower()
-    if provider not in _DEFAULT_MODELS:
+    if provider not in DEFAULT_MODELS:
         raise RuntimeError("Configured Finance LLM provider is not supported")
     return provider
 
 
-def _finance_model(provider: str) -> str:
+def finance_model(provider: str) -> str:
     _load_finance_environment()
     explicit = os.getenv("FINANCE_LLM_MODEL")
     if explicit:
@@ -120,7 +139,7 @@ def _finance_model(provider: str) -> str:
     global_model = os.getenv("LLM_MODEL")
     if provider == global_provider and global_model:
         return global_model
-    return _DEFAULT_MODELS[provider]
+    return DEFAULT_MODELS[provider]
 
 
 def finance_planner_model(provider: str) -> str:
@@ -138,69 +157,67 @@ def finance_planner_model(provider: str) -> str:
     if explicit:
         return explicit
     if provider == "ollama":
-        return _ollama_tool_calling_model()
-    return _DEFAULT_MODELS[provider]
+        return ollama_tool_calling_model()
+    return DEFAULT_MODELS[provider]
+
+
+def ollama_base_url() -> str:
+    """Ollama 주소 — 공용 `LLM_BASE_URL` 만 본다(재무 전용 키 없음)."""
+    return os.getenv("LLM_BASE_URL", OLLAMA_BASE_URL).rstrip("/")
+
+
+def llm_timeout_seconds() -> float:
+    """호출 한 번의 timeout — 공용 `LLM_TIMEOUT_SECONDS` 만 본다. 숫자가 아니면 예외다."""
+    return float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 
 
 # ---------------------------------------------------------------------------
-# Provider HTTP 와 가용성 실패 판별
+# 재무 요청과 가용성 실패 판별
 # ---------------------------------------------------------------------------
-
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 
 def _gemini_response_text(document: dict[str, Any]) -> str:
-    candidates = document.get("candidates") or []
-    parts = ((candidates[0] if candidates else {}).get("content") or {}).get("parts") or []
-    for part in parts:
-        if part.get("thought"):
-            continue
-        text = part.get("text")
-        if isinstance(text, str) and text.strip():
-            return text.strip()
-    raise TypeError("Finance Gemini response did not contain text content")
+    """사고(`thought`) 조각 · 공백뿐인 조각을 건너뛴 첫 글자를 앞뒤 공백을 떼어 돌려준다."""
+    text = first_text(gemini_parts(document), skip_thoughts=True)
+    if text is None:
+        raise TypeError("Finance Gemini response did not contain text content")
+    return text.strip()
 
 
-def _gemini_generate(
-    *, model: str, system_prompt: str, user_payload: dict[str, Any], response_schema: dict[str, Any]
-) -> str:
+def _gemini_key() -> str:
+    """`FINANCE_GEMINI_API_KEY` → `GEMINI_API_KEY`.
+
+    없으면 가용성 판별이 `API_KEY_MISSING` 으로 읽는 문장을 낸다(문장이 계약이다).
+    """
     _load_finance_environment()
-    api_key = os.getenv("FINANCE_GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+    api_key = gemini_api_key("FINANCE_")
     if not api_key:
         raise RuntimeError("Finance Gemini API key is not set")
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": json.dumps(user_payload, default=str)}],
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseSchema": response_schema,
-        },
-    }
-    request = urllib.request.Request(
-        f"{_GEMINI_BASE_URL}/models/{model}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
+    return api_key
+
+
+def gemini_generate(
+    *, model: str, system_prompt: str, user_payload: dict[str, Any], response_schema: dict[str, Any]
+) -> str:
+    """Gemini 구조화 출력 한 번 — Finalizer 가 쓴다.
+
+    ★ `HTTPError` 는 감싸지 않는다(가용성 판별이 상태 코드를 본다). 나머지 전송 실패는
+      `RuntimeError("Finance Gemini request failed")` 로 감싼다(원인은 `__cause__`).
+    """
+    api_key = _gemini_key()
+    payload = gemini_json_request(
+        system_prompt, json.dumps(user_payload, default=str), response_schema
     )
-    try:
-        with urllib.request.urlopen(
-            request, timeout=float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
-        ) as response:
-            document = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        raise
-    except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-        raise RuntimeError("Finance Gemini request failed") from error
+    document = send_json(
+        gemini_request(model, payload, api_key=api_key),
+        timeout=llm_timeout_seconds(),
+        failure_message="Finance Gemini request failed",
+        keep_http_errors=True,
+    )
     return _gemini_response_text(document)
 
 
-def _gemini_availability_failure_reason(error: Exception) -> str | None:
+def gemini_availability_failure_reason(error: Exception) -> str | None:
     if isinstance(error, urllib.error.HTTPError):
         if error.code == 403:
             # 403 전체를 가용성 장애로 낮추지 않는다. Gemini가 권한/프로젝트 접근을
@@ -240,10 +257,10 @@ def _gemini_availability_failure_reason(error: Exception) -> str | None:
 
 
 def _is_gemini_availability_failure(error: Exception) -> bool:
-    return _gemini_availability_failure_reason(error) is not None
+    return gemini_availability_failure_reason(error) is not None
 
 
-def _ollama_availability_failure_reason(error: Exception) -> str | None:
+def ollama_availability_failure_reason(error: Exception) -> str | None:
     """Ollama가 지금 Planner 요청을 수행할 수 없는 경우만 분류한다.
 
     404는 endpoint 또는 model 부재이고, 429/5xx·timeout·network 오류도 provider가
@@ -269,60 +286,7 @@ def _ollama_availability_failure_reason(error: Exception) -> str | None:
     return None
 
 
-def _ollama_base_url() -> str:
-    return os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
-
-
-def _llm_timeout_seconds() -> float:
-    return float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
-
-
-def _gemini_safe_schema(node: Any) -> Any:
-    """Tool 인자 스키마를 **Gemini 가 받는 표현으로** 낮춘다.
-
-    🔴 계약을 낮추는 것이 아니라 표현만 낮춘다. Gemini Schema 는 OpenAPI 3.0 부분집합이라
-       세 가지를 못 받고, 그대로 보내면 **HTTP 400** 이다 — 재무가 아니라 전송 형식이
-       문제인데 재무 Planner 가 매 호출 실패한다.
-
-         · `const`                 → STRING + 한 값짜리 `enum`
-         · `anyOf` 안의 `type:null` → 그 갈래를 빼고 `nullable`
-         · `additionalProperties`  → 제거
-
-    ★ pydantic 이 만드는 모양이라 손으로 피할 수 없다. `Literal["amount"]` 은 `const` 를,
-      `float | None` 은 null 갈래를 낸다 — 두 표현 모두 우리가 쓰고 싶은 계약이다.
-    """
-    if not isinstance(node, dict):
-        return node
-    safe = {
-        key: value
-        for key, value in node.items()
-        if key not in {"const", "anyOf", "additionalProperties"}
-    }
-    if "const" in node:
-        safe["type"] = "string"
-        safe["enum"] = [node["const"]]
-    if "anyOf" in node:
-        branches = [
-            branch
-            for branch in node["anyOf"]
-            if isinstance(branch, dict) and branch.get("type") != "null"
-        ]
-        if len(branches) != len(node["anyOf"]):
-            safe["nullable"] = True
-        if len(branches) == 1:
-            safe.update(_gemini_safe_schema(branches[0]))
-        elif branches:
-            safe["anyOf"] = [_gemini_safe_schema(branch) for branch in branches]
-    if "properties" in node:
-        safe["properties"] = {
-            name: _gemini_safe_schema(child) for name, child in node["properties"].items()
-        }
-    if "items" in node:
-        safe["items"] = _gemini_safe_schema(node["items"])
-    return safe
-
-
-def _gemini_tool_call(
+def gemini_tool_call(
     *,
     model: str,
     system_prompt: str,
@@ -334,51 +298,37 @@ def _gemini_tool_call(
     ``mode: ANY`` + ``allowedFunctionNames`` 로 자유 문장 답을 닫는다. 다만 이것은
     전송 계층 강제일 뿐이라, 돌아온 이름이 정말 허용된 것인지는 Planner 사후 검증과
     Harness 가 다시 본다 — 구조화 출력을 무시하는 모델이 있다.
+
+    ★ Tool 인자 스키마는 `gemini_safe_schema` 로 **표현만** 낮춘다(`const` → 한 값 enum ·
+      null 갈래 → nullable · `additionalProperties` 제거). 그대로 보내면 HTTP 400 이다.
+      `$ref` 는 펴지 않고 `$defs` 도 남긴다(`inline_refs=False` — 옮기기 전 재무 변환 그대로).
     """
-    _load_finance_environment()
-    api_key = os.getenv("FINANCE_GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("Finance Gemini API key is not set")
+    api_key = _gemini_key()
     names = [item["name"] for item in tool_declarations]
     declarations = [
-        {**item, "parameters": _gemini_safe_schema(item.get("parameters", {}))}
+        {**item, "parameters": gemini_safe_schema(item.get("parameters", {}), inline_refs=False)}
         for item in tool_declarations
     ]
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [
-            {"role": "user", "parts": [{"text": json.dumps(user_payload, default=str)}]}
-        ],
-        "tools": [{"function_declarations": declarations}],
-        "toolConfig": {
-            "functionCallingConfig": {"mode": "ANY", "allowedFunctionNames": names}
-        },
-        "generationConfig": {"temperature": 0},
-    }
-    request = urllib.request.Request(
-        f"{_GEMINI_BASE_URL}/models/{model}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
+    payload = gemini_tool_request(
+        system_prompt,
+        [{"role": "user", "parts": [{"text": json.dumps(user_payload, default=str)}]}],
+        declarations,
+        function_calling={"mode": "ANY", "allowedFunctionNames": names},
     )
-    try:
-        with urllib.request.urlopen(request, timeout=_llm_timeout_seconds()) as response:
-            document = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        raise
-    except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-        raise RuntimeError("Finance Gemini request failed") from error
-    candidates = document.get("candidates") or []
-    parts = ((candidates[0] if candidates else {}).get("content") or {}).get("parts") or []
-    calls = [
+    document = send_json(
+        gemini_request(model, payload, api_key=api_key),
+        timeout=llm_timeout_seconds(),
+        failure_message="Finance Gemini request failed",
+        keep_http_errors=True,
+    )
+    return [
         {"name": part["functionCall"].get("name"), "args": part["functionCall"].get("args") or {}}
-        for part in parts
+        for part in gemini_parts(document)
         if isinstance(part.get("functionCall"), dict)
     ]
-    return calls
 
 
-def _ollama_tool_call(
+def ollama_tool_call(
     *,
     model: str,
     system_prompt: str,
@@ -389,30 +339,18 @@ def _ollama_tool_call(
 
     Provider 마다 허용 범위가 달라지면 같은 재무 상태가 다른 Tool 을 부를 수 있게
     열린다 — 선언은 한 곳(`tool_adapter`)에서 만들어 양쪽에 그대로 간다.
+
+    ★ 전송 예외를 감싸지 않는다 — 가용성 판별(`ollama_availability_failure_reason`)이 본다.
     """
-    body = {
-        "model": model,
-        "stream": False,
-        "think": False,
-        "tools": [
-            {"type": "function", "function": declaration}
-            for declaration in tool_declarations
-        ],
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(user_payload, default=str)},
-        ],
-        "options": {"temperature": 0},
-    }
-    request = urllib.request.Request(
-        f"{_ollama_base_url()}/api/chat",
-        data=json.dumps(body).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    body = ollama_request(
+        model,
+        chat_messages(system_prompt, json.dumps(user_payload, default=str)),
+        tools=[{"type": "function", "function": declaration} for declaration in tool_declarations],
+        options={"temperature": 0},
     )
-    with urllib.request.urlopen(request, timeout=_llm_timeout_seconds()) as response:
-        document = json.loads(response.read().decode())
-    raw_calls = (document.get("message") or {}).get("tool_calls") or []
+    request = ollama_chat_request(ollama_base_url(), body)
+    document = send_json(request, timeout=llm_timeout_seconds())
+    raw_calls = ollama_message(document).get("tool_calls") or []
     return [
         {
             "name": (item.get("function") or {}).get("name"),

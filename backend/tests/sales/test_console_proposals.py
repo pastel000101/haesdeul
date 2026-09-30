@@ -3,7 +3,8 @@
 from datetime import date
 from decimal import Decimal
 
-from app.sales.console_proposals import get_console_sales_proposals
+from app.sales.readmodel.console_proposals import get_console_sales_proposals
+from tests.sales.sales_fake_connection import lend
 
 RUN = "SIM-CHAIN-V13"
 AS_OF = date(2026, 3, 10)
@@ -65,8 +66,8 @@ def _row(**over) -> dict:
 
 
 def _patch(monkeypatch, reader: _Reader) -> None:
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", reader)
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, reader)
 
 
 def test_a_stored_proposal_comes_back_as_stored(monkeypatch):
@@ -507,8 +508,8 @@ def test_a_confirmed_sale_is_marked_only_on_its_own_scenario(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", reader)
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, reader)
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
 
     response = get_console_sales_proposals(sim_run_id=RUN, as_of=AS_OF)
 
@@ -528,8 +529,8 @@ def test_a_recommendation_reason_is_carried_only_for_the_recommended_scenario(mo
             payload=payload, scenario=_scenario(scenario_id="SALES-001-B", scenario_type="BALANCED")
         ),
     ]
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", _SalesAware(rows, []))
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, _SalesAware(rows, []))
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
 
     a, b = get_console_sales_proposals(sim_run_id=RUN, as_of=AS_OF).rows
 
@@ -549,8 +550,8 @@ def test_no_stored_reason_means_no_reason(monkeypatch):
             }
         )
     ]
-    monkeypatch.setattr("app.sales.console_proposals.fetch_all", _SalesAware(rows, []))
-    monkeypatch.setattr("app.sales.console_proposals.get_db_schema", lambda: "haetdeul")
+    lend(monkeypatch, _SalesAware(rows, []))
+    monkeypatch.setattr("app.sales.repository.console_proposals.get_db_schema", lambda: "haetdeul")
 
     row = get_console_sales_proposals(sim_run_id=RUN, as_of=AS_OF).rows[0]
 

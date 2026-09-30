@@ -23,7 +23,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.master import inputs
+from app.master.readmodel import inputs as readmodel_inputs
+from app.master.schemas import inputs as schemas_inputs
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 25)
 
@@ -49,9 +51,9 @@ def _row(batch_as_of: date) -> dict[str, Any]:
 
 
 def patch(monkeypatch, one):
-    monkeypatch.setattr(inputs, "fetch_one", one)
-    monkeypatch.setattr(inputs, "fetch_all", lambda *a: [])
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=one)
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=lambda *a: [])
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
 
 
 # ── 당일이면 쓴다 ────────────────────────────────────────────────────────
@@ -60,7 +62,9 @@ def patch(monkeypatch, one):
 def test_당일_배치면_MEASURED_로_실린다(monkeypatch):
     """정상 경로가 안 막혔는지부터 본다 — 이게 없으면 아래 검사는 '전부 막기' 로도 통과한다."""
     patch(monkeypatch, lambda *a: _row(AS_OF))
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MEASURED"
     assert got.payload is not None
@@ -79,7 +83,9 @@ def test_어제_배치밖에_없으면_MISSING_이다(monkeypatch):
     """
     yesterday = date(2026, 8, 24)
     patch(monkeypatch, lambda *a: _row(yesterday))
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MISSING"
     assert got.payload is None, "당일 배치가 아닌데 값이 실렸다"
@@ -95,7 +101,9 @@ def test_210일_밀린_배치가_MEASURED_로_안_나간다(monkeypatch):
     이 검사가 빨개지면 210일 전 예측으로 오늘 매입안을 만드는 길이 다시 열린 것이다.
     """
     patch(monkeypatch, lambda *a: _row(STALE_BATCH))
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MISSING", "210일 전 예측이 실측으로 나갔다"
     assert got.payload is None
@@ -112,7 +120,9 @@ def test_사유에_요청일과_최신배치일과_지연일수가_다_있다(mo
     지연일수가 없으면 두 날짜를 눈으로 빼야 하고, 210일과 1일이 같은 문장으로 보인다.
     """
     patch(monkeypatch, lambda *a: _row(STALE_BATCH))
-    note = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND).note
+    note = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    ).note
 
     assert "2026-08-25" in note, f"요청한 날이 없다: {note}"
     assert "2026-01-27" in note, f"실제로 있는 최신 배치일이 없다: {note}"
@@ -126,7 +136,9 @@ def test_사유가_원인을_단정하지_않는다(monkeypatch):
     사유가 원인을 단정하면 다음 사람이 엉뚱한 데를 판다 — 사실만 적는다.
     """
     patch(monkeypatch, lambda *a: _row(STALE_BATCH))
-    note = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND).note
+    note = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    ).note
 
     for 단정 in ("공휴일", "휴장", "장애", "휴일", "미실행"):
         assert 단정 not in note, f"원인을 단정했다({단정}): {note}"
@@ -149,7 +161,9 @@ def test_조회가_여전히_미래_배치를_막는다(monkeypatch):
         return _row(AS_OF)
 
     patch(monkeypatch, watching)
-    inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert "as_of <= %s" in seen["sql"], f"look-ahead 방지가 걷혔다: {seen['sql']}"
     assert AS_OF in seen["params"], "as_of 를 조회에 안 넘긴다 — 상한이 무의미해진다"
@@ -161,7 +175,9 @@ def test_조회가_여전히_미래_배치를_막는다(monkeypatch):
 def test_배치가_아예_없으면_지금처럼_MISSING_이다(monkeypatch):
     """`#227` 이 만든 경로다. 당일 규칙이 이 갈래를 가리면 안 된다."""
     patch(monkeypatch, lambda *a: None)
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MISSING"
     assert got.payload is None
@@ -178,23 +194,27 @@ def test_당일_배치가_없으면_run_procurement_이_E4_로_선다(monkeypatc
     forecast MISSING → 매입 payload 에 forecast 없음 → RUNTIME_NOT_READY → E4_NOT_STARTED
     ```
     """
-    from app.master import wiring
-    from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-    from app.master.inputs import MasterInputs, SourcedInput
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+    from app.master.readmodel import inputs as readmodel_inputs
+    from app.master.registry import wiring as registry_wiring
+    from app.master.schemas import inputs as schemas_inputs
+    from app.master.schemas.inputs import MasterInputs, SourcedInput
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     patch(monkeypatch, lambda *a: _row(STALE_BATCH))  # 210일 전 배치만 있다
 
     def 실제_적재(item: str, as_of: date, *, sim_run_id: str) -> MasterInputs:
         """conftest 가 꺼 둔 적재를 이 검사에서만 되살린다 — forecast 만 실물로 태운다."""
         return MasterInputs(
-            forecast=inputs.load_forecast(item, as_of, target_kind=inputs.PROCUREMENT_TARGET_KIND),
+            forecast=readmodel_inputs.load_forecast(
+                item, as_of, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+            ),
             confirmed_orders=SourcedInput("confirmed_orders", {"total_kg": 1.0}, "DERIVED", "뷰"),
             policy_values=SourcedInput("policy_values", {"item_mix_ratio": {}}, "DERIVED", "표"),
         )
 
-    monkeypatch.setattr("app.master.service.collect_inputs", 실제_적재)
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", 실제_적재)
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
 
     seen: list[dict[str, Any]] = []
@@ -225,10 +245,10 @@ def test_당일_배치가_없으면_run_procurement_이_E4_로_선다(monkeypatc
             run_id=run_id, request_id=request.context.request_id, agent=request.agent
         )
 
-    wiring.reset()
-    wiring.register("finance", port)
-    wiring.register("inventory", port)
-    wiring.register("purchase", port)
+    registry_wiring.reset()
+    registry_wiring.register("finance", port)
+    registry_wiring.register("inventory", port)
+    registry_wiring.register("purchase", port)
 
     response = run_procurement(
         ProcurementRunRequest(
@@ -236,7 +256,7 @@ def test_당일_배치가_없으면_run_procurement_이_E4_로_선다(monkeypatc
         ),
         verifier=None,
     )
-    wiring.reset()
+    registry_wiring.reset()
 
     assert seen, "매입이 불려야 이 검사가 의미 있다"
     assert not seen[0].get("forecast"), "210일 전 예측이 매입까지 갔다"

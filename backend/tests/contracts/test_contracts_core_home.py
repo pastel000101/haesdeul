@@ -104,22 +104,118 @@ def test_계약_dataclass_의_소속은_새_자리다():
     assert core.Band.__module__ == NEW
 
 
+#: 공용 계약이 읽어도 되는 `app` 안의 자리 — 같은 패키지와, 도메인을 모르는 기반.
+_CONTRACT_MAY_IMPORT = ("app.contracts", "app.core")
+
+
+def _app_imports(path: pathlib.Path) -> list[str]:
+    """그 파일이 들이는 `app` 모듈. `from app import master` 는 `app.master` 로 센다."""
+    out: set[str] = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            if node.module == "app":
+                out.update(f"app.{alias.name}" for alias in node.names)
+            elif node.module.startswith("app."):
+                out.add(node.module)
+        elif isinstance(node, ast.Import):
+            out.update(a.name for a in node.names if a.name == "app" or a.name.startswith("app."))
+    return sorted(out)
+
+
 def test_공용_계약은_아무_파트도_import_하지_않는다():
     """🔴 **공용 계약이 한 파트를 읽으면 자리를 옮긴 뜻이 없어진다.**
 
     옛 자리의 문제가 정확히 그것이었다 — 네 파트가 `app/orchestrator/` 를 읽는
     모양이었다. 새 자리가 거꾸로 파트를 읽으면 같은 병이 방향만 바뀐다.
-    """
-    tree = ast.parse((_ROOT / "app" / "contracts" / "core.py").read_text(encoding="utf-8"))
-    imported = {
-        node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
-    }
-    imported |= {
-        alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    }
 
-    app_imports = sorted(m for m in imported if m.startswith("app."))
-    assert app_imports == [], f"공용 계약이 파트 코드를 읽는다: {app_imports}"
+    ★ 2026-09-29 `core.py` 하나가 아니라 **패키지 전체**를 본다 (재구성 BL-011) —
+      봉투 · 약정 타입 · 파트 결과 · 예측 계약이 마스터와 ML 에서 올라왔고, 계산 함수는
+      `rules.py` 로 갈라졌다. 읽어도 되는 것은 같은 패키지와 `app.core` 뿐이다.
+    """
+    files = sorted((_ROOT / "app" / "contracts").glob("*.py"))
+    names = {path.name for path in files}
+    assert {"core.py", "rules.py", "envelope.py", "commitment.py", "parts.py", "forecast.py"} <= (
+        names
+    ), f"계약 파일을 못 찾았다: {sorted(names)}"
+
+    offenders = {
+        path.name: bad
+        for path in files
+        if (
+            bad := [
+                m
+                for m in _app_imports(path)
+                if not any(m == ok or m.startswith(ok + ".") for ok in _CONTRACT_MAY_IMPORT)
+            ]
+        )
+    }
+    assert offenders == {}, f"공용 계약이 파트 · 마스터 · 화면 코드를 읽는다: {offenders}"
+
+
+def test_import_collector_catches_planted_department_imports(tmp_path):
+    """★ 위 검사가 공짜 초록이 되지 않게, 심어 둔 파트 import 를 잡는지 본다."""
+    planted = tmp_path / "planted.py"
+    planted.write_text(
+        "from app import master\nimport app.finance.db\n"
+        "from app.contracts.core import ITEMS\nfrom app.core import clock\n",
+        encoding="utf-8",
+    )
+    assert _app_imports(planted) == [
+        "app.contracts.core",
+        "app.core",
+        "app.finance.db",
+        "app.master",
+    ]
+
+
+#: 2026-09-29 `app/contracts/` 로 올린 계약 이름 (재구성 BL-011). **정의는 한 자리다.**
+_MOVED_CONTRACTS = frozenset(
+    {
+        # envelope.py ← app/master/envelope.py (+ DEPT_CAP_CHECK_ID ← critic_bridge.py)
+        "AgentName", "Mode", "Capability", "CAPABILITY_ROUTING", "PASSING_VERDICTS",
+        "ExecutionContext", "AgentRequest", "AgentReply", "SourcedEvidence", "AgentFailure",
+        "LLMCallMetadata", "ExecutionMetadata", "EnvelopeFinding", "DEPT_CAP_CHECK_ID",
+        # envelope.py 의 LLMStatus — 부서 LLM 이 따로 적던 복제를 2026-09-30 BL-020 에 모았다
+        "LLMStatus",
+        # commitment.py ← app/master/commitment.py (타입만)
+        "ITEM_CODES", "CommitmentNotBuildable", "SourcingLine", "ApprovedCommitment",
+        # parts.py ← app/master/{inbound,closing,collection,receivable}.py
+        "InboundPartOut", "ClosingPartOut", "CollectionPartOut", "ReceivablePartOut",
+        # forecast.py ← app/ml/schemas.py
+        "TargetKind", "DailyPoint", "Forecast",
+        # rules.py ← app/contracts/core.py
+        "require_value", "gate_variant_axes", "compute_sales_cash_priority",
+        "check_triple_identity", "compute_has_unmet_obligation", "is_bankrupt",
+        "resolve_end_code",
+    }
+)
+
+
+def test_moved_contracts_are_not_redefined_outside_contracts():
+    """🔴 **같은 모델을 옛 자리와 새 자리에 따로 두면 타입이 둘이 된다.**
+
+    `isinstance` · pydantic 검증 · 필드 기본값이 자리마다 갈리고, 한쪽만 고쳐지는 날이
+    온다. 옛 자리는 재수출 shim 도 두지 않았다 — 호출부를 새 자리로 옮겼다. 그래서
+    `app/contracts/` 밖의 최상위 정의에 이 이름이 나오면 복제다.
+
+    ★ `LLMStatus` 도 목록에 있다 — LLM 런타임 다섯 곳 · 판매 · 매입 모델에 복제돼 있던 Literal 을
+      2026-09-30 BL-020 에 봉투 한 자리로 모았다.
+    """
+    found: dict[str, list[str]] = {}
+    for path in sorted((_ROOT / "app").rglob("*.py")):
+        rel = path.relative_to(_ROOT).as_posix()
+        if rel.startswith("app/contracts/") or "__pycache__" in path.parts:
+            continue
+        for node in ast.parse(path.read_text(encoding="utf-8")).body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                defined = [node.name]
+            elif isinstance(node, ast.Assign):
+                defined = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                defined = [node.target.id]
+            else:
+                continue
+            for name in set(defined) & _MOVED_CONTRACTS:
+                found.setdefault(name, []).append(f"{rel}:{node.lineno}")
+
+    assert found == {}, f"올린 계약을 계약 밖에서 다시 정의한다: {found}"

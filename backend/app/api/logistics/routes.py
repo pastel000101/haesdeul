@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
 
-from app.api.logistics.query import PANES, build_result
+from app.api.logistics.presenter import PANES, build_result
 from app.api.logistics.schema import LogisticsTab
 
 router = APIRouter(prefix="/logistics", tags=["api:logistics"])

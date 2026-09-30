@@ -33,15 +33,18 @@ from typing import Any
 import pytest
 import yaml
 
-from app.purchase_agent import graph
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.nodes.classify_situation import compute_allowed_axes
+from app.purchase_agent.domain.classify_situation import compute_allowed_axes
+from app.purchase_agent.service import graph
 
 #: ``declare_thresholds`` 가 갈아 끼우는 자리. **읽는 모듈을 여기 적는다** — 한 곳을
 #: 빠뜨리면 그 경로만 진짜 파일을 계속 읽고, 검사는 *"바꿨는데 안 바뀐다"* 가 아니라
 #: **초록으로 지나간다** (그쪽 판정이 원래 값으로 정상 동작하므로).
 _THRESHOLD_READERS = (
-    "app.purchase_agent.nodes.classify_situation.load_constraints",
+    "app.purchase_agent.service.nodes.classify_situation.load_constraints",
+    # 2026-09-29 재구성 BL-016 보완: 수신 검사 · 근거 문장(`domain/payload.py` ·
+    #   `domain/evidence.py`)은 선언을 읽지 않고 넘겨받는다 — 요청마다 한 번 읽어 넘기는
+    #   어댑터가 그 자리다.
     "app.purchase_agent.adapter.load_constraints",
 )
 
@@ -81,9 +84,10 @@ def swap_threshold(
       ``load_constraints`` 가 캐시를 안 하기 때문에 그 오염은 **예외 없이 결과만 조용히**
       바꾼다.
 
-    ⚠️ **어댑터는 안 따라온다.** ``adapter.py`` 도 근거 문장을 만들 때 임계를 따로 읽는데
-      (거기는 판정이 아니라 문장이다), 여기서는 ① 만 바꾼다. 어댑터까지 흔들 일이 생기면
-      그 모듈도 같이 패치해야 한다.
+    ⚠️ **어댑터는 안 따라온다.** 근거 문장(``domain/evidence.py``)도 임계를 보는데 (거기는
+      판정이 아니라 문장이다), 그 선언은 어댑터가 요청마다 따로 읽어 넘긴다(2026-09-29
+      BL-016 보완). 여기서는 ① 만 바꾼다. 근거까지 흔들 일이 생기면 어댑터의 읽기
+      (``adapter.load_constraints``)도 같이 패치해야 한다.
     """
     real = load_constraints()
     declared = real["situation"]["ci_width_threshold"]
@@ -94,7 +98,7 @@ def swap_threshold(
     )
     swapped = {**real, "situation": {**real["situation"], "ci_width_threshold": spread}}
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.classify_situation.load_constraints", lambda: swapped
+        "app.purchase_agent.service.nodes.classify_situation.load_constraints", lambda: swapped
     )
 
 
@@ -110,7 +114,8 @@ def force_situation(monkeypatch: pytest.MonkeyPatch, situation: str) -> None:
       갈아 끼울 자리는 State 가 아니라 **노드**다.
 
     ``NODES`` 를 ``setitem`` 으로 바꾸는 이유: ``build_graph`` 가 이 사전을 **호출 시점에**
-    읽으므로 어댑터 경로(``adapter.py`` → ``build_graph``)까지 같이 닿고, ``monkeypatch``
+    읽으므로 어댑터 경로(``adapter.py`` → ``service/scenarios.py`` → ``build_graph``)까지
+    같이 닿고, ``monkeypatch``
     가 검사 끝에 원복한다.
     """
 
@@ -182,7 +187,9 @@ def declare_thresholds(
 #: (``build_state``). 한 곳만 막으면 다른 경로의 검사는 보유가 실린 채로 돈다.
 _HOLDINGS_SOURCES = (
     "app.purchase_agent.ports.get_inventory",
-    "app.purchase_agent.adapter.absorb_inventory",
+    #  2026-09-29 재구성 BL-016: `build_state` 가 어댑터에서 `service/scenarios.py` 로 갔다 —
+    #  그 모듈이 들여 쓰는 이름을 갈아 끼운다.
+    "app.purchase_agent.service.scenarios.absorb_inventory",
 )
 
 

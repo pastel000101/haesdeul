@@ -8,6 +8,7 @@
   **무엇을 불렀고 무엇을 안 불렀는지**만 본다.
 """
 
+import importlib
 import inspect
 from datetime import date, timedelta
 from decimal import Decimal
@@ -15,15 +16,17 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.db import FinanceDataNotReady, InventorySnapshot
-from app.finance.transition import (
-    H1_STATE_TYPE,
-    FinanceTransitionAdapter,
-    build_finance_transition,
-    persist_finance_transition,
-)
+from app.finance.adapter import FinanceTransitionAdapter
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.finance_state import H1_STATE_TYPE
+from app.finance.schemas.inventory import InventorySnapshot
+from app.finance.service.transition import build_finance_transition, persist_finance_transition
 
-_MODULE = "app.finance.transition"
+#: 2026-09-29 재구성 BL-014: `finance/transition.py` 가 판정(domain) · 순서(service) ·
+#: SQL(repository) 로 나뉘었다. 읽기 대역은 service, 스키마 이름은 repository 가 읽는다.
+_SERVICE = "app.finance.service.transition"
+_REPOSITORY = "app.finance.repository.transition"
+_TRANSITION_MODULES = ("app.finance.domain.transition", _SERVICE, _REPOSITORY)
 
 WED = date(2025, 12, 31)  # 수요일
 THU = date(2026, 1, 1)
@@ -89,8 +92,8 @@ def _build(commitment, *, purchase_ids=None, target=THU, policy=None, via_adapte
     state = dict(_STATE, state_date=commitment.as_of)
     call = FinanceTransitionAdapter().build if via_adapter else build_finance_transition
     with (
-        patch(f"{_MODULE}.load_finance_state_row", return_value=state),
-        patch(f"{_MODULE}.get_active_finance_policy", return_value=policy or _Policy()),
+        patch(f"{_SERVICE}.load_finance_state_row", return_value=state),
+        patch(f"{_SERVICE}.get_active_finance_policy", return_value=policy or _Policy()),
     ):
         return call(
             commitment,
@@ -145,9 +148,9 @@ class _Conn:
 def _persist(transition, *, rowcount=1):
     conn = _Conn(rowcount)
     with (
-        patch(f"{_MODULE}.get_db_schema", return_value="haetdeul"),
+        patch(f"{_REPOSITORY}.get_db_schema", return_value="haetdeul"),
         patch(
-            f"{_MODULE}.load_inventory_snapshot_as_of",
+            f"{_SERVICE}.load_inventory_snapshot_as_of",
             return_value=InventorySnapshot(Decimal(1), Decimal(2), Decimal(3)),
         ),
     ):
@@ -226,9 +229,9 @@ class _LedgerConn:
 
 def _persist_to_ledger(conn, transition):
     with (
-        patch(f"{_MODULE}.get_db_schema", return_value="haetdeul"),
+        patch(f"{_REPOSITORY}.get_db_schema", return_value="haetdeul"),
         patch(
-            f"{_MODULE}.load_inventory_snapshot_as_of",
+            f"{_SERVICE}.load_inventory_snapshot_as_of",
             return_value=InventorySnapshot(Decimal(1), Decimal(2), Decimal(3)),
         ),
     ):
@@ -273,7 +276,7 @@ def test_current_n5_zero_makes_due_date_equal_purchase_date():
 
 def test_master_purchase_due_date_and_finance_payable_due_date_match():
     """같은 회차의 Master 구매원장 날짜와 Finance 채무 날짜는 같은 N5 식이다."""
-    from app.master.commitment import build_commitment
+    from app.master.domain.commitment import build_commitment
 
     purchase_date = date(2026, 1, 2)
     n5 = 2
@@ -488,13 +491,13 @@ def test_blank_mapped_purchase_id_fails_closed(purchase_id):
 
 def test_finance_never_constructs_a_purchase_id():
     """재무 원문에 `PUR-` 을 짓는 자리가 없다. ID 는 받아 쓰는 값이다."""
-    import app.finance.transition as module
+    for name in _TRANSITION_MODULES:
+        module = importlib.import_module(name)
+        with open(module.__file__, encoding="utf-8") as handle:
+            body = handle.read().split('"""', 2)[2]
 
-    with open(module.__file__, encoding="utf-8") as handle:
-        body = handle.read().split('"""', 2)[2]
-
-    assert 'f"PUR-' not in body
-    assert '"PUR-' not in body
+        assert 'f"PUR-' not in body, name
+        assert '"PUR-' not in body, name
 
 
 def test_missing_payment_policy_fails_closed():
@@ -509,8 +512,8 @@ def test_state_older_than_approval_day_fails_closed():
     """승인일 잔액을 다른 날 잔액으로 대신 계산하지 않는다."""
     stale = dict(_STATE, state_date=WED - timedelta(days=1))
     with (
-        patch(f"{_MODULE}.load_finance_state_row", return_value=stale),
-        patch(f"{_MODULE}.get_active_finance_policy", return_value=_Policy()),
+        patch(f"{_SERVICE}.load_finance_state_row", return_value=stale),
+        patch(f"{_SERVICE}.get_active_finance_policy", return_value=_Policy()),
         pytest.raises(FinanceDataNotReady) as raised,
     ):
         build_finance_transition(
@@ -555,15 +558,14 @@ def test_target_state_date_must_be_after_approval(target):
 
 def test_finance_does_not_import_master_execution_day():
     """L 실행일 달력은 마스터 것이다. 재무가 평일 계산을 대신 하지 않는다."""
-    import app.finance.transition as module
+    for name in _TRANSITION_MODULES:
+        module = importlib.import_module(name)
+        with open(module.__file__, encoding="utf-8") as handle:
+            text = handle.read()
 
-    source = module.__file__
-    with open(source, encoding="utf-8") as handle:
-        text = handle.read()
-
-    assert "next_execution_day" not in text.split('"""', 2)[2]
-    assert "from app.master.execution_day" not in text
-    assert "import app.master.execution_day" not in text
+        assert "next_execution_day" not in text.split('"""', 2)[2], name
+        assert "from app.master.execution_day" not in text, name
+        assert "import app.master.execution_day" not in text, name
 
 
 # ---------------------------------------------------------------------------
@@ -575,15 +577,17 @@ def test_persist_uses_the_supplied_connection_and_never_commits():
     """M·N 받은 연결로만 쓴다. commit·rollback·close 는 부르는 쪽 몫이다."""
     conn, written = _persist(_build(_Commitment(legs=[(1, WED)])))
 
-    assert conn.cursors == 1
-    assert len(conn.executed) == 2  # payables 1건 + finance_states 1건
+    #  2026-09-29 재구성 BL-014: SQL 이 repository 함수로 나뉘어 문장마다 커서를 하나씩
+    #  연다 — 전부 받은 연결의 커서다(자기 연결은 아래 검사가 막는다).
+    assert conn.cursors == len(conn.executed) == 2  # payables 1건 + finance_states 1건
     assert conn.calls == []  # commit / rollback / close 어느 것도 부르지 않았다
     assert written == {"finance_states": 1, "payables": 1}
 
 
 def test_persist_opens_no_connection_of_its_own():
     """자기 커넥션을 열면 마스터가 쥔 트랜잭션 밖에서 쓰게 된다."""
-    with patch("app.finance.db.get_connection") as opened:
+    # ★ 연결은 공통 풀에서만 빌린다 — 풀의 대여 입구를 막아 두고 한 번도 안 불렸는지 본다.
+    with patch("app.core.db.DatabasePool.connection") as opened:
         _persist(_build(_Commitment(legs=[(1, WED)])))
 
     opened.assert_not_called()
@@ -723,7 +727,7 @@ def test_adapter_matches_the_merged_master_protocol_call_shape():
     ★ 마스터 내부(`purchase_id_for` 등)를 여기서 다시 시험하지 않는다 — 그건 마스터
       몫이다. 여기서 보는 것은 **호출 모양이 어긋나지 않는가** 하나뿐이다.
     """
-    from app.master.transition import FinanceTransition as MasterFinanceProtocol
+    from app.master.registry.transition import FinanceTransition as MasterFinanceProtocol
 
     # `isinstance` 는 쓰지 않는다 — 마스터 Protocol 은 `@runtime_checkable` 이 아니고,
     # 그걸 붙이자고 마스터 파일을 고칠 일은 아니다. 계약은 **호출 모양**이다.
@@ -741,16 +745,16 @@ def test_adapter_persist_forwards_the_supplied_connection_and_opens_none():
     conn = _Conn()
 
     with (
-        patch(f"{_MODULE}.get_db_schema", return_value="haetdeul"),
+        patch(f"{_REPOSITORY}.get_db_schema", return_value="haetdeul"),
         patch(
-            f"{_MODULE}.load_inventory_snapshot_as_of",
+            f"{_SERVICE}.load_inventory_snapshot_as_of",
             return_value=InventorySnapshot(Decimal(1), Decimal(2), Decimal(3)),
         ),
-        patch("app.finance.db.get_connection") as opened,
+        patch("app.core.db.DatabasePool.connection") as opened,
     ):
         written = FinanceTransitionAdapter().persist(conn, transition)
 
     opened.assert_not_called()
-    assert conn.cursors == 1
+    assert conn.cursors == len(conn.executed) == 2  # 문장마다 받은 연결의 커서
     assert conn.calls == []  # commit / rollback / close 어느 것도 부르지 않았다
     assert written == {"finance_states": 1, "payables": 1}

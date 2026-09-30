@@ -21,11 +21,7 @@ import pytest
 from _injection import drop_holdings
 
 from app.purchase_agent.config import load_constraints
-from app.purchase_agent.graph import run_purchase_agent
-from app.purchase_agent.llm.mix import MixDecision
-from app.purchase_agent.nodes.allocate_sourcing import (
-    _yields_positive_kg,
-    allocate_sourcing,
+from app.purchase_agent.domain.allocate_sourcing import (
     baseline_spread,
     evaluate_mid_grade,
     grade_spread,
@@ -34,14 +30,19 @@ from app.purchase_agent.nodes.allocate_sourcing import (
     near_term_demand_kg,
     shelf_days_block_reason,
     top_grade_operational_days,
+    yields_positive_kg,
 )
-from app.purchase_agent.nodes.classify_situation import classify_situation
-from app.purchase_agent.nodes.draft_plan import draft_plan, warehouse_cap_kg
-from app.purchase_agent.nodes.package_scenarios import package_scenarios
-from app.purchase_agent.nodes.self_check import check_quadruple_match, self_check
-from app.purchase_agent.nodes.split_plan import split_plan
-from app.purchase_agent.schemas import PurchaseProposal
-from app.purchase_agent.state import build_initial_state
+from app.purchase_agent.domain.draft_plan import warehouse_cap_kg
+from app.purchase_agent.domain.self_check import check_quadruple_match
+from app.purchase_agent.llm.mix import MixDecision
+from app.purchase_agent.schemas.proposal import PurchaseProposal
+from app.purchase_agent.service.graph import build_initial_state, run_purchase_agent
+from app.purchase_agent.service.nodes.allocate_sourcing import allocate_sourcing
+from app.purchase_agent.service.nodes.classify_situation import classify_situation
+from app.purchase_agent.service.nodes.draft_plan import draft_plan
+from app.purchase_agent.service.nodes.package_scenarios import package_scenarios
+from app.purchase_agent.service.nodes.self_check import self_check
+from app.purchase_agent.service.nodes.split_plan import split_plan
 
 RISING = date(2026, 8, 21)
 FALLING = date(2026, 8, 28)
@@ -199,7 +200,7 @@ def test_grade_pair_is_read_from_constraints(monkeypatch: pytest.MonkeyPatch) ->
     mid_swapped = load_constraints()
     mid_swapped["grade"]["mid_grade"] = "특"
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.allocate_sourcing.load_constraints", lambda: mid_swapped
+        "app.purchase_agent.service.nodes.allocate_sourcing.load_constraints", lambda: mid_swapped
     )
     assert {line["grade"] for line in allocate_sourcing(state)["sourcing_plan"]} == {"상"}
 
@@ -208,7 +209,7 @@ def test_grade_pair_is_read_from_constraints(monkeypatch: pytest.MonkeyPatch) ->
     top_swapped = load_constraints()
     top_swapped["allocation"]["reference_grade"] = "특"
     monkeypatch.setattr(
-        "app.purchase_agent.nodes.allocate_sourcing.load_constraints", lambda: top_swapped
+        "app.purchase_agent.service.nodes.allocate_sourcing.load_constraints", lambda: top_swapped
     )
     assert {line["grade"] for line in allocate_sourcing(state)["sourcing_plan"]} == {"특"}
 
@@ -366,13 +367,13 @@ def test_a_ratio_that_rounds_to_zero_kg_is_dropped_before_it_kills_the_proposal(
     지금은 잔여분 비율도 같은 검사를 받는다.
     """
     tiny = {"base_plan": {"drafts": [{"total_qty_kg": 1}, {"total_qty_kg": 100}]}}
-    assert _yields_positive_kg(tiny, 0.4) is False  # round(1 × 0.4) == 0
-    assert _yields_positive_kg(tiny, 0.6) is True  # 중품 줄은 산다…
-    assert _yields_positive_kg(tiny, 1 - 0.6) is False  # …그런데 잔여분이 0kg이다
+    assert yields_positive_kg(tiny, 0.4) is False  # round(1 × 0.4) == 0
+    assert yields_positive_kg(tiny, 0.6) is True  # 중품 줄은 산다…
+    assert yields_positive_kg(tiny, 1 - 0.6) is False  # …그런데 잔여분이 0kg이다
 
     # 안이 여럿이면 **전부** 통과해야 한다 — 큰 안에서만 깨지는 조합
     mixed = {"base_plan": {"drafts": [{"total_qty_kg": 10}, {"total_qty_kg": 10000}]}}
-    assert _yields_positive_kg(mixed, 0.04) is False  # round(10 × 0.04) == 0
+    assert yields_positive_kg(mixed, 0.04) is False  # round(10 × 0.04) == 0
 
     state = _staged(as_of=SPREAD_WIDE)
     # 근접 납품 비중을 0.4로 낮추고, 가장 작은 안을 1kg으로 만든다
@@ -771,13 +772,13 @@ def test_reference_grade_present_leaves_no_fallback_note() -> None:
 
 
 def test_fallback_note_survives_every_risk_branch() -> None:
-    """``_sourcing_risks``의 세 갈래 **전부**에서 고지가 살아남는다.
+    """``sourcing_risks``의 세 갈래 **전부**에서 고지가 살아남는다.
 
     🔴 한 갈래에만 두면 *"배분이 막힌 날에는 고지를 안 받는"* 구조가 된다. 배분이
     막히는 것과 기준등급이 없는 것은 **다른 사실**이고, 막힌 날이야말로 어느 등급으로
     갔는지가 더 중요하다.
     """
-    from app.purchase_agent.nodes.package_scenarios import _sourcing_risks
+    from app.purchase_agent.domain.package_scenarios import sourcing_risks
 
     fallback = {"declared": "상", "used": "특", "used_price": 824}
     branches = {
@@ -792,5 +793,5 @@ def test_fallback_note_survives_every_risk_branch() -> None:
     }
     sourcing = [{"grade": "중", "qty_kg": 300}, {"grade": "특", "qty_kg": 700}]
     for name, decision in branches.items():
-        risks = _sourcing_risks(sourcing, {**decision, "reference_grade_fallback": fallback})
+        risks = sourcing_risks(sourcing, {**decision, "reference_grade_fallback": fallback})
         assert any("당일 시세에 없어" in r for r in risks), f"{name} 갈래에서 사라졌다: {risks}"

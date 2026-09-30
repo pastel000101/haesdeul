@@ -31,11 +31,11 @@ from typing import Any
 
 import pytest
 
-from app.master import wiring
-from app.master.day_gate import DayGate
-from app.master.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master.schemas import SalesRunRequest
-from app.master.service import run_sales
+from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.day_gate import DayGate
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service.sales import run_sales
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 평일 = date(2026, 9, 10)
@@ -91,13 +91,13 @@ def _wire(*agents: str, capture: list | None = None, 물류_회신: dict | None 
     ★ 루트 `conftest.py` 가 등록을 스냅샷/복원하므로 이 테스트 밖으로 안 샌다.
     """
     called = capture if capture is not None else []
-    wiring.reset()
+    registry_wiring.reset()
     if "inventory" in agents:
-        wiring.register("inventory", _port(PRE_SALES_PAYLOAD, called, **(물류_회신 or {})))
+        registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD, called, **(물류_회신 or {})))
     if "sales" in agents:
-        wiring.register("sales", _port(_제안, called))
+        registry_wiring.register("sales", _port(_제안, called))
     if "finance" in agents:
-        wiring.register("finance", _port({"verdict": "ok"}, called))
+        registry_wiring.register("finance", _port({"verdict": "ok"}, called))
     return called
 
 
@@ -116,7 +116,7 @@ def _request(**kw) -> SalesRunRequest:
 def 막힌_개장(monkeypatch: pytest.MonkeyPatch) -> None:
     """개장 관문을 `BLOCKED` 로 꽂는다 — conftest 의 통과 fixture 를 덮는다."""
     monkeypatch.setattr(
-        "app.master.service.check_day_gate",
+        "app.master.service.sales.check_day_gate",
         lambda as_of, **kw: DayGate(
             as_of=as_of,
             gate="BLOCKED",
@@ -139,7 +139,7 @@ def 적재를_지켜본다(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, An
         seen.append(kwargs)
         return "RUN-FAKE-SALES"
 
-    monkeypatch.setattr("app.master.persistence.try_save_run", fake)
+    monkeypatch.setattr("app.master.service.persistence.try_save_run", fake)
     return seen
 
 
@@ -150,12 +150,12 @@ def 적재를_지켜본다(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, An
 
 def test_판매_필수는_제안자와_최종_검증자_둘뿐이다():
     """★ 목록의 주인은 `wiring.py` 하나다 — 여기서는 그 값을 잠근다."""
-    assert wiring.REQUIRED_FOR_SALES == ("sales", "finance")
+    assert registry_wiring.REQUIRED_FOR_SALES == ("sales", "finance")
 
 
 def test_제안자가_목록에_있다():
     """★ 제안자가 없으면 후보가 0이다 — 시작할 이유가 없다."""
-    assert "sales" in wiring.REQUIRED_FOR_SALES, (
+    assert "sales" in registry_wiring.REQUIRED_FOR_SALES, (
         "판매가 필수에서 빠졌다 — 제안자 없이 물류부터 부르고 나서 SL4 로 접힌다"
     )
 
@@ -165,7 +165,7 @@ def test_물류는_필수가_아니다():
 
     필수 목록에 넣으면 그 결정을 **배선 쪽에서 뒤집는** 셈이다.
     """
-    assert "inventory" not in wiring.REQUIRED_FOR_SALES, (
+    assert "inventory" not in registry_wiring.REQUIRED_FOR_SALES, (
         "물류를 판매 필수로 올렸다 — 밴드 없이 시작한다는 설계를 배선이 뒤집는다"
     )
 
@@ -179,20 +179,20 @@ def test_매입은_필수가_아니다():
       남은 근거가 **조건부라는 사실 하나**이고 그것이 원래 이 검사의 뜻이다 —
       부족량이 있는 후보에만 걸리므로 없는 날은 매입 없이도 판매가 돌아야 한다.
     """
-    from app.master.envelope import CAPABILITY_ROUTING
+    from app.contracts.envelope import CAPABILITY_ROUTING
 
     assert CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"] is not None, (
         "라우팅이 다시 None 이 됐다면 이 검사의 전제가 또 바뀐 것이다"
     )
-    assert "purchase" not in wiring.REQUIRED_FOR_SALES
+    assert "purchase" not in registry_wiring.REQUIRED_FOR_SALES
 
 
 def test_판매_필수와_매입_필수는_다른_목록이다():
     """★ 겹치지만 같은 목록이 아니다 — 한쪽을 다른 쪽으로 대신 쓰면 판매가 물류
     미등록으로 서거나 매입이 물류 없이 돈다.
     """
-    assert wiring.REQUIRED_FOR_SALES != wiring.REQUIRED_FOR_PROCUREMENT
-    assert "inventory" in wiring.REQUIRED_FOR_PROCUREMENT, (
+    assert registry_wiring.REQUIRED_FOR_SALES != registry_wiring.REQUIRED_FOR_PROCUREMENT
+    assert "inventory" in registry_wiring.REQUIRED_FOR_PROCUREMENT, (
         "매입 필수를 건드렸다 — 이 조각은 매입 목록을 바꾸지 않는다"
     )
 
@@ -335,4 +335,4 @@ def test_안_열린_날_점검_조건이_실제로_성립한다():
     """★ 위 검사의 전제. 배선이 실제로 비어 있어야 *"개장이 먼저"* 를 잰 것이 된다."""
     _wire()
 
-    assert wiring.missing(wiring.REQUIRED_FOR_SALES) == ("sales", "finance")
+    assert registry_wiring.missing(registry_wiring.REQUIRED_FOR_SALES) == ("sales", "finance")

@@ -20,11 +20,9 @@ import pytest
 # ⚠️ **직접 바인딩한다.** conftest 가 모듈 속성을 가짜로 꽂는데(다른 검사가 실 DB 를
 #   안 치게), 이 파일은 **그 함수 자체를 재므로** 임포트 시점의 진짜를 들고 있어야 한다.
 #   가짜 커넥션을 직접 주므로 DB 로 안 나간다.
-from app.master.day_opening_repository import (
-    DayOpeningRecord,
-    read_day_opening,
-    record_day_opening,
-)
+from app.master.readmodel.day_openings import read_day_opening
+from app.master.schemas.day_open import DayOpeningRecord
+from app.master.service.day_open import record_day_opening
 
 AS_OF = date(2026, 1, 8)
 SIM = "SIM-BURNIN-202512"
@@ -53,7 +51,7 @@ class _커넥션:
         self.cur = _커서(row)
         self.committed = 0
         self.rolled_back = 0
-        self.closed = 0
+        self.returned = 0
         self._raises = raises
 
     def cursor(self) -> Any:
@@ -67,8 +65,12 @@ class _커넥션:
     def rollback(self) -> None:
         self.rolled_back += 1
 
-    def close(self) -> None:
-        self.closed += 1
+    def __enter__(self) -> Any:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        # 공통 풀에 돌려준 횟수 — 종전 close() 자리다. 반환은 commit 하지 않는다.
+        self.returned += 1
 
 
 # ── ① 적재 ────────────────────────────────────────────────────────────────
@@ -78,12 +80,12 @@ def test_적고_커밋한다():
     conn = _커넥션()
 
     ok = record_day_opening(
-        as_of=AS_OF, sim_run_id=SIM, result="OPENED", connect=lambda: conn
+        as_of=AS_OF, sim_run_id=SIM, result="OPENED", borrow=lambda: conn
     )
 
     assert ok is True
     assert conn.committed == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_정본_키가_as_of_와_sim_run_id_다():
@@ -93,7 +95,7 @@ def test_정본_키가_as_of_와_sim_run_id_다():
     """
     conn = _커넥션()
 
-    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="OPENED", connect=lambda: conn)
+    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="OPENED", borrow=lambda: conn)
 
     query, _params = conn.cur.executed[0]  # 이 검사는 SQL 문장만 본다
     assert "ON CONFLICT (as_of, sim_run_id)" in query
@@ -108,7 +110,7 @@ def test_성공이면_연속_실패를_0_으로_보낸다():
     """
     conn = _커넥션()
 
-    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="ALREADY_OPENED", connect=lambda: conn)
+    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="ALREADY_OPENED", borrow=lambda: conn)
 
     query, params = conn.cur.executed[0]
     assert "CASE WHEN %s THEN 0 ELSE" in query
@@ -119,7 +121,7 @@ def test_성공이면_연속_실패를_0_으로_보낸다():
 def test_실패면_연속_실패를_올린다():
     conn = _커넥션()
 
-    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="NOT_OPENED", connect=lambda: conn)
+    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="NOT_OPENED", borrow=lambda: conn)
 
     _, params = conn.cur.executed[0]
     assert params[3] == 1, "처음 적는 실패는 1 이다"
@@ -129,7 +131,7 @@ def test_실패면_연속_실패를_올린다():
 def test_REJECTED_GAP_도_실패로_센다():
     conn = _커넥션()
 
-    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="REJECTED_GAP", connect=lambda: conn)
+    record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="REJECTED_GAP", borrow=lambda: conn)
 
     _, params = conn.cur.executed[0]
     assert params[-1] is False
@@ -146,19 +148,19 @@ def test_적재가_터져도_예외가_안_오른다():
     conn = _커넥션(raises=RuntimeError("연결 끊김"))
 
     ok = record_day_opening(
-        as_of=AS_OF, sim_run_id=SIM, result="OPENED", connect=lambda: conn
+        as_of=AS_OF, sim_run_id=SIM, result="OPENED", borrow=lambda: conn
     )
 
     assert ok is False
     assert conn.rolled_back == 1
-    assert conn.closed == 1
+    assert conn.returned == 1
 
 
 def test_커넥션을_못_열어도_예외가_안_오른다():
     def 못연다() -> Any:
         raise RuntimeError("DB 없음")
 
-    assert record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="OPENED", connect=못연다) is False
+    assert record_day_opening(as_of=AS_OF, sim_run_id=SIM, result="OPENED", borrow=못연다) is False
 
 
 # ── ③ 조회 ────────────────────────────────────────────────────────────────
@@ -169,7 +171,7 @@ def test_없으면_None_이다():
     사유에 적는다** — 판단을 멈추지 않는다."""
     conn = _커넥션(row=None)
 
-    assert read_day_opening(as_of=AS_OF, sim_run_id=SIM, connect=lambda: conn) is None
+    assert read_day_opening(as_of=AS_OF, sim_run_id=SIM, borrow=lambda: conn) is None
 
 
 def test_읽으면_연속_실패를_들고_온다():
@@ -183,7 +185,7 @@ def test_읽으면_연속_실패를_들고_온다():
     }
     conn = _커넥션(row=row)
 
-    record = read_day_opening(as_of=AS_OF, sim_run_id=SIM, connect=lambda: conn)
+    record = read_day_opening(as_of=AS_OF, sim_run_id=SIM, borrow=lambda: conn)
 
     assert isinstance(record, DayOpeningRecord)
     assert record.failure_count == 2
@@ -193,7 +195,7 @@ def test_읽으면_연속_실패를_들고_온다():
 def test_조회가_터져도_None_이다():
     conn = _커넥션(raises=RuntimeError("연결 끊김"))
 
-    assert read_day_opening(as_of=AS_OF, sim_run_id=SIM, connect=lambda: conn) is None
+    assert read_day_opening(as_of=AS_OF, sim_run_id=SIM, borrow=lambda: conn) is None
 
 
 # ── ④ open_day 가 정본을 남긴다 ───────────────────────────────────────────
@@ -206,11 +208,12 @@ def test_성공한_개장도_정본에_남긴다(monkeypatch: pytest.MonkeyPatch
     **정상 경로를 안 쟀기 때문**이다. 그러면 *"매일 도는 성공"* 이 정본에 안 남고,
     `failure_count` 가 영영 0 으로 안 돌아간다.
     """
-    from app.master import day_open
+    from app.master.registry import day_open as registry_day_open
+    from app.master.service import day_open as service_day_open
 
     남긴것: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        "app.master.day_open.record_day_opening",
+        "app.master.service.day_open.record_day_opening",
         lambda **kw: (남긴것.append(kw), True)[1],
         raising=False,
     )
@@ -222,13 +225,13 @@ def test_성공한_개장도_정본에_남긴다(monkeypatch: pytest.MonkeyPatch
         def open_day(self, conn: Any, *, as_of: date, carry_from: date) -> None:
             raise AssertionError("이미 열려 있으면 안 부른다")
 
-    day_open.reset()
-    day_open.register_day_opening("finance", _이미열린파트())
-    day_open.register_day_opening("logistics", _이미열린파트())
+    registry_day_open.reset()
+    registry_day_open.register_day_opening("finance", _이미열린파트())
+    registry_day_open.register_day_opening("logistics", _이미열린파트())
     try:
-        out = day_open.open_day(AS_OF, connect=lambda: _커넥션(), sim_run_id=SIM)
+        out = service_day_open.open_day(AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM)
     finally:
-        day_open.reset()
+        registry_day_open.reset()
 
     assert out.status == "ALREADY_OPENED"
     assert 남긴것, "🔴 성공한 개장이 정본에 안 남았다 — failure_count 가 영영 안 리셋된다"
@@ -241,17 +244,18 @@ def test_open_day_가_파트_트랜잭션_밖에서_남긴다(monkeypatch: pytes
 
     그러면 `day_gate` 가 재시도와 사람을 영영 못 가른다.
     """
-    from app.master import day_open
+    from app.master.registry import day_open as registry_day_open
+    from app.master.service import day_open as service_day_open
 
     남긴것: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        "app.master.day_open.record_day_opening",
+        "app.master.service.day_open.record_day_opening",
         lambda **kw: (남긴것.append(kw), True)[1],
         raising=False,
     )
-    day_open.reset()
+    registry_day_open.reset()
 
-    out = day_open.open_day(AS_OF, connect=lambda: _커넥션(), sim_run_id=SIM)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: _커넥션(), sim_run_id=SIM)
 
     assert out.status == "NOT_OPENED", "미등록이라 안 열린다"
     assert 남긴것, "🔴 미등록으로 돌아설 때도 남겨야 한다 — 그것도 사실이다"

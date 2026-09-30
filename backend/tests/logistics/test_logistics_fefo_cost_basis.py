@@ -26,10 +26,10 @@ from pathlib import Path
 
 import pytest
 
-from app.logistics import tools as logistics_tools
-from app.logistics.schemas import InventoryLotSnapshot, OutboundCommitment
-from app.logistics.tools import build_inventory_by_item, fefo_inventory_cost_basis
-from app.logistics.turnover import fefo_sort_key
+from app.logistics.domain import tools as logistics_tools
+from app.logistics.domain.tools import build_inventory_by_item, fefo_inventory_cost_basis
+from app.logistics.domain.turnover import fefo_sort_key
+from app.logistics.schemas.snapshot import InventoryLotSnapshot, OutboundCommitment
 
 
 def _lot(
@@ -501,9 +501,11 @@ def test_fefo_stock_that_cannot_cover_the_quantity_makes_no_basis(complete_logis
 
 def test_the_sort_key_is_the_one_real_shipping_uses():
     """원가 배부와 실제 출고가 **같은 함수**를 부른다 — 두 벌이 되면 또 갈린다."""
-    물류 = Path(logistics_tools.__file__).parent
+    # ★ 2026-09-30 재구성 BL-015: 원가 배부는 `domain/tools.py`, 실제 출고 후보 정렬은
+    #   `service/outbound.py`(`recommend_fefo_candidates`)에 있다.
+    물류 = Path(logistics_tools.__file__).parents[1]
 
-    for 이름 in ("tools.py", "outbound.py"):
+    for 이름 in ("domain/tools.py", "service/outbound.py"):
         코드 = (물류 / 이름).read_text(encoding="utf-8")
         assert "fefo_sort_key" in 코드, f"{이름} 이 공유 정렬 키를 안 쓴다"
         # 정렬 튜플을 그 자리에서 다시 적으면 한쪽만 고쳐지는 날이 온다.

@@ -13,19 +13,19 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance import user_messages as messages
-from app.finance.application.orchestration import FinanceAgentController
-from app.finance.db import FinanceDataNotReady
+from app.contracts.envelope import AgentRequest, ExecutionContext
+from app.finance.domain import messages
 from app.finance.llm.client import finance_llm_enabled
 from app.finance.llm.finalizer import DeterministicFinanceFinalizer
-from app.finance.llm.planner import (
-    DeterministicFinancePlanner,
+from app.finance.llm.planner import DeterministicFinancePlanner
+from app.finance.schemas.agent import FinancePolicy
+from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.planner import (
     FinancePlannerContractViolation,
     FinancePlannerUnavailable,
     ToolAction,
 )
-from app.finance.schemas import FinancePolicy
-from app.master.envelope import AgentRequest, ExecutionContext
+from app.finance.service.agent import FinanceAgentController
 from tests.finance.test_finance_harness_langchain import two_explanation_candidates
 
 
@@ -221,7 +221,7 @@ def sales_payload():
 
 @pytest.fixture(autouse=True)
 def _no_persistence():
-    with patch("app.finance.execution.save_finance_execution"):
+    with patch("app.finance.service.run_history.save_finance_execution"):
         yield
 
 
@@ -256,19 +256,19 @@ def test_finance_llm_defaults_to_enabled(monkeypatch):
 
 def test_finance_provider_does_not_inherit_the_global_provider(monkeypatch):
     """★ 전역을 ollama 로 둔 배포에서도 재무는 Gemini 다 (§12)."""
-    from app.finance.llm.client import _finance_provider_name
+    from app.finance.llm.client import finance_provider_name
 
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.delenv("FINANCE_LLM_PROVIDER", raising=False)
-    assert _finance_provider_name() == "gemini"
+    assert finance_provider_name() == "gemini"
 
 
 def test_disabled_finance_llm_builds_no_provider(monkeypatch):
     """껐으면 Provider 를 만들지 않는다 — API 키도 로컬 서버도 확인하러 나가지 않는다."""
-    from app.finance.llm.planner import _configured_finance_llms
+    from app.finance.llm.planner import configured_finance_llms
 
     monkeypatch.setenv("FINANCE_LLM_ENABLED", "false")
-    planner, finalizer, provider_state = _configured_finance_llms()
+    planner, finalizer, provider_state = configured_finance_llms()
 
     assert isinstance(planner, DeterministicFinancePlanner)
     assert isinstance(finalizer, DeterministicFinanceFinalizer)

@@ -21,8 +21,11 @@ from typing import Any, Self
 
 import pytest
 
-from app.logistics import ledger
-from app.logistics.ledger import (
+from app.logistics.domain import ledger as ledger_domain
+from app.logistics.repository import ledger as ledger_repository
+from app.logistics.repository import locks
+from app.logistics.schemas import ledger as ledger_schemas
+from app.logistics.schemas.ledger import (
     InvalidMoveQuantity,
     LotNotFound,
     MoveIdConflict,
@@ -31,8 +34,9 @@ from app.logistics.ledger import (
     OriginalQuantityExceeded,
     RemainingQuantityInsufficient,
     UnsupportedMoveType,
-    record_inventory_move,
 )
+from app.logistics.service import ledger
+from app.logistics.service.ledger import record_inventory_move
 
 MOVED_AT = date(2026, 1, 7)
 SIM_RUN_ID = "SIM-BURNIN-202512"
@@ -52,7 +56,7 @@ def 스키마이름을_고정한다(monkeypatch: pytest.MonkeyPatch) -> None:
     ★ 이름은 아무거나 좋다. 여기서 재는 것은 SQL 이 **어느 스키마를 가리키는가**가
       아니라 규율이고, DB 를 부르지도 않는다.
     """
-    monkeypatch.setattr(ledger, "get_db_schema", lambda: "haetdeul")
+    monkeypatch.setattr(ledger_repository, "get_db_schema", lambda: "haetdeul")
 
 
 #: `_existing_move` 가 읽는 칸 순서와 같아야 한다 — 가짜 커서가 튜플로 답하기 때문이다.
@@ -215,15 +219,22 @@ def test_모듈이_자기_커넥션을_열지_않는다():
     ⚠️ docstring 은 빼고 본다. 왜 안 쓰는지를 **설명하는 문장**에 그 이름들이 나오고,
        설명과 코드는 다른 것이다.
     """
-    source = Path(ledger.__file__).read_text(encoding="utf-8")
-    module_docstring = ast.get_docstring(ast.parse(source), clean=False)
-    assert module_docstring is not None, "모듈 docstring 이 없다 — 왜 이 규율인지가 안 적혀 있다."
-    code = source.replace(module_docstring, "", 1)
+    # ★ 2026-09-30 재구성 BL-015: 종전 `ledger.py` 한 파일이 네 파일로 갈렸다 — 파일마다 본다.
+    for module in _원장_모듈:
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        module_docstring = ast.get_docstring(ast.parse(source), clean=False)
+        assert module_docstring is not None, (
+            f"{module.__name__} 모듈 docstring 이 없다 — 왜 이 규율인지가 안 적혀 있다."
+        )
+        code = source.replace(module_docstring, "", 1)
 
-    assert "get_connection" not in code
-    assert "fetch_all" not in code
-    assert "fetch_one" not in code
-    assert "execute_returning_one" not in code
+        assert "get_connection" not in code
+        # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+        assert "core_db" not in code
+        assert "app.core" not in code
+        assert "fetch_all" not in code
+        assert "fetch_one" not in code
+        assert "execute_returning_one" not in code
 
 
 # ── 잠금과 순서 ──────────────────────────────────────────────────────────
@@ -316,19 +327,47 @@ def test_원장_잠금은_move_id_와_무관한_하나의_전역_잠금이다():
     assert 첫번째.커서.params[0] == 두번째.커서.params[0], (
         "move_id 가 달라도 같은 잠금을 잡아야 한다 — 그래야 전순서가 선다"
     )
-    assert 첫번째.커서.params[0] == (ledger._LEDGER_LOCK_CLASSID, ledger._LEDGER_LOCK_OBJID)
+    assert 첫번째.커서.params[0] == (locks.LEDGER_LOCK_CLASSID, locks.LEDGER_LOCK_OBJID)
 
 
 def test_잠금_구현_상세를_공개_API_로_내보내지_않는다():
-    """★ 잠금은 기술적 동시성 장치지 물류 업무 API 가 아니다."""
-    assert "move_lock_key" not in ledger.__all__
-    assert not hasattr(ledger, "move_lock_key")
-    assert ledger.__all__ == sorted(ledger.__all__), "정렬을 유지한다"
-    공개 = {이름 for 이름 in ledger.__all__}
+    """★ 잠금은 기술적 동시성 장치지 물류 업무 API 가 아니다.
+
+    ★ 2026-09-30 재구성 BL-015: 종전에는 `ledger.__all__` 한 목록을 봤다. 이제 업무 API 는
+      `service/ledger`(함수) · `schemas/ledger`(타입)가 **정의한** 공개 이름이고, 잠금은
+      기술 계층 `repository/locks` 에 있다. 목록(`__all__`)이 없어진 대신 정의된 이름을 센다.
+    """
+    for module in (ledger, ledger_repository, ledger_domain, ledger_schemas):
+        assert not hasattr(module, "move_lock_key")
+    공개 = _정의한_공개_이름(ledger) | _정의한_공개_이름(ledger_schemas)
     assert "record_inventory_move" in 공개
     assert {"MoveLine", "LedgerResult"} <= 공개
-    assert not any(이름.startswith("_") for 이름 in 공개)
     assert not any("lock" in 이름.lower() for 이름 in 공개), "잠금 이름이 새지 않는다"
+    assert hasattr(locks, "lock_ledger_writes"), "잠금은 기술 계층에 있다"
+
+
+def _정의한_공개_이름(module: object) -> set[str]:
+    """모듈이 **스스로 정의한**(들여온 것 빼고) 밑줄 없는 최상위 이름."""
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    이름들: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            이름들.add(node.name)
+        elif isinstance(node, ast.Assign):
+            이름들 |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            이름들.add(node.target.id)
+    return {이름 for 이름 in 이름들 if not 이름.startswith("_")}
+
+
+#: 종전 `ledger.py` 한 파일이던 원장 코드 — 2026-09-30 재구성 BL-015 부터 네 파일이다.
+_원장_모듈 = (ledger, ledger_repository, ledger_domain, locks)
+
+
+def _원장_원문() -> str:
+    return "\n".join(
+        Path(module.__file__).read_text(encoding="utf-8") for module in _원장_모듈
+    )
 
 
 def test_기존_Move_가_없는_Lot_을_가리키면_LotNotFound_가_아니라_Conflict_다():
@@ -368,25 +407,28 @@ def test_멱등_재시도는_Lot_에_행_잠금을_걸지_않는다():
 
 
 def _코드만() -> str:
-    """`ledger.py` 에서 docstring 과 주석을 걷어낸 **실행되는 부분**.
+    """원장 코드(`_원장_모듈`)에서 docstring 과 주석을 걷어낸 **실행되는 부분**.
 
     ⚠️ 이 모듈은 *"왜 그것을 안 쓰는지"* 를 설명하는 문장이 많아, 원문을 그대로 뒤지면
        **설명이 코드로 잡힌다.** 설명과 코드는 다른 것이고, 잠가야 할 것은 후자다.
     """
-    source = Path(ledger.__file__).read_text(encoding="utf-8")
-    죽일줄: set[int] = set()
-    for node in ast.walk(ast.parse(source)):
-        if (
-            isinstance(node, ast.Expr)
-            and isinstance(node.value, ast.Constant)
-            and isinstance(node.value.value, str)
-        ):
-            죽일줄.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
-    return "\n".join(
-        줄.split("#", 1)[0]
-        for 번호, 줄 in enumerate(source.splitlines(), start=1)
-        if 번호 not in 죽일줄
-    )
+    조각들 = []
+    for module in _원장_모듈:
+        source = Path(module.__file__).read_text(encoding="utf-8")
+        죽일줄: set[int] = set()
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                죽일줄.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+        조각들.append("\n".join(
+            줄.split("#", 1)[0]
+            for 번호, 줄 in enumerate(source.splitlines(), start=1)
+            if 번호 not in 죽일줄
+        ))
+    return "\n".join(조각들)
 
 
 def test_UniqueViolation_을_제어_흐름으로_쓰지_않는다():
@@ -714,7 +756,7 @@ def test_Line_0건끼리는_같은_재시도다():
 
 def test_중복_판정에_새_컬럼을_쓰지_않는다():
     """★ `inventory_moves_pkey` 가 이미 `move_id` 다 — 마이그레이션이 필요 없다."""
-    source = Path(ledger.__file__).read_text(encoding="utf-8")
+    source = _원장_원문()
 
     assert "idempotency" not in source.lower()
     assert "ALTER TABLE" not in source
@@ -769,7 +811,7 @@ def test_Line_합계가_Header_와_다르면_멈춘다():
 
 def test_Pallet_이나_Location_을_지어내지_않는다():
     """없는 id 는 FK 가 막는다 — 코드가 만들어 채우지 않는다."""
-    source = Path(ledger.__file__).read_text(encoding="utf-8")
+    source = _원장_원문()
 
     assert "INSERT INTO {}.pallets" not in source
     assert "storage_locations" not in source

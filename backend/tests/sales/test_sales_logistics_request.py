@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-import app.sales.logistics_request as outbound_module
-from app.sales.logistics_request import outbound_reservation_for_sale
-from app.sales.persistence import SaleWriteResult
+import app.sales.domain.logistics_request as outbound_module
+from app.sales.domain.logistics_request import outbound_reservation_for_sale
+from app.sales.schemas.sale_ledger import SaleWriteResult
 
 
 def test_confirmed_sale_result_builds_logistics_reservation_request():

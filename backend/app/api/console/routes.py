@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.console.runs import ConsoleRunsResponse, get_console_runs
+from app.master.readmodel.console_runs import ConsoleRunsResponse, get_console_runs
 
 router = APIRouter(prefix="/console", tags=["console"])
 
