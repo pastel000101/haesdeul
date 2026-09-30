@@ -4,7 +4,7 @@
 반올림 · 표시 문구가 같다.
 
 ```text
-format_won(x)       원 단위 반올림 · 쉼표 · "원"             api/finance/query · api/sales/query
+format_won(x)       원 단위 반올림 · 쉼표 · "원"             api/{finance,sales}/presenter
 format_manwon(x)    만 원 단위 반올림 · 쉼표 · 단위 글자 없음  위 두 파일
 to_decimal(x)       Decimal 은 그대로, 나머지는 str 을 거친다  logistics/console_service
                     · None 을 안 받는다                         logistics/historical_repository

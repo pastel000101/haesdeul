@@ -276,7 +276,7 @@ def test_매입과_계약의_차이를_알고_있다():
       생기면 그것이 결정이든 사고든 **여기서 먼저 보인다.**
 
     ★ DB 기록은 안 고쳤다 — `master_agent_runs` 에 피마늘 194건이 남아 있고
-      매입 화면이 **보일 때 거른다** (`app/api/purchase/query.py`).
+      매입 화면이 **보일 때 거른다** (`app/master/readmodel/purchase_tab.py::pick_runs`).
       선언을 좁히는 것과 기록을 고쳐 쓰는 것은 다른 일이다.
     """
     from app.contracts.commitment import ITEM_CODES

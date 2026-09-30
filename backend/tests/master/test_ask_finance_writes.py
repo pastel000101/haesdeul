@@ -26,11 +26,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.finance import deps as finance_http
+from app.api.master.ask import router as master_router
 from app.core.settings import SHOWN_SIM_RUN_ID
-from app.finance import router as finance_router
 from app.finance.schemas.write_rejection import FinanceWriteRejected
 from app.main import app as whole_app
-from app.master.router import router as master_router
 from app.master.service import ask_domain_actions
 from tests.finance.finance_fake_connection import FakeConnection, lend
 
@@ -305,11 +305,11 @@ def test_every_rejection_reason_maps_to_the_same_status(master, monkeypatch, rea
     """service 가 낸 사유 셋이 재무 라우터 · ask 에서 같은 상태 코드와 같은 문장이 된다.
 
     ★ `INVALID` 는 ask 가 먼저 입력을 되묻는 자리라 실제 요청으로는 닿지 않는다 — 옮기는
-      두 자리(`finance_router._rejected` · `ask_service._finance_write` → 마스터 라우터)를
+      두 자리(`api/finance/deps.rejected` · `ask_service._finance_write` → 마스터 라우터)를
       같은 사유로 직접 잰다.
     """
     error = FinanceWriteRejected(reason, f"{reason} 문장")
-    http = finance_router._rejected(error)
+    http = finance_http.rejected(error)
 
     def rejecting(_conn, _expense_id, _request):
         raise error

@@ -37,10 +37,10 @@ from typing import Any
 
 import pytest
 
-from app.api.dashboard import query as dashboard_query
+from app.api.dashboard import presenter as dashboard_presenter
 from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 from app.contracts.core import ITEMS
 
 AS_OF = date(2026, 4, 13)
@@ -148,34 +148,36 @@ def _source(owner: str) -> Source:
 @pytest.fixture
 def screen(monkeypatch):
     """매입만 **진짜**로 돌리고 나머지는 대역. 매입의 DB 자리만 갈아 끼운다."""
-    monkeypatch.setattr(purchase_query, "read_purchase_tab", _read)
-    monkeypatch.setattr(purchase_query, "recorded_totals_by_plan", lambda **_: {})
-    monkeypatch.setattr(dashboard_query, "recorded_totals_by_plan", lambda **_: {})
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _read)
+    monkeypatch.setattr(purchase_presenter, "recorded_totals_by_plan", lambda **_: {})
+    monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan", lambda **_: {})
     monkeypatch.setattr(
-        dashboard_query.forecast_q, "build",
+        dashboard_presenter.forecast_presenter, "build",
         lambda as_of, item: SimpleNamespace(
             cards=[_card(i) for i in ITEMS], source=_source("ML")),
     )
     monkeypatch.setattr(
-        dashboard_query.finance_q, "build",
+        dashboard_presenter.finance_presenter, "build",
         lambda as_of, s: SimpleNamespace(
             stats=[Stat(label="운영 여유", value="1", raw=1)],
             states=[SimpleNamespace(key="base", label="대출 제외")],
             selected="base", source=_source("재무")),
     )
     monkeypatch.setattr(
-        dashboard_query.logistics_q, "build",
+        dashboard_presenter.logistics_presenter, "build",
         lambda as_of, pane: SimpleNamespace(
             panes=[SimpleNamespace(key="stock", stats=[Stat(label="재고", value="1", raw=1)])],
             source=_source("물류")),
     )
     monkeypatch.setattr(
-        dashboard_query.sales_q, "build",
+        dashboard_presenter.sales_presenter, "build",
         lambda as_of: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
                                       source=_source("판매")),
     )
-    monkeypatch.setattr(dashboard_query.finance_q, "dashboard_cash", lambda axis: _chart())
-    monkeypatch.setattr(dashboard_query.logistics_q, "dashboard_stock",
+    monkeypatch.setattr(
+        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis: _chart()
+    )
+    monkeypatch.setattr(dashboard_presenter.logistics_presenter, "dashboard_stock",
                         lambda n, at, as_of: _chart())
     return monkeypatch
 
@@ -190,8 +192,8 @@ def _inbound(tab) -> Stat:
 
 def test_창을_0_으로_두면_매입_탭이_실제로_달라진다(screen):
     """🔴 이것이 안 달라지면 아래 «대시보드가 같다» 는 **아무것도 안 재는 검사**다."""
-    전부 = purchase_query.build(AS_OF, AXIS)
-    창0 = purchase_query.build(AS_OF, AXIS, window_days=0)
+    전부 = purchase_presenter.build(AS_OF, AXIS)
+    창0 = purchase_presenter.build(AS_OF, AXIS, window_days=0)
 
     assert _inbound(전부).value != _inbound(창0).value
     assert 전부.committed_note.text != 창0.committed_note.text
@@ -199,7 +201,7 @@ def test_창을_0_으로_두면_매입_탭이_실제로_달라진다(screen):
 
 def test_창을_0_으로_두면_입고_예정을_0_이_아니라_미결로_낸다(screen):
     """★ 「확정된 0」 과 「안 읽었다」 는 다른 사실이다 (`#740` 이 세운 규율)."""
-    칸 = _inbound(purchase_query.build(AS_OF, AXIS, window_days=0))
+    칸 = _inbound(purchase_presenter.build(AS_OF, AXIS, window_days=0))
 
     assert 칸.value == "—"
     assert 칸.raw is None
@@ -211,13 +213,13 @@ def test_창을_0_으로_두면_입고_예정을_0_이_아니라_미결로_낸�
 
 def _dashboard_with(screen, window_days: int | None):
     """대시보드가 매입에 넘기는 창을 **강제로** 바꿔 세운다."""
-    진짜 = purchase_query.build
+    진짜 = purchase_presenter.build
     screen.setattr(
-        dashboard_query.purchase_q, "build",
+        dashboard_presenter.purchase_presenter, "build",
         lambda as_of, sim_run_id=None, **_: 진짜(
             as_of, sim_run_id, window_days=window_days),
     )
-    return dashboard_query.build(AS_OF)
+    return dashboard_presenter.build(AS_OF)
 
 
 def test_창을_0_으로_둬도_대시보드_응답이_그대로다(screen):

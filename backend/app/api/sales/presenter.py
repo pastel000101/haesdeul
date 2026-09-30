@@ -6,7 +6,18 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
-from app.api.primitives import Card, Chart, Column, Note, Series, Source, Stat, Table
+from app.api.primitives import (
+    Card,
+    Chart,
+    Column,
+    Note,
+    Series,
+    Source,
+    Stat,
+    Table,
+    spread_labels,
+    three_ticks,
+)
 from app.api.sales.schema import SalesTab
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
@@ -20,9 +31,10 @@ _ORDER_STATUS_LABELS = {
 
 
 def build(as_of: date) -> SalesTab:
-    #  🔵 이 조회 안의 `fetch_all` 은 공통 풀에서 연결을 빌려 쓴다 (2026-09-29 풀 전환).
-    #     종전(2026-09-17)에는 영업 읽기 범위로 한 판의 연결을 하나로 묶었다 — 조회마다
-    #     새로 열면 한 판에 6개였다(원격 DB · 개당 14~22ms). 이제 그 재사용을 풀이 한다.
+    #  🔵 이 조회는 판매 readmodel(`sales/readmodel/dashboard.py`)이 공통 풀에서 조회 연결
+    #     하나를 빌려 읽는다 (2026-09-29 풀 전환 · BL-013). 종전(2026-09-17)에는 영업 읽기
+    #     범위로 한 판의 연결을 하나로 묶었다 — 조회마다 새로 열면 한 판에 6개였다(원격 DB ·
+    #     개당 14~22ms). 이제 그 재사용을 풀이 한다.
     dash = get_sales_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
     summary = dash.summary
     quantity_detail = f"고객 {summary.customer_count}곳 · 총 {_kg(summary.total_sales_quantity_kg)}"
@@ -219,10 +231,10 @@ def _receivables_card(dash) -> Card:
             label="남은 수금 일정",
             y_min=0,
             y_max=y_max,
-            y_ticks=_ticks(0, y_max),
+            y_ticks=three_ticks(0, y_max),
             y_unit="M",
             series=[Series(name="남은 수금", data=values, tone="info")],
-            x_labels=_spread_labels([f"{d.month}/{d.day}" for d in due_dates]),
+            x_labels=spread_labels([f"{d.month}/{d.day}" for d in due_dates]),
             note=Note(
                 tone="neutral",
                 text=(
@@ -294,16 +306,3 @@ def _chart_max(values: list[float]) -> float:
     if not values:
         return 1
     return max(1, round(max(values) * 1.2, 1))
-
-
-def _ticks(start: float, end: float) -> list[float]:
-    middle = round((start + end) / 2, 1)
-    return [start, middle, end]
-
-
-def _spread_labels(labels: list[str]) -> list[str]:
-    if len(labels) <= 2:
-        return labels
-    visible = {0, len(labels) - 1}
-    visible.update(range(6, len(labels) - 1, 7))
-    return [label if index in visible else "" for index, label in enumerate(labels)]

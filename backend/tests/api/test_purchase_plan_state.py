@@ -20,7 +20,7 @@
     ④ approved 가 그대로 있다 — 읽는 자리가 있다 (대시보드 서버 · 09-17 정정)
     ⑤ 상태 어휘의 주인이 하나다 (`app/master/domain/plan_state.py`) — 대시보드와 같은 것
        (2026-09-29 재구성 BL-012 전 자리는 `app/api/plan_state.py`. 안 이름을 쪼개는
-       `plan_item` · `recorded_for` 는 이름을 짓는 매입 탭 `query` 에 남았다)
+       `plan_item` · `recorded_for` 는 이름을 짓는 매입 탭 `presenter` 에 남았다)
     ⑥ 「승인 대기」는 요청(품목·날) 단위다 — 형제 안이 결정되면 대기가 아니다 (09-17)
     ⑦ 결정은 **최대 회차 하나만** 유효하다 — 되돌린 승인은 「승인됨」이 아니다 (09-17)
 
@@ -40,7 +40,7 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals
 from app.master.readmodel.purchase_tab import read_purchase_tab
@@ -106,14 +106,14 @@ def tab(monkeypatch):
 
     #  ⚠️ `**_` 다 — `build` 가 `window_days=` 를 넘긴다 (`#740`). 안 받으면 `TypeError`
     #     가 나고 `build` 의 `except Exception` 이 그것을 삼켜 조용히 예시값이 나간다.
-    monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda _as_of, **_: state["data"])
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda _as_of, **_: state["data"])
     monkeypatch.setattr(
-        purchase_query, "recorded_totals_by_plan", lambda **_: state["records"]
+        purchase_presenter, "recorded_totals_by_plan", lambda **_: state["records"]
     )
 
     def _build(**over: Any):
         state.update(over)
-        return purchase_query.build(AS_OF, AXIS)
+        return purchase_presenter.build(AS_OF, AXIS)
 
     return _build
 
@@ -222,17 +222,17 @@ def test_축이_없으면_기록을_안_맞춘다(monkeypatch):
     불렀나: list[Any] = []
 
     monkeypatch.setattr(
-        purchase_query,
+        purchase_presenter,
         "read_purchase_tab",
         lambda _as_of, **_: _data(
             [_run("REQ-A", _scenario("기본"), sim_run_id=None)], [_approval("REQ-A", "기본")]
         ),
     )
     monkeypatch.setattr(
-        purchase_query, "recorded_totals_by_plan", lambda **kw: 불렀나.append(kw) or {}
+        purchase_presenter, "recorded_totals_by_plan", lambda **kw: 불렀나.append(kw) or {}
     )
 
-    plan = purchase_query.build(AS_OF).plans[0]
+    plan = purchase_presenter.build(AS_OF).plans[0]
 
     assert 불렀나 == [], "축 없이 기록 표를 물으면 안 된다"
     assert plan.state == "승인됨"
@@ -244,7 +244,7 @@ def test_기록을_못_읽어도_안_목록은_산다(tab, monkeypatch):
     def _터진다(**_: Any):
         raise RuntimeError("DB 가 죽었다")
 
-    monkeypatch.setattr(purchase_query, "recorded_totals_by_plan", _터진다)
+    monkeypatch.setattr(purchase_presenter, "recorded_totals_by_plan", _터진다)
 
     tabout = tab(data=_data([_run("REQ-A", _scenario("기본"))], [_approval("REQ-A", "기본")]))
 
@@ -282,13 +282,13 @@ def test_approved_가_그대로_있다(tab):
 
 def test_상태_어휘는_공용_자리에서_온다():
     """🔴 두 벌로 짜면 한쪽만 고치는 날 **같은 안이 화면마다 다른 상태**로 뜬다."""
-    from app.api.dashboard import query as dashboard_query
+    from app.api.dashboard import presenter as dashboard_presenter
 
-    assert dashboard_query.PLAN_STATES is plan_state.PLAN_STATES
+    assert dashboard_presenter.PLAN_STATES is plan_state.PLAN_STATES
     #  ★ 안 이름을 쪼개 기록을 맞추는 규칙도 한 벌이다 — 매입 탭이 이름을 짓고 대시보드가
     #    같은 함수로 읽는다 (2026-09-29 · 전에는 둘 다 `app/api/plan_state.py` 를 읽었다).
-    assert dashboard_query._plan_item is purchase_query.plan_item
-    assert dashboard_query._recorded is purchase_query.recorded_for
+    assert dashboard_presenter._plan_item is purchase_presenter.plan_item
+    assert dashboard_presenter._recorded is purchase_presenter.recorded_for
 
 
 def test_매입_탭이_내는_낱말은_그_넷_안이다(tab):

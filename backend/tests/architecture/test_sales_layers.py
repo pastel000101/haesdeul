@@ -1,7 +1,8 @@
 """판매 계층의 방향 — 2026-09-29 재구성 BL-013.
 
 ```text
-화면   → app/sales/router.py(HTTP 만) → service · readmodel → domain · repository
+화면   → app/api/sales/<자원>.py(HTTP 만) → service · readmodel → domain · repository
+         (2026-09-30 재구성 BL-019 전에는 app/sales/router.py 한 파일)
 마스터 → (등록소) → app/sales/adapter.py(번역만) → service · readmodel → domain · repository
 ```
 
@@ -93,7 +94,11 @@ def _resolved_calls(path: Path, function: str) -> set[tuple[str, str]]:
 
 
 _PARTNERS_SERVICE = "app.sales.service.partners"
-_ROUTER = _SALES / "router.py"
+#: 판매 HTTP 입구 — 2026-09-30 재구성 BL-019 에 `app/sales/router.py` 에서 자원별 파일로 옮겼다.
+_HTTP = _APP / "api" / "sales"
+_HTTP_MODULES = tuple(
+    f"app.api.sales.{name}" for name in ("console_proposal", "proposal", "runs", "partners")
+)
 #: ★ 2026-09-30 재구성 BL-018: 채팅의 도메인 행동(조회 · 쓰기 실행)은 `master/service/ask.py` 에서
 #:   `master/service/ask_domain_actions.py` 로 갈라 나왔다 — `_domain_write` 가 그 파일에 있다.
 _ASK = _APP / "master" / "service" / "ask_domain_actions.py"
@@ -102,8 +107,8 @@ _ASK = _APP / "master" / "service" / "ask_domain_actions.py"
 @pytest.mark.parametrize(
     ("path", "function", "expected"),
     [
-        (_ROUTER, "add_partner_profile", (_PARTNERS_SERVICE, "create_partner")),
-        (_ROUTER, "edit_partner_profile", (_PARTNERS_SERVICE, "update_partner")),
+        (_HTTP / "partners.py", "add_partner_profile", (_PARTNERS_SERVICE, "create_partner")),
+        (_HTTP / "partners.py", "edit_partner_profile", (_PARTNERS_SERVICE, "update_partner")),
         (_ASK, "_domain_write", (_PARTNERS_SERVICE, "create_partner")),
         (_ASK, "_domain_write", (_PARTNERS_SERVICE, "update_partner")),
     ],
@@ -119,16 +124,22 @@ def test_no_module_imports_the_sales_router_except_the_app_root():
     importers = sorted(
         _module_name(path)
         for path in python_files(_APP)
-        if any(is_under(name, "app.sales.router") for name in _imported(_read(path)))
+        if any(
+            is_under(name, module)
+            for name in _imported(_read(path))
+            for module in _HTTP_MODULES
+        )
     )
 
-    #  앱 조립(`main.py`)이 라우터를 등록하는 것 하나뿐이다.
-    assert importers == ["app.main"]
+    #  HTTP 입구 목록(`app/api/router.py`)이 라우터를 등록하는 것 하나뿐이다(2026-09-30 재구성
+    #  BL-019 — 라우트는 `app/api/sales/<자원>.py` · 전에는 `main.py` 가
+    #  `app.sales.router` 를 들였다).
+    assert importers == ["app.api.router"]
 
 
 def test_the_router_scan_catches_a_planted_handler_import():
-    planted = "def f():\n    from app.sales.router import add_partner_profile\n"
-    assert any(is_under(name, "app.sales.router") for name in _imported(planted))
+    planted = "def f():\n    from app.api.sales.partners import add_partner_profile\n"
+    assert any(is_under(name, "app.api.sales.partners") for name in _imported(planted))
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +152,7 @@ _GENERATION = ("app.sales.service.proposal_generation", "generate_sales_proposal
 @pytest.mark.parametrize(
     ("path", "function"),
     [
-        (_SALES / "router.py", "create_console_sales_proposal"),
+        (_HTTP / "console_proposal.py", "create_console_sales_proposal"),
         (_SALES / "adapter.py", "_generate"),
     ],
     ids=["console-route", "adapter"],
@@ -152,7 +163,12 @@ def test_candidate_generation_goes_through_the_one_sales_service(path, function)
 
 def test_the_router_does_not_call_the_master_adapter():
     """🔴 `POST /sales/console-proposal` 이 `sales_port` 를 부르던 길이 없다."""
-    assert not {n for n in _imported(_read(_ROUTER)) if is_under(n, "app.sales.adapter")}
+    assert not {
+        n
+        for path in _HTTP.glob("*.py")
+        for n in _imported(_read(path))
+        if is_under(n, "app.sales.adapter")
+    }
 
 
 def test_only_the_master_bootstrap_imports_the_sales_adapter():
@@ -215,10 +231,9 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.sales.readmodel",
         "app.sales.llm",
         "app.sales.adapter",
-        "app.sales.router",
     ),
     #  업무 순서와 트랜잭션: HTTP 를 모른다.
-    "service": ("fastapi", "starlette", "app.api", "app.sales.router", "app.sales.adapter"),
+    "service": ("fastapi", "starlette", "app.api", "app.sales.adapter"),
     #  SQL: 판단 · 조립 · 순서를 부르지 않는다.
     "repository": (
         "app.sales.domain",
@@ -226,7 +241,7 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.sales.readmodel",
         "app.sales.llm",
         "app.sales.adapter",
-        "app.sales.router",
+        "app.api",
         "fastapi",
     ),
     #  조회 조립: 쓰기 순서 · HTTP · 모델을 부르지 않는다.
@@ -234,7 +249,7 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.sales.service",
         "app.sales.llm",
         "app.sales.adapter",
-        "app.sales.router",
+        "app.api",
         "fastapi",
         "langgraph",
     ),
@@ -246,7 +261,7 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.sales.readmodel",
         "app.sales.llm",
         "app.sales.adapter",
-        "app.sales.router",
+        "app.api",
         "app.core.db",
         "psycopg",
         "fastapi",

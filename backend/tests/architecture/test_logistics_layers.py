@@ -5,7 +5,7 @@
                    service → domain · repository · readmodel
 마스터 흐름(출고 · 하루 단계 · 점검) → service (마스터가 쥔 연결을 넘긴다)
 마스터 보고서 → readmodel (자기 연결을 넘긴다)
-화면 app/api/logistics/query.py → readmodel 입구(한 판 = 조회 연결 하나) → repository · domain
+화면 app/api/logistics/presenter.py → readmodel 입구(한 판 = 조회 연결 하나) → repository · domain
 ```
 
 이 파일이 잠그는 것:

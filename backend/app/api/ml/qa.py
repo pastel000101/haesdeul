@@ -10,11 +10,14 @@
   마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 판매는 `app.contracts.forecast.Forecast`
   모양만 씁니다 (2026-09-29 전 `app.ml.schemas.Forecast`).
   **쓰던 함수는 그대로 둡니다** — 2026-09-29 재구성 BL-017 에 자리만 옮겼습니다
-  (예측 설정 `schemas/forecast.py` · 조회 `readmodel/forecasts.py` · 적재 `service/forecasts.py`).
+  (예측 설정 `app/ml/schemas/forecast.py` · 조회 `app/ml/readmodel/forecasts.py` · 적재
+  `app/ml/service/forecasts.py`).
   되살리려면 아래 `# ` 를 지우면 됩니다.
 
-★ 이 파일은 HTTP 입구다 — `/ml/qa` 두 라우트는 질의응답 service(`service/qa_graph.py::answer`,
-  마스터 어댑터와 같은 함수)를 부르고 응답 모델로 돌려준다. `app/api/ml/` 로 옮기는 것은 BL-019.
+★ 이 파일은 HTTP 입구다 — `/ml/qa` 두 라우트는 질의응답 service
+  (`app/ml/service/qa_graph.py::answer`, 마스터 어댑터와 같은 함수)를 부르고 응답 모델로
+  돌려준다. 2026-09-30 재구성 BL-019 에
+  `app/ml/router.py` 에서 옮겼다(주석 처리한 두 주소 포함 · 핸들러 이름 · 설명 · URL 그대로).
 """
 
 from typing import Annotated

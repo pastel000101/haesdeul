@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master.router import router
+from app.api.master.history import router
 from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse
 from app.master.schemas.run_response import StepOut
 from app.master.service import persistence as service_persistence

@@ -129,7 +129,7 @@ def select_recorded_sums_by_plan(
        SQL 은 여기 그대로 두고 결과 조립만 readmodel 로 옮겼다 — 질의 문면은 같다.
 
     ★ **왜 `(품목, 안 이름)` 인가.** 화면의 매입안은 그 둘로 이름을 짓는다
-      (`api/purchase/query._plan` 의 `key=f"{item} · {label}"`). 기록 표에는 품목도 안
+      (`api/purchase/presenter._plan` 의 `key=f"{item} · {label}"`). 기록 표에는 품목도 안
       이름도 없어서 — 있는 것은 업무 키와 회차뿐이다 — 결정과 실행을 지나 그 둘까지
       되짚는다.
 

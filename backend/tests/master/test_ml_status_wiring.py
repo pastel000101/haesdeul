@@ -24,6 +24,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.ask import router
 from app.contracts.core import ContractViolation
 from app.contracts.envelope import (
     AgentReply,
@@ -36,7 +37,6 @@ from app.contracts.envelope import (
 from app.master.llm.runtime import IntentService, LLMSettings, validate_intent
 from app.master.llm.schemas import NarrativeResult
 from app.master.registry import wiring as registry_wiring
-from app.master.router import router
 from app.master.schemas.ask import AskRequest
 from app.master.service.ask import ask
 

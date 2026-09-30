@@ -1,6 +1,6 @@
 """재고·물류 화면 조회 조립 — 도메인 함수를 **조립만** 한다.
 
-🔴 **자리는 `app/logistics` 이고, 부르는 곳은 `app/api/logistics/query.py` 하나다**
+🔴 **자리는 `app/logistics` 이고, 부르는 곳은 `app/api/logistics/presenter.py` 하나다**
    (2026-09-15 · 물류 문서 28). 화면 HTTP 경계는 `app/api/logistics` 이고 이 파일은
    그 화면이 읽는 조회를 도메인 쪽에서 조립한다.
 

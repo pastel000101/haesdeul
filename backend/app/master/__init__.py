@@ -21,5 +21,6 @@ import 하지 않게 옮긴 것이라, 이 패키지는 봉투 이름을 다시 
     report/      매입안 Markdown · 채팅 보고서 · 걷기 성적표 · 걷기 요약
     cli/         하루 시뮬레이션 · 자동 승인 채우기 · 실행 열기의 인자 · 출력
     llm/ · critic/ · cycle_llm/   (제자리 — LLM 통합은 BL-020)
-    router.py    HTTP /master/* (라우트 이동은 BL-019)
+    (HTTP `/master/*` · `/critic/*` 라우트는 2026-09-30 BL-019 부터 `app/api/master/` ·
+     `app/api/critic/` 에 있다 — 이 패키지에는 FastAPI 코드가 없다)
 """

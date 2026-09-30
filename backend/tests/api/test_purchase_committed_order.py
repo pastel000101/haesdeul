@@ -23,7 +23,7 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 from app.master.readmodel.purchase_tab import read_purchase_tab
 from tests.fake_core_db import patch_sql_helpers
 
@@ -71,8 +71,8 @@ def test_확정_매입_표는_받은_순서를_다시_섞지_않는다(monkeypat
     def _tab(buys: list[dict[str, Any]]):
         data = {"runs": [], "buys": buys, "decisions": [],
                 "items": {"ITEM-CABBAGE": "배추"}, "arrivals": []}
-        monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda as_of, **_kwargs: data)
-        return purchase_query.build(AS_OF, AXIS)
+        monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: data)
+        return purchase_presenter.build(AS_OF, AXIS)
 
     앞 = [r["approval"] for r in _tab(최신순).committed.rows]
     뒤 = [r["approval"] for r in _tab(list(reversed(최신순))).committed.rows]

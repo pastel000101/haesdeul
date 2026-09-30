@@ -11,8 +11,8 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from app.api.sales.partners import add_partner_profile
 from app.core.settings import MissingDatabaseEnvironment
-from app.sales.router import add_partner_profile
 from app.sales.schemas.partners import (
     PARTNER_TYPES,
     PartnerAlreadyExists,

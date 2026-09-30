@@ -1,9 +1,10 @@
 """ML 계층의 방향 — 2026-09-29 재구성 BL-017.
 
 ```text
-화면   → app/ml/router.py(HTTP 만) → service/qa_graph → domain · readmodel → repository
-         app/ml/console_proxy.py(HTTP 만) → ml_backend.py (ML 백엔드 HTTP)
+화면   → app/api/ml/qa.py(HTTP 만) → service/qa_graph → domain · readmodel → repository
+         app/api/ml/console.py(HTTP 만) → ml_backend.py (ML 백엔드 HTTP)
          app/api/forecast(예측 탭) → readmodel/forecast_tab → repository
+         (두 라우트 파일은 2026-09-30 재구성 BL-019 전에는 app/ml/router.py · console_proxy.py)
 마스터 → (등록소) → app/ml/adapter.py(번역만) → service/qa_graph (+ 상태 조회는 readmodel)
 ```
 
@@ -101,8 +102,8 @@ _QA_SERVICE = ("app.ml.service.qa_graph", "answer")
 @pytest.mark.parametrize(
     ("path", "function"),
     [
-        (_ML / "router.py", "ask"),
-        (_ML / "router.py", "ask_simple"),
+        (_APP / "api" / "ml" / "qa.py", "ask"),
+        (_APP / "api" / "ml" / "qa.py", "ask_simple"),
         (_ML / "adapter.py", "ml_port"),
     ],
     ids=["post-qa", "get-qa", "master-port"],
@@ -112,10 +113,14 @@ def test_qa_entries_go_through_the_one_ml_service(path, function):
     assert _QA_SERVICE in _resolved_calls(path, function)
 
 
-@pytest.mark.parametrize("router", ["app.ml.router", "app.ml.console_proxy"])
+@pytest.mark.parametrize("router", ["app.api.ml.qa", "app.api.ml.console"])
 def test_no_module_imports_the_ml_routers_except_the_app_root(router):
-    """라우터 핸들러는 HTTP 입구다. 다른 코드가 함수로 부르면 `HTTPException` 이 샌다."""
-    assert _importers_of(router) == ["app.main"]
+    """라우터 핸들러는 HTTP 입구다. 다른 코드가 함수로 부르면 `HTTPException` 이 샌다.
+
+    ★ 2026-09-30 재구성 BL-019: 들이는 곳은 HTTP 입구 목록(`app/api/router.py`) 하나다(전에는
+      `app/main.py` 가 `app.ml.router` · `app.ml.console_proxy` 를 들였다).
+    """
+    assert _importers_of(router) == ["app.api.router"]
 
 
 def test_only_the_master_bootstrap_imports_the_ml_adapter():
@@ -157,7 +162,9 @@ def test_the_adapter_only_translates():
 # 2. 계층별로 들일 수 있는 것
 # ---------------------------------------------------------------------------
 
-_HTTP_ENTRIES = ("app.ml.router", "app.ml.console_proxy", "app.ml.adapter")
+#: ML 안쪽이 들이면 안 되는 입구 — HTTP 라우트(2026-09-30 재구성 BL-019 부터 `app/api/ml/`)와
+#: 마스터 번역(`adapter.py`).
+_HTTP_ENTRIES = ("app.api.ml", "app.ml.adapter")
 
 #: 계층마다 **들이면 안 되는** 모듈. 표준 라이브러리 · pydantic 은 막지 않는다.
 _FORBIDDEN: dict[str, tuple[str, ...]] = {
@@ -389,7 +396,7 @@ def test_ml_backend_http_lives_in_one_file():
 
 def test_the_forecast_screen_takes_only_ml_reads():
     """화면 예측 탭은 ML 에서 조회(readmodel)만 들인다 — SQL · 연결 헬퍼를 직접 다루지 않는다."""
-    screen = _APP / "api" / "forecast" / "query.py"
+    screen = _APP / "api" / "forecast" / "presenter.py"
     ml_imports = {name for name in _imported(_read(screen)) if is_under(name, "app.ml")}
 
     assert ml_imports, "화면이 ML 조회를 안 들인다 — 스캐너가 빈 곳을 본다"

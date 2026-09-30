@@ -16,10 +16,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import router as master_router
+from app.api.master import decision as master_router
+from app.api.master.decision import router
 from app.master.domain.decision import mark_current
 from app.master.readmodel import approvals
-from app.master.router import router
 from app.master.schemas.decision import Decision, DecisionOut
 from app.master.service import decision as service_decision
 

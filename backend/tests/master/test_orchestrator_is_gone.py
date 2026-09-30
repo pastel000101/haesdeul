@@ -249,6 +249,10 @@ def test_공용_계약을_쓰는_파일이_늘지_않는다():
     # 둘로
     #   갈렸고, `report.py` 에서 품목 범위를 읽던 채팅 보고서는 `report/chat_reports.py` 다. 계약을
     #   새로 부르기 시작한 파일은 없다(갈린 조각이 옛 파일에서 쓰던 이름을 그대로 읽는다).
+    #   2026-09-30 재구성 BL-019: `router.py`(계약 위반 → 422)는 `app/api/master/flows.py` 로 옮겨
+    #   마스터 밖이 됐다 — 이 목록에서 빠졌다. `readmodel/purchase_tab.py` 가 늘었다 — 매입 탭
+    #   화면이 실행을 고르며 계약 품목(`ITEMS`)으로 거르던 규칙(`pick_runs`)을 마스터 readmodel 로
+    #   옮겼다(부르는 자리가 화면에서 마스터로 온 것이고, 계약을 새로 쓰는 일이 생긴 것은 아니다).
     assert users == {
         "adapters/critic_bridge.py": ["app.contracts.core"],
         "domain/band.py": ["app.contracts.core"],
@@ -258,8 +262,8 @@ def test_공용_계약을_쓰는_파일이_늘지_않는다():
         "domain/sales_flow.py": ["app.contracts.core"],
         "readmodel/forecast_gate.py": ["app.contracts.core"],
         "readmodel/inputs.py": ["app.contracts.core"],
+        "readmodel/purchase_tab.py": ["app.contracts.core"],
         "report/chat_reports.py": ["app.contracts.core"],
-        "router.py": ["app.contracts.core"],
         "schemas/procurement.py": ["app.contracts.core"],
         "schemas/sales.py": ["app.contracts.core"],
         "service/flow.py": ["app.contracts.core"],

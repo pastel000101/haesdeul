@@ -10,15 +10,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.router import router as screen_router
+from app.api.router import router as api_router
 from app.core import db as core_db
-from app.finance.router import router as finance_router
-from app.master.critic.router import router as critic_router
 from app.master.registry.bootstrap import wire_registries
-from app.master.router import router as master_router
-from app.ml.console_proxy import router as ml_console_router
-from app.ml.router import router as ml_router
-from app.sales.router import router as sales_router
 
 
 @asynccontextmanager
@@ -34,25 +28,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="mainproject", lifespan=lifespan)
-# 화면용 API (`/api/…`). **부서 라우터와 주소로 가른다** — `/finance/agent` 는
-# 에이전트를 돌리고, `/api/finance` 는 화면에 값을 준다. `/api` 아래는 GET 뿐이다.
-app.include_router(screen_router)
-# ML 예측 API. 2026-09-11 에 `/ml/forecast` · `/ml/forecast/push` 를 **주석 처리**했다 —
-# 부르는 곳이 없다. 마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 매입의
-# `get_forecast` 는 아직 mock 이다. 되살릴 때를 위해 라우터 연결은 남겨 둔다.
-app.include_router(ml_router)
-# ML 운영 콘솔(`/ml/console/…`). **우리 ML 백엔드로 넘기는 프록시다** —
-# 재학습·에이전트는 학습 꾸러미가 있는 곳에서만 돌 수 있다.
-app.include_router(ml_console_router)
-app.include_router(finance_router)
-# 🔴 **물류에는 자기 HTTP 라우터가 없다** (2026-09-15). 종전 `/logistics/…` 16 경로는
-#    화면도 마스터도 안 불렀다 — 화면은 `/api/logistics`(`app/api/logistics/routes.py`)를
-#    치고, 마스터는 `app/logistics/adapter.logistics_port` 를 **파이썬으로** 부른다
-#    (`master/registry/bootstrap.py` 의 `register_agent("inventory", logistics_port)`).
-#
-#    ⚠️ 같은 콘솔 조회가 두 주소로 나가면 어느 쪽이 정본인지 갈린다. 물류 HTTP 경계는
-#       `app/api/logistics` 하나다.
-app.include_router(master_router)
+# HTTP 입구 전부 — 화면 탭(`/api/…`) · 부서 · 마스터 · Critic · ML 라우트를 `app/api/router.py`
+# 한 곳이 모은다 (2026-09-30 재구성 BL-019 · 전에는 여기서 라우터 여덟을 하나씩 등록했다).
+# 등록 순서 · 주소로 가르는 규칙 · 물류에 자기 라우터가 없는 이유는 그 파일에 있다.
+app.include_router(api_router)
 
 # ── 등록소를 채운다 ────────────────────────────────────────────────────
 #
@@ -73,10 +52,6 @@ app.include_router(master_router)
 # ★ **임포트 시점에 부르는 것은 그대로다.** 옮긴 것은 자리뿐이고 시점도 대상도
 #   안 바꿨다. 무엇을 왜 등록하는지는 그 파일의 각 줄 위에 그대로 있다.
 wire_registries()
-
-
-app.include_router(critic_router)
-app.include_router(sales_router)
 
 # ★ **오케스트레이터 라우터는 2026-08-30 에 걷어냈다.**
 #

@@ -39,7 +39,7 @@ def client() -> TestClient:
 
 def test_전이_재시도와_출고에도_진입점이_있다() -> None:
     """🔴 **없으면 하루를 넘기는 사람이 그 둘을 건너뛴다.**"""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     있는_날_경로 = sorted(p for p in paths if "days" in p)
@@ -50,7 +50,7 @@ def test_전이_재시도와_출고에도_진입점이_있다() -> None:
 
 def test_두_진입점이_부르는_함수가_하루_실행이_부르는_함수와_같다() -> None:
     """🔴 **둘이 갈리면 손으로 부른 결과와 걷기 결과가 다른 코드를 지난다.**"""
-    from app.master import router as router_module
+    from app.api.master import days as router_module
     from app.master.service import outbound_flow as service_outbound_flow
     from app.master.service import pending_transition as service_pending_transition
     from app.master.service import scheduler as service_scheduler
@@ -73,7 +73,7 @@ def test_전이_재시도_응답이_서버가_낸_사유를_그대로_싣는다(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
     """★ 화면이 「몇 번째에서 멈췄나」를 적으려면 **사유가 본문에 있어야** 한다."""
-    from app.master import router as router_module
+    from app.api.master import days as router_module
 
     낸값 = RetryOut(
         status="RAN",
@@ -107,7 +107,7 @@ def test_출고_응답이_서버가_낸_사유를_그대로_싣는다(
     """★ `SHORT` 는 사업 결과라 품목별로 실린다 — 화면이 덮으면 그 사실이 사라진다."""
     from decimal import Decimal
 
-    from app.master import router as router_module
+    from app.api.master import days as router_module
 
     낸값 = OutboundOut(
         as_of=AS_OF,
@@ -140,7 +140,7 @@ def test_두_진입점도_축_없이는_장부를_안_바꾼다(
     monkeypatch: pytest.MonkeyPatch, client: TestClient, tail: str
 ) -> None:
     """🔴 다섯 형제와 **같은 가드**다 — 축이 없으면 요청 자체를 거절한다."""
-    from app.master import router as router_module
+    from app.api.master import days as router_module
 
     불린: list[Any] = []
     for attr in ("run_retry_pending_transitions", "run_ship_due_sales"):

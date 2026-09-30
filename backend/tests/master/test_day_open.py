@@ -20,8 +20,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.days import router
 from app.master.registry import day_open as registry_day_open
-from app.master.router import router
 from app.master.service import day_open as service_day_open
 
 AS_OF = date(2026, 1, 5)

@@ -241,11 +241,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -511,7 +511,7 @@ CHECKLIST = """\
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `{query_path}` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `{presenter_path}` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다
@@ -556,11 +556,11 @@ PARTS = [
 **이 탭은 DB 를 직접 읽지 않습니다.** 다른 다섯 파트의 `build()` 를 부릅니다.
 
 ```python
-from app.api.finance import query as finance_q
-from app.api.forecast import query as forecast_q
-from app.api.logistics import query as logistics_q
-from app.api.purchase import query as purchase_q
-from app.api.sales import query as sales_q
+from app.api.finance import presenter as finance_presenter
+from app.api.forecast import presenter as forecast_presenter
+from app.api.logistics import presenter as logistics_presenter
+from app.api.purchase import presenter as purchase_presenter
+from app.api.sales import presenter as sales_presenter
 ```
 """,
         notes="""\
@@ -575,8 +575,8 @@ from app.api.sales import query as sales_q
 골라 담기만 합니다. 그래프도 마찬가지입니다 — 주인 부서가 만든 것을 받습니다.
 
 ```python
-cash = finance_q.dashboard_cash(n, at)        # 재무가 만든다
-stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
+cash = finance_presenter.dashboard_cash(n, at)        # 재무가 만든다
+stock = logistics_presenter.dashboard_stock(n, at)    # 물류가 만든다
 ```
 
 **어긴 적이 있고, 실제로 갈라졌습니다** — 요약은 재고 4,550kg 인데
@@ -710,7 +710,7 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 **먼저 그 자리에 간 것**입니다.
 
 **🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
-`_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
+`pick_runs`(같은 마스터 readmodel) · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
@@ -742,7 +742,7 @@ flow = get_finance_cashflow(sim_run_id=..., as_of=as_of)
 `GET /finance/dashboard` · `/finance/dashboard/cashflow` 가 쓰는 함수입니다.
 **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Chart`)에 담습니다.
 
 원래 표: `finance_states` · `daily_closings` · `receivables` · `payables` ·
@@ -802,7 +802,7 @@ inv, inb, ob = page.inventory, page.inbound, page.outbound
 (`live_exceptions_at` · `resolved_exceptions_on` — 한 판에서는 `read_console_page` 가
 함께 읽습니다). **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Card`)에 담습니다.
 
 원래 표를 직접 봐야 하면: `inventory_lots` · `inventory_reservations` ·
@@ -862,7 +862,7 @@ dash = get_sales_dashboard(sim_run_id=..., as_of=as_of)
 `GET /sales/dashboard` 가 쓰는 함수입니다. **같은 쿼리를 두 벌 두면
 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다.
 
 원래 표: `sales` · `sale_items` · `receivables`.
 """,
@@ -909,7 +909,7 @@ TEMPLATE = """\
 
 ## 할 일 한 줄
 
-`{query_path}` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`{presenter_path}` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -939,16 +939,16 @@ TEMPLATE = """\
 
 ```
 app/api/{key}/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# {query_path}
+# {presenter_path}
 {signature}
 ```
 
@@ -1010,12 +1010,12 @@ app/api/{key}/
 
 
 def render(part: Part) -> str:
-    query_path = f"backend/app/api/{part.key}/query.py"
+    presenter_path = f"backend/app/api/{part.key}/presenter.py"
     return TEMPLATE.format(
         title=part.title,
         owner=part.owner,
         key=part.key,
-        query_path=query_path,
+        presenter_path=presenter_path,
         signature=part.signature,
         route_line=f"API     GET {part.route}",
         screen_line=f"화면    http://localhost:3000{part.screen}",
@@ -1027,7 +1027,7 @@ def render(part: Part) -> str:
         rules=RULES,
         verify=VERIFY.format(route=part.route, screen=part.screen),
         dont=DONT,
-        checklist=CHECKLIST.format(query_path=query_path, screen=part.screen),
+        checklist=CHECKLIST.format(presenter_path=presenter_path, screen=part.screen),
     )
 
 

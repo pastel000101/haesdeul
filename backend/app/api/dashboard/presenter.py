@@ -22,19 +22,19 @@ from typing import Any
 
 from app.api.calendar import build_axis
 from app.api.dashboard.schema import DashboardTab
-from app.api.finance import query as finance_q
-from app.api.forecast import query as forecast_q
-from app.api.logistics import query as logistics_q
+from app.api.finance import presenter as finance_presenter
+from app.api.forecast import presenter as forecast_presenter
+from app.api.logistics import presenter as logistics_presenter
 from app.api.primitives import Badge, Column, Note, Stat, Table
-from app.api.purchase import query as purchase_q
-from app.api.sales import query as sales_q
+from app.api.purchase import presenter as purchase_presenter
+from app.api.sales import presenter as sales_presenter
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
 
 log = logging.getLogger(__name__)
 
-#: 재무 선택 상태 키 → 같은 화면 현금 그래프 계열 이름(`finance_q.dashboard_cash`).
+#: 재무 선택 상태 키 → 같은 화면 현금 그래프 계열 이름(`finance_presenter.dashboard_cash`).
 #: ★ 「운영 여유」 칸과 그래프 선이 **같은 말**로 기준을 밝히게 한다. 모르는 키면
 #:   재무 탭이 준 상태 이름(`fi.states[].label`)을 그대로 쓴다.
 _BASIS = {"base": "대출 제외", "loan": "대출 포함"}
@@ -50,9 +50,10 @@ PLAN_STATES = plan_state.PLAN_STATES
 #: 모르는 값 한 글자. 재고 칸(`_현재고`)이 쓰는 것과 **같은 글자**다.
 _UNKNOWN = "—"
 
-#: 안 이름에서 품목·안 이름을 읽는 규칙은 그 이름을 짓는 매입 탭(`purchase_q._plan`)에서 온다.
-_plan_item = purchase_q.plan_item
-_recorded = purchase_q.recorded_for
+#: 안 이름에서 품목·안 이름을 읽는 규칙은 그 이름을 짓는 매입 탭
+#: (`purchase_presenter._plan`)에서 온다.
+_plan_item = purchase_presenter.plan_item
+_recorded = purchase_presenter.recorded_for
 
 
 def _pending(plans) -> int:
@@ -163,13 +164,13 @@ def build(as_of: date) -> DashboardTab:
     #     스레드에 저절로 안 따라간다. 나눠 쓰는 것은 답(불변 튜플)뿐이고, 먼저 온 쪽이
     #     읽는 동안 뒤 쪽은 기다렸다 그 답을 집는다. **`submit` 마다 새 사본**을 떠야
     #     한다 — 한 `Context` 를 둘이 동시에 `run` 하면 `RuntimeError` 다.
-    with logistics_q.read_scope(), ThreadPoolExecutor(
+    with logistics_presenter.read_scope(), ThreadPoolExecutor(
         max_workers=8, thread_name_prefix="dashboard"
     ) as pool:
         def 맡긴다(fn, *args, **kwargs):
             return pool.submit(copy_context().run, partial(fn, *args, **kwargs))
 
-        f_fc = 맡긴다(forecast_q.build, as_of, "배추")
+        f_fc = 맡긴다(forecast_presenter.build, as_of, "배추")
         #  ★ 매입은 축을 안 주면 모든 실행을 섞는다. 다른 네 탭과 같은 실행을 넘긴다
         #    (`app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 한 자리).
         #
@@ -182,15 +183,15 @@ def build(as_of: date) -> DashboardTab:
         #     매입 탭 쪽은 그 사실을 「확정 입고 예정 —」 으로 말하는데, 이 화면은 그
         #     칸을 안 읽으므로 표시가 달라지지 않는다 —
         #     `tests/api/test_dashboard_purchase_window.py` 가 그 자리를 지킨다.
-        f_pu = 맡긴다(purchase_q.build, as_of, sim_run_id=SHOWN_SIM_RUN_ID, window_days=0)
-        f_fi = 맡긴다(finance_q.build, as_of, "base")
-        f_lg = 맡긴다(logistics_q.build, as_of, "stock")
-        f_sl = 맡긴다(sales_q.build, as_of)
+        f_pu = 맡긴다(purchase_presenter.build, as_of, sim_run_id=SHOWN_SIM_RUN_ID, window_days=0)
+        f_fi = 맡긴다(finance_presenter.build, as_of, "base")
+        f_lg = 맡긴다(logistics_presenter.build, as_of, "stock")
+        f_sl = 맡긴다(sales_presenter.build, as_of)
         #  ★ 두 그래프는 **주인 부서가 만듭니다.** 여기서 만들면 같은 값을 두 군데서
         #    계산하게 되고, 실제로 갈라졌습니다 — 요약은 재고 4,550kg 인데 그래프
         #    끝은 14,600kg 이었습니다. 이제 둘 다 물류·재무에서 나옵니다.
-        f_cash = 맡긴다(finance_q.dashboard_cash, axis)
-        f_stock = 맡긴다(logistics_q.dashboard_stock, n, at, as_of)
+        f_cash = 맡긴다(finance_presenter.dashboard_cash, axis)
+        f_stock = 맡긴다(logistics_presenter.dashboard_stock, n, at, as_of)
         #  ★ 매입안과 **같은 실행 · 같은 날**의 실매입 기록. 열쇠는 `(품목, 안 이름)`.
         f_records = 맡긴다(_records, as_of)
 

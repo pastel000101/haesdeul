@@ -649,7 +649,7 @@ def _domain_write(
         if slots.sales_collection_days is not None:
             body["sales_collection_days"] = integer(slots.sales_collection_days, field="결제일수")
         #  ★ 판매 라우터와 **같은 service** 를 부르고, 같은 문장 · 같은 상태 코드로 거절한다
-        #    (409 · 422 — `master/router.py` 가 `DecisionRejected` 를 접는다). 2026-09-29
+        #    (409 · 422 — `api/master/ask.py` 가 `DecisionRejected` 를 접는다). 2026-09-29
         #    BL-013 전에는 판매 라우터 핸들러를 함수로 불러 그 `HTTPException` 이 그대로 나갔다.
         try:
             result = create_partner(body)

@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 
 AS_OF = date(2026, 1, 22)
 AXIS = "SIM-BURNIN-202512"
@@ -102,7 +102,7 @@ def inject(monkeypatch):
         #  🔴 `**_kwargs` 가 있어야 한다 (2026-09-16). `build` 가 `_read` 에
         #     `window_days=` 를 넘기는데, 스텁이 안 받으면 `TypeError` 가 나고
         #     `build` 의 `except Exception` 이 그것을 삼켜 **조용히 예시값**이 나간다.
-        monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda as_of, **_kwargs: data)
+        monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: data)
 
     return _inject
 
@@ -125,7 +125,7 @@ def test_축을_주면_더_오래된_것이라도_그_축을_고른다(inject):
     """
     inject(_data(_OLDER_ON_AXIS))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert [p.key for p in tab.plans] == ["배추 · 보수"]
     assert tab.plans[0].unit_price == 800, "축 있는(오래된) 실행의 단가여야 한다"
@@ -135,7 +135,7 @@ def test_축을_안_주면_지금_그대로_최신을_고른다(inject):
     """기본값은 **안 거른다** — 축이 붙기 전 실행 1,202건이 안 사라져야 한다."""
     inject(_data(_OLDER_ON_AXIS))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     assert tab.plans[0].unit_price == 900, "축을 안 줬으면 최신(축 없는 것)이다"
 
@@ -156,7 +156,7 @@ def test_없는_축을_주면_0건이고_안이_죽은_것이_아니라고_적�
     }
     inject(_data(runs))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert tab.plans == []
     assert "돌지 않았습니다" in tab.plans_note.text
@@ -173,7 +173,7 @@ def test_빈_축은_전부가_아니다(inject):
     """
     inject(_data(_OLDER_ON_AXIS))
 
-    tab = purchase_query.build(AS_OF, "")
+    tab = purchase_presenter.build(AS_OF, "")
 
     assert tab.plans == [], "빈 축은 «전부» 가 아니라 «맞는 것이 없다» 다"
 
@@ -195,7 +195,7 @@ def test_뺀_건수와_축_이름을_화면_글에_적는다(inject):
         _run("REQ-축없음", "무", None, minute=30),
     ]))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert "다른 걷기의 실행 2건은 뺐습니다" in tab.plans_note.text
     assert AXIS in tab.plans_note.text, "어느 걷기를 보는지가 화면에 있어야 한다"
@@ -217,7 +217,7 @@ def test_화면_글에_내부_식별자를_안_싣는다(inject):
         buys=[_buy("PUR-이축", AXIS, 800_000), _buy("PUR-다른축", OTHER, 700_000)],
     ))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
     글 = [tab.plans_note.text, tab.committed_note.text, *(s.detail or "" for s in tab.stats)]
 
     for 식별자 in ("REQ-", OTHER, "MASTER_APPROVAL"):
@@ -238,7 +238,7 @@ def test_매입_번호_칸은_이름이_승인이_아니다(inject):
         [_run("REQ-축있음", "배추", AXIS, minute=50)], buys=[_buy("PUR-이축", AXIS, 800_000)]
     ))
 
-    columns = purchase_query.build(AS_OF, AXIS).committed.columns
+    columns = purchase_presenter.build(AS_OF, AXIS).committed.columns
     col = next(c for c in columns if c.key == "approval")
 
     assert col.label != "승인"
@@ -248,7 +248,7 @@ def test_매입_번호_칸은_이름이_승인이_아니다(inject):
 def test_축을_안_주면_뺐다는_말이_안_붙는다(inject):
     inject(_data(_OLDER_ON_AXIS))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     assert "뺐습니다" not in tab.plans_note.text
 
@@ -264,7 +264,7 @@ def test_확정_매입도_축을_따르고_뺀_줄을_적는다(inject):
         buys=[_buy("PUR-이축", AXIS, 800_000), _buy("PUR-다른축", OTHER, 500_000)],
     ))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert [r["approval"] for r in tab.committed.rows] == ["PUR-이축"]
     assert tab.stats[2].raw == 800_000, "다른 걷기 금액이 주간 합계에 안 섞여야 한다"
@@ -288,7 +288,7 @@ def test_도착일도_같은_축에서만_맞춘다(inject):
         arrivals=[arrival],
     ))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert tab.committed.rows[0]["arrive"] is None, "다른 걷기의 도착일을 쓰면 안 된다"
     assert "도착일을 못 맞춘 줄 1개" in tab.committed_note.text
@@ -306,7 +306,7 @@ def test_같은_축이면_도착일을_맞춘다(inject):
         arrivals=[arrival],
     ))
 
-    tab = purchase_query.build(AS_OF, AXIS)
+    tab = purchase_presenter.build(AS_OF, AXIS)
 
     assert tab.committed.rows[0]["arrive"] == "2026-01-24"
 
@@ -327,7 +327,7 @@ def test_축_없는_행을_고르면_걷기_밖이라고_적는다(inject):
     """거르는 것과 **말하는 것은 다른 일**이다. 안 걸러도 말은 한다."""
     inject(_data([_run("REQ-손실행", "배추", None, minute=50)]))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     assert tab.plans, "안 거르므로 안은 나와야 한다"
     assert "걷기 밖" in tab.plans_note.text
@@ -338,7 +338,7 @@ def test_축_있는_행만이면_걷기_밖이라고_안_적는다(inject):
     """없는 사실을 적지 않는다."""
     inject(_data([_run("REQ-축있음", "배추", AXIS, minute=50)]))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     assert "걷기 밖" not in tab.plans_note.text
 
@@ -353,7 +353,7 @@ def test_섞여_있으면_걷기_밖인_것만_센다(inject):
         _run("REQ-안골라짐", "배추", None, minute=10),
     ]))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     assert "2건은 **걷기 밖 실행**" in tab.plans_note.text, tab.plans_note.text
 
@@ -365,7 +365,7 @@ def test_안별로_어느_걷기인지_싣는다(inject):
         _run("REQ-손실행", "무", None, minute=40),
     ]))
 
-    tab = purchase_query.build(AS_OF)
+    tab = purchase_presenter.build(AS_OF)
 
     axes = {p.key: p.sim_run_id for p in tab.plans}
     assert axes["배추 · 보수"] == AXIS
@@ -377,7 +377,7 @@ def test_출처에_받은_실행과_요청_기준일을_적는다(inject):
     inject(_data([_run("REQ-축있음", "배추", AXIS, minute=10)]))
     notes = []
     for as_of in (AS_OF, date(2026, 1, 13)):
-        note = purchase_query.build(as_of, OTHER).source.note or ""
+        note = purchase_presenter.build(as_of, OTHER).source.note or ""
         notes.append(note)
         assert f"보고 있는 실행: {OTHER} · 기준일: {as_of.isoformat()}" in note
     assert notes[0] != notes[1]

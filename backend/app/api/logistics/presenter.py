@@ -52,8 +52,6 @@ from decimal import Decimal
 from http import HTTPStatus
 from typing import Any
 
-import psycopg
-
 from app.api.logistics.schema import LogisticsTab
 from app.api.primitives import (
     Card,
@@ -69,6 +67,7 @@ from app.api.primitives import (
     Table,
 )
 from app.contracts.core import ITEMS
+from app.core.db import is_unavailable
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.logistics.domain.console_rules import severity_at, still_working
 from app.logistics.readmodel.console import (
@@ -1388,17 +1387,16 @@ class LogisticsTabResult:
     http_status: int
 
 
-#: DB 에 **닿지 못한** 실패. 값이 틀린 것이 아니라 지금 못 읽는 상태라 503 이다.
-#:
-#: 🔴 `psycopg.OperationalError` 하나만 여기 둔다. 그 밑에 `ProgrammingError`(SQL 잘못) ·
-#:    `IntegrityError` 는 **우리 코드가 깨진 것**이라 503 으로 재시도를 권하면 안 된다.
-_DB_UNAVAILABLE: tuple[type[BaseException], ...] = (psycopg.OperationalError,)
-
-
 def _http_status_for_error(error: BaseException) -> int:
+    """DB 에 **닿지 못한** 실패는 지금 못 읽는 상태라 503, 그 밖은 500 이다.
+
+    🔴 어느 DB 드라이버 예외가 «닿지 못함» 인지는 연결 모듈(`app/core/db.py::is_unavailable`)이
+       가른다. SQL 이 틀렸거나 무결성이 깨진 실패는 **우리 코드가 깨진 것**이라 503 으로 재시도를
+       권하면 안 된다. (2026-09-30 재구성 BL-019 전에는 이 파일이 드라이버를 들여 직접 갈랐다.)
+    """
     return (
         HTTPStatus.SERVICE_UNAVAILABLE
-        if isinstance(error, _DB_UNAVAILABLE)
+        if is_unavailable(error)
         else HTTPStatus.INTERNAL_SERVER_ERROR
     )
 

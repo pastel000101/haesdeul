@@ -18,16 +18,16 @@ from app.logistics.schemas.snapshot import RuntimeSourceStatus
 from app.logistics.schemas.turnover import TurnoverStatus
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 화면 조회 read model (`readmodel/console` 이 만들고 `api/logistics/query.py` 가 읽는다)
+# 화면 조회 read model (`readmodel/console` 이 만들고 `api/logistics/presenter.py` 가 읽는다)
 #
-# 🔴 **프론트까지 안 나간다.** `query.py` 가 이 값을 `Pane` · `Card` · `Stat` 로 옮겨
+# 🔴 **프론트까지 안 나간다.** `presenter.py` 가 이 값을 `Pane` · `Card` · `Stat` 로 옮겨
 #    담아 `api/logistics/schema.LogisticsTab` 을 만든다. 그래서 이것은 화면 DTO 가
 #    아니라 **물류 내부 read model** 이고, 도메인 쪽에 있어야 의존이 한 방향으로 선다
 #    (2026-09-15 · 물류 문서 28).
 #
 # ```text
-# api/logistics/query.py  →  readmodel/console.py  →  readmodel/historical · repository
-# readmodel/console 결과   →  query.py 가 변환     →  api/logistics/schema.LogisticsTab
+# api/logistics/presenter.py  →  readmodel/console.py  →  readmodel/historical · repository
+# readmodel/console 결과       →  presenter.py 가 변환  →  api/logistics/schema.LogisticsTab
 # ```
 #
 #    ★ 2026-09-30 재구성 BL-015 전에는 가운데가 `logistics/console_service.py`, 그 뒤가

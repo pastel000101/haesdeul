@@ -1477,7 +1477,7 @@ def 손님(monkeypatch: pytest.MonkeyPatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.master import router as router_module
+    from app.api.master import decision as router_module
 
     app = FastAPI()
     app.include_router(router_module.router)

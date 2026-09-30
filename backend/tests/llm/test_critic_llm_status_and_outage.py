@@ -256,7 +256,7 @@ def test_critic_api_reports_zero_l5_coverage_when_llm_unavailable(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.master.critic.router import router
+    from app.api.critic.verdicts import router
 
     # 아무도 듣지 않는 포트 — 실제 Ollama 없이 장애 상황을 만든다.
     _force_unreachable_ollama(monkeypatch)
@@ -298,7 +298,7 @@ def test_critic_api_skips_l5_when_no_rationale_submitted(monkeypatch):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from app.master.critic.router import router
+    from app.api.critic.verdicts import router
 
     _force_unreachable_ollama(monkeypatch)
 

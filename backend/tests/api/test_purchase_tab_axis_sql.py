@@ -32,7 +32,7 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 from app.master.readmodel.purchase_tab import read_purchase_tab
 from tests.fake_core_db import patch_sql_helpers
 
@@ -168,10 +168,10 @@ def test_build_가_축을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -
         받은_축.append(kwargs.get("sim_run_id", "안 받음"))
         return _data()
 
-    monkeypatch.setattr(purchase_query, "read_purchase_tab", _spy)
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _spy)
 
     for 축 in (None, AXIS, OTHER):
-        purchase_query.build(AS_OF, 축)
+        purchase_presenter.build(AS_OF, 축)
 
     #  ★ 상수와 대 보는 것이 아니라 **넣은 순서 그대로 나오는지**를 본다 (규칙 8).
     assert 받은_축 == [None, AXIS, OTHER]
@@ -183,9 +183,9 @@ def test_build_가_축을_그대로_흘린다(monkeypatch: pytest.MonkeyPatch) -
 
 def test_새_인자를_받는_스텁이면_실제값으로_선다(monkeypatch: pytest.MonkeyPatch) -> None:
     """아래 함정 검사의 대조군 — 스텁만 바꿨을 때 결과가 갈리는 것을 보인다."""
-    monkeypatch.setattr(purchase_query, "read_purchase_tab", lambda as_of, **_kwargs: _data())
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", lambda as_of, **_kwargs: _data())
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is True
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is True
 
 
 def test_축_인자를_못_받는_옛_스텁은_예시값으로_떨어진다(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,6 +198,6 @@ def test_축_인자를_못_받는_옛_스텁은_예시값으로_떨어진다(mon
     def _옛_스텁(as_of: date, *, window_days: int | None = None) -> dict[str, Any]:
         return _data()
 
-    monkeypatch.setattr(purchase_query, "read_purchase_tab", _옛_스텁)
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _옛_스텁)
 
-    assert purchase_query.build(AS_OF, AXIS).source.filled is False
+    assert purchase_presenter.build(AS_OF, AXIS).source.filled is False

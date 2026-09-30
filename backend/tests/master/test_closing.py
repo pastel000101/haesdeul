@@ -686,7 +686,7 @@ def test_CLOSED_인데_새로_적은_건수가_0_일_수_있다():
 
 def test_마감_엔드포인트가_있다() -> None:
     """🔴 **없으면 하루 끝에 아무도 안 부른다** — `daily_closings` 가 그랬다."""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/close" in paths, (
@@ -702,7 +702,7 @@ def test_장부를_바꾸는_사건_다섯이_다_다른_엔드포인트다() ->
       ← 한 status 로 어떻게 적나
     ```
     """
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/open" in paths
@@ -714,7 +714,7 @@ def test_장부를_바꾸는_사건_다섯이_다_다른_엔드포인트다() ->
 
 def test_엔드포인트가_부르는_함수가_하루_실행이_부르는_함수와_같다() -> None:
     """🔴 **둘이 갈리면 손으로 부른 결과와 걷기 결과가 다른 코드를 지난다.**"""
-    from app.master import router as router_module
+    from app.api.master import days as router_module
     from app.master.service import closing as service_closing
     from app.master.service import scheduler as service_scheduler
 

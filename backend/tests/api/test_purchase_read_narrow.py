@@ -28,7 +28,7 @@ from typing import Any
 
 import pytest
 
-from app.api.purchase import query as purchase_query
+from app.api.purchase import presenter as purchase_presenter
 from app.master.readmodel.purchase_tab import read_purchase_tab
 from app.master.repository import purchase_tab
 from tests.fake_core_db import patch_sql_helpers
@@ -163,7 +163,7 @@ def _get_key(node: ast.AST) -> tuple[ast.expr, str] | None:
 
 def _payload_reads() -> dict[str, set[str]]:
     """이 모듈이 `payload` 에서 읽는 칸 — `{최상위 칸: {그 안에서 읽는 칸}}`."""
-    tree = ast.parse(inspect.getsource(purchase_query))
+    tree = ast.parse(inspect.getsource(purchase_presenter))
     reads: dict[str, set[str]] = {}
     for node in ast.walk(tree):
         got = _get_key(node)

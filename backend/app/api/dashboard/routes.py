@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.dashboard.query import build
+from app.api.dashboard.presenter import build
 from app.api.dashboard.schema import DashboardTab
 
 router = APIRouter(prefix="/dashboard", tags=["api:dashboard"])

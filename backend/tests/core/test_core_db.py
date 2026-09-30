@@ -541,3 +541,26 @@ def test_core_does_not_import_department_packages_or_fastapi() -> None:
 def test_connection_status_constants_match_psycopg() -> None:
     """가짜 연결이 쓰는 상태 값이 psycopg 의 것과 같다 — 가짜가 따로 놀지 않게."""
     assert UNKNOWN == psycopg.pq.TransactionStatus.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    ("error", "unavailable"),
+    [
+        (psycopg.OperationalError("connection refused"), True),
+        (PoolTimeout("couldn't get a connection after 5.00 sec"), True),
+        (psycopg.ProgrammingError("syntax error"), False),
+        (psycopg.IntegrityError("duplicate key"), False),
+        (ValueError("lineage broken"), False),
+        (RuntimeError("Database write did not return a row"), False),
+    ],
+    ids=["operational", "pool-timeout", "programming", "integrity", "value", "runtime"],
+)
+def test_is_unavailable_is_true_only_for_failures_to_reach_the_db(
+    error: BaseException, unavailable: bool
+) -> None:
+    """DB 에 **닿지 못한** 실패만 참이다 — 화면이 503(다시 오면 될 수 있다)과 500 을 가른다.
+
+    ★ 2026-09-30 재구성 BL-019: 화면 물류 탭이 들고 있던 `psycopg.OperationalError` 분류를
+      연결 모듈로 옮겼다. SQL 이 틀렸거나 무결성이 깨진 것은 우리 코드가 깨진 것이라 참이 아니다.
+    """
+    assert core_db.is_unavailable(error) is unavailable

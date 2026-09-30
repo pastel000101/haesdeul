@@ -1,15 +1,16 @@
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
-
-Critic Agent API 라우터.
+"""Critic 검증 실행 — `POST /critic/procurement` · `POST /critic/sales`.
 
 Critic 은 오케 산출물을 검증만 한다 (숫자 불변). 요청 본문만으로 T3/S3 를 재현해 검증한다.
 계약 위반(밴드 기여 방향 등)은 422 로 돌려준다.
+
+HTTP 만: `master/critic/service.py` 의 검증을 `master/service/cycle_persistence.record` 로 감싸
+부른다 — 실행 이력 한 건을 그 service 가 자기 연결로 남긴다(실패는 삼킨다).
+
+★ 2026-09-30 재구성 BL-019: `app/master/critic/router.py` 에서 옮겼다 — 핸들러 이름 ·
+  docstring(OpenAPI 설명) · URL · 상태 코드 · 문구 그대로.
 """
 
-from datetime import date
-from uuid import UUID
-
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 
 from app.contracts.core import ContractViolation
 from app.master.critic.schemas import (
@@ -18,7 +19,6 @@ from app.master.critic.schemas import (
     CriticVerdictOut,
 )
 from app.master.critic.service import run_critic_procurement, run_critic_sales
-from app.master.readmodel.cycle_runs import get_run, list_runs
 from app.master.service.cycle_persistence import record
 
 router = APIRouter(prefix="/critic", tags=["critic"])
@@ -52,19 +52,3 @@ def critic_procurement(request: CriticProcurementRequest) -> CriticVerdictOut:
 def critic_sales(request: CriticSalesRequest) -> CriticVerdictOut:
     """회신 스냅샷 바인딩과 S3 전속 권한 침범을 검사한다. L4-B 는 coverage 에서 skipped."""
     return _guard(run_critic_sales, request, cycle="B")
-
-
-@router.get("/runs", summary="Critic 실행이력 목록 (최신순)")
-def list_critic_runs(
-    as_of: date | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-) -> list[dict]:
-    return [dict(r) for r in list_runs(agent="critic", as_of=as_of, limit=limit)]
-
-
-@router.get("/runs/{run_id}", summary="Critic 실행이력 1건")
-def get_critic_run(run_id: UUID) -> dict:
-    try:
-        return dict(get_run(run_id))
-    except LookupError as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error

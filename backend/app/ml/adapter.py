@@ -9,7 +9,7 @@
 AgentPort = (AgentRequest) -> (AgentReply, ExecutionMetadata)
 ```
 
-★ **HTTP 를 안 쓴다.** `app/ml/router.py` 의 `/ml/qa` 는 **시험용 입구**이고 연결에
+★ **HTTP 를 안 쓴다.** `app/api/ml/qa.py` 의 `/ml/qa` 는 **시험용 입구**이고 연결에
   쓰지 않는다. 같은 프로세스 안에서 함수로 부른다 — 다른 파트가 전부 그렇고,
   그래야 마스터의 호출 예산·이력·봉투 검증이 한 줄기로 이어진다.
 

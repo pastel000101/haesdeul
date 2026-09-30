@@ -32,8 +32,9 @@ from app.api.primitives import Column, Note, Source, Stat, Table
 from app.api.purchase.schema import Plan, PurchaseTab, Reason
 from app.contracts.core import ITEMS
 from app.master.domain import plan_state
+from app.master.domain.decision import current_decisions
 from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
-from app.master.readmodel.purchase_tab import read_purchase_tab
+from app.master.readmodel.purchase_tab import PickedRuns, pick_runs, read_purchase_tab
 
 log = logging.getLogger(__name__)
 
@@ -91,121 +92,47 @@ _PAY_EMPTY_SINGLE = "한 번에 사는 안이라 지급 계획을 따로 만들�
 #  실행 고르기 — 🔴 레슨 ①
 # ══════════════════════════════════════════════════════════════════════════
 
-def _pick(
-    runs: list[dict[str, Any]], sim_run_id: str | None = None
-) -> tuple[list[dict[str, Any]], str]:
-    """품목마다 **하나씩** 고르고, 몇 개 중 무엇을 골랐는지 같이 돌려준다.
+#  🟢 **자리 (2026-09-30 · 재구성 BL-019).** 고르는 규칙(①~⑤ · 축 · 계약 품목)은 마스터
+#     readmodel `pick_runs`(`app/master/readmodel/purchase_tab.py`)로 옮겼다 — 여기에는 그 결과로
+#     안내 문장을 짓는 일만 남았다. 업무 키마다 지금 유효한 결정을 고르는 규칙은 마스터 domain
+#     `current_decisions`(`app/master/domain/decision.py` · `mark_current` 옆)다.
 
-    🔴 **같은 날 실행이 여럿이다.** `2026-01-06` 배추는 아홉이고 그중 넷이
-    승인이다. 아무 말 없이 하나를 고르면, 다음 사람이 다른 행을 보고 «값이
-    다르다» 고 한다. 그래서 규칙을 코드에 박고 화면에 적는다.
 
-    ::
+def _picked_text(picked: PickedRuns) -> str:
+    """무엇을 몇 건 중에서 골랐고 몇 건을 왜 뺐는지 — 안 목록 안내문.
 
-        ① runtime_status = 'READY'   — 미가동(E4)은 안을 못 낸 날이다
-        ② scenarios 가 비지 않은 것
-        ③ 🔴 item 이 계약 품목일 것 (contracts.core.ITEMS)
-        ④ 🔴 sim_run_id 가 그 축일 것 — **안 주면 안 거른다**
-        ⑤ 품목별 created_at 최신 하나
-
-    🔴 **④ 가 ⑤ 앞이어야 한다.** 뒤로 가면 «최신 하나» 가 먼저 다른 걷기의 행을 집고
-    그 뒤에 축으로 떨어뜨려, 같은 축에 있던 조금 오래된 행이 **같이 사라진다.**
-
-    ⚠️ 지금 DB 에서는 축 있는 행이 언제나 더 새것이라(축이 `2026-09-08` 에 생겼다)
-    순서를 바꿔도 값이 안 갈린다 — 그래서 **검사가 상황을 주입한다** (규칙 8).
-
-    🔴 **축 이름을 쪼개 뜻을 읽지 않는다.** `SIM-WALK-202601-BASE` 의 `BASE` 는 사람이
-    목록에서 고를 때 쓰는 꼬리표이고, 뜻은 `sim_runs` 행이 답한다 (마스터 통보
-    2026-09-10). 여기서는 **같은지만** 본다.
-
-    🔴 **③ 이 없으면 화면에 계약 밖 품목이 뜬다.** 저장된 실행에 피마늘 행이
-    **194건** 남아 있다 (2026-09-09 실측 · 종전 주석의 143건은 그 뒤 늘었다)
-    — `#216` 으로 계약에서 뺐지만 **기록은 일부러 안 고쳤다**
-    (`e63f990` *"고쳐 쓰면 기록이 거짓이 된다"*). 기록을 고칠 자리가 아니라
-    **보일 때 거를 자리**다. 계약이 그렇게 적어 두었다::
-
-        contracts/core.py  ITEMS 각주
-        제안 축   "사자고 제안한 품목"   ITEMS 로 거른다
-        재고 축   "창고에 있는 품목"     자유 문자열 — 좁히지 않는다
-
-    이 화면은 **제안 축**이다.
-
-    ⚠️ 거른 것을 조용히 없애지 않는다 — 몇 건을 왜 뺐는지 돌려주는 글에 적는다.
+    ⚠️ 거른 것을 조용히 없애지 않는다 — 몇 건을 왜 뺐는지 여기 적는다.
     """
-    ready = [r for r in runs if r["runtime_status"] == "READY"]
-    with_plans = [r for r in ready if (r["payload"] or {}).get("scenarios")]
-    ours = [r for r in with_plans if r["item"] in ITEMS]
-    dropped = sorted({str(r["item"]) for r in with_plans if r["item"] not in ITEMS})
-
-    #  ④ 축. `is None` 이라야 한다 — 빈 문자열은 «안 줬다» 가 아니라 **잘못 준 것**이고,
-    #     그것을 «전부» 로 읽으면 오타가 조용히 전체 조회가 된다.
-    mine = ours if sim_run_id is None else [r for r in ours if r["sim_run_id"] == sim_run_id]
-    off_axis = len(ours) - len(mine)
-
-    picked: dict[str, dict[str, Any]] = {}
-    for run in mine:  # 이미 created_at DESC 라 처음 만난 것이 최신이다
-        picked.setdefault(str(run["item"]), run)
-    chosen = list(picked.values())
-
     aside = ""
-    if dropped:
-        names = " · ".join(x if x != "None" else "품목 미상" for x in dropped)
+    if picked.dropped_items:
+        names = " · ".join(x if x != "None" else "품목 미상" for x in picked.dropped_items)
         aside = f". 계약 밖 품목({names})은 뺐습니다 — 지금 사는 것은 {'·'.join(ITEMS)} 입니다"
     #  🔴 거른 것을 조용히 없애지 않는다 — 계약 밖 품목과 같은 규율이다.
-    if off_axis:
+    if picked.off_axis:
         #  🔴 **뺀 건수만 적는다** (2026-09-17). 어느 걷기를 보는지는 `build` 가 안 목록
         #     안내 끝에 **한 번만** 적는다 — 여기서 또 적으면 같은 이름이 두 번 나온다.
-        aside += f". 다른 걷기의 실행 {off_axis}건은 뺐습니다"
+        aside += f". 다른 걷기의 실행 {picked.off_axis}건은 뺐습니다"
     #  🔴 **안 거를 때도 말한다** (마스터 청구 2026-09-10). 축이 없는 실행은 손으로
     #     돌린 것이거나 축이 생기기 전 기록인데, 걷기와 **같아 보이면** 보는 사람이
     #     둘을 한 세상으로 읽는다. 마스터가 실제로 그 오독을 했다 —
     #     *"같은 토요일인데 하나는 0건이고 하나는 4건이니 걷는 경로가 둘이다"* 로
     #     진단했다가 물렀고, 실은 표에 손 실행이 섞여 있었을 뿐이었다.
-    outside = sum(1 for r in chosen if r["sim_run_id"] is None)
-    if outside:
+    if picked.outside:
         aside += (
-            f". 보이는 것 중 {outside}건은 **걷기 밖 실행**입니다 —"
+            f". 보이는 것 중 {picked.outside}건은 **걷기 밖 실행**입니다 —"
             " 손으로 돌렸거나 걷기 축이 생기기 전 기록입니다"
         )
-    if not chosen:
-        return [], f"그날 실행 {len(runs)}건 · 그중 안을 낸 계약 품목 실행 0건{aside}"
+    if not picked.chosen:
+        return f"그날 실행 {picked.total}건 · 그중 안을 낸 계약 품목 실행 0건{aside}"
     #  🔴 **요청 ID 를 글에 안 싣는다** (2026-09-17). 무엇을 골랐는지는 「품목별 최신 하나」
     #     라는 **규칙 문장**이 말하고(레슨 ①), 어느 실행인지는 안마다 `request_id` ·
     #     `history_run_id` 칸에 남는다 — 말로 한 승인이 그 칸을 쓴다.
     #  ★ 「환경이 선 것」은 `runtime_status=READY` 의 안쪽 말이라 풀어 쓴다. 수는 그대로다.
-    names = " · ".join(str(r["item"]) for r in chosen)
-    return chosen, (
-        f"그날 실행 {len(runs)}건 중 {len(ready)}건이 돌았고 "
-        f"{len(with_plans)}건이 안을 냈습니다 — 품목별 최신 하나를 보입니다 ({names}){aside}"
+    names = " · ".join(str(r["item"]) for r in picked.chosen)
+    return (
+        f"그날 실행 {picked.total}건 중 {picked.ready}건이 돌았고 "
+        f"{picked.with_plans}건이 안을 냈습니다 — 품목별 최신 하나를 보입니다 ({names}){aside}"
     )
-
-
-def _current_decisions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """업무 키마다 **지금 유효한 결정 하나** — 최대 `decision_seq` 행 (2026-09-17).
-
-    🔴 **마스터와 같은 규칙이다.** `master/pending_transition_repository.approved_decisions`
-    가 `DISTINCT ON (request_id) … ORDER BY decision_seq DESC` 로, `decision.mark_current`
-    가 파이썬에서 같은 일을 한다. 결정 표는 append-only 라 번복도 새 행이다.
-
-    ⚠️ 전에는 순서를 안 봐서, 승인 뒤 「승인 되돌리기」(`REQUEST_CHANGE` · 안 이름 없음)를
-    적어도 옛 `APPROVE` 행이 남아 **「승인됨」 · 「매입 기록됨」으로 떴다.** 실측 — FINAL-0918
-    09-14 배추(`REQ-20260914-0001` · 05:50 승인 → 06:08 되돌림)가 「매입 기록됨」이었다.
-    같은 요청에 안을 바꿔 여러 번 승인한 경우도 **전부** 「승인됨」이었다.
-
-    ★ 되돌린 요청은 안 이름 붙은 유효 결정이 없으므로 「후보」 · 대기로 돌아간다 —
-      낱말은 `master/domain/plan_state.py` 가 정하고 여기서 새로 만들지 않는다.
-
-    ⚠️ 검사 대역은 `decision_seq` 를 안 넣기도 한다 — 그때는 **목록 순서**를 회차로 읽는다
-      (뒤에 온 행이 새것). 실 조회는 늘 그 칸을 싣는다.
-    """
-    current: dict[Any, tuple[Any, dict[str, Any]]] = {}
-    for index, row in enumerate(rows):
-        seq = row.get("decision_seq")
-        order = index if seq is None else seq
-        kept = current.get(row["request_id"])
-        if kept is None or order >= kept[0]:
-            current[row["request_id"]] = (order, row)
-    return [row for _order, row in current.values()]
 
 
 def _no_plan_note(
@@ -369,7 +296,7 @@ def _records(as_of: date, sim_run_id: str | None) -> dict[tuple[str, str], Recor
 
     🔴 **여기서 숫자를 만들지 않는다.** 표를 읽고 합계를 엮는 자리는 마스터 한 곳이고
        (`master/readmodel/purchase_record.recorded_totals_by_plan` — SQL 은 그 아래
-       repository) 이 함수는 그것을 부르기만 한다 — 대시보드(`api/dashboard/query.
+       repository) 이 함수는 그것을 부르기만 한다 — 대시보드(`api/dashboard/presenter.
        _records`)와 **같은 함수**다.
 
     🔴 **축이 없으면 안 맞춘다.** 그 조회는 `sim_run_id` 가 필수다 (PK 에 축이 있다).
@@ -641,13 +568,14 @@ def build(
     runs = data["runs"]
     decided = {
         (row["request_id"], row["scenario_label"]): row["decision"]
-        for row in _current_decisions(data["decisions"])
+        for row in current_decisions(data["decisions"])
         if row["scenario_label"]
     }
     #  ★ 결정이 난 요청. `decided` 와 **같은 행**에서 뽑는다 — 무엇을 결정으로 치는지
     #    (안 이름이 붙은 행)가 두 곳에서 갈리면 「승인됨」과 「대기 아님」이 따로 논다.
     decided_requests = frozenset(request_id for request_id, _label in decided)
-    chosen, picked_text = _pick(runs, sim_run_id)
+    picked = pick_runs(runs, sim_run_id)
+    chosen, picked_text = picked.chosen, _picked_text(picked)
     #  ★ 안과 **같은 실행 · 같은 날**의 실매입 기록. 열쇠는 `(품목, 안 이름)`.
     records = _records(as_of, sim_run_id)
 
@@ -655,7 +583,7 @@ def build(
     skipped = 0
     for run in chosen:
         for scenario in (run["payload"] or {}).get("scenarios") or []:
-            #  _pick 이 ITEMS 로 걸렀으므로 여기서 item 은 언제나 계약 품목이다
+            #  pick_runs 가 ITEMS 로 걸렀으므로 여기서 item 은 언제나 계약 품목이다
             plan = _plan(
                 str(run["item"]), scenario, decided, run["request_id"], run["sim_run_id"],
                 #  ⚠️ `.get` 이다. 검사가 `read_purchase_tab` 을 대신 세울 때 이 칸을 안 넣는데,
@@ -714,7 +642,7 @@ def build(
         committed_text += f" 도착일을 못 맞춘 줄 {arrived_unknown}개는 **공란**입니다."
     #  🔴 뺀 것을 조용히 없애지 않는다 — 이번 주 매입액이 왜 작은지가 여기 있다.
     if committed_off_axis:
-        #  🔴 뺀 수는 남기고 실행 이름은 안 적는다 — `_pick` 의 안내문과 같은 규율이다.
+        #  🔴 뺀 수는 남기고 실행 이름은 안 적는다 — `_picked_text` 의 안내문과 같은 규율이다.
         committed_text += f" 다른 걷기의 줄 {committed_off_axis}개는 뺐습니다."
     #  🔴 ~~「⚠️ 지급일이 매입일과 같게 적재돼 있습니다 — 지급일 규칙이 아직 미결입니다」~~
     #     **걷었다** (2026-09-17). 지급일이 매입일과 같은 것은 경고할 일이 아니라 **확정값

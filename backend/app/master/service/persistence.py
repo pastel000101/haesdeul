@@ -465,7 +465,7 @@ def record_ledger_gap(
 
     🔴 **`plan` 은 빈 목록이다 — 이것이 화면 안전의 조건이다.** 매입 화면은
       `response_payload.scenarios` 가 있는 행만 안으로 고른다
-      (`app/api/purchase/query.py` `_pick`). 지어낸 안을 한 줄이라도 실으면 그
+      (`master/readmodel/purchase_tab.pick_runs`). 지어낸 안을 한 줄이라도 실으면 그
       순간 **품목 미상 행**이 안 목록에 뜬다. 안 낸 날이니 안이 없는 것이 사실이다.
 
     🔴 **`reason` 을 여기서 다시 짓지 않는다.** 문장은 `scheduler._ledger_gap_note`

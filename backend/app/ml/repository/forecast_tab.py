@@ -1,7 +1,7 @@
 """가격 예측 탭(화면 `GET /api/forecast`)의 SQL — **원본 창고**(`prediction_log`)를 읽는다.
 
 ★ 서비스 창고(`haetdeul.ml_price_forecasts`)에는 실제값 · 채점이 없다. «얼마나 틀렸나» 를
-  보이려면 채점이 있어야 해서 원본 창고를 읽는다 (화면 `app/api/forecast/query.py` 머리말).
+  보이려면 채점이 있어야 해서 원본 창고를 읽는다 (화면 `app/api/forecast/presenter.py` 머리말).
 
 ★ **받은 연결로 SQL 만 실행한다.** 연결은 `readmodel/forecast_tab.py` 가 원본 창고 풀에서 빌린다.
   모델 이름 · 품목 · 상한 같은 거르기 값은 화면이 넘긴 그대로 쓴다.

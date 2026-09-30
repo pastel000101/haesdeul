@@ -105,6 +105,8 @@ def _item_literals(path: Path) -> list[int]:
 #: 🟢 2026-09-29 봉투(`envelope.py`)와 약정 타입(`commitment.py`)이 마스터에서
 #:   `app/contracts/` 로 올라갔다 (재구성 BL-011). 옮긴 코드가 이 규율 밖으로 빠지지 않게
 #:   공용 계약 파일도 본다 — 품목 목록의 주인인 `contracts/core.py` 만 뺀다.
+#: 🟢 2026-09-30 마스터 · Critic 라우터(`master/router.py` · `master/critic/router.py`)가
+#:   `app/api/master/` · `app/api/critic/` 로 옮겨 갔다 (재구성 BL-019) — 같은 이유로 그 둘도 본다.
 _OWNER = "contracts/core.py"
 
 
@@ -112,7 +114,7 @@ _OWNER = "contracts/core.py"
     "rel",
     sorted(
         str(p.relative_to(_APP)).replace("\\", "/")
-        for folder in ("master", "contracts")
+        for folder in ("master", "contracts", "api/master", "api/critic")
         for p in (_APP / folder).rglob("*.py")
         if "__pycache__" not in p.parts
         and str(p.relative_to(_APP)).replace("\\", "/") != _OWNER

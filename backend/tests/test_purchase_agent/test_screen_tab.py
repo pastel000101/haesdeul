@@ -22,7 +22,7 @@ from datetime import date
 
 import pytest
 
-from app.api.purchase import query as tab
+from app.api.purchase import presenter as tab
 from app.api.purchase.schema import Plan
 
 AS_OF = date(2026, 1, 6)
@@ -307,7 +307,7 @@ def test_지급_계획이_없으면_빈_표에_이유를_적는다(read):
     ⚠️ **빈 표가 흔한 것이 정상**이다. 매입일로 메우지 않는다.
     ~~매입일로 메우면 «그날 냈다» 는 거짓이 된다~~ — **낡았다** (2026-09-17). N5=0 이
     확정돼 그날 내는 것이 맞다. 안 메우는 이유는 이제 **두 벌**이다 — 1회차 줄을 만들면
-    `split_plan[].amount_krw` 와 같은 값이 한 번 더 나간다 (`query._payments` docstring).
+    `split_plan[].amount_krw` 와 같은 값이 한 번 더 나간다 (`presenter._payments` docstring).
     """
     read(_data(runs=[_run("REQ-A", _scenario("보수"))]))
     table = tab.build(AS_OF).plans[0].payments

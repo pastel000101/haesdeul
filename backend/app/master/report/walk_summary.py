@@ -1002,7 +1002,7 @@ _CASH_FLOWS = (
 #:   돈 실행들(SIM-CHAIN-V2~V13 · WALK-* · PREFINAL)이 DB 에 그대로 남아 있고,
 #:   **그 실행들은 이 축을 한 번도 안 셌다.** 그래서 그쪽의 빈 값은 「0원이 나갔다」가
 #:   아니라 **「안 셌다」**다 — 재무가 `finance/schemas.py` 에
-#:   `operating_expense_cash_out_krw: Decimal | None` 로, `api/finance/query.py` 에
+#:   `operating_expense_cash_out_krw: Decimal | None` 로, `api/finance/presenter.py` 에
 #:   `"기록 없음" if ... is None` 으로 적어 둔 그 뜻이다.
 #:
 #: ⚠️ **지금 이 갈래는 실제로 안 탄다.** `haetdeul.daily_closings` 의 이 칸은 아직

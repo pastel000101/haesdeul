@@ -1,6 +1,6 @@
 """가격 예측 탭(화면 `GET /api/forecast`)이 읽는 원본 창고 조회 — 조회 한 번에 연결 하나.
 
-★ 네 조회가 **따로 실패할 수 있다.** 화면(`app/api/forecast/query.py::_fetch`)이 조회마다
+★ 네 조회가 **따로 실패할 수 있다.** 화면(`app/api/forecast/presenter.py::_fetch`)이 조회마다
   예외를 받아 «예시값» 으로 떨어뜨린다 — 그래서 한 연결로 묶지 않고 조회마다 원본 창고 풀에서
   빌리고 돌려준다(종전 `app/ml/db.py::fetch_all(source=True)` 와 같은 대여 단위).
 

@@ -15,13 +15,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.ask import router
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.domain.decision import mark_current
 from app.master.llm.runtime import IntentService, LLMSettings
 from app.master.readmodel import approvals, logistics_report
 from app.master.registry import wiring as registry_wiring
 from app.master.report import chat_reports
-from app.master.router import router
 from app.master.schemas.ask import AskRequest
 from app.master.schemas.decision import DecisionOut
 from app.master.schemas.procurement import ProcurementRunResponse

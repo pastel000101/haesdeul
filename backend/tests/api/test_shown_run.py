@@ -30,11 +30,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.dashboard import query as dashboard_query
-from app.api.finance import query as finance_query
-from app.api.logistics import query as logistics_query
+from app.api.dashboard import presenter as dashboard_presenter
+from app.api.finance import presenter as finance_presenter
+from app.api.logistics import presenter as logistics_presenter
 from app.api.purchase import routes as purchase_routes
-from app.api.sales import query as sales_query
+from app.api.sales import presenter as sales_presenter
 from app.core import settings
 from app.core.settings import SHOWN_AS_OF, SHOWN_SIM_RUN_ID
 from app.logistics.readmodel import console as console_readmodel
@@ -54,26 +54,58 @@ class _멈춤(Exception):
 # ── ① 스캔 잠금 ─────────────────────────────────────────────────────────
 
 
+#: 마스터 · Critic 의 HTTP 입구 — 화면이 아니다(2026-09-30 재구성 BL-019 에 `app/master/router.py` ·
+#: `master/critic/router.py` 에서 `app/api/` 로 옮겼다). 하루 단계 입구는 번인 축을 **거절**하려고
+#: 그 이름을 읽는다(`api/master/days.py::_walk_axis`) — 허용하는 자리는 그 하나다.
+_MASTER_HTTP = (_API_DIR / "master", _API_DIR / "critic")
+_BURN_IN_GUARD = (_API_DIR / "master" / "days.py", "_walk_axis")
+
+
+def _burn_in_hits(tree: ast.AST) -> list[ast.AST]:
+    return [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Name) and node.id == _BURN_IN)
+        or (isinstance(node, ast.Attribute) and node.attr == _BURN_IN)
+        or (isinstance(node, ast.ImportFrom) and any(a.name == _BURN_IN for a in node.names))
+    ]
+
+
 def test_화면_API_소스에_번인_상수_이름이_없다():
     """🔴 `import` · 이름 · 속성 어디로도 번인 상수를 쓰지 않는다. 문자열은 안 본다."""
     files = sorted(p for p in _API_DIR.rglob("*.py") if "__pycache__" not in p.parts)
     assert files, f"스캔한 파일이 0개다 — 경로가 틀렸다: {_API_DIR}"
 
     found: list[str] = []
+    master_http: list[tuple[str, ast.AST]] = []
     for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            hit = (
-                (isinstance(node, ast.Name) and node.id == _BURN_IN)
-                or (isinstance(node, ast.Attribute) and node.attr == _BURN_IN)
-                or (
-                    isinstance(node, ast.ImportFrom)
-                    and any(alias.name == _BURN_IN for alias in node.names)
-                )
-            )
-            if hit:
+        for node in _burn_in_hits(tree):
+            if any(path.is_relative_to(root) for root in _MASTER_HTTP):
+                master_http.append((str(path), node))
+            else:
                 found.append(f"{path.relative_to(_BACKEND)}:{node.lineno}")
     assert not found, f"화면 API 가 번인 상수를 쓴다: {found}"
+
+    #  ★ 마스터 HTTP 입구에서는 `_walk_axis`(번인 축 거절)와 그 import 한 줄뿐이다.
+    guard_path, guard_name = _BURN_IN_GUARD
+    guard_tree = ast.parse(guard_path.read_text(encoding="utf-8"))
+    guard = next(
+        node
+        for node in guard_tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == guard_name
+    )
+    outside = [
+        f"{Path(path).relative_to(_BACKEND)}:{node.lineno}"
+        for path, node in master_http
+        if Path(path) != guard_path
+        or not (
+            isinstance(node, ast.ImportFrom)
+            or guard.lineno <= node.lineno <= (guard.end_lineno or guard.lineno)
+        )
+    ]
+    assert master_http, "하루 단계 입구의 번인 거절을 못 찾았다 — 스캐너가 빈 곳을 본다"
+    assert not outside, f"마스터 HTTP 입구가 번인 축 거절 밖에서 번인 상수를 쓴다: {outside}"
 
 
 # ── ② 재무 · 판매 · 물류 ────────────────────────────────────────────────
@@ -90,10 +122,10 @@ def test_재무_build_가_보는_실행을_넘긴다(monkeypatch):
         잡은.append(("cashflow", sim_run_id))
         raise _멈춤
 
-    monkeypatch.setattr(finance_query, "get_finance_dashboard", 대시보드)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", 현금흐름)
+    monkeypatch.setattr(finance_presenter, "get_finance_dashboard", 대시보드)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", 현금흐름)
     with pytest.raises(_멈춤):
-        finance_query.build(AS_OF, "base")
+        finance_presenter.build(AS_OF, "base")
     assert 잡은 == [("dashboard", SHOWN_SIM_RUN_ID), ("cashflow", SHOWN_SIM_RUN_ID)]
 
 
@@ -104,9 +136,9 @@ def test_판매_build_가_보는_실행을_넘긴다(monkeypatch):
         잡은.append(sim_run_id)
         raise _멈춤
 
-    monkeypatch.setattr(sales_query, "get_sales_dashboard", 대시보드)
+    monkeypatch.setattr(sales_presenter, "get_sales_dashboard", 대시보드)
     with pytest.raises(_멈춤):
-        sales_query.build(AS_OF)
+        sales_presenter.build(AS_OF)
     assert 잡은 == [SHOWN_SIM_RUN_ID]
 
 
@@ -152,7 +184,7 @@ def _물류_대역(monkeypatch) -> list[tuple[str, str]]:
 def test_물류_build_가_보는_실행을_넘기고_출처에_적는다(monkeypatch):
     잡은 = _물류_대역(monkeypatch)
     #  대역 콘솔이 빈 값이라 판 조립은 실패한다. 넘긴 축과 출처 글만 본다.
-    result = logistics_query.build_result(AS_OF, "summary")
+    result = logistics_presenter.build_result(AS_OF, "summary")
     names = [name for name, _ in 잡은]
     assert names == [
         "coverage",
@@ -170,7 +202,7 @@ def test_물류_build_가_보는_실행을_넘기고_출처에_적는다(monkeyp
 
 def test_물류_재고그래프가_보는_실행을_넘긴다(monkeypatch):
     잡은 = _물류_대역(monkeypatch)
-    logistics_query.dashboard_stock(10, 5, AS_OF)
+    logistics_presenter.dashboard_stock(10, 5, AS_OF)
     names = [name for name, _ in 잡은]
     assert names == ["coverage", "onhand", "days", "runtime", "inbound"]
     assert {run for _, run in 잡은} == {SHOWN_SIM_RUN_ID}
@@ -186,10 +218,12 @@ def test_대시보드가_매입_build_에_보는_실행을_넘긴다(monkeypatch
         잡은.append({"args": args, "kwargs": kwargs})
         raise _멈춤
 
-    monkeypatch.setattr(dashboard_query.forecast_q, "build", lambda *a, **k: SimpleNamespace())
-    monkeypatch.setattr(dashboard_query.purchase_q, "build", 매입)
+    monkeypatch.setattr(
+        dashboard_presenter.forecast_presenter, "build", lambda *a, **k: SimpleNamespace()
+    )
+    monkeypatch.setattr(dashboard_presenter.purchase_presenter, "build", 매입)
     with pytest.raises(_멈춤):
-        dashboard_query.build(AS_OF)
+        dashboard_presenter.build(AS_OF)
     #  🔵 `window_days=0` — 대시보드는 도착일을 안 읽는다 (`#740` 의 인자 · 2026-09-16).
     #     여기서 같이 잠근다: 축이 빠지는 것도, 창이 조용히 넓어지는 것도 사고다.
     assert 잡은 == [

@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/logistics/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/logistics/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/logistics?as_of=2026-01-06&pane=summary
 
 ```
 app/api/logistics/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/logistics/query.py
+# backend/app/api/logistics/presenter.py
 def build(as_of: date, pane: str) -> LogisticsTab:
 ```
 
@@ -81,7 +81,7 @@ inv, inb, ob = page.inventory, page.inbound, page.outbound
 (`live_exceptions_at` · `resolved_exceptions_on` — 한 판에서는 `read_console_page` 가
 함께 읽습니다). **같은 쿼리를 두 벌 두면 언젠가 값이 갈라집니다.**
 
-이 `query.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
+이 `presenter.py` 가 할 일은 **읽는 것이 아니라 옮기는 것**입니다 —
 저쪽이 준 업무 값을 화면 부품(`Stat` · `Table` · `Card`)에 담습니다.
 
 원래 표를 직접 봐야 하면: `inventory_lots` · `inventory_reservations` ·
@@ -316,11 +316,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -416,7 +416,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/logistics/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/logistics/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

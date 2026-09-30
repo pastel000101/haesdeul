@@ -25,6 +25,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.history import router
 from app.master.domain import request_ids
 from app.master.domain.execution_day import CalendarNotCovered
 from app.master.readmodel import runs
@@ -38,7 +39,6 @@ from app.master.report.walk_report import (
     WALKED,
     walk_report,
 )
-from app.master.router import router
 from app.master.schemas.runs import DayRunCount
 from app.master.schemas.walk_report import WalkReport
 from app.master.service import persistence as service_persistence
@@ -368,7 +368,7 @@ def client():
 def _no_db(monkeypatch, rows: list[DayRunCount]) -> None:
     """DB 와 달력을 둘 다 끊는다 — 진입점 모양만 잰다."""
     monkeypatch.setattr(report_walk_report, "count_runs_by_day", lambda **_: list(rows))
-    monkeypatch.setattr("app.master.router.get_calendar", lambda: _Calendar())
+    monkeypatch.setattr("app.api.master.history.get_calendar", lambda: _Calendar())
 
 
 def test_행이_하나도_없어도_200_이고_날이_판정으로_찬다(client, monkeypatch):

@@ -1,7 +1,8 @@
 """재무 계층의 방향 — 2026-09-29 재구성 BL-014.
 
 ```text
-화면   → app/finance/router.py(HTTP 만) → service · readmodel → domain · repository
+화면   → app/api/finance/<자원>.py(HTTP 만) → service · readmodel → domain · repository
+         (2026-09-30 재구성 BL-019 전에는 app/finance/router.py 한 파일)
 마스터 → (등록소) → app/finance/adapter.py(번역만) → service · readmodel → domain · repository
 마스터 ask → 재무 service (라우터와 같은 함수)
 ```
@@ -39,7 +40,12 @@ import app
 _APP = Path(app.__file__).parent
 _FINANCE = _APP / "finance"
 _BACKEND = _APP.parent
-_ROUTER = _FINANCE / "router.py"
+#: 재무 HTTP 입구 — 2026-09-30 재구성 BL-019 에 `app/finance/router.py` 에서 자원별 파일로 옮겼다.
+_HTTP = _APP / "api" / "finance"
+_HTTP_MODULES = tuple(
+    f"app.api.finance.{name}"
+    for name in ("credit_limits", "expenses", "collections", "cash_adjustments", "agent", "runs")
+)
 _ADAPTER = _FINANCE / "adapter.py"
 #: ★ 2026-09-30 재구성 BL-018: 채팅의 도메인 행동(조회 · 쓰기 실행)은 `master/service/ask.py` 에서
 #:   `master/service/ask_domain_actions.py` 로 갈라 나왔다 — `_domain_write` 가 그 파일에 있다.
@@ -124,26 +130,32 @@ def _resolved_calls(path: Path, function: str) -> set[str]:
 
 _WRITES = {
     "credit-limit": (
+        "credit_limits.py",
         "register_credit_limit",
         "app.finance.service.credit_limits.change_credit_limit",
     ),
     "expense-create": (
+        "expenses.py",
         "create_operating_expense",
         "app.finance.service.expenses.accrue_operating_expense",
     ),
     "expense-settle": (
+        "expenses.py",
         "settle_operating_expense",
         "app.finance.service.expenses.pay_accrued_expense",
     ),
     "expense-cancel": (
+        "expenses.py",
         "cancel_operating_expense",
         "app.finance.service.expenses.cancel_accrued_expense",
     ),
     "collection": (
+        "collections.py",
         "record_receivable_collection",
         "app.finance.service.collections.record_collection",
     ),
     "cash-adjustment": (
+        "cash_adjustments.py",
         "create_cash_adjustment",
         "app.finance.service.cash_adjustments.apply_cash_adjustment",
     ),
@@ -156,9 +168,11 @@ def test_router_and_ask_call_the_same_finance_service(write):
 
     한쪽만 고쳐지는 날이 없다.
     """
-    handler, service = _WRITES[write]
+    route, handler, service = _WRITES[write]
 
-    assert service in _resolved_calls(_ROUTER, handler), _resolved_calls(_ROUTER, handler)
+    assert service in _resolved_calls(_HTTP / route, handler), _resolved_calls(
+        _HTTP / route, handler
+    )
     assert service in _resolved_calls(_ASK, "_domain_write"), write
 
 
@@ -185,19 +199,25 @@ def test_no_module_imports_the_finance_router_except_the_app_root():
     """🔴 라우터 핸들러는 HTTP 입구다. 다른 코드가 함수로 부르면 `HTTPException` 이 샌다.
 
     ★ 2026-09-29 재구성 BL-014 전에는 마스터 ask 가 재무 라우터 핸들러 여섯을 불렀다.
+    ★ 2026-09-30 재구성 BL-019: 라우트는 `app/api/finance/<자원>.py` 이고, 그 모듈을 들이는
+      곳은 HTTP 입구 목록(`app/api/router.py`) 하나다(전에는 `app/main.py`).
     """
     importers = sorted(
         _module_name(path)
         for path in python_files(_APP)
-        if any(is_under(name, "app.finance.router") for name in _imported(_read(path)))
+        if any(
+            is_under(name, module)
+            for name in _imported(_read(path))
+            for module in _HTTP_MODULES
+        )
     )
 
-    assert importers == ["app.main"]
+    assert importers == ["app.api.router"]
 
 
 def test_the_router_scan_catches_a_planted_handler_import():
-    planted = "def f():\n    from app.finance.router import register_credit_limit\n"
-    assert any(is_under(name, "app.finance.router") for name in _imported(planted))
+    planted = "def f():\n    from app.api.finance.credit_limits import register_credit_limit\n"
+    assert any(is_under(name, "app.api.finance.credit_limits") for name in _imported(planted))
 
 
 def test_only_the_registry_and_the_agent_route_import_the_finance_adapter():
@@ -211,9 +231,12 @@ def test_only_the_registry_and_the_agent_route_import_the_finance_adapter():
     )
 
     # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `app.master.registry.bootstrap` 이다.
-    assert importers == ["app.finance.router", "app.master.registry.bootstrap"]
+    # ★ 2026-09-30 재구성 BL-019: `POST /finance/agent` 는 `app/api/finance/agent.py` 다.
+    assert importers == ["app.api.finance.agent", "app.master.registry.bootstrap"]
     router_takes = {
-        name for name in _imported(_read(_ROUTER)) if is_under(name, "app.finance.adapter")
+        name
+        for name in _imported(_read(_HTTP / "agent.py"))
+        if is_under(name, "app.finance.adapter")
     }
     assert router_takes == {"app.finance.adapter", "app.finance.adapter.finance_port"}
 
@@ -383,7 +406,7 @@ _OTHER_FINANCE = (
     "app.finance.readmodel",
     "app.finance.llm",
     "app.finance.adapter",
-    "app.finance.router",
+    "app.api",
 )
 
 #: 계층마다 **들이면 안 되는** 모듈. 표준 라이브러리 · pydantic 은 막지 않는다.
@@ -413,7 +436,6 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "starlette",
         "app.api",
         "app.master",
-        "app.finance.router",
         "app.finance.adapter",
     ),
     #  SQL: 판단 · 조립 · 순서를 부르지 않는다.
@@ -423,7 +445,7 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.finance.readmodel",
         "app.finance.llm",
         "app.finance.adapter",
-        "app.finance.router",
+        "app.api",
         "app.master",
         "fastapi",
     ),
@@ -432,7 +454,7 @@ _FORBIDDEN: dict[str, tuple[str, ...]] = {
         "app.finance.service",
         "app.finance.llm",
         "app.finance.adapter",
-        "app.finance.router",
+        "app.api",
         "app.master",
         "fastapi",
         "langgraph",

@@ -23,9 +23,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.ask import router
 from app.core.settings import MissingDatabaseEnvironment
 from app.main import app as whole_app
-from app.master.router import router
 from tests.sales.sales_fake_connection import lend
 
 AS_OF = "2026-09-17"

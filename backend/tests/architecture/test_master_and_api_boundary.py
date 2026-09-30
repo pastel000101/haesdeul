@@ -106,9 +106,17 @@ def test_scanner_catches_hidden_screen_import_forms():
 # ── 화면 → 마스터: readmodel · domain 만 ──────────────────────────────────
 
 
+#: 마스터 · Critic 의 HTTP 입구 — 화면이 아니라 마스터 자기 라우트다(2026-09-30 재구성 BL-019 에
+#: `app/master/router.py` · `master/critic/router.py` 에서 옮겼다). 거기서 들일 수 있는 것은
+#: `tests/architecture/test_master_layers.py::test_http_entries_import_only_what_they_may` 가 잰다.
+_MASTER_HTTP = ("api/master/", "api/critic/")
+
+
 def _api_master_refs() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for path in _files("api"):
+        if _rel(path).startswith(_MASTER_HTTP):
+            continue
         for line, shape, names in module_refs(path.read_text(encoding="utf-8")):
             reached = [n for n in names if is_under(n, "app.master")]
             if reached:
@@ -128,11 +136,17 @@ def test_screen_takes_only_readmodel_and_domain_from_master():
     #  ★ 무엇을 봤는지 — 지금 마스터를 부르는 화면은 대시보드 · 매입 탭 · 콘솔 실행 목록 셋이다.
     #    (2026-09-29 재구성 BL-014: 콘솔 실행 목록과 매입 탭 조회가 `finance.db` 직접 SQL 에서
     #    마스터 readmodel 로 옮겨 왔다.)
+    #    (2026-09-30 재구성 BL-019: 탭 `query.py` 는 `presenter.py` 가 되었다. 마스터 · Critic
+    #    HTTP 입구는 화면이 아니라 이 검사에서 뺀다 — 빠진 것이 실제로 있는지도 잰다.)
     assert set(refs) == {
         "api/console/routes.py",
-        "api/dashboard/query.py",
-        "api/purchase/query.py",
+        "api/dashboard/presenter.py",
+        "api/purchase/presenter.py",
     }, refs
+    assert {_rel(path) for path in _files("api") if _rel(path).startswith(_MASTER_HTTP)} >= {
+        "api/master/flows.py",
+        "api/critic/verdicts.py",
+    }
 
 
 def test_screen_check_catches_planted_repository_imports():

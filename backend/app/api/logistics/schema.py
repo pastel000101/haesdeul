@@ -6,12 +6,12 @@
   카드가 여러 장이라 **목록으로 받습니다** — 카드를 하나 더해도 화면은 안 고칩니다.
 
 🔴 **프론트에 나가는 모양은 이것 하나다.** 조회 중간값(`Console*` read model)은
-   `app/logistics/schemas/console.py` 에 있고 프론트까지 안 나간다 — `query.py` 가 그것을
+   `app/logistics/schemas/console.py` 에 있고 프론트까지 안 나간다 — `presenter.py` 가 그것을
    `Pane` · `Card` · `Stat` 로 옮겨 담아 이 탭을 만든다 (물류 문서 28).
 
 ```text
-api/logistics/query.py  →  logistics/console_service.py  →  historical_repository · outbound
-console_service 결과     →  query.py 가 변환              →  이 파일의 LogisticsTab
+api/logistics/presenter.py  →  logistics/readmodel/console.py  →  readmodel/historical · repository
+readmodel/console 결과      →  presenter.py 가 변환            →  이 파일의 LogisticsTab
 ```
 """
 

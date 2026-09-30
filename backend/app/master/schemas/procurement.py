@@ -62,8 +62,8 @@ class ProcurementRunRequest(BaseModel):
         ★ **`None` 은 통과시킨다.** 품목을 안 준 것과 없는 품목을 준 것은 다르다.
           안 주면 매입이 `missing_data: ["item"]` 으로 그 사실을 낸다 (§1.2-10).
 
-        ★ **`app/ml/router.py:35` 와 같은 모양이다.** ML 이 이미 이렇게 거르고
-          있었고, 같은 일을 다른 방식으로 하지 않는다.
+        ★ **`app/api/ml/qa.py` 의 주석 처리한 `read_forecast` 품목 검사와 같은 모양이다.**
+          ML 이 이미 이렇게 거르고 있었고, 같은 일을 다른 방식으로 하지 않는다.
         """
         if value is not None and value not in ITEMS:
             raise ValueError(

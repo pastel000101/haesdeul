@@ -13,7 +13,7 @@
 
 🔴 **왜 `run_procurement` 안이 아닌가.**
 
-`router.py` 의 `master_open_day` 가 개장에 대해 적어 둔 그대로다 — *"명시적 호출이다.
+`api/master/days.py` 의 `master_open_day` 가 개장에 대해 적어 둔 그대로다 — *"명시적 호출이다.
 실행의 부작용이 아니다. 하루가 넘어가는 것은 **사건**이고, 사건에는 자기 자리가 있다."*
 **입고도 사건이다.** 판단 안에 넣으면 판단 한 번이 재고를 늘리고 *"같은 `as_of` 로
 백번 돌려도 같은 답"* 이 깨진다.
@@ -95,7 +95,7 @@ def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> Da
 
 def test_도착분을_받는_엔드포인트가_있다() -> None:
     """🔴 **이것이 없어서 물류가 물었다.** 없으면 도착일에 아무도 안 부른다."""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/receive" in paths, (
@@ -105,7 +105,7 @@ def test_도착분을_받는_엔드포인트가_있다() -> None:
 
 def test_개장과_입고가_다른_엔드포인트다() -> None:
     """★ **사건 둘은 자리 둘이다.** 하나로 묶으면 실패 조합을 못 낸다."""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/open" in paths

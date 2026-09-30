@@ -22,7 +22,8 @@
 
 🟢 **이 파일은 HTTP 입구다** (2026-09-29 · 재구성 BL-017). 허용 경로 목록 · 404 · 저쪽 실패를
   502 · 504 로 바꾸는 것만 여기 있고, ML 백엔드에 실제로 묻는 호출(주소 · 타임아웃 · 전달)은
-  `app/ml/ml_backend.py` 로 옮겼다. 라우트 자체를 `app/api/ml/` 로 옮기는 것은 BL-019 다.
+  `app/ml/ml_backend.py` 로 옮겼다. 라우트 자체는 2026-09-30 재구성 BL-019 에
+  `app/ml/console_proxy.py` 에서 이 자리로 옮겼다(허용 목록 · 문구 · URL 그대로).
 """
 
 from __future__ import annotations

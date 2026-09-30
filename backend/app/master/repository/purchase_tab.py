@@ -20,7 +20,7 @@ from typing import Any
 
 from psycopg import sql
 
-#: 실행 조회(`runs`)가 응답 본문에서 **뽑는 칸** — 매입 탭(`api/purchase/query.py`)이 `payload`
+#: 실행 조회(`runs`)가 응답 본문에서 **뽑는 칸** — 매입 탭(`api/purchase/presenter.py`)이 `payload`
 #: 에서 읽는 전부다.
 #:
 #: 🔵 (2026-09-17) 전에는 `response_payload` 를 통째로 끌어왔다 — REH-0914 08-31 41행이

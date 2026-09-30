@@ -348,6 +348,39 @@ def mark_current(rows: Sequence[DecisionOut]) -> list[DecisionOut]:
     return [row.model_copy(update={"is_current": row.decision_seq == top}) for row in rows]
 
 
+def current_decisions(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """업무 키마다 **지금 유효한 결정 하나** — 최대 `decision_seq` 행 (2026-09-17).
+
+    🔴 **`mark_current` 와 같은 규칙이다.** 미적용 전이 조회
+    (`master/repository/pending_transitions.py`)가 `DISTINCT ON (request_id) … ORDER BY
+    decision_seq DESC` 로, 위 `mark_current` 가 요청 하나의 결정 목록에서 같은 일을 한다.
+    이 함수는 여러 요청의 결정 행(매입 탭 조회 결과)을 한 번에 가른다. 결정 표는
+    append-only 라 번복도 새 행이다.
+
+    ⚠️ 전에는 순서를 안 봐서, 승인 뒤 「승인 되돌리기」(`REQUEST_CHANGE` · 안 이름 없음)를
+    적어도 옛 `APPROVE` 행이 남아 **「승인됨」 · 「매입 기록됨」으로 떴다.** 실측 — FINAL-0918
+    09-14 배추(`REQ-20260914-0001` · 05:50 승인 → 06:08 되돌림)가 「매입 기록됨」이었다.
+    같은 요청에 안을 바꿔 여러 번 승인한 경우도 **전부** 「승인됨」이었다.
+
+    ★ 되돌린 요청은 안 이름 붙은 유효 결정이 없으므로 「후보」 · 대기로 돌아간다 —
+      낱말은 `master/domain/plan_state.py` 가 정한다.
+
+    ⚠️ 검사 대역은 `decision_seq` 를 안 넣기도 한다 — 그때는 **목록 순서**를 회차로 읽는다
+      (뒤에 온 행이 새것). 실 조회는 늘 그 칸을 싣는다.
+
+    ★ 2026-09-30 재구성 BL-019: 매입 탭 화면(`api/purchase/query._current_decisions`)에서
+      옮겼다 — 본문 그대로. 화면은 이 결과로 「승인됨」 · 대기를 가른다.
+    """
+    current: dict[Any, tuple[Any, Mapping[str, Any]]] = {}
+    for index, row in enumerate(rows):
+        seq = row.get("decision_seq")
+        order = index if seq is None else seq
+        kept = current.get(row["request_id"])
+        if kept is None or order >= kept[0]:
+            current[row["request_id"]] = (order, row)
+    return [row for _order, row in current.values()]
+
+
 def end_code_of(response_payload: dict[str, Any]) -> str:
     """실행 응답에서 종료 코드를 읽는다.
 

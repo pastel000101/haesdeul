@@ -76,7 +76,7 @@ def schedule_view_scope() -> Iterator[None]:
 
     ★ **스레드를 건너 나눠 쓸 수 있다.** `ContextVar` 는 새 스레드에 저절로 따라가지
       않으므로, 부르는 쪽이 `contextvars.copy_context()` 로 떠서 넘긴다 —
-      `app/api/dashboard/query.py` 가 그렇게 한다. 나눠 쓰는 것은 **답(불변 튜플)**
+      `app/api/dashboard/presenter.py` 가 그렇게 한다. 나눠 쓰는 것은 **답(불변 튜플)**
       뿐이고 커넥션은 각자 자기 것을 쓴다.
 
     ★ 범위를 안 열면 아무것도 안 바뀐다.

@@ -79,7 +79,7 @@ def accuracy(item: str, kind: str) -> dict[str, Any] | None:
        **한 사실에 두 숫자가 돌아다니면 어느 쪽이 맞는지 아무도 모른다.**
 
     출처: 봉인 개봉(2026-09-01) · 운영 모델 · 홀드아웃 2024~2025 · 486 기준일 ·
-    리드타임 3 이상. 화면 `app/api/forecast/query.py` 의 `_ACCURACY` 와 같은 값이고,
+    리드타임 3 이상. 화면 `app/api/forecast/presenter.py` 의 `_ACCURACY` 와 같은 값이고,
     거기에 없는 중도매가·소매가는 같은 실행의 나머지 여섯 칸이다.
     """
     return config.SEALED_ACCURACY.get((kind, item))

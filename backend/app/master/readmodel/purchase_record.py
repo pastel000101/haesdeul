@@ -3,7 +3,7 @@
 ```text
 repository   purchase_record_repository.recorded_sums_by_plan   (품목, 안 이름)마다 수량 · 금액 합
 readmodel    recorded_totals_by_plan (여기)                     → {(품목, 안 이름): RecordedTotals}
-화면         api/dashboard/query._records · api/purchase/query._records
+화면         api/dashboard/presenter._records · api/purchase/presenter._records
              못 읽으면 빈 표로 두고 화면을 띄운다 (그 태도는 화면이 정한다)
 ```
 

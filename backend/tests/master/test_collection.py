@@ -384,7 +384,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
 
 def test_수금_엔드포인트가_있다() -> None:
     """🔴 **없으면 수금일에 아무도 안 부른다** — `apply_explicit_collection` 이 지금 그렇다."""
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/collect" in paths, (
@@ -399,7 +399,7 @@ def test_개장_입고_수금이_다_다른_엔드포인트다() -> None:
     개장 성공 · 입고 BLOCKED · 수금 NOTHING_DUE   ← 이것을 한 status 로 어떻게 적나
     ```
     """
-    from app.master.router import router
+    from app.api.master.days import router
 
     paths = {getattr(r, "path", "") for r in router.routes}
     assert "/master/days/{as_of}/open" in paths

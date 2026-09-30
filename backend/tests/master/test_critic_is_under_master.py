@@ -181,7 +181,10 @@ def test_이름이_마스터와_겹치지_않는다():
         d.name for d in _CRITIC_DIR.iterdir() if d.is_dir() and (d / "__init__.py").exists()
     }
 
-    assert {"router", "schemas", "service", "llm"} <= (master_names & critic_names), (
+    # ★ 2026-09-30 재구성 BL-019: 두 `router.py` 는 HTTP 입구(`app/api/master` · `app/api/critic`)로
+    #   옮겨 겹침에서 빠졌다. 남은 셋만으로도 평평하게 폈다면 덮어써졌다 — 하위 패키지로 둔
+    #   이유는 그대로다.
+    assert {"schemas", "service", "llm"} <= (master_names & critic_names), (
         f"겹치던 이름이 달라졌다 — 마스터 {sorted(master_names)} / Critic {sorted(critic_names)}"
     )
 

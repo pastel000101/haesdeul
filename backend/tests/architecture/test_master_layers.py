@@ -1,7 +1,8 @@
 """마스터 계층의 방향 — 2026-09-30 재구성 BL-018.
 
 ```text
-화면 · 부서 HTTP  app/master/router.py(BL-019 에 api/master 로) → service · readmodel · report
+화면 · 부서 HTTP  app/api/master/*.py · app/api/critic/*.py → service · readmodel · report
+                  (2026-09-30 재구성 BL-019 전에는 app/master/router.py · critic/router.py)
 CLI 셋            app/master/cli/*        → service · readmodel · report · registry.bootstrap
 등록소 조립       registry/bootstrap.py   → 부서 adapter · adapters/finance_parts
 service           업무 순서 · 트랜잭션 경계 → domain · repository · readmodel · registry · report
@@ -26,7 +27,8 @@ schemas           요청 · 응답 · 어휘 — 다른 계층을 모른다
    `execute_returning_one`)을 다시 정의한 범용 중계 모듈도 없다.
 4. domain 은 시계를 읽지 않는다(시간대 상수 `SEOUL` 하나만).
 5. adapter 를 들이는 자리 — 부서 adapter 와 재무 파트 표면은 등록소 조립 하나, Critic 다리는 검증
-   service 하나. FastAPI 는 라우터 두 파일에만 있다.
+   service 하나. 마스터 패키지에는 FastAPI 가 없다 — HTTP 입구는 `app/api/master` · `app/api/critic`
+   이고, 그 입구가 들일 수 있는 것도 1 의 표로 잰다(2026-09-30 재구성 BL-019).
 6. 모듈 맨 위 import 만 쓰고(함수 안 import 없음), 다른 마스터 모듈의 private 이름을 들이지 않고,
    마스터 모듈 사이에 import 순환이 없다.
 
@@ -52,7 +54,9 @@ _SEPARATE = ("critic", "llm", "cycle_llm")
 _DEPARTMENTS = ("finance", "logistics", "sales", "purchase_agent", "ml")
 
 #: 계층 → 들여도 되는 마스터 계층(자기 계층 포함). `llm.schemas` · `cycle_llm.schemas` 는 LLM 입출력
-#: 타입이다. `router` 는 최상위 `router.py`(BL-019 에 `api/master` 로 옮긴다).
+#: 타입이다. `router` 는 마스터 HTTP 입구 `app/api/master/*.py`, `critic_router` 는 Critic HTTP 입구
+#: `app/api/critic/*.py` 다 — 2026-09-30 재구성 BL-019 에 마스터 폴더 밖으로 옮겨서 계층 폴더 검사와
+#: 따로 잰다(`test_http_entries_import_only_what_they_may`).
 _MAY_IMPORT: dict[str, frozenset[str]] = {
     "schemas": frozenset({"schemas", "llm.schemas", "cycle_llm.schemas"}),
     "domain": frozenset({"domain", "schemas", "llm.schemas"}),
@@ -73,6 +77,7 @@ _MAY_IMPORT: dict[str, frozenset[str]] = {
         {"cli", "service", "readmodel", "repository", "report", "registry", "domain", "schemas"}
     ),
     "router": frozenset({"service", "readmodel", "report", "domain", "schemas"}),
+    "critic_router": frozenset({"critic", "service", "readmodel"}),
     "__init__": frozenset(),
 }
 
@@ -88,6 +93,7 @@ _DEPT_MAY_TAKE: dict[str, frozenset[str]] = {
     "report": frozenset({"schemas", "domain", "readmodel"}),
     "cli": frozenset(),
     "router": frozenset(),
+    "critic_router": frozenset(),
     "__init__": frozenset(),
 }
 
@@ -110,7 +116,14 @@ _MAY_NOT_TAKE: dict[str, tuple[str, ...]] = {
     "report": (*_HTTP, "psycopg", "app.core.db", "app.core.settings", "app.core.llm"),
     "cli": _HTTP,
     "router": ("app.api", "psycopg", "app.core.db"),
+    "critic_router": ("app.api", "psycopg", "app.core.db"),
     "__init__": (),
+}
+
+#: 마스터 폴더 밖의 마스터 HTTP 입구 — 위 표의 계층 이름 → 폴더.
+_HTTP_ENTRY_DIRS: dict[str, Path] = {
+    "router": _APP / "api" / "master",
+    "critic_router": _APP / "api" / "critic",
 }
 
 
@@ -251,7 +264,8 @@ def test_layers_import_only_what_they_may() -> None:
 def test_scanner_reads_the_layer_folders() -> None:
     """★ 0 개를 읽으면 위 검사가 공짜 초록이 된다. 무엇을 읽었는지를 먼저 잰다."""
     layers = {_layer(path) for path in _layered_files()}
-    assert set(_MAY_IMPORT) <= layers, sorted(set(_MAY_IMPORT) - layers)
+    expected = set(_MAY_IMPORT) - set(_HTTP_ENTRY_DIRS)
+    assert expected <= layers, sorted(expected - layers)
     assert len(_layered_files()) > 150, len(_layered_files())
 
 
@@ -274,7 +288,7 @@ def test_layer_check_catches_planted_imports() -> None:
     assert bad("readmodel/history.py", "from app.master.report.walk_report import walk_report\n")
     assert bad("service/x.py", "from fastapi import HTTPException\n")
     assert bad("service/x.py", "from app.finance.adapter import finance_port\n")
-    assert bad("service/x.py", "from app.master.router import router\n")
+    assert bad("service/x.py", "from app.api.master.flows import router\n")
     assert bad("report/x.py", "from app.master.repository.ledger import persist_purchases\n")
     assert bad("report/x.py", "from app.core import db as core_db\n")
     assert bad("cli/x.py", "from app.master.repository.sim_runs import create_sim_run\n")
@@ -665,19 +679,57 @@ def test_adapters_are_imported_where_listed() -> None:
     ]
 
 
-def test_fastapi_lives_only_in_the_two_routers() -> None:
-    """HTTP 상태 코드 · `Depends` 는 HTTP 입구에만 있다(라우터 이동은 BL-019)."""
-    found = sorted(
-        _rel(path)
-        for path in python_files(_MASTER)
-        if any(
-            is_under(name, prefix)
-            for _line, _shape, names in module_refs(_read(path))
-            for name in names
-            for prefix in ("fastapi", "starlette")
-        )
+def _takes_fastapi(source: str) -> bool:
+    return any(
+        is_under(name, prefix)
+        for _line, _shape, names in module_refs(source)
+        for name in names
+        for prefix in ("fastapi", "starlette")
     )
-    assert found == ["critic/router.py", "router.py"], found
+
+
+def test_master_package_has_no_fastapi() -> None:
+    """HTTP 상태 코드 · `Depends` 는 HTTP 입구에만 있다 — 마스터 패키지에는 없다.
+
+    ★ 2026-09-30 재구성 BL-019: 종전 두 라우터(`router.py` · `critic/router.py`)를
+      `app/api/master/` · `app/api/critic/` 로 옮겼다. 스캐너가 FastAPI 를 실제로 잡는지는
+      옮긴 입구 파일로 잰다 — 0 건을 세는 검사가 공짜로 초록이 되지 않게.
+    """
+    found = sorted(_rel(path) for path in python_files(_MASTER) if _takes_fastapi(_read(path)))
+    assert found == [], found
+    entries = [
+        path
+        for root in _HTTP_ENTRY_DIRS.values()
+        for path in python_files(root)
+        if path.name != "__init__.py"
+    ]
+    assert len(entries) == 7, [path.name for path in entries]
+    assert all(_takes_fastapi(_read(path)) for path in entries)
+
+
+def test_http_entries_import_only_what_they_may() -> None:
+    """마스터 · Critic HTTP 입구는 service · readmodel · report · domain · schemas(Critic 은 그
+    하위 패키지 · 실행이력 service · readmodel)만 들인다 — 연결 모듈 · 부서 · 다른 화면은 없다.
+    """
+    found = {}
+    for layer, root in _HTTP_ENTRY_DIRS.items():
+        for path in python_files(root):
+            rel = path.relative_to(_APP).as_posix()
+            if hits := _layer_violations(rel, layer, _read(path)):
+                found[rel] = hits
+    assert found == {}, found
+
+
+def test_http_entry_check_catches_planted_imports() -> None:
+    def bad(layer: str, source: str) -> list[str]:
+        return _layer_violations("api/x.py", layer, source)
+
+    assert bad("router", "from app.master.repository.runs import insert_run\n")
+    assert bad("router", "from app.core import db as core_db\n")
+    assert bad("router", "from app.finance.service import expenses\n")
+    assert bad("critic_router", "from app.master.domain.plan import ExecutionPlan\n")
+    assert not bad("critic_router", "from app.master.critic.service import run_critic_sales\n")
+    assert not bad("router", "from app.master.service.sales import run_sales\n")
 
 
 # ---------------------------------------------------------------------------

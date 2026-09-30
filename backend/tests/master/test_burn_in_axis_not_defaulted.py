@@ -159,7 +159,7 @@ def client() -> TestClient:
 
 
 def _spy_on(monkeypatch: pytest.MonkeyPatch, attr: str) -> _Spy:
-    from app.master import router as router_module
+    from app.api.master import days as router_module
 
     spy = _Spy()
     monkeypatch.setattr(router_module, attr, spy)
@@ -200,7 +200,7 @@ def test_하루_엔드포인트가_받은_축을_그대로_넘긴다(
     monkeypatch: pytest.MonkeyPatch, tail: str, attr: str
 ) -> None:
     """★ 요청이 준 축이 장부 함수까지 간다. 라우터가 다시 고르지 않는다."""
-    from app.master import router as router_module
+    from app.api.master import days as router_module
 
     spy = _spy_on(monkeypatch, attr)
     handler = {

@@ -362,7 +362,7 @@ def test_안을_지어내지_않는다(표):
     """🔴 **이것이 화면 안전의 조건이다.**
 
     매입 화면은 `response_payload.scenarios` 가 있는 행만 안으로 고른다
-    (`app/api/purchase/query.py` `_pick`). 지어낸 안을 한 줄이라도 실으면 그 순간
+    (`app/master/readmodel/purchase_tab.py::pick_runs`). 지어낸 안을 한 줄이라도 실으면 그 순간
     품목 미상 행이 안 목록에 뜬다.
     """
     _적재()

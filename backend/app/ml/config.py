@@ -43,7 +43,7 @@ OPS_MODEL = {"AUC": "ops_auc", "WHSL": "ops_whsl", "RTL": "ops_rtl"}
 #: 봉인 개봉(2026-09-01) 실측 절대 오차. **화면과 같은 값을 쓰기 위한 표다.**
 #:
 #: 조건 — 운영 모델 · 홀드아웃 2024~2025 · 486 기준일 · 리드타임 3 이상.
-#: 경락가 세 칸은 화면(`app/api/forecast/query.py::_ACCURACY`)에 그대로 적혀 있고,
+#: 경락가 세 칸은 화면(`app/api/forecast/presenter.py::_ACCURACY`)에 그대로 적혀 있고,
 #: 나머지 여섯 칸은 같은 실행의 값이다 (`CLAUDE.md` 절대 오차표).
 SEALED_ACCURACY: dict[tuple[str, str], dict[str, Any]] = {
     ("AUC", "배추"):  {"avg": "963원", "err": "190원", "pct": "19.7"},

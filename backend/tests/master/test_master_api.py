@@ -11,9 +11,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.flows import router
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.registry import wiring as registry_wiring
-from app.master.router import router
 
 AS_OF = "2026-08-26"
 

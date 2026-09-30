@@ -25,9 +25,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.master.flows import router
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.registry import wiring as registry_wiring
-from app.master.router import router
 from app.master.schemas.day_gate import DayGate
 from app.master.schemas.procurement import ProcurementRunRequest
 from app.master.schemas.sales import SalesBusinessMode, SalesRunRequest

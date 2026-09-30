@@ -33,8 +33,9 @@ def _modules() -> list[str]:
         # ★ 2026-09-29 재구성 BL-014: `app.finance.db` 는 역할별로 나누고 지웠다(마스터
         #   조회 · 쓰기 헬퍼는 `app.master.db`, 재무 SQL 은 `app.finance.repository`).
         #   아래 검사가 되살아나지 않는지 본다.
-        "app.finance.adapter",       # main.py (finance_port) · 마스터 파트 등록소
-        "app.finance.router",        # main.py
+        #   2026-09-30 재구성 BL-019: 라우터(`app.finance.router`)는 `app/api/finance/` 로
+        #   옮겼다 — 옛 경로가 되살아나지 않는지는 `tests/architecture/test_http_entries.py`.
+        "app.finance.adapter",       # api/finance/agent.py (finance_port) · 마스터 파트 등록소
         "app.finance.schemas",
     ],
 )
@@ -59,9 +60,18 @@ def test_finance_port_and_controller_still_resolve():
 
 
 def test_router_exposes_the_same_endpoints():
-    from app.finance.router import router
+    #  ★ 2026-09-30 재구성 BL-019: 재무 라우트는 `app/api/finance/<자원>.py` 여섯 파일이다.
+    from app.api.finance import (
+        agent,
+        cash_adjustments,
+        collections,
+        credit_limits,
+        expenses,
+        runs,
+    )
 
-    paths = {route.path for route in router.routes}
+    routers = (credit_limits, expenses, collections, cash_adjustments, agent, runs)
+    paths = {route.path for module in routers for route in module.router.routes}
     assert {"/finance/agent", "/finance/runs"} <= paths
     assert "/finance/sales" not in paths
 

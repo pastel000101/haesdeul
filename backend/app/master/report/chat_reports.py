@@ -476,7 +476,7 @@ def render_logistics_chat_report(
        시작하면 화면과 문서가 **다른 상태**를 말하게 된다.
 
     🔴 **커넥션은 한 보고서에 하나다.** `reservation_state_at` 도 한 번만 읽어 재고
-       콘솔과 출고 콘솔이 나눠 쓴다 — 화면(`api/logistics/query.build_result`)과 같은
+       콘솔과 출고 콘솔이 나눠 쓴다 — 화면(`api/logistics/presenter.build_result`)과 같은
        조립 순서다. (2026-09-30 재구성 BL-018: 그 조회 조립 · 연결 대여는
        `readmodel/logistics_report.read_logistics_report_facts` 로 옮겼다 — 여기는 문장만 짓는다.)
 
@@ -531,7 +531,8 @@ def render_logistics_chat_report(
 
     # 🔴 기간 추이: **시뮬레이션이 안 연 날은 `null` 이다 — 0kg 이 아니다.**
     #    원장 누계는 어떤 날짜에도 숫자를 내고 첫 사실 이전 구간에서 그 값이 0 인데,
-    #    그 0 은 «재고가 없다» 가 아니라 «그날을 모른다» 다 (`query._onhand_series` 와 같은 규칙).
+    #    그 0 은 «재고가 없다» 가 아니라 «그날을 모른다» 다
+    #    (화면 `presenter._onhand_series` 와 같은 규칙).
     trend: list[dict[str, Any]] = []
     for offset in range((end_date - start_date).days + 1):
         day = start_date + timedelta(days=offset)

@@ -3,7 +3,7 @@
     push_forecasts()  원본 창고 -> 서비스 창고. 배치가 하루 한 번 부른다
 
 ★ **앱 안에서 부르는 곳이 없다** (2026-09-29 확인). `POST /ml/forecast/push` 는 2026-09-11 에
-  주석 처리됐고, 적재는 ML 배치가 `연동/push_forecast.py` 로 직접 한다(`app/ml/router.py`
+  주석 처리됐고, 적재는 ML 배치가 `연동/push_forecast.py` 로 직접 한다(`app/api/ml/qa.py`
   머리말). 지울지는 재구성 쟁점 4(죽은 코드 범위)라 여기서는 계층만 나눴다.
 
 순서와 연결 (종전 `app/ml/service.py` + `repository.py` + `db.py::execute_many` 와 같다)

@@ -4,7 +4,7 @@
    무엇을 그리는가» 만 본다.
 
 ```text
-① finance/query.py 에 예전 고정 곡선 상수 이름이 0건이다 (AST)
+① finance/presenter.py 에 예전 고정 곡선 상수 이름이 0건이다 (AST)
 ② SHOWN_SIM_RUN_ID 와 요청 as_of 가 get_finance_cashflow 까지 간다
 ③ 대역 두 벌을 주면 그래프가 각 대역 값과 정확히 같다 (앞 실행 숫자가 안 남는다)
 ④ 날짜축 정렬: 마감이 없는 날 · 기준일 뒤는 None
@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from app.api.calendar import build_axis
-from app.api.finance import query as finance_query
+from app.api.finance import presenter as finance_presenter
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.finance.schemas.dashboard import (
     FinanceCashflowResponse,
@@ -31,7 +31,9 @@ from app.finance.schemas.dashboard import (
     FinanceDashboardMeta,
 )
 
-_FINANCE_QUERY = Path(__file__).resolve().parents[2] / "app" / "api" / "finance" / "query.py"
+_FINANCE_PRESENTER = (
+    Path(__file__).resolve().parents[2] / "app" / "api" / "finance" / "presenter.py"
+)
 _OLD_NAMES = {"_DASH_ACTUAL", "_DASH_PROJ", "_DASH_FLOOR"}
 
 #: SHOWN_AS_OF 와 다른 두 날. 기준일을 고정값으로 바꿔 넘기면 잡힌다.
@@ -86,8 +88,8 @@ def _series(chart, name: str) -> list[float | None]:
 
 
 def test_재무_query_에_예전_고정_곡선_상수가_없다():
-    files = [p for p in [_FINANCE_QUERY] if p.is_file()]
-    assert files, f"스캔한 파일이 0개다 — 경로가 틀렸다: {_FINANCE_QUERY}"
+    files = [p for p in [_FINANCE_PRESENTER] if p.is_file()]
+    assert files, f"스캔한 파일이 0개다 — 경로가 틀렸다: {_FINANCE_PRESENTER}"
 
     found: list[str] = []
     for path in files:
@@ -109,10 +111,10 @@ def test_재무_query_에_예전_고정_곡선_상수가_없다():
 @pytest.mark.parametrize("as_of", [AS_OF_A, AS_OF_B])
 def test_보는_실행과_요청_기준일을_현금흐름까지_넘긴다(monkeypatch, as_of):
     seen: list[dict] = []
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub([], seen))
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub([], seen))
     axis = build_axis(as_of)
 
-    finance_query.dashboard_cash(axis)
+    finance_presenter.dashboard_cash(axis)
 
     assert len(seen) == 1
     assert seen[0]["sim_run_id"] == SHOWN_SIM_RUN_ID
@@ -138,10 +140,10 @@ def test_두_실행_대역을_주면_각_대역_값을_그대로_그린다(monke
             "대출 포함": [float(r.loan_cash_balance_krw / Decimal(1_000_000)) for r in rows] + tail,
         }
 
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub(첫째))
-    chart_1 = finance_query.dashboard_cash(axis)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub(둘째))
-    chart_2 = finance_query.dashboard_cash(axis)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub(첫째))
+    chart_1 = finance_presenter.dashboard_cash(axis)
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub(둘째))
+    chart_2 = finance_presenter.dashboard_cash(axis)
 
     for chart, key in ((chart_1, "첫째"), (chart_2, "둘째")):
         assert _series(chart, "대출 제외") == 기대[key]["대출 제외"], key
@@ -161,9 +163,9 @@ def test_날짜축에_맞춰_넣고_빠진_날과_기준일_뒤는_공란이다(
     ]
     #  기준일 다음 날 행이 섞여 들어와도 그리지 않는다.
     rows.append(_row(AS_OF_A + timedelta(days=1), 99_000_000, 99_000_000))
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub(rows))
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub(rows))
 
-    chart = finance_query.dashboard_cash(axis)
+    chart = finance_presenter.dashboard_cash(axis)
     base = _series(chart, "대출 제외")
     loan = _series(chart, "대출 포함")
 
@@ -180,17 +182,17 @@ def test_최소_운영현금은_행에_있을_때만_선이_된다(monkeypatch):
     axis = build_axis(AS_OF_A)
     day = AS_OF_A
     monkeypatch.setattr(
-        finance_query, "get_finance_cashflow", _stub([_row(day, 1_000_000, 2_000_000, None)])
+        finance_presenter, "get_finance_cashflow", _stub([_row(day, 1_000_000, 2_000_000, None)])
     )
-    names = [s.name for s in finance_query.dashboard_cash(axis).series]
+    names = [s.name for s in finance_presenter.dashboard_cash(axis).series]
     assert names == ["대출 제외", "대출 포함"]
 
     monkeypatch.setattr(
-        finance_query,
+        finance_presenter,
         "get_finance_cashflow",
         _stub([_row(day, 1_000_000, 2_000_000, 3_500_000)]),
     )
-    chart = finance_query.dashboard_cash(axis)
+    chart = finance_presenter.dashboard_cash(axis)
     assert [s.name for s in chart.series] == ["대출 제외", "대출 포함", "최소 운영현금"]
     assert _series(chart, "최소 운영현금")[axis.as_of_index] == 3.5
 
@@ -199,9 +201,9 @@ def test_음수를_포함해_눈금이_데이터를_덮는다(monkeypatch):
     axis = build_axis(AS_OF_A)
     days = [date.fromisoformat(d.date) for d in axis.days]
     rows = [_row(days[0], 8_680_000, 53_950_000), _row(AS_OF_A, -12_150_000, 33_120_000)]
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub(rows))
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub(rows))
 
-    chart = finance_query.dashboard_cash(axis)
+    chart = finance_presenter.dashboard_cash(axis)
 
     assert chart.y_unit == "M"
     assert chart.y_min < -12.15 and chart.y_max > 53.95
@@ -212,9 +214,9 @@ def test_음수를_포함해_눈금이_데이터를_덮는다(monkeypatch):
 
 def test_기록이_없으면_공란과_없다는_문장이다(monkeypatch):
     axis = build_axis(AS_OF_A)
-    monkeypatch.setattr(finance_query, "get_finance_cashflow", _stub([]))
+    monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _stub([]))
 
-    chart = finance_query.dashboard_cash(axis)
+    chart = finance_presenter.dashboard_cash(axis)
 
     assert all(v is None for s in chart.series for v in s.data)
     assert all(len(s.data) == len(axis.days) for s in chart.series)
@@ -227,12 +229,12 @@ def test_기록이_없으면_공란과_없다는_문장이다(monkeypatch):
 def test_화면_문장이_실제_실행과_기준일을_따라간다(monkeypatch):
     for as_of in (AS_OF_A, AS_OF_B):
         monkeypatch.setattr(
-            finance_query,
+            finance_presenter,
             "get_finance_cashflow",
             _stub([_row(as_of, 1_000_000, 2_000_000)]),
         )
 
-        chart = finance_query.dashboard_cash(build_axis(as_of))
+        chart = finance_presenter.dashboard_cash(build_axis(as_of))
 
         assert SHOWN_SIM_RUN_ID not in chart.note.text
         assert as_of.isoformat() not in chart.note.text

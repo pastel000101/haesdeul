@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.api.purchase.query import build
+from app.api.purchase.presenter import build
 from app.api.purchase.schema import PurchaseTab
 from app.core.settings import SHOWN_SIM_RUN_ID
 

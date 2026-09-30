@@ -68,7 +68,7 @@ def severity_at(row: ExceptionRow, as_of: date) -> str | None:
     ```
 
     ★ 코드를 사람 말로 바꾸는 것과 `None` 일 때 적는 말은 화면이 정한다
-      (`app/api/logistics/query.py::_severity_label`).
+      (`app/api/logistics/presenter.py::_severity_label`).
     """
     chosen: DetectionRecord | None = None
     for record in row.detection_history:

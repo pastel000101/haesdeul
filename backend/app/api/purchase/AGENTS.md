@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/purchase/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/purchase/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/purchase?as_of=2026-01-22
 
 ```
 app/api/purchase/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/purchase/query.py
+# backend/app/api/purchase/presenter.py
 def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 ```
 
@@ -325,7 +325,7 @@ GET /api/purchase?as_of=2026-01-22&sim_run_id=SIM-BURNIN-202512
 **먼저 그 자리에 간 것**입니다.
 
 **🔴 거르는 자리는 SQL 이 아니라 파이썬입니다.** `read_purchase_tab` 은 전부 읽고
-`_pick` · `_committed` 가 고릅니다. 이유 둘입니다.
+`pick_runs`(같은 마스터 readmodel) · `_committed` 가 고릅니다. 이유 둘입니다.
 
 ```
 ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 합니다.
@@ -373,11 +373,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -473,7 +473,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/purchase/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/purchase/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

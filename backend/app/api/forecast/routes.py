@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.forecast.query import ITEMS, KINDS, build
+from app.api.forecast.presenter import ITEMS, KINDS, build
 from app.api.forecast.schema import ForecastTab
 
 router = APIRouter(prefix="/forecast", tags=["api:forecast"])

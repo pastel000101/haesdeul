@@ -7,7 +7,19 @@ from datetime import date
 from decimal import Decimal
 
 from app.api.finance.schema import FinanceTab, FlowCell, StateOption
-from app.api.primitives import CalendarAxis, Card, Chart, Column, Note, Series, Source, Stat, Table
+from app.api.primitives import (
+    CalendarAxis,
+    Card,
+    Chart,
+    Column,
+    Note,
+    Series,
+    Source,
+    Stat,
+    Table,
+    spread_labels,
+    three_ticks,
+)
 from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
 from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
@@ -454,7 +466,7 @@ def _cash_chart(rows: list[FinanceClosingItem]) -> Chart:
         label="일별 현금 잔액",
         y_min=y_min,
         y_max=y_max,
-        y_ticks=_ticks(y_min, y_max),
+        y_ticks=three_ticks(y_min, y_max),
         y_unit="만원",
         series=[
             Series(name="현재 자금만 사용", data=base, tone="info", width=2.2),
@@ -462,7 +474,7 @@ def _cash_chart(rows: list[FinanceClosingItem]) -> Chart:
             Series(name="최소 유지해야 할 현금", data=minimum, tone="bad", width=1.3, dashed=True),
         ],
         note=Note(tone="neutral", text="현금이 최소 운영자금 아래로 내려가면 주의가 필요합니다."),
-        x_labels=_spread_labels([f"{row.close_date.month}/{row.close_date.day}" for row in rows]),
+        x_labels=spread_labels([f"{row.close_date.month}/{row.close_date.day}" for row in rows]),
     )
 
 
@@ -581,16 +593,3 @@ def _chart_range(values: list[float | None]) -> tuple[float, float]:
     high = max(real)
     padding = max((high - low) * 0.12, 1)
     return round(low - padding, 1), round(high + padding, 1)
-
-
-def _ticks(start: float, end: float) -> list[float]:
-    middle = round((start + end) / 2, 1)
-    return [start, middle, end]
-
-
-def _spread_labels(labels: list[str]) -> list[str]:
-    if len(labels) <= 2:
-        return labels
-    visible = {0, len(labels) - 1}
-    visible.update(range(6, len(labels) - 1, 7))
-    return [label if index in visible else "" for index, label in enumerate(labels)]

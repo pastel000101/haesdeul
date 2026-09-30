@@ -41,8 +41,8 @@ from typing import Any
 
 import pytest
 
+from app.api.master import decision as router
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import router
 from app.master.domain import revalidation as domain_revalidation
 from app.master.registry import wiring as registry_wiring
 from app.master.schemas import revalidation as schemas_revalidation

@@ -2,7 +2,7 @@
 
 ★ **왜 이런 게 따로 있나.**
 
-이 아래(`app/api/*/query.py`)는 **부서마다 다른 사람이 채웁니다.** 그런데 화면은
+이 아래(`app/api/*/presenter.py`)는 **부서마다 다른 사람이 채웁니다.** 그런데 화면은
 한 사람이 만듭니다. 그래서 "어떤 모양으로 주고받나"를 여기 한 군데에 못박아
 둡니다. 부서는 이 모양에 값을 담기만 하면 되고, 화면은 이 모양만 그릴 줄 알면
 됩니다.
@@ -254,3 +254,27 @@ class Pane(BaseModel):
     label: str
     stats: list[Stat] = Field(default_factory=list)
     cards: list[Card] = Field(default_factory=list)
+
+
+# ── 그래프 칸 값 ─────────────────────────────────────────────────────────────
+#
+# ★ `Chart` 의 `y_ticks` · `x_labels` 에 넣을 값을 짓는 도우미 둘. 재무 · 판매 탭이 글자까지
+#   같은 몸통을 한 벌씩 들고 있었다 (2026-09-30 재구성 BL-019 에 이리로 모았다 · 값 그대로).
+
+
+def three_ticks(start: float, end: float) -> list[float]:
+    """세로 눈금 셋 — 아래 · 가운데(소수 한 자리 반올림) · 위."""
+    middle = round((start + end) / 2, 1)
+    return [start, middle, end]
+
+
+def spread_labels(labels: list[str]) -> list[str]:
+    """가로 글자를 걸러 적는다 — 처음 · 끝 · 일곱 칸마다 하나(7번째부터). 나머지는 빈 문자열.
+
+    ★ 칸이 둘 이하면 다 적는다. 다 적으면 글자가 겹친다 (`Chart.x_labels` 설명).
+    """
+    if len(labels) <= 2:
+        return labels
+    visible = {0, len(labels) - 1}
+    visible.update(range(6, len(labels) - 1, 7))
+    return [label if index in visible else "" for index, label in enumerate(labels)]

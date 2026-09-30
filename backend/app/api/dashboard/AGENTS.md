@@ -10,7 +10,7 @@
 
 ## 할 일 한 줄
 
-`backend/app/api/dashboard/query.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
+`backend/app/api/dashboard/presenter.py` 의 `build()` 안쪽을 **실제 DB 값으로** 채우고
 `Source(filled=True)` 로 바꾼다. **그 파일 하나만 고친다.**
 
 ---
@@ -40,16 +40,16 @@ API     GET /api/dashboard?as_of=2026-01-06
 
 ```
 app/api/dashboard/
-  AGENTS.md    이 문서
-  schema.py    응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
-  query.py  ★  여기만 고친다
-  routes.py    주소 — 안 고쳐도 된다
+  AGENTS.md       이 문서
+  schema.py       응답 모양 — 바꾸려면 화면(frontend/src/lib/screen.ts)도 같이 고쳐야 함
+  presenter.py ★  여기만 고친다
+  routes.py       주소 — 안 고쳐도 된다
 ```
 
 고칠 함수는 이것 하나입니다.
 
 ```python
-# backend/app/api/dashboard/query.py
+# backend/app/api/dashboard/presenter.py
 def build(as_of: date) -> DashboardTab:
 ```
 
@@ -60,11 +60,11 @@ def build(as_of: date) -> DashboardTab:
 **이 탭은 DB 를 직접 읽지 않습니다.** 다른 다섯 파트의 `build()` 를 부릅니다.
 
 ```python
-from app.api.finance import query as finance_q
-from app.api.forecast import query as forecast_q
-from app.api.logistics import query as logistics_q
-from app.api.purchase import query as purchase_q
-from app.api.sales import query as sales_q
+from app.api.finance import presenter as finance_presenter
+from app.api.forecast import presenter as forecast_presenter
+from app.api.logistics import presenter as logistics_presenter
+from app.api.purchase import presenter as purchase_presenter
+from app.api.sales import presenter as sales_presenter
 ```
 
 ## ★ 아직 안 정한 것 — `sim_run_id`
@@ -259,8 +259,8 @@ Card(
 골라 담기만 합니다. 그래프도 마찬가지입니다 — 주인 부서가 만든 것을 받습니다.
 
 ```python
-cash = finance_q.dashboard_cash(n, at)        # 재무가 만든다
-stock = logistics_q.dashboard_stock(n, at)    # 물류가 만든다
+cash = finance_presenter.dashboard_cash(n, at)        # 재무가 만든다
+stock = logistics_presenter.dashboard_stock(n, at)    # 물류가 만든다
 ```
 
 **어긴 적이 있고, 실제로 갈라졌습니다** — 요약은 재고 4,550kg 인데
@@ -308,11 +308,11 @@ DB 조회가 `None` 을 돌려주는 경우를 반드시 다루세요.
 
 > 마스터는 숫자를 만들지 않는다. 부서 값을 날짜 축에 놓고, 없으면 공란으로 둔다.
 
-대시보드에 자기 파트 값을 얹고 싶으면 **자기 `query.py` 에 함수를 만들고**
+대시보드에 자기 파트 값을 얹고 싶으면 **자기 `presenter.py` 에 함수를 만들고**
 대시보드가 그걸 부르게 하세요. 재무·물류가 이렇게 합니다.
 
 ```python
-# app/api/logistics/query.py
+# app/api/logistics/presenter.py
 def dashboard_stock(n: int, at: int) -> Chart: ...
 ```
 
@@ -408,7 +408,7 @@ Next 개발 서버가 `127.0.0.1` 을 다른 사이트로 보고 막습니다.
 
 하나라도 «아니오» 면 아직 안 끝났습니다.
 
-- [ ] `backend/app/api/dashboard/query.py` **만** 고쳤다 (`git status` 로 확인)
+- [ ] `backend/app/api/dashboard/presenter.py` **만** 고쳤다 (`git status` 로 확인)
 - [ ] `build()` 가 예시값이 아니라 DB 에서 읽은 값을 돌려준다
 - [ ] 조회가 비었을 때 0 이 아니라 `None`/공란으로 나가고, 이유를 `Note` 에 적었다
 - [ ] `Source(filled=True, owner=..., note="어느 표에서 읽었는지")` 로 바꿨다

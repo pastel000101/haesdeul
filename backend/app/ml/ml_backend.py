@@ -7,12 +7,12 @@ console_origin()           두 호출이 함께 쓰는 ML 백엔드 주소 (`ML_
 ```
 
 ★ **SQL 이 아니라 HTTP 다.** 재학습 · 에이전트 · 설명은 ML 저장소가 있는 곳에서만 돌 수 있어
-  (`console_proxy.py` 머리말 «왜 프록시인가»), 그쪽 답은 우리 DB 에 없다. 그래서 repository 가
+  (`app/api/ml/console.py` 머리말 «왜 프록시인가»), 그쪽 답은 우리 DB 에 없다. 그래서 repository 가
   아니라 이 파일이다.
 
 ★ **HTTP 상태 코드를 정하지 않는다.** 닿지 못했거나(`MlBackendUnreachable`) 제때 답이
   없으면(`MlBackendTimeout`) 그 사실을 예외로 올리고, 502 · 504 로 바꾸는 것은 라우트
-  (`console_proxy.py`)다.
+  (`app/api/ml/console.py`)다.
   저쪽이 낸 상태와 본문은 **그대로** 돌려준다.
 
 🟢 **자리 (2026-09-29 · 재구성 BL-017 · 설계서 쟁점 12 배치안).** 전에는 라우트 파일

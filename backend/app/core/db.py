@@ -11,6 +11,7 @@
 정리      pool_lifespan()                앱 lifespan · CLI main 이 감싼다. 시작 때 서비스 풀을 열고
                                          끝날 때(정상 · 예외) 모든 풀을 닫는다
           close_pools()
+가른다    is_unavailable(error)          DB 에 **닿지 못한** 실패인가(드라이버 예외 분류)
 ```
 
 ★ **돌려주는 것과 트랜잭션을 끝내는 것은 다른 일이다** (2026-09-29 풀 전환).
@@ -451,3 +452,24 @@ def db_connection() -> Iterator[Connection]:
     """
     with connection() as conn:
         yield conn
+
+
+# ── 가른다 ────────────────────────────────────────────────────────────────
+
+
+#: DB 에 **닿지 못한** 실패. 값이 틀린 것이 아니라 지금 못 읽는 상태다.
+#:
+#: 🔴 `psycopg.OperationalError` 하나만 여기 둔다(풀 대기 시간 초과 `PoolTimeout` 도 그 하위
+#:    종류다). 그 밑에 `ProgrammingError`(SQL 잘못) · `IntegrityError` 는 **우리 코드가 깨진
+#:    것**이라 «다시 오면 될 수 있다» 로 읽으면 안 된다.
+_UNAVAILABLE: tuple[type[BaseException], ...] = (psycopg.OperationalError,)
+
+
+def is_unavailable(error: BaseException) -> bool:
+    """이 예외가 **DB 에 닿지 못한** 실패인가 — 드라이버 예외를 아는 곳은 이 모듈이다.
+
+    ★ 2026-09-30 재구성 BL-019: 화면 물류 탭(`app/api/logistics/presenter.py`)이 503/500 을
+      가르려고 들고 있던 `psycopg.OperationalError` 분류를 옮겼다(대상 그대로). 화면은
+      psycopg 를 들이지 않고 이 함수로 묻는다.
+    """
+    return isinstance(error, _UNAVAILABLE)

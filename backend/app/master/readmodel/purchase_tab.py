@@ -8,13 +8,19 @@
 ★ 2026-09-30 재구성 BL-018: SQL 은 `repository/purchase_tab.py`(받은 연결). 조회 연결은 여기서
   조회마다 하나씩 빌린다 — 종전 `fetch_all` 헬퍼와 같은 횟수 · 순서다(도착일 조회는 날짜가 있을
   때만).
+
+★ 2026-09-30 재구성 BL-019: 화면 `_pick` 의 **고르는 규칙**을 `pick_runs` 로 옮겼다(조건 · 순서
+  그대로). 무엇을 몇 건 골랐고 몇 건을 왜 뺐는지 센 수를 돌려주고, 그 수로 안내 문장을 짓는 것은
+  화면(`api/purchase/presenter.py`)이다. 연결을 쓰지 않는다 — 위 조회 결과를 받아 고르기만 한다.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from app.contracts.core import ITEMS
 from app.core import db as core_db
 from app.core.settings import get_db_schema
 from app.master.repository.purchase_tab import (
@@ -25,7 +31,7 @@ from app.master.repository.purchase_tab import (
     select_procurement_runs,
 )
 
-__all__ = ["read_purchase_tab"]
+__all__ = ["PickedRuns", "pick_runs", "read_purchase_tab"]
 
 
 def read_purchase_tab(
@@ -34,7 +40,8 @@ def read_purchase_tab(
     """저장된 실행과 확정 매입을 읽는다. **SELECT 뿐이다.**
 
     🔴 **축(`sim_run_id`)으로 여기서 거르지 않는다.** 칸을 읽어 오기만 하고 고르는 것은
-    화면의 ``_pick`` · ``_committed`` 가 한다. 이유 둘::
+    ``pick_runs``(이 파일 · 화면이 이 함수 **뒤에** 부른다) · 화면의 ``_committed`` 가 한다.
+    이유 둘::
 
         ① 화면이 «전체 몇 건 중 이 걷기 몇 건» 을 말하려면 전체를 봐야 한다.
            WHERE 로 걸러 오면 뺀 수를 셀 수 없고, 그러면 조용히 없애는 것이 된다
@@ -124,3 +131,86 @@ def _arrival_runs(dates: list[date], sim_run_id: str | None) -> list[dict[str, A
     schema = get_db_schema()
     with core_db.read_connection() as conn:
         return select_arrival_runs(conn, dates, sim_run_id, schema=schema)
+
+
+@dataclass(frozen=True)
+class PickedRuns:
+    """매입 탭이 보일 실행(품목마다 하나)과 **몇 건 중에서 무엇을 뺐는지** 센 수.
+
+    ★ 뺀 것을 조용히 없애지 않으려고 수를 같이 돌려준다 — 화면이 이 수로 안내 문장을 짓는다.
+    """
+
+    chosen: list[dict[str, Any]]
+    total: int
+    ready: int
+    with_plans: int
+    #: 안을 냈는데 계약 품목이 아니라 뺀 품목 이름(정렬 · 품목이 없으면 ``"None"``).
+    dropped_items: list[str]
+    #: 계약 품목이지만 다른 걷기(축)라 뺀 실행 수.
+    off_axis: int
+    #: 고른 것 중 축이 없는 실행 수 — 손으로 돌렸거나 축이 생기기 전 기록.
+    outside: int
+
+
+def pick_runs(runs: list[dict[str, Any]], sim_run_id: str | None = None) -> PickedRuns:
+    """품목마다 **하나씩** 고르고, 몇 개 중 무엇을 골랐는지 같이 돌려준다 (매입 탭 🔴 레슨 ①).
+
+    🔴 **같은 날 실행이 여럿이다.** `2026-01-06` 배추는 아홉이고 그중 넷이
+    승인이다. 아무 말 없이 하나를 고르면, 다음 사람이 다른 행을 보고 «값이
+    다르다» 고 한다. 그래서 규칙을 코드에 박고 화면에 적는다.
+
+    ::
+
+        ① runtime_status = 'READY'   — 미가동(E4)은 안을 못 낸 날이다
+        ② scenarios 가 비지 않은 것
+        ③ 🔴 item 이 계약 품목일 것 (contracts.core.ITEMS)
+        ④ 🔴 sim_run_id 가 그 축일 것 — **안 주면 안 거른다**
+        ⑤ 품목별 created_at 최신 하나
+
+    🔴 **④ 가 ⑤ 앞이어야 한다.** 뒤로 가면 «최신 하나» 가 먼저 다른 걷기의 행을 집고
+    그 뒤에 축으로 떨어뜨려, 같은 축에 있던 조금 오래된 행이 **같이 사라진다.**
+
+    ⚠️ 지금 DB 에서는 축 있는 행이 언제나 더 새것이라(축이 `2026-09-08` 에 생겼다)
+    순서를 바꿔도 값이 안 갈린다 — 그래서 **검사가 상황을 주입한다** (규칙 8).
+
+    🔴 **축 이름을 쪼개 뜻을 읽지 않는다.** `SIM-WALK-202601-BASE` 의 `BASE` 는 사람이
+    목록에서 고를 때 쓰는 꼬리표이고, 뜻은 `sim_runs` 행이 답한다 (마스터 통보
+    2026-09-10). 여기서는 **같은지만** 본다.
+
+    🔴 **③ 이 없으면 화면에 계약 밖 품목이 뜬다.** 저장된 실행에 피마늘 행이
+    **194건** 남아 있다 (2026-09-09 실측 · 종전 주석의 143건은 그 뒤 늘었다)
+    — `#216` 으로 계약에서 뺐지만 **기록은 일부러 안 고쳤다**
+    (`e63f990` *"고쳐 쓰면 기록이 거짓이 된다"*). 기록을 고칠 자리가 아니라
+    **보일 때 거를 자리**다. 계약이 그렇게 적어 두었다::
+
+        contracts/core.py  ITEMS 각주
+        제안 축   "사자고 제안한 품목"   ITEMS 로 거른다
+        재고 축   "창고에 있는 품목"     자유 문자열 — 좁히지 않는다
+
+    이 화면은 **제안 축**이다.
+
+    ⚠️ 거른 것을 조용히 없애지 않는다 — 몇 건을 왜 뺐는지 돌려주는 값에 싣는다.
+    """
+    ready = [r for r in runs if r["runtime_status"] == "READY"]
+    with_plans = [r for r in ready if (r["payload"] or {}).get("scenarios")]
+    ours = [r for r in with_plans if r["item"] in ITEMS]
+    dropped = sorted({str(r["item"]) for r in with_plans if r["item"] not in ITEMS})
+
+    #  ④ 축. `is None` 이라야 한다 — 빈 문자열은 «안 줬다» 가 아니라 **잘못 준 것**이고,
+    #     그것을 «전부» 로 읽으면 오타가 조용히 전체 조회가 된다.
+    mine = ours if sim_run_id is None else [r for r in ours if r["sim_run_id"] == sim_run_id]
+
+    picked: dict[str, dict[str, Any]] = {}
+    for run in mine:  # 이미 created_at DESC 라 처음 만난 것이 최신이다
+        picked.setdefault(str(run["item"]), run)
+    chosen = list(picked.values())
+
+    return PickedRuns(
+        chosen=chosen,
+        total=len(runs),
+        ready=len(ready),
+        with_plans=len(with_plans),
+        dropped_items=dropped,
+        off_axis=len(ours) - len(mine),
+        outside=sum(1 for r in chosen if r["sim_run_id"] is None),
+    )
