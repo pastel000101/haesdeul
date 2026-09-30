@@ -140,14 +140,11 @@ class _Nested:
 
 
 def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아온다(conn: psycopg.Connection) -> None:
-    from psycopg import sql
-
     from app.logistics.service import outbound
     from app.master.schemas.outbound_flow import DueSaleItem
     from app.master.service.outbound_flow import ship_due_sales
 
     _lot(conn, "LOT-A", qty="500", received_at=date(2026, 7, 1))  # AS_OF(07-08) 기준 신선
-    schema = sql.Identifier(TMP_SCHEMA)
     row = DueSaleItem(
         sale_id=SALE_ID,
         sale_item_id=SALE_ITEM_ID,
@@ -178,7 +175,10 @@ def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아�
         len(rows) == 1 and rows[0]["status"] == "RELEASED" and rows[0]["released_as_of"] == AS_OF
     ), rows
     # 🔴 핵심: 고아가 안 남아 이 품목 가용재고가 전량 돌아온다
+    #  ★ 2026-10-01 재구성 BL-022: 2026-09-30 BL-015 에서 이 함수가 `service/outbound.py` 로 옮겨
+    #    가며 스키마 인자가 빠졌다 — 스키마는 repository 가 읽고, `conn` fixture 가 그 자리를 임시
+    #    스키마로 돌려 둔다. `db` 표식이라 기본 실행에서 안 돌아 옛 모양 호출이 남아 있었다.
     free = outbound.item_free_stock_qty(
-        conn, schema, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF
+        conn, sim_run_id=SIM_RUN_ID, item_id=ITEM_ID, as_of=AS_OF
     )
     assert free == Decimal(500), free

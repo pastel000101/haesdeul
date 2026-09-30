@@ -8,6 +8,10 @@ import pytest
 from app.finance.schemas.cash_adjustments import CashAdjustmentConflict
 from app.finance.service.cash_adjustments import record_cash_adjustment
 
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
+
 
 class _Cursor:
     def __init__(self, conn: _Connection) -> None:

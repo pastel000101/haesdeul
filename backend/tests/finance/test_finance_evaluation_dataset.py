@@ -46,7 +46,15 @@ class _EvaluationPlanner:
 @pytest.fixture(autouse=True)
 def controller_wired(monkeypatch):
     wire_controller(monkeypatch, lambda port: FinanceAgentController(port, _EvaluationPlanner()))
-    monkeypatch.setattr("app.finance.service.run_history.save_finance_execution", lambda **_kwargs: None)
+    # ★ 2026-10-01 BL-022 보완: 이력 저장은 두 자리에서 이름을 찾는다 — Controller 경로는
+    #   `run_history` 모듈 속성으로, 어댑터가 Controller 앞에서 확정하는 회신(`agent_replies`)은
+    #   이름으로 들여 부른다. 한 자리만 바꾸면 그 회신들의 저장이 실 DB 쪽에서 막히고 관측
+    #   «finance_run_persistence_failed» 로 삼켜졌다.
+    for target in (
+        "app.finance.service.run_history.save_finance_execution",
+        "app.finance.service.agent_replies.save_finance_execution",
+    ):
+        monkeypatch.setattr(target, lambda **_kwargs: None)
 
 
 @dataclass(frozen=True)

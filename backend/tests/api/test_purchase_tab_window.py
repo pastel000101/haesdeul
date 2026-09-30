@@ -36,6 +36,17 @@ AXIS = "SIM-WINDOW-TEST"
 BUY_DATES = [date(2026, 1, 2), date(2026, 1, 17), date(2026, 1, 21), AS_OF]
 
 
+@pytest.fixture(autouse=True)
+def no_recorded_purchases(monkeypatch: pytest.MonkeyPatch) -> None:
+    """그날 실매입 기록이 없다(`{}`) — 이 파일은 실매입 합계를 재지 않는다.
+
+    ★ 2026-10-01 재구성 BL-022 보완: 매입 탭은 `read_purchase_tab` 과 따로 실매입 합계
+      (`recorded_totals_by_plan`)를 읽는다. 대역이 없으면 그 조회가 실 DB 쪽에서 막히고 화면이
+      «기록 없음» 으로 삼켰다. 실매입 합계는 `test_purchase_plan_state.py` · 대시보드 검사가 잰다.
+    """
+    monkeypatch.setattr(purchase_presenter, "recorded_totals_by_plan", lambda **_kwargs: {})
+
+
 def _buy(purchase_date: date, amount: int) -> dict[str, Any]:
     return {
         "purchase_id": f"PUR-{purchase_date.isoformat()}",

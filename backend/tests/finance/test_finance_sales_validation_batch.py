@@ -73,6 +73,10 @@ def _run(request, finance_context):
             return_value=finance_context,
         ),
         patch("app.finance.service.agent_run.load_partner_receivables", return_value=[]),
+        # ★ 2026-10-01 재구성 BL-022: 여신한도는 «등록된 행 없음»(`None` — 미확정)이다. 이 대역이
+        #   없으면 한도 조회가 실 DB 로 나가 막히고, 조회 실패가 판정 전 NOT_READY(빈 payload)로
+        #   닫혀 이 파일이 재는 안별 결과까지 가지 못했다(기준선 실패의 원인).
+        patch("app.finance.service.agent_run.load_partner_credit_limit", return_value=None),
         patch("app.finance.llm.planner.finance_llm_enabled", return_value=False),
         patch("app.finance.service.agent_replies.finance_llm_enabled", return_value=False),
         patch(f"{_EXECUTION}.get_db_schema", return_value="haetdeul"),

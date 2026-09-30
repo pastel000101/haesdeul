@@ -8,6 +8,7 @@ from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.master.readmodel import approvals
 from app.master.registry import wiring as registry_wiring
 from app.master.schemas.day_gate import DayGate
+from app.master.schemas.inputs import SourcedInput
 from app.master.schemas.sales import SalesRunRequest
 from app.master.service import persistence as service_persistence
 from app.master.service.sales import run_sales
@@ -19,6 +20,13 @@ AS_OF = date(2026, 9, 16)
 SIM_RUN = "SIM-USER-SALES-LINEAGE"
 RUN_A = "11111111-1111-1111-1111-111111111111"
 RUN_B = "22222222-2222-2222-2222-222222222222"
+
+
+class _NoHolidays:
+    """모든 날을 덮고 공휴일이 없는 달력 — `tests/master` conftest 의 달력 가짜와 같은 답이다."""
+
+    def is_holiday(self, day: object) -> bool:
+        return False
 
 
 def _port(payload):
@@ -54,6 +62,24 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
             last_opened_date=as_of,
         ),
     )
+    #  ★ 2026-10-01 재구성 BL-022: `run_sales` 는 그날 매입 경계를 `master_agent_runs` 에서 읽는다.
+    #    `tests/master` 는 conftest(`매입_경계_조회를_막는다`)가 그 표 접근 하나를 «행 없음»으로
+    #    막지만 이 파일은 `tests/sales` 라 안 걸려, 조회가 실 DB 로 나가 막혔다(기준선 실패 1건).
+    #    같은 자리를 같은 답으로 막는다 — 경계 판정 자체는 진짜 코드가 돈다.
+    monkeypatch.setattr(
+        "app.master.readmodel.procurement_boundary.list_runs", lambda **_kwargs: []
+    )
+    #  ★ 2026-10-01 BL-022 보완: 같은 이유로 `tests/master` conftest 의 두 문
+    #    (`입력_적재를_끈다` · `공휴일_달력을_가짜로_준다`)도 여기 안 걸려, 판매 예측 적재와
+    #    공휴일 달력 조회가 실 DB 쪽에서 막힌 채 삼켜지고 있었다. 이 검사는 둘을 재지 않는다 —
+    #    같은 답(«적재 안 함» · «공휴일 없음»)을 준다.
+    monkeypatch.setattr(
+        "app.master.service.sales.load_forecast",
+        lambda *_args, **_kwargs: SourcedInput(
+            "forecast", None, "MISSING", "-", "테스트에서는 적재하지 않는다"
+        ),
+    )
+    monkeypatch.setattr("app.master.service.sales.get_calendar", lambda: _NoHolidays())
     registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD))
     registry_wiring.register(
         "sales",

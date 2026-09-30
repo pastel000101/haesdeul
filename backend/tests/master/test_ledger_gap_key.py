@@ -59,6 +59,7 @@ from app.master.readmodel.runs import count_runs_by_day
 from app.master.service import persistence as service_persistence
 from app.master.service import scheduler as service_scheduler
 from tests.fake_core_db import patch_sql_helpers
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 #: 실행일(금요일). 실행일이라야 *"행이 없다"* 와 *"관문이 막았다"* 가 갈린다.
 평일 = date(2026, 1, 23)
@@ -306,6 +307,9 @@ def _적힌_관문행(monkeypatch) -> dict[str, Any]:
         collect_fn=_Spy(_Out("COLLECTED")),
         procure_fn=_Spy(_Out("RAN")),
         outbound_fn=_Spy(_Out("NOTHING_DUE")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검은 이 검사의 대상이 아니다 — 대역 없이 진짜가 DB 를 찾으러
+        #   가지 않게.
+        inspect_fn=inspection_nothing_due,
         items=ITEMS,
         sim_run_id=축,
     )

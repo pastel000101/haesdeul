@@ -226,6 +226,15 @@ def 배치_달력을_가짜로_준다(monkeypatch: pytest.MonkeyPatch) -> None:
 #:   이 모듈 안의 이름만 바꾸므로 다른 모듈의 대여는 막지 않는다.
 미적용_조회_모듈 = "app.master.readmodel.pending_transitions"
 
+#: 재시도의 세 번째 조회(실매입 기록이 있는 승인 키)가 연결을 빌리는 모듈과 그 질의의 표지.
+RECORDED_KEYS_MODULE = "app.master.readmodel.purchase_record"
+RECORDED_KEYS_QUERY = "SELECT DISTINCT request_id, decision_seq FROM"
+
+
+def _sql_text(query: object) -> str:
+    """psycopg `sql.Composed` 든 문자열이든 SQL 글자로 — 가짜가 질의를 가려 답할 때 쓴다."""
+    return query.as_string(None) if hasattr(query, "as_string") else str(query)
+
 
 @pytest.fixture(autouse=True)
 def 미적용_전이_조회를_막는다(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -251,6 +260,20 @@ def 미적용_전이_조회를_막는다(monkeypatch: pytest.MonkeyPatch) -> Non
 
     patch_sql_helpers(monkeypatch, 미적용_조회_모듈, fetch_all=아무것도_없다)
 
+    # ★ 2026-10-01 재구성 BL-022 보완: 재시도는 **세 번째 조회**도 한다 — 실매입 기록이 있는 승인
+    #   키(`readmodel/purchase_record.recorded_decision_keys`). 그 조회는 다른 모듈에 있어 위
+    #   한 줄로 안 막혔고, 이 fixture 가 약속한 `NOTHING_DUE` 대신 재시도가 «미적용을 못
+    #   찾았다»(`FAILED`)로 끝나고 있었다(재시도를 대역으로 안 준 검사 47건 · 2026-10-01 관찰).
+    #   그 모듈의 대여를 가짜로
+    #   바꾸되 **그 질의 하나만** 빈 목록으로 답한다 — 같은 모듈의 다른 조회는 종전처럼 실패로 남아
+    #   조용히 성공으로 바뀌지 않는다.
+    def recorded_keys_only(query: object, params: object = None) -> list[object]:
+        if RECORDED_KEYS_QUERY in _sql_text(query):
+            return []
+        raise AssertionError(f"이 문은 실매입 기록 키 조회만 막는다: {_sql_text(query)}")
+
+    patch_sql_helpers(monkeypatch, RECORDED_KEYS_MODULE, fetch_all=recorded_keys_only)
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  `db` 마크가 없는 검사는 실 DB 없이 돈다 (2026-09-14)
@@ -263,6 +286,8 @@ def 미적용_전이_조회를_막는다(monkeypatch: pytest.MonkeyPatch) -> Non
 #   전체 스위트에서는 41건으로 보였는데, `tests/finance` · `tests/sales` 의 어떤 모듈이
 #   **수집 때** `os.environ.setdefault("DB_SCHEMA", ...)` 를 불러 주기 때문이다. 남의
 #   폴더가 먼저 수집되느냐로 마스터 검사의 색이 갈리면 안 된다.
+#   (2026-10-01 재구성 BL-022: 그 두 모듈의 수집 때 설정을 없앴다 — 스키마 이름이 필요한
+#   다른 폴더 검사는 루트 conftest 의 `db_schema_env` 를 스스로 부른다.)
 
 
 def _실_DB_검사다(request: pytest.FixtureRequest) -> bool:
@@ -317,6 +342,39 @@ def 매입_경계_조회를_막는다(
         return []
 
     monkeypatch.setattr(매입_경계_조회_문, 행이_없다)
+
+
+#: 매입 실행(`run_procurement`)이 곁에서 읽는 두 조회 — 매입 service 가 **이름으로** 들여 부른다.
+PROCUREMENT_COMMITMENT_LOOKUP = "app.master.service.procurement.commitments_before"
+PROCUREMENT_DECISION_LOOKUP = "app.master.service.procurement.list_decisions"
+
+
+@pytest.fixture(autouse=True)
+def procurement_side_reads_find_no_rows(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """매입 실행이 곁에서 읽는 두 조회를 **DB 대신 «행이 없다»**로 받는다 (2026-10-01 BL-022 보완).
+
+    ```text
+    commitments_before   어제까지 승인된 확정 입고 약정   못 읽으면 응답 concerns 에 «못 읽었다»
+    list_decisions       그 업무 키에 붙은 결정(충돌 경고) 못 읽으면 경고 없이 넘어간다
+    ```
+
+    🔴 **안 막으면 매입을 부른 검사의 응답마다 «약정을 못 읽었다» 가 실린다** — 달력 · 입력
+       출처를 재는 검사 26건이 그 가지로 돌고 있었다(2026-10-01 관찰). 새 업무 키 · 앞선 승인
+       없는 날이 이 검사들의 전제라 «행이 없다» 가 맞는 답이다.
+
+    ★ **두 조회 자체를 재는 검사는 같은 이름에 대역을 직접 꽂는다**
+      (`test_commitment_lookup_silence` · `test_master_api` 의 조회 실패 검사 · `test_persistence`
+      의 충돌 경고) — 이 fixture 뒤에 꽂으므로 그쪽이 이긴다. 실패 가지는 그 검사들이 **실패를
+      명시해** 잰다.
+
+    🔴 **격리가 실제로 섰는지는 `test_db_isolation.py` 가 잰다.**
+    """
+    if _실_DB_검사다(request):
+        return
+    monkeypatch.setattr(PROCUREMENT_COMMITMENT_LOOKUP, lambda item, as_of, **_kwargs: [])
+    monkeypatch.setattr(PROCUREMENT_DECISION_LOOKUP, lambda request_id: [])
 
 
 # 🔴 **실 DB 연결 가드는 루트 `tests/conftest.py::실_DB_연결을_막는다` 로 올렸다**

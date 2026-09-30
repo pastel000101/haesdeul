@@ -30,6 +30,7 @@ from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 from app.master.service import persistence as service_persistence
 from app.master.service import scheduler as service_scheduler
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due, sales_presented
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -131,6 +132,12 @@ def _run(*, inbound="RECEIVED", receivable="ISSUED", collection="COLLECTED", **k
         "collect_fn": _Spy(_Out(collection)),
         "procure_fn": procure,
         "outbound_fn": _Spy(_Out("NOTHING_DUE")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검 · 판매 · 마감도 대역이 없으면 진짜가 DB 와 부서 어댑터를
+        #   찾으러 간다(판매는 그 순간 등록된 어댑터에 따라 가지가 갈렸다). 이 파일은 그 셋을 재지
+        #   않는다.
+        "inspect_fn": inspection_nothing_due,
+        "sales_fn": sales_presented,
+        "close_fn": _Spy(_Out("CLOSED")),
         "items": ITEMS,
         "sim_run_id": 축,
     }

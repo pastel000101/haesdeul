@@ -221,6 +221,18 @@ def test_대시보드가_매입_build_에_보는_실행을_넘긴다(monkeypatch
     monkeypatch.setattr(
         dashboard_presenter.forecast_presenter, "build", lambda *a, **k: SimpleNamespace()
     )
+    #  ★ 2026-10-01 BL-022 보완: 대시보드는 여덟 갈래를 **함께** 띄운다 — 매입만 대역이면 나머지
+    #    갈래(재무 · 물류 · 판매 탭, 현금 · 재고 그래프, 실매입 합계)가 실 DB 쪽에서 막힌 채 돌았다.
+    #    이 검사는 매입에 넘기는 인자만 잰다.
+    for 갈래, 이름 in (
+        (dashboard_presenter.finance_presenter, "build"),
+        (dashboard_presenter.finance_presenter, "dashboard_cash"),
+        (dashboard_presenter.logistics_presenter, "build"),
+        (dashboard_presenter.logistics_presenter, "dashboard_stock"),
+        (dashboard_presenter.sales_presenter, "build"),
+    ):
+        monkeypatch.setattr(갈래, 이름, lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan", lambda **_kwargs: {})
     monkeypatch.setattr(dashboard_presenter.purchase_presenter, "build", 매입)
     with pytest.raises(_멈춤):
         dashboard_presenter.build(AS_OF)

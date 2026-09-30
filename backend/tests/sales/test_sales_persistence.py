@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 
 import pytest
 
-os.environ.setdefault("DB_SCHEMA", "haetdeul")
-
 from app.sales.domain.sale_ledger import build_sale_confirmation_plan, sale_id_for
 from app.sales.schemas.proposal import SalesScenario
 from app.sales.schemas.sale_ledger import SalesConfirmationInput, SalesPersistenceConflict
 from app.sales.service.sale_ledger import confirm_sale, mark_sale_delivered
+
+#: ★ 2026-10-01 재구성 BL-022: 수집 때 `os.environ.setdefault("DB_SCHEMA", ...)` 를 부르던 것을
+#:   검사 동안만 두는 fixture 로 바꿨다 — 그 값이 세션 끝까지 남아 다른 모듈을 통과시켰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
 
 
 def _scenario(**overrides) -> SalesScenario:

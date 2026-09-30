@@ -160,6 +160,11 @@ def test_질문은_question_한_이름으로만_받는다(monkeypatch):
     assert reply.payload["item"] == "배추"
 
     #   닫은 이름으로 오면 «질문이 안 온 것» 과 같다 — 조용히 읽지 않는다.
+    #   ★ 2026-10-01 재구성 BL-022: 질문이 없는 경로는 예측 보유 여부를
+    #     `latest_base_date` 로 읽는다. 아래 «질문이 안 왔을 때» 검사들처럼 그 조회를
+    #     «예측이 있다»(`BASE`)로 둔다 — 전에는 실 DB 로 나가 막혀 ERROR 회신(빈 payload)이
+    #     되어 `forecast_available` 을 못 찾았다(기준선 실패 1건).
+    monkeypatch.setattr(adapter.qa_reads, "latest_base_date", lambda as_of=None: BASE)
     for closed in ("utterance", "q"):
         _qa(monkeypatch, _answer())
         reply, _ = adapter.ml_port(req(payload={closed: "내일 배추 경락가?"}))

@@ -44,6 +44,7 @@ from app.master.report.walk_summary import WalkResult, format_summary
 from app.master.service import scheduler as service_scheduler
 from app.master.service.backfill import BACKFILL_BOUNDARY_AS_OF, backfill_decisions
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -207,6 +208,9 @@ def _하루(*, as_of: date = AS_OF, **over: Any) -> tuple[DayRunOutcome, list[st
         "sales_fn": _판단(순서, "판매판단", "SL1_PRESENTED"),
         "outbound_fn": _단계(순서, "출고", _Out("NOTHING_DUE")),
         "close_fn": _단계(순서, "마감", _Out("CLOSED")),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+        #   점검을 재지 않는다.
+        "inspect_fn": inspection_nothing_due,
         "sim_run_id": 실행,
         "items": ITEMS,
         "approve_fn": 문,
@@ -385,6 +389,10 @@ def test_설정에_규칙이_있어도_자동으로_안_켜진다() -> None:
         run_day_fn=하루,
         rules_of=규칙읽기,
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정 · 마감행을 읽는 자리 — «조건 없음» · «마감행 없음»(2026-10-01 BL-022
+        #   보완).
+        terms_of=lambda _sim_run_id: None,
+        closings_of=lambda **_kwargs: (),
     )
 
     assert 하루.받은것[0]["auto_approve"] is False, "규칙이 있다고 승인이 켜졌다"
@@ -434,6 +442,10 @@ def test_규칙이_있으면_켠_걷기가_그대로_걷는다() -> None:
         auto_approve=True,
         rules_of=규칙읽기,
         ticks=lambda: 0.0,
+        # ★ 걷기가 실행 설정 · 마감행을 읽는 자리 — «조건 없음» · «마감행 없음»(2026-10-01 BL-022
+        #   보완).
+        terms_of=lambda _sim_run_id: None,
+        closings_of=lambda **_kwargs: (),
     )
 
     assert 규칙읽기.calls == [실행]

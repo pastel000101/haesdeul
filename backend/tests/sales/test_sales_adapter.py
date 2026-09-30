@@ -571,6 +571,10 @@ def test_generate_persists_actual_llm_metadata(monkeypatch):
     assert reply.run_id == str(saved["run_id"])
 
 
+#: ★ 2026-10-01 BL-022 보완: 상태 조회가 그날 판매안을 가짜 연결로 읽을 때 스키마 이름이 필요하다 —
+#:   `DB_SCHEMA` 가 없으면 그 조회가 막혀 «못 읽었다»로 삼켜졌고, 있으면 가짜 연결로 돌았다(환경에
+#:   따라 가지가 갈렸다).
+@pytest.mark.usefixtures("db_schema_env")
 def test_generate_then_status_query_uses_same_run_id(monkeypatch):
     saved = {}
 
@@ -594,7 +598,9 @@ def test_generate_then_status_query_uses_same_run_id(monkeypatch):
 
 
 def test_sales_adapter_does_not_import_other_domain_agents():
-    tree = ast.parse(Path("app/sales/adapter.py").read_text(encoding="utf-8"))
+    #  ★ 2026-10-01 재구성 BL-022: 파일 자리는 모듈에서 얻는다 — 작업 폴더 기준 `Path("app/...")` 는
+    #    backend 밖에서 돌리면 파일을 못 찾았다.
+    tree = ast.parse(Path(adapter.__file__).read_text(encoding="utf-8"))
     imported: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

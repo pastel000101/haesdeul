@@ -37,6 +37,7 @@ from app.master.domain.decision import AUTO_BACKFILL
 from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 from app.master.schemas.decision import DecisionIn, DecisionOut
 from app.master.service.backfill import backfill_decisions
+from tests.master.cli_doubles import record_pool_lifespan
 
 #: 이 검사가 쓰는 실행 축. 🔴 **번인을 안 쓴다** — 번인은 거부 검사에서만 쓴다.
 실행축 = "SIM-TEST-BACKFILL"
@@ -371,11 +372,13 @@ def test_진입점이_commit_을_그대로_넘긴다(monkeypatch: pytest.MonkeyP
         return _가짜_결과(kwargs["sim_run_id"], kwargs["start"], kwargs["end"])
 
     monkeypatch.setattr(cli_backfill_runner, "run_backfill", _가짜)
+    lifespan = record_pool_lifespan(monkeypatch, cli_backfill_runner)
 
     코드 = cli_backfill_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-09-07", "--end", "2026-09-09"]
     )
 
+    assert lifespan == ["enter", "exit"], "진입점이 풀 수명 안에서 돌지 않았다"
     assert 본것["sim_run_id"] == 실행축
     assert 본것["start"] == date(2026, 9, 7)
     assert 본것["end"] == date(2026, 9, 9)
@@ -392,11 +395,13 @@ def test_진입점이_commit_을_줬을_때만_참으로_넘긴다(monkeypatch: 
         return _가짜_결과(kwargs["sim_run_id"], kwargs["start"], kwargs["end"])
 
     monkeypatch.setattr(cli_backfill_runner, "run_backfill", _가짜)
+    lifespan = record_pool_lifespan(monkeypatch, cli_backfill_runner)
 
     cli_backfill_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-09-07", "--end", "2026-09-09", "--commit"]
     )
 
+    assert lifespan == ["enter", "exit"], "진입점이 풀 수명 안에서 돌지 않았다"
     assert 본것["commit"] is True
 
 

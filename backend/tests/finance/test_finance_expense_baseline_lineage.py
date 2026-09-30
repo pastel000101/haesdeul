@@ -39,6 +39,10 @@ from app.finance.schemas.expenses import ExpenseConflict
 from app.finance.service.closing import expense_cash_out as _expense_cash_out
 from app.finance.service.expenses import settle_expense
 
+#: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
+#:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
+pytestmark = pytest.mark.usefixtures("db_schema_env")
+
 #: 실측한 기초 상태. **여기서 숫자를 지어내지 않는다.**
 BASELINE_RUN = "SIM-BURNIN-202512"
 BASELINE_STATE_DATE = date(2025, 12, 31)

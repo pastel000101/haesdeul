@@ -16,14 +16,20 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.dashboard import presenter as dashboard_presenter
 from app.api.finance import presenter as finance_presenter
+from app.api.logistics import presenter as logistics_presenter
+from app.api.purchase import presenter as purchase_presenter
 from app.api.router import screen_router
 from app.api.sales import presenter as sales_presenter
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.finance.schemas.dashboard import (
     FinanceCashflowResponse,
     FinanceCashflowSummary,
@@ -34,6 +40,7 @@ from app.finance.schemas.dashboard import (
     FinanceReceivableSummary,
     FinanceStateView,
 )
+from app.ml.readmodel import forecast_tab
 from app.sales.schemas.dashboard import (
     SalesCollectionStatusSummary,
     SalesDashboardMeta,
@@ -53,9 +60,39 @@ def client(monkeypatch):
     monkeypatch.setattr(sales_presenter, "get_sales_dashboard", _sales_dashboard_stub)
     monkeypatch.setattr(finance_presenter, "get_finance_dashboard", _finance_dashboard_stub)
     monkeypatch.setattr(finance_presenter, "get_finance_cashflow", _finance_cashflow_stub)
+    #  ★ 2026-10-01 재구성 BL-022: 물류 탭 · 대시보드 재고 그래프도 재무 · 판매처럼 부서 조회
+    #    자리에서 받는다. 전에는 이 둘이 실 DB 조회로 나가 막혀 물류 탭이 500(«값을 못 읽었습니다»),
+    #    대시보드 재고 그래프가 빈 선이 됐다(기준선 실패 2건 — `CI_TEST_FAILURES.md` «Logistics
+    #    화면/API»). 화면 조립(`build_result` · `dashboard_stock`)은 진짜 코드가 돈다.
+    monkeypatch.setattr(logistics_presenter, "read_console_page", _logistics_page_stub)
+    monkeypatch.setattr(logistics_presenter, "read_stock_chart", _logistics_stock_chart_stub)
+    #  ★ 2026-10-01 재구성 BL-022 보완: 매입 · 예측 탭도 부서 조회 자리에서 받는다. 전에는 두 탭의
+    #    조회가 실 DB 쪽에서 막히고 화면이 그 실패를 삼켜 **예시값 · 빈 표** 모양만 이 파일이 쟀다 —
+    #    `test_표의_칸_이름이_행에_있다` 의 매입 «확정 매입» 표는 행이 0 이라 아무것도 안 봤다.
+    #    화면 조립(`build`)은 진짜 코드가 돈다. 실매입 합계는 «그날 기록 없음»(`{}`)이다.
+    monkeypatch.setattr(purchase_presenter, "read_purchase_tab", _purchase_tab_stub)
+    monkeypatch.setattr(purchase_presenter, "recorded_totals_by_plan", lambda **_kwargs: {})
+    monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan", lambda **_kwargs: {})
+    monkeypatch.setattr(forecast_tab, "base_dates", _forecast_base_dates_stub)
+    monkeypatch.setattr(forecast_tab, "forecast_rows", _forecast_rows_stub)
+    monkeypatch.setattr(forecast_tab, "card_rows", _forecast_card_rows_stub)
+    monkeypatch.setattr(forecast_tab, "quality_rows", _forecast_quality_rows_stub)
     app = FastAPI()
     app.include_router(screen_router)
     return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("path", "params"),
+    [("/api/purchase", {"as_of": AS_OF}), ("/api/forecast", {"as_of": AS_OF, "item": "배추"})],
+)
+def test_purchase_and_forecast_tabs_render_from_department_values(client, path, params):
+    """★ 2026-10-01 BL-022 보완: 아래 모양 검사가 **예시값 판이 아니라 실제 조립 판**을 재는지.
+
+    두 탭은 조회가 막히면 예시값(`source.filled=False`)으로 떨어진다 — 그 판은 조립 코드가 다르다.
+    """
+    body = client.get(path, params=params).json()
+    assert body["source"]["filled"] is True, body["source"]
 
 
 #: (주소, 파라미터). 부서가 탭을 늘리면 여기에 한 줄 더합니다.
@@ -375,6 +412,9 @@ def test_표의_칸_이름이_행에_있다(client):
         for key in keys:
             table = body[key]
             names = {c["key"] for c in table["columns"]}
+            #  ★ 2026-10-01 BL-022 보완: 행이 0 이면 아래 비교가 아무것도 안 본다 — 매입 «확정 매입»
+            #    표가 조회 실패로 늘 빈 채 이 검사를 통과했다.
+            assert table["rows"], f"{path} · {key} 행이 없다 — 칸 검사가 아무것도 안 본다"
             for row in table["rows"]:
                 missing = names - set(row)
                 assert not missing, f"{path} · {key} · 빠진 칸 {missing}"
@@ -638,6 +678,125 @@ def _prior_finance_cashflow_stub(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         cashflow=[_closing(date(2026, 1, 15), 15, Decimal(180000), Decimal(0))][:days],
     )
+
+
+#: 대역 물류의 그날 재고 — 창고 한 판(Lot 잔량)과 원장 누계가 **같은 사실**을 말하게 둔다.
+#: 실 DB 에서는 둘이 다른 표에서 오지만, 이 화면이 재는 것은 대시보드가 그 두 값을 물류에서
+#: 가져다 쓰는지(스스로 짓지 않는지)이다.
+_STOCK_ON_HAND_KG = Decimal(100)
+
+
+def _logistics_page_stub(*, sim_run_id: str, as_of: date) -> Any:
+    """물류 한 판 (`readmodel/console.read_console_page` 자리) — 배추 Lot 하나, 문제 없음.
+
+    모양은 `tests/api/test_logistics_panes.py` 의 한 판 대역과 같다.
+    """
+    assert sim_run_id == logistics_presenter.SHOWN_SIM_RUN_ID
+    item = SimpleNamespace(
+        item_id="배추", item_name="배추", on_hand_qty_kg=_STOCK_ON_HAND_KG,
+        available_qty_kg=Decimal(95), reserved_qty_kg=Decimal(5), allocated_qty_kg=Decimal(0),
+        unallocated_reserved_qty_kg=Decimal(5), active_reservation_count=1,
+        sell_priority_lot_count=0, expired_lot_count=0, expired_qty_kg=Decimal(0),
+        disposal_candidate_lot_count=0,
+    )
+    lot = SimpleNamespace(
+        lot_id="LOT-SCREEN-1", item_id="배추", item_name="배추", grade="상",
+        remaining_qty_kg=_STOCK_ON_HAND_KG, received_at=as_of, status="ACTIVE",
+        storage_zone=None, remaining_freshness_days=5, remaining_turnover_days=6,
+        turnover_status="OK", sell_priority=False, disposal_candidate=False,
+    )
+    return SimpleNamespace(
+        inventory=SimpleNamespace(
+            items=[item],
+            lots=[lot],
+            available_qty_unresolved_reason=None,
+            capacity=SimpleNamespace(
+                used_capacity_kg=_STOCK_ON_HAND_KG,
+                guaranteed_capacity_kg=Decimal(1000),
+                burst_capacity_kg=Decimal(1200),
+            ),
+        ),
+        inbound=SimpleNamespace(
+            in_transit=[],
+            in_transit_status="OK",
+            receipts=[],
+            arrival_summary=SimpleNamespace(
+                due_count=0, overdue_count=0, blocked_count=0, unresolved_count=0,
+                source_status="OK",
+            ),
+        ),
+        outbound=SimpleNamespace(reservations=[]),
+        live=SimpleNamespace(rows=(), membership_dates=(), uncertainties=()),
+        resolved=(),
+    )
+
+
+def _logistics_stock_chart_stub(*, sim_run_id: str, as_of: date, start: date) -> Any:
+    """재고 그래프 재료 (`readmodel/console.read_stock_chart` 자리) — 기준일 하루만 열린 날이다."""
+    assert sim_run_id == logistics_presenter.SHOWN_SIM_RUN_ID
+    assert start <= as_of
+    return SimpleNamespace(
+        onhand_by_day={as_of: _STOCK_ON_HAND_KG},
+        open_days=frozenset({as_of}),
+        inbound=SimpleNamespace(in_transit=[]),
+    )
+
+
+def _purchase_tab_stub(as_of: date, **_kwargs: Any) -> dict[str, Any]:
+    """매입 탭 재료 (`master/readmodel/purchase_tab.read_purchase_tab` 자리) — 확정 매입 한 줄.
+
+    ★ 2026-10-01 BL-022 보완. 값은 검사용 예시다(실제 매입 기록이 아니다).
+    """
+    buy = {
+        "purchase_id": "PUR-SCREEN-1",
+        "purchase_date": as_of,
+        "payment_due_date": as_of,
+        "settlement_status": "OPEN",
+        "sim_run_id": SHOWN_SIM_RUN_ID,
+        "item_id": "ITEM-CABBAGE",
+        "grade": "특",
+        "quantity_kg": Decimal(10),
+        "unit_price_krw_per_kg": Decimal(900),
+        "line_amount_krw": Decimal(9_000),
+    }
+    return {"runs": [], "buys": [buy], "decisions": [],
+            "items": {"ITEM-CABBAGE": "배추"}, "arrivals": []}
+
+
+#: 예측 탭 재료의 기준일 — 검사용 예시다(실제 ML 배치가 아니다). ★ 2026-10-01 BL-022 보완.
+_FORECAST_BASE = date(2026, 1, 6)
+
+
+def _forecast_base_dates_stub(models: list[str], limit: int) -> list[dict[str, Any]]:
+    return [{"base_dt": _FORECAST_BASE, "n": 2, "scored": 1, "made_at": "2026-01-06 06:00"}]
+
+
+def _forecast_rows_stub(
+    models: list[str], base_dt: str, kind: str, item: str
+) -> list[dict[str, Any]]:
+    common = {"gated": False, "anchor_prc": Decimal(900)}
+    return [
+        {**common, "lead_biz_d": 0, "target_dt": _FORECAST_BASE, "pred_prc": Decimal(910),
+         "pred_lo": Decimal(850), "pred_hi": Decimal(980), "actual_prc": Decimal(905),
+         "abs_pct_err": Decimal("0.6")},
+        {**common, "lead_biz_d": 1, "target_dt": date(2026, 1, 7), "pred_prc": Decimal(920),
+         "pred_lo": Decimal(860), "pred_hi": Decimal(990), "actual_prc": None,
+         "abs_pct_err": None},
+    ]
+
+
+def _forecast_card_rows_stub(
+    models: list[str], base_dt: str, kind: str, items: list[str], lead: int
+) -> list[dict[str, Any]]:
+    return [
+        {"item_nm": item, "target_dt": _FORECAST_BASE, "pred_prc": Decimal(910),
+         "pred_lo": Decimal(850), "pred_hi": Decimal(980), "gated": False}
+        for item in items
+    ]
+
+
+def _forecast_quality_rows_stub() -> list[dict[str, Any]]:
+    return [{"target_kind": "auc", "item_nm": "배추", "use_recommended": True, "note": "검사 예시"}]
 
 
 

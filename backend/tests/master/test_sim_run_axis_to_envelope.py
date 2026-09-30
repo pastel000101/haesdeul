@@ -50,6 +50,7 @@ from app.master.schemas.sales import SalesRunRequest
 from app.master.service import persistence as service_persistence
 from app.master.service import procurement, sales
 from app.master.service.scheduler import run_scheduled_day
+from tests.master.day_stage_doubles import inspection_nothing_due
 
 AS_OF = date(2026, 1, 7)
 
@@ -254,6 +255,9 @@ def _하루를_돈다(**대역: Any) -> dict[str, Any]:
         "sales_fn": lambda req: None,
         "outbound_fn": lambda *a, **k: _통과(),
         "close_fn": lambda *a, **k: _통과(),
+        # ⚠️ 2026-10-01 BL-022 보완: 점검도 대역이 없으면 진짜가 DB 를 찾으러 간다 — 이 파일은
+        #   점검을 재지 않는다.
+        "inspect_fn": inspection_nothing_due,
     }
     기본.update(대역)
     지금 = datetime(2026, 1, 7, 9, 0, tzinfo=UTC)

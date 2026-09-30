@@ -15,8 +15,13 @@ import pathlib
 
 import pytest
 
+import app
 from app.sales.schemas.proposal import SalesProposalInput
 from app.sales.service.proposal import run_proposal
+
+#: ★ 2026-10-01 재구성 BL-022: 앱 소스 자리는 패키지에서 얻는다. 작업 폴더 기준 `Path("app/...")` 는
+#:   backend 밖에서 돌리면 `rglob` 이 빈 목록을 돌려 아래 검사들이 아무것도 안 보고 통과했다.
+_SALES = pathlib.Path(app.__file__).parent / "sales"
 
 
 def _request(**over):
@@ -92,7 +97,7 @@ def test_only_ready_counts_as_a_satisfied_delivery_check(monkeypatch, status):
 def test_sales_gates_on_ready_positively_not_on_absence_of_findings():
     """소비 코드가 **긍정 조건**(status == READY)으로 판정하는지 구조로 확인한다."""
     #  ★ 2026-09-29 BL-013: 판정 코어는 `domain/proposal.py` 로 옮겼다.
-    source = pathlib.Path("app/sales/domain/proposal.py").read_text(encoding="utf-8")
+    source = (_SALES / "domain" / "proposal.py").read_text(encoding="utf-8")
 
     # "READY 가 아니면 미충족" 형태가 살아 있어야 한다.
     assert 'status != "READY"' in source or 'status == "READY"' in source
@@ -118,7 +123,7 @@ def test_sales_only_depends_on_the_ml_forecast_type():
     """타입 import 는 허용이고, 실행 계층 의존은 금지다."""
     ml_imports = {
         name
-        for path in pathlib.Path("app/sales").rglob("*.py")
+        for path in _SALES.rglob("*.py")
         for name in _imports_of(str(path))
         if name.startswith("app.ml")
     }
@@ -142,7 +147,7 @@ def test_sales_never_queries_ml_data_directly():
         "app.ml.runtime",
     )
 
-    for path in pathlib.Path("app/sales").rglob("*.py"):
+    for path in _SALES.rglob("*.py"):
         imported = _imports_of(str(path))
         for name in forbidden:
             assert not any(item.startswith(name) for item in imported), (path, name)
@@ -150,7 +155,7 @@ def test_sales_never_queries_ml_data_directly():
 
 def test_sales_does_not_build_its_own_forecast_fallback():
     """자체 MOCK/fallback Forecast 를 만들지 않는다 — run 마다 출처가 갈린다."""
-    for path in pathlib.Path("app/sales").rglob("*.py"):
+    for path in _SALES.rglob("*.py"):
         source = pathlib.Path(path).read_text(encoding="utf-8")
         tree = ast.parse(source)
         created = {
@@ -164,7 +169,7 @@ def test_sales_does_not_build_its_own_forecast_fallback():
 def test_sales_db_access_is_limited_to_its_own_run_history():
     """Sales 가 여는 DB 경로는 자기 실행이력뿐이다."""
     #  ★ 2026-09-29 BL-013: 실행이력 SQL 은 `repository/runs.py` 로 옮겼다.
-    source = pathlib.Path("app/sales/repository/runs.py").read_text(encoding="utf-8")
+    source = (_SALES / "repository" / "runs.py").read_text(encoding="utf-8")
 
     tables = set()
     for line in source.splitlines():

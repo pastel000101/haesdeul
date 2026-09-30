@@ -131,6 +131,43 @@ def test_미적용_조회가_막힌_채로_빈_답을_준다() -> None:
     assert ledger_purchase_ids(sim_run_id="SIM-ANY") == []
 
 
+def test_recorded_decision_keys_are_blocked_with_no_rows() -> None:
+    """★ 2026-10-01 재구성 BL-022 보완: 재시도의 **세 번째** 조회(실매입 기록이 있는 승인 키)도
+    막는다.
+
+    그 조회는 `readmodel/purchase_record.py` 에 있어 위 두 조회의 문으로는 안 막혔다.
+    """
+    from app.master.readmodel.purchase_record import recorded_decision_keys
+
+    assert recorded_decision_keys(sim_run_id="SIM-ANY") == []
+
+
+def test_the_recorded_keys_door_answers_only_that_query() -> None:
+    """🔴 **문이 넓으면 같은 모듈의 다른 조회가 조용히 «행 없음» 으로 성공한다.**
+
+    그래서 다른 조회는 막지 않는다 — 종전처럼 실패로 남는다.
+    """
+    from app.master.readmodel.purchase_record import last_closed_date
+
+    with pytest.raises(AssertionError, match="실매입 기록 키 조회만 막는다"):
+        last_closed_date(sim_run_id="SIM-ANY")
+
+
+def test_the_retry_step_turns_to_nothing_due_behind_the_doors() -> None:
+    """🔴 **위 문들이 약속한 결과 그 자체를 잰다** — 재시도를 대역 없이 부르면 `NOTHING_DUE` 다.
+
+    ★ 조회 셋 중 하나라도 새면 재시도는 «미적용을 못 찾았다»(`FAILED`)로 끝나고, 재시도를 대역으로
+      안 준 하루 순서 검사들이 모두 그 가지를 지난다(2026-10-01 관찰 — 세 번째 조회가 샜다).
+    """
+    from datetime import date
+
+    from app.master.service.pending_transition import retry_pending_transitions
+
+    out = retry_pending_transitions(date(2026, 1, 7), sim_run_id="SIM-ANY")
+
+    assert (out.status, out.reason) == ("NOTHING_DUE", "미적용 전이가 없다")
+
+
 # ── 판매 진입점의 매입 경계 조회 (2026-09-14) ─────────────────────────────────
 
 
@@ -162,6 +199,34 @@ def test_경계_조회가_막힌_채로_행이_없다고_답한다() -> None:
 
     assert 경계.present is False
     assert 경계.absent_reason == "NO_PROCUREMENT_RUN"
+
+
+# ── 매입 실행이 곁에서 읽는 두 조회 (2026-10-01 재구성 BL-022 보완) ──────────────────
+
+
+def test_procurement_side_reads_are_blocked() -> None:
+    """🔴 **안 막히면 매입을 부른 검사의 응답마다 «약정을 못 읽었다» concern 이 실린다.**"""
+    from app.master.readmodel.approvals import commitments_before as real_commitments
+    from app.master.readmodel.decisions import list_decisions as real_decisions
+    from app.master.service import procurement
+
+    assert procurement.commitments_before is not real_commitments
+    assert procurement.list_decisions is not real_decisions
+
+
+def test_procurement_side_reads_answer_no_rows_and_add_no_concern() -> None:
+    """★ 막힌 채로 «행이 없다» 로 답해야 매입 응답에 concern · 충돌 경고가 안 붙는다."""
+    from datetime import date
+
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import _approved_commitments, _decision_collision
+
+    lookup = _approved_commitments(
+        ProcurementRunRequest(as_of=date(2026, 1, 7), policy_version="v1.3", item="배추")
+    )
+
+    assert (lookup.carried, lookup.concerns) == ([], ())
+    assert _decision_collision("REQ-ANY") == []
 
 
 # ── 마지막 문 — `psycopg.connect` ───────────────────────────────────────────
