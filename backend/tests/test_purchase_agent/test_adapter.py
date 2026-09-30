@@ -1745,13 +1745,18 @@ def test_a_status_query_says_skipped_not_disabled_when_the_llm_is_on(
 
 
 def test_our_vocabulary_is_the_envelope_vocabulary() -> None:
-    """어휘를 우리가 새로 만들지 않는다 — 봉투 계약의 네 값을 그대로 쓴다."""
+    """어휘를 우리가 새로 만들지 않는다 — 봉투 계약의 네 값을 그대로 쓴다.
+
+    ★ 2026-09-30 BL-020: 매입 스키마가 같은 네 값을 따로 적던 것을 봉투의 이름을 들이게 했다.
+      들인 이름을 다시 꺼내 비교하지 않고, 결과 모델이 **실제로 받는 값**을 잰다.
+    """
     from typing import get_args
 
     from app.contracts.envelope import LLMStatus as EnvelopeStatus
-    from app.purchase_agent.llm.schemas import LLMStatus as OurStatus
+    from app.purchase_agent.llm.schemas import InterpretationResult
 
-    assert set(get_args(OurStatus)) == set(get_args(EnvelopeStatus))
+    annotation = InterpretationResult.model_fields["llm_status"].annotation
+    assert set(get_args(annotation)) == set(get_args(EnvelopeStatus))
 
 
 # ---------------------------------------------------------------------------

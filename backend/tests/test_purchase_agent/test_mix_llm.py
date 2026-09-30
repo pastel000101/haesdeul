@@ -119,9 +119,7 @@ def _pin_to_code_defaults(monkeypatch) -> None:
     ⚠️ ``conftest``가 건 차단만 남긴다. 그것까지 쓸어내면 설정이 켜지고 테스트가 실
     프로바이더를 탄다 — 이 파일이 막으려는 것과 정반대다.
     """
-    monkeypatch.setattr(
-        "app.purchase_agent.llm.runtime.load_dotenv", lambda *a, **k: False
-    )
+    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *a, **k: False)
     swept = [
         key
         for key in os.environ
@@ -976,9 +974,14 @@ def test_every_provider_applies_the_output_token_cap() -> None:
     """세 프로바이더가 **같은 설정값**을 쓰는지 — 이름만 다르다.
 
     한 곳이라도 빠지면 설정을 낮춰도 그 프로바이더만 장문을 생성한다 (비용·지연).
+
+    ★ 2026-09-30 BL-020: Anthropic · OpenAI SDK 호출은 `app.core.llm.providers` 로 옮겼다 —
+      매입 프로바이더는 설정값을 ``max_tokens`` 로 넘기고, OpenAI 쪽 이름
+      (``max_completion_tokens``)은 core 가 붙인다. 두 자리를 같이 본다.
     """
     import inspect
 
+    from app.core.llm import providers
     from app.purchase_agent.llm.runtime import (
         AnthropicProvider,
         OllamaProvider,
@@ -987,12 +990,14 @@ def test_every_provider_applies_the_output_token_cap() -> None:
 
     for provider, needle in [
         (AnthropicProvider, "max_tokens"),
-        (OpenAIProvider, "max_completion_tokens"),
+        (OpenAIProvider, "max_tokens"),
         (OllamaProvider, "num_predict"),
     ]:
         source = inspect.getsource(provider.generate)
         assert needle in source, f"{provider.__name__}에 토큰 상한이 없다"
         assert "max_output_tokens" in source
+    assert "max_completion_tokens=max_tokens" in inspect.getsource(providers.openai_json)
+    assert "max_tokens=max_tokens" in inspect.getsource(providers.anthropic_json)
 
 
 def test_load_dotenv_cannot_resurrect_a_cleared_key(monkeypatch, tmp_path) -> None:

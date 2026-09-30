@@ -18,14 +18,12 @@
 ⚠️ **기존 ``PURCHASE_LLM_ENABLED`` 는 그대로 둔다.** 그쪽은 ⑤ 등급 조합의 스위치이고
 기본이 **켜짐**이다. 여기 셋과 뜻도 기본값도 달라 한 칸으로 합치지 않는다.
 
-읽는 규약은 팀 4벌과 같다 — ``PURCHASE_<KEY>`` 를 먼저 보고 없으면 ``<KEY>`` 를 본다.
+읽는 규약은 팀 4벌과 같다 — ``PURCHASE_<KEY>`` 를 먼저 보고 없으면 ``<KEY>`` 를 본다
+(``app.core.llm.runtime.read_bool`` · 2026-09-30 BL-020).
 """
 
-import os
-
-from dotenv import load_dotenv
-
-from app.purchase_agent.llm.runtime import ENV_FILES, ENV_PREFIX
+from app.core.llm.runtime import ENV_FILES, load_env_files, read_bool
+from app.purchase_agent.llm.runtime import ENV_PREFIX
 
 #: 🔴 구조화 요청만 켠다 — 고지는 이 값과 무관하다 (위 머리말).
 INFORMATION_REQUESTS = "INFORMATION_REQUESTS_ENABLED"
@@ -42,9 +40,5 @@ def enabled(key: str, *, default: bool = False) -> bool:
     🔴 **기본이 거짓이다.** 설정을 못 읽었을 때 켜져 있으면, 못 읽은 것과 켠 것을
     구분할 수 없다 (규칙 3 과 같은 결).
     """
-    for env_file in ENV_FILES:
-        load_dotenv(env_file)
-    value = os.getenv(f"{ENV_PREFIX}{key}") or os.getenv(key)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    load_env_files(ENV_FILES)
+    return read_bool(key, prefix=ENV_PREFIX, default=default)

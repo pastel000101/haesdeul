@@ -39,6 +39,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.contracts.envelope import LLMStatus
+from app.core.llm.runtime import run_with_fallback
 from app.master.domain.answer import AnswerFacts, agent_labels
 from app.master.llm.runtime import (
     LLMSettings,
@@ -46,7 +48,7 @@ from app.master.llm.runtime import (
     build_provider,
     get_llm_settings,
 )
-from app.master.llm.schemas import LLMStatus, Narrative, NarrativeResult
+from app.master.llm.schemas import Narrative, NarrativeResult
 
 #: 숫자 하나라도 있으면 거부한다. `runtime._DIGITS` 와 같은 뜻이지만 **쓰임이 반대다** —
 #: 거기서는 "발화문에 없던 숫자"만 걸렀고, 여기서는 **모든 숫자**를 거른다.
@@ -175,6 +177,16 @@ class NarrativeRejected(ValueError):
         self.issues = issues
 
 
+def _next_guidance(error: Exception) -> list[str] | None:
+    """검증 실패면 교정 문구, 그 밖이면 `None` — 다시 묻지 않는다.
+
+    문장 실패가 답을 막으면 안 된다(전송 · 서버 실패는 재시도하지 않는다).
+    """
+    if isinstance(error, NarrativeRejected):
+        return [_GUIDANCE[issue] for issue in error.issues]
+    return None
+
+
 def validate_narrative(raw_output: str, facts: AnswerFacts | None = None) -> str:
     """문장 하나를 꺼내 검사한다.
 
@@ -221,30 +233,25 @@ class NarrativeService:
         self.provider = provider
 
     def write(self, facts: AnswerFacts) -> NarrativeResult:
-        if not self.settings.enabled:
-            return self._result(None, status="DISABLED", attempts=0, fallback=False)
+        """검증에 걸리면 고칠 곳을 짚어 다시 묻고, 그 밖의 실패(전송 · 서버)는 다시 묻지 않는다.
 
-        guidance: list[str] | None = None
-        attempts = 0
-        for _ in range(self.settings.max_retries + 1):
-            attempts += 1
-            try:
-                raw = self.provider.generate(
-                    SYSTEM_PROMPT,
-                    _user_payload(facts, guidance),
-                    narrative_schema(),
-                )
-                return self._result(
-                    validate_narrative(raw, facts),
-                    status="SUCCESS",
-                    attempts=attempts,
-                    fallback=False,
-                )
-            except NarrativeRejected as error:
-                guidance = [_GUIDANCE[issue] for issue in error.issues]
-            except Exception:  # noqa: BLE001 — 문장 실패가 답을 막으면 안 된다
-                break
-        return self._result(None, status="FALLBACK", attempts=attempts, fallback=True)
+        ★ 재시도 · fallback 골격은 `run_with_fallback` 이다(2026-09-30 BL-020) — 부를 조건은
+          늘 참이다(켜져 있으면 쓴다).
+        """
+        narrative, status, attempts, fallback = run_with_fallback(
+            enabled=self.settings.enabled,
+            needs_call=True,
+            max_retries=self.settings.max_retries,
+            call=lambda guidance: self.provider.generate(
+                SYSTEM_PROMPT,
+                _user_payload(facts, guidance),
+                narrative_schema(),
+            ),
+            validate=lambda raw: validate_narrative(raw, facts),
+            template=None,
+            guidance_for=_next_guidance,
+        )
+        return self._result(narrative, status=status, attempts=attempts, fallback=fallback)
 
     def _result(
         self, narrative: str | None, *, status: LLMStatus, attempts: int, fallback: bool

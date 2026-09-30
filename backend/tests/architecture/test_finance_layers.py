@@ -21,8 +21,8 @@
 ★ 스캐너는 `import_scan.py` 한 벌이다(함수 안 · 문자열 동적 import 까지 센다). 검사마다
   **심어 둔 모양을 스스로 잡는지**도 잰다 — 0건을 세는 검사가 공짜로 초록이 되지 않게.
 
-⚠️ 남은 빚(BL-020 · LLM 계층화 범위)은 **지금 모양 그대로 못박는다** — 늘면 빨간불이다.
-  Controller ↔ Harness ↔ Planner 사이 함수 안 import 셋, `llm/` 안 private 이름 공유.
+★ BL-014 에 남겨 두었던 빚 둘(Controller ↔ Harness ↔ Planner 사이 함수 안 import 셋 · `llm/` 안
+  private 이름 공유 10개)은 2026-09-30 BL-020 에 풀었다 — 두 목록이 비었고, 다시 생기면 빨간불이다.
 """
 
 from __future__ import annotations
@@ -691,14 +691,10 @@ def test_the_cycle_finder_sees_a_planted_cycle():
 
 
 #: 함수 안 import — Controller(`service/agent.py`) · Harness(`service/harness.py`) · Planner
-#: (`llm/planner.py`) 사이의 순환을 피하던 자리다. 재구성 전부터 있었고(`application/` ·
-#: `llm/planner.py`), 표(`CAPABILITY_OWNER`) · 예외(`FinancePlannerContractViolation`)의 자리를
-#: 옮기는 일은 LLM 계층화(BL-020)다. **늘지 않게** 지금 모양을 못박는다.
-_KNOWN_FUNCTION_IMPORTS = {
-    ("app/finance/llm/planner.py", "app.finance.service.harness"),
-    ("app/finance/service/agent.py", "app.finance.service.harness"),
-    ("app/finance/service/harness.py", "app.finance.llm.planner"),
-}
+#: (`llm/planner.py`) 사이의 순환을 피하던 셋이 재구성 전부터 있었다. 2026-09-30 BL-020 에 셋이 함께
+#: 쓰는 계약(표 `CAPABILITY_OWNER` · 예외 · 행동 · 종료 Tool)을 `schemas/planner.py` 로 내려 모두
+#: 맨 위 import 가 됐다. **다시 생기지 않게** 빈 목록으로 못박는다.
+_KNOWN_FUNCTION_IMPORTS: set[tuple[str, str]] = set()
 
 
 def test_function_level_imports_do_not_grow():
@@ -721,20 +717,10 @@ def test_function_level_imports_do_not_grow():
     assert found == _KNOWN_FUNCTION_IMPORTS
 
 
-#: `llm/` 안에서 서로 나눠 쓰는 private 이름 — 재구성 전부터 있었다(`llm/client.py`). LLM
-#: 계층화(BL-020)에서 공개 이름으로 올린다. **그 밖**에서는 재무 모듈의 `_이름` 을 들이지 않는다.
-_KNOWN_LLM_PRIVATE = {
-    ("app/finance/llm/finalizer.py", "app.finance.llm.client", "_finance_model"),
-    ("app/finance/llm/finalizer.py", "app.finance.llm.client", "_gemini_generate"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_DEFAULT_MODELS"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_finance_model"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_finance_provider_name"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_gemini_availability_failure_reason"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_gemini_tool_call"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_ollama_availability_failure_reason"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_ollama_tool_call"),
-    ("app/finance/llm/planner.py", "app.finance.llm.client", "_ollama_tool_calling_model"),
-}
+#: `llm/` 안에서 서로 나눠 쓰던 private 이름 9개(공유 10건 · `llm/client.py` — 재구성 전부터)는
+#: 2026-09-30 BL-020 에 공개 이름으로 올렸다. 재무 모듈의 `_이름` 을 다른 모듈이 들이지 않는다
+#: (앱 전체).
+_KNOWN_LLM_PRIVATE: set[tuple[str, str, str]] = set()
 
 
 def test_no_module_imports_a_private_finance_name():

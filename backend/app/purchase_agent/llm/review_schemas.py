@@ -17,6 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.contracts.envelope import LLMStatus
 from app.purchase_agent.schemas.proposal import EvidenceGrade, RationaleSource
 
 #: 🔴 **어휘를 새로 짓지 않는다.** 출력 스키마가 이미 들고 있는 것을 그대로 쓴다 —
@@ -90,7 +91,7 @@ class ReviewResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     output: ReviewOutput
-    llm_status: Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+    llm_status: LLMStatus
     llm_provider: str | None
     llm_model: str | None
     llm_attempts: int = Field(ge=0)

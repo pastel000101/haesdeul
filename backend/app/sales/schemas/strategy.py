@@ -13,6 +13,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.contracts.envelope import LLMStatus
+
 StrategyName = Literal["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
 
 PricePosture = Literal["MARGIN_DEFENSE", "MARKET_ALIGNED", "DEPLETION"]
@@ -62,7 +64,7 @@ class StrategyPlan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source: Literal["LLM", "TEMPLATE_FALLBACK"]
-    llm_status: Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+    llm_status: LLMStatus
     profiles: list[StrategyProfile]
     llm_provider: str | None = None
     llm_model: str | None = None

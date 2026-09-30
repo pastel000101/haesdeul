@@ -24,8 +24,8 @@ from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance import adapter
 from app.finance.domain import messages
 from app.finance.llm.finalizer import _FINAL_EXPLANATIONS
-from app.finance.llm.planner import ToolAction
 from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.planner import ToolAction
 from app.finance.service import agent_run
 from app.finance.service.agent import FinanceAgentController
 from tests.finance.finance_runtime_wiring import wire_context, wire_controller

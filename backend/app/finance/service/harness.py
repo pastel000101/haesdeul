@@ -1,7 +1,9 @@
 """Finance Harness — **합법 행동공간을 정하고 강제한다.**
 
 이 파일이 소유하는 것
-    capability 소유(1:1)와 선행 의존 계약 · mode 별 필수 capability
+    capability 선행 의존 계약 · mode 별 필수 capability
+    (capability → Tool 소유 표 `CAPABILITY_OWNER` 는 Planner 계약이라 `schemas/planner.py` —
+    2026-09-30 BL-020 에 옮겼다. 이 파일은 그 표를 읽는다)
     지금 실행 가능한 Tool 집합 · Planner 요청의 승인/반려와 사유
     Tool 예산 · 중복 호출 차단 · Registry 실행 직전 재검증 · 실행 흔적(Trace)
     LangChain Tool 선언(이름 · 설명 · 인자 스키마) · Tool 디스패치(Registry)
@@ -40,28 +42,23 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.contracts.envelope import AgentReply, AgentRequest
 from app.finance.domain.agent_state import latest_scenario_verdict
 from app.finance.domain.evidence import assert_dependency_contract_is_complete
-from app.finance.llm.planner import FINALIZE_TOOL_NAME, FinancePlannerFailure, ToolAction
 from app.finance.schemas.agent import FinanceMode
 from app.finance.schemas.agent_state import FinanceAgentState
 from app.finance.schemas.data_port import FinanceAsOfDataPort, FinanceDataNotReady
+from app.finance.schemas.planner import (
+    CAPABILITY_OWNER,
+    FINALIZE_TOOL_NAME,
+    FinancePlannerContractViolation,
+    FinancePlannerFailure,
+    ToolAction,
+)
 from app.finance.service.capabilities import procurement as _pre
 from app.finance.service.capabilities import sales as _sales
 from app.finance.service.capabilities import scenario as _scn
 
 # ---------------------------------------------------------------------------
-# capability 소유와 의존 계약
+# capability 의존 계약 (소유 표 `CAPABILITY_OWNER` 는 `schemas/planner.py`)
 # ---------------------------------------------------------------------------
-
-#: capability → 그 capability 를 **유일하게** 채우는 Tool.
-CAPABILITY_OWNER: dict[str, str] = {
-    "finance_position": "assess_finance_position",
-    "cashflow_projection": "project_cashflow",
-    "finance_cap": "calculate_purchase_finance_cap",
-    "payment_pressure": "analyze_payment_pressure",
-    "scenario_evaluation": "evaluate_purchase_scenario",
-    "amount_adjustment_validation": "validate_amount_adjustment",
-    "sales_scenario_evaluation": "evaluate_sales_scenario",
-}
 
 #: Tool 이 실행되기 전에 **이미 채워져 있어야 하는** capability.
 #:
@@ -558,8 +555,6 @@ def validate_planner_tool_arguments(action: ToolAction) -> dict[str, Any]:
             return {"axis": compatible.axis}
         return schema.model_validate(action.arguments).model_dump()
     except ValidationError as exc:
-        from app.finance.llm.planner import FinancePlannerContractViolation
-
         raise FinancePlannerContractViolation(
             f"Finance Planner tool arguments violate {action.tool_name} contract: "
             f"{short_reason(str(exc))}"

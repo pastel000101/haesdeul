@@ -175,6 +175,8 @@ _MOVED_CONTRACTS = frozenset(
         "AgentName", "Mode", "Capability", "CAPABILITY_ROUTING", "PASSING_VERDICTS",
         "ExecutionContext", "AgentRequest", "AgentReply", "SourcedEvidence", "AgentFailure",
         "LLMCallMetadata", "ExecutionMetadata", "EnvelopeFinding", "DEPT_CAP_CHECK_ID",
+        # envelope.py 의 LLMStatus — 부서 LLM 이 따로 적던 복제를 2026-09-30 BL-020 에 모았다
+        "LLMStatus",
         # commitment.py ← app/master/commitment.py (타입만)
         "ITEM_CODES", "CommitmentNotBuildable", "SourcingLine", "ApprovedCommitment",
         # parts.py ← app/master/{inbound,closing,collection,receivable}.py
@@ -196,8 +198,8 @@ def test_moved_contracts_are_not_redefined_outside_contracts():
     온다. 옛 자리는 재수출 shim 도 두지 않았다 — 호출부를 새 자리로 옮겼다. 그래서
     `app/contracts/` 밖의 최상위 정의에 이 이름이 나오면 복제다.
 
-    ⚠️ `LLMStatus` 는 목록에 없다. LLM 런타임 다섯 곳이 같은 Literal 을 복제해 들고 있고
-      (봉투 주석이 적어 둔 사정), 그 정리는 LLM 통합(BL-020)의 몫이다.
+    ★ `LLMStatus` 도 목록에 있다 — LLM 런타임 다섯 곳 · 판매 · 매입 모델에 복제돼 있던 Literal 을
+      2026-09-30 BL-020 에 봉투 한 자리로 모았다.
     """
     found: dict[str, list[str]] = {}
     for path in sorted((_ROOT / "app").rglob("*.py")):

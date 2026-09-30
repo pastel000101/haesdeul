@@ -9,39 +9,58 @@
 ★ **API 키는 `.env` 에서만 읽는다.** `LLMSettings` 에 싣지 않는다 — 설정 객체는 로그·
   예외에 실릴 수 있다. 키가 없으면 예외를 던지고 **fallback 으로 간다.**
 
-⚠️ **이것이 팀의 6번째 LLM 런타임 복제다.**
-  기존 5벌과 규약(env 이름 · status 4값 · Provider 프로토콜 · 검증 체인 분리)을 그대로
-  따랐다. 신규 공용 층을 만들어 전 파트를 갈아엎는 것보다 이번 범위에 맞다고 판단했지만,
-  **공용 `app/llm/` 추출은 팀 안건으로 열려 있다**(소유 파트 미정). 이 파일은 프로바이더가
-  도메인 타입을 모르는 형태(`generate(system, user, schema) -> str`)라 추출 시 그대로
-  들어낼 수 있게 해 뒀다 — 매입 런타임은 도메인 컨텍스트에 묶여 있어 그렇지 않다.
+★ **프로바이더 호출은 `app.core.llm` 이 한다** (2026-09-30 재구성 BL-020). 이 파일에 남은 것은
+  마스터의 몫이다 — 지시문 · 응답 스키마 · 검증 체인 · `MASTER_` 설정값과 오류 문장 · 재시도
+  규칙(검증 실패만 다시 묻고 전송 실패는 곧바로 되묻기로 간다). 프로바이더는 도메인 타입을
+  모르는 형태(`generate(system, user, schema) -> str`) 그대로다.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Any, Protocol
 
-from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from app.contracts.envelope import agent_allowed_modes
-from app.master.llm.schemas import Intent, IntentResult, LLMStatus
+from app.contracts.envelope import LLMStatus, agent_allowed_modes
+from app.core.llm.providers import (
+    GEMINI_BASE_URL,
+    anthropic_json,
+    chat_messages,
+    first_text,
+    gemini_json_request,
+    gemini_parts,
+    gemini_request,
+    gemini_strict_schema,
+    ollama_chat_request,
+    ollama_request,
+    ollama_text,
+    openai_json,
+    require_model,
+    send_json,
+)
+from app.core.llm.runtime import (
+    ENV_FILES,
+    OLLAMA_BASE_URL,
+    float_env,
+    gemini_api_key,
+    int_env,
+    load_env_files,
+    read_bool,
+    resolve_provider_model,
+    run_with_fallback,
+    scoped_env,
+)
+from app.master.llm.schemas import Intent, IntentResult
 
 #: 🔴 **분류가 왜 실패했는지를 남기는 자리다** (2026-09-16). `day_opening_repository`
 #:    와 같은 형식이다 — 모듈 이름으로 받아 두고 삼킨 예외의 **종류와 문장**을 적는다.
 logger = logging.getLogger(__name__)
 
-_ENV_FILES = (
-    Path(__file__).resolve().parents[3] / ".env",
-    Path(__file__).resolve().parents[4] / ".env",
-)
 _ENV_PREFIX = "MASTER_"
 
 _DEFAULT_MODELS = {
@@ -52,11 +71,6 @@ _DEFAULT_MODELS = {
     #: 다른 모델을 쓰면 "모델이 달라서 그런가" 가 모든 조사에 끼어든다).
     "gemini": "gemini-3.5-flash-lite",
 }
-
-#: Gemini 는 자체 엔드포인트를 쓴다. `LLM_BASE_URL` 은 기본값이 Ollama 라
-#: **거기서 읽으면 안 된다** — provider 를 바꿨는데 주소가 안 바뀌면
-#: 로컬 11434 로 쏘고 연결 실패로만 보인다.
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 #: 발화문에 없던 숫자를 조건에 지어넣는 것을 막는다. 매입 ⑤의 "숫자 금지"와 다르다 —
 #: 여기서는 **사용자가 말한 숫자는 허용**하고, 출처 없는 숫자만 거부한다.
@@ -238,59 +252,27 @@ class TextProvider(Protocol):
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str: ...
 
 
-def _env(key: str, default: str) -> str:
-    return os.getenv(f"{_ENV_PREFIX}{key}") or os.getenv(key) or default
-
-
-def _read_bool(key: str, *, default: bool) -> bool:
-    value = os.getenv(f"{_ENV_PREFIX}{key}") or os.getenv(key)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _int_env(key: str, default: str, *, minimum: int) -> int:
-    """파싱 실패는 기본값으로 되돌린다 — `.env` 오타 하나로 앱이 죽으면 안 된다."""
-    try:
-        return max(minimum, int(_env(key, default)))
-    except (TypeError, ValueError):
-        return max(minimum, int(default))
-
-
-def _float_env(key: str, default: str, *, minimum: float) -> float:
-    try:
-        return max(minimum, float(_env(key, default)))
-    except (TypeError, ValueError):
-        return max(minimum, float(default))
-
-
 def get_llm_settings() -> LLMSettings:
-    for env_file in _ENV_FILES:
-        load_dotenv(env_file)
-    scoped_provider = os.getenv(f"{_ENV_PREFIX}LLM_PROVIDER")
-    global_provider = (os.getenv("LLM_PROVIDER") or "anthropic").strip().lower()
-    provider = (scoped_provider or global_provider).strip().lower()
-    # 🔴 **모델은 프로바이더에 종속된 값이다.** 마스터가 전역과 다른 프로바이더를
-    #    쓸 때 전역 `LLM_MODEL`(재무·Critic·오케가 같이 보는 `gemma3:4b`)을 상속하면
-    #    **Gemini 에 없는 모델을 요청해 404 가 난다.** 그 경우에만 전역 모델을
-    #    건너뛴다 — 물류가 #95 에서 같은 사고를 겪고 세운 규칙이고, 두 파트가 다르게
-    #    풀면 `.env` 를 읽는 사람이 규칙을 두 번 배워야 한다.
-    #
-    #    프로바이더가 같으면(둘 다 ollama) 전역 모델은 **정당한 상속**이므로
-    #    사슬(`MASTER_LLM_MODEL` → `LLM_MODEL` → 기본값)을 그대로 따른다.
-    if provider != global_provider and not os.getenv(f"{_ENV_PREFIX}LLM_MODEL"):
-        model = _DEFAULT_MODELS.get(provider, "")
-    else:
-        model = _env("LLM_MODEL", _DEFAULT_MODELS.get(provider, ""))
+    """`MASTER_` → 공용 → 기본값. `.env` 는 부를 때마다 적재한다(이미 있는 값은 덮지 않는다).
+
+    🔴 **모델은 프로바이더에 종속된 값이다.** 마스터가 전역과 다른 프로바이더를 쓸 때 전역
+       `LLM_MODEL`(재무 · Critic 이 같이 보는 `gemma3:4b`)을 상속하면 Gemini 에 없는 모델을
+       요청해 404 가 난다 — 그 경우에만 전역 모델을 건너뛴다(`resolve_provider_model` ·
+       물류 · Critic 과 같은 규칙).
+    """
+    load_env_files(ENV_FILES)
+    provider, model = resolve_provider_model(
+        _ENV_PREFIX, default_provider="anthropic", default_models=_DEFAULT_MODELS
+    )
     return LLMSettings(
-        enabled=_read_bool("LLM_ENABLED", default=True),
+        enabled=read_bool("LLM_ENABLED", prefix=_ENV_PREFIX, default=True),
         provider=provider,
         model=model.strip(),
-        base_url=_env("LLM_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
-        timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", "30", minimum=0.1),
-        max_retries=min(1, _int_env("LLM_MAX_RETRIES", "1", minimum=0)),
-        max_output_tokens=_int_env("LLM_MAX_OUTPUT_TOKENS", "1024", minimum=256),
-        effort=(_env("LLM_EFFORT", "").strip() or None),
+        base_url=scoped_env(_ENV_PREFIX, "LLM_BASE_URL", OLLAMA_BASE_URL).rstrip("/"),
+        timeout_seconds=float_env(_ENV_PREFIX, "LLM_TIMEOUT_SECONDS", "30", minimum=0.1),
+        max_retries=min(1, int_env(_ENV_PREFIX, "LLM_MAX_RETRIES", "1", minimum=0)),
+        max_output_tokens=int_env(_ENV_PREFIX, "LLM_MAX_OUTPUT_TOKENS", "1024", minimum=256),
+        effort=(scoped_env(_ENV_PREFIX, "LLM_EFFORT", "").strip() or None),
     )
 
 
@@ -319,42 +301,21 @@ def _intent_schema() -> dict[str, Any]:
     return schema
 
 
-def _require_model(settings: LLMSettings) -> None:
-    if not settings.model:
-        raise RuntimeError(f"LLM_MODEL is not set for provider {settings.provider!r}")
-
-
 class AnthropicProvider:
     def __init__(self, settings: LLMSettings) -> None:
         self.settings = settings
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        import anthropic  # 지연 임포트 — 키 없는 환경에서 import 비용을 안 낸다
-
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise RuntimeError("ANTHROPIC_API_KEY is not set")
-        _require_model(self.settings)
-        client = anthropic.Anthropic(
-            api_key=api_key,
-            timeout=self.settings.timeout_seconds,
-            max_retries=0,  # 재시도는 서비스가 소유한다 — 두 층이 세면 상한이 곱해진다
-        )
-        output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": schema}}
-        if self.settings.effort:
-            output_config["effort"] = self.settings.effort
-        message = client.messages.create(
+        return anthropic_json(
+            provider=self.settings.provider,
             model=self.settings.model,
-            max_tokens=self.settings.max_output_tokens,
             system=system,
-            output_config=output_config,
-            messages=[{"role": "user", "content": user}],
+            user=user,
+            schema=schema,
+            max_tokens=self.settings.max_output_tokens,
+            timeout=self.settings.timeout_seconds,
+            effort=self.settings.effort,
         )
-        # content[0] 이 아니다 — 사고 블록이 앞에 오는 모델이 있다.
-        for block in message.content:
-            if getattr(block, "type", None) == "text":
-                return block.text
-        raise TypeError("Anthropic response contained no text block")
 
 
 class OpenAIProvider:
@@ -362,198 +323,92 @@ class OpenAIProvider:
         self.settings = settings
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        import openai
-
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set")
-        _require_model(self.settings)
-        client = openai.OpenAI(
-            api_key=api_key,
-            timeout=self.settings.timeout_seconds,
-            max_retries=0,
-        )
-        completion = client.chat.completions.create(
+        return openai_json(
+            provider=self.settings.provider,
             model=self.settings.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            max_completion_tokens=self.settings.max_output_tokens,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {"name": "intent", "strict": True, "schema": schema},
-            },
+            system=system,
+            user=user,
+            schema=schema,
+            schema_name="intent",
+            max_tokens=self.settings.max_output_tokens,
+            timeout=self.settings.timeout_seconds,
         )
-        content = completion.choices[0].message.content
-        if not isinstance(content, str):
-            raise TypeError("OpenAI response did not contain message content")
-        return content
 
 
 class OllamaProvider:
-    """표준 라이브러리만 쓴다 (SDK 없음) — 팀 기존 경로와 같다."""
+    """Ollama `/api/chat`. 전송 실패(`HTTPError` 포함)는 마스터 문장으로 감싼다."""
 
     def __init__(self, settings: LLMSettings) -> None:
         self.settings = settings
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        import urllib.error
-        import urllib.request
-
-        payload = {
-            "model": self.settings.model,
-            "stream": False,
-            "think": False,
-            "format": schema,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "options": {
+        payload = ollama_request(
+            self.settings.model,
+            chat_messages(system, user),
+            response_format=schema,
+            options={
                 "temperature": 0,
                 "num_ctx": 4096,
                 "num_predict": self.settings.max_output_tokens,
             },
-        }
-        request = urllib.request.Request(
-            f"{self.settings.base_url}/api/chat",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-                document = json.loads(response.read().decode("utf-8"))
-        except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise RuntimeError("Master Local LLM request failed") from error
-        content = (document.get("message") or {}).get("content")
-        if not isinstance(content, str):
-            raise TypeError("Master Local LLM response did not contain message content")
-        return content
-
-
-#: Gemini `responseSchema` 가 안 받는 칸. JSON Schema 에는 있고 저쪽에는 없다.
-_GEMINI_SCHEMA_DROP = frozenset({"title", "default", "additionalProperties", "$schema", "examples"})
-
-
-def _to_gemini_schema(node: Any, defs: dict[str, Any] | None = None) -> Any:
-    """JSON Schema → Gemini responseSchema; nested `$defs`/`$ref` are inlined."""
-    if defs is None and isinstance(node, dict):
-        defs = node.get("$defs") or {}
-    if isinstance(node, list):
-        return [_to_gemini_schema(item, defs) for item in node]
-    if not isinstance(node, dict):
-        return node
-
-    ref = node.get("$ref")
-    if isinstance(ref, str):
-        target = (defs or {}).get(ref.rsplit("/", 1)[-1])
-        if not isinstance(target, dict):
-            raise TypeError(f"cannot resolve schema reference: {ref}")
-        merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
-        return _to_gemini_schema(merged, defs)
-
-    if "anyOf" in node:
-        branches = node["anyOf"]
-        concrete = [b for b in branches if isinstance(b, dict) and b.get("type") != "null"]
-        nullable = len(concrete) != len(branches)
-        if len(concrete) != 1:
-            raise TypeError(
-                f"Gemini 로 옮길 수 없는 anyOf 다 (분기 {len(concrete)}개): {branches!r}"
-            )
-        converted = _to_gemini_schema(concrete[0], defs)
-        for key, value in node.items():
-            if key == "anyOf" or key in _GEMINI_SCHEMA_DROP or key in {"$defs", "$ref"}:
-                continue
-            converted[key] = _to_gemini_schema(value, defs)
-        if nullable:
-            converted["nullable"] = True
-        return converted
-
-    return {
-        key: _to_gemini_schema(value, defs)
-        for key, value in node.items()
-        if key not in _GEMINI_SCHEMA_DROP and key not in {"$defs", "$ref"}
-    }
+        document = send_json(
+            ollama_chat_request(self.settings.base_url, payload),
+            timeout=self.settings.timeout_seconds,
+            failure_message="Master Local LLM request failed",
+        )
+        return ollama_text(
+            document, missing_message="Master Local LLM response did not contain message content"
+        )
 
 
 class GeminiProvider:
-    """Gemini REST 호출. 표준 라이브러리만 쓴다 — Ollama 경로와 같은 규율이다.
+    """Gemini REST 호출.
 
-    ★ **API 키는 호출 시점에 환경에서 읽는다.** `LLMSettings` 에 담지 않는다 —
-      설정 객체는 로그·예외에 통째로 실릴 수 있고, 키가 거기 끼면 지울 수 없다.
-    ★ 자체 재시도가 없다. 재시도는 `IntentService` 가 소유한다 — 두 층이 세면
-      상한이 곱해진다 (Anthropic·OpenAI 프로바이더도 `max_retries=0` 이다).
+    ★ **API 키는 호출 시점에 환경에서 읽는다** (`MASTER_GEMINI_API_KEY` → `GEMINI_API_KEY`).
+      `LLMSettings` 에 담지 않는다 — 설정 객체는 로그·예외에 통째로 실릴 수 있다.
+    ★ 자체 재시도가 없다. 재시도는 `IntentService` 가 소유한다.
+    🔴 **`HTTPError` 는 감싸지 않는다** — 감싸면 상태 코드가 사라져 429(quota)와 서버 다운이
+       로그에서 같아 보였다(실측). 나머지 전송 실패만 마스터 문장으로 감싼다.
+    🔴 **`parts[0]` 이 아니다 — 사고 조각이 앞에 오는 모델이 있다.** `gemini-3.5-flash-lite` 는
+       `thought: true` 조각을 앞에 붙인다. 첫 조각만 보면 **호출은 성공했는데 FALLBACK** 으로
+       떨어진다 — 실측에서 `SELECT_SCENARIO` 가 12번 중 11번 이렇게 죽었다. 사고 조각은 건너뛰고
+       빈 문자열이 아닌 첫 글자를 쓴다(공백뿐인 글자도 받는다 — 검증이 되묻는다).
+    ★ 응답 스키마는 `gemini_strict_schema` 로 낮춘다 — `X | null` 이 아닌 anyOf 는 조용히 흘리지
+      않고 터뜨린다(Gemini 400 이 호출 실패로만 보인다). 길이 제약은 남기고, 못 편 참조는
+      `TypeError` 다(옮기기 전 마스터 변환 그대로 — 매입 변환과 다르다).
     """
 
     def __init__(self, settings: LLMSettings) -> None:
         self.settings = settings
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str:
-        import urllib.error
-        import urllib.request
-
-        api_key = os.getenv(f"{_ENV_PREFIX}GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+        api_key = gemini_api_key(_ENV_PREFIX)
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY is not set")
-        _require_model(self.settings)
-        payload = {
-            "system_instruction": {"parts": [{"text": system}]},
-            "contents": [{"role": "user", "parts": [{"text": user}]}],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": _to_gemini_schema(schema),
-                "maxOutputTokens": self.settings.max_output_tokens,
-            },
-        }
-        base_url = (
-            os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL")
-            or os.getenv("GEMINI_BASE_URL")
-            or _GEMINI_BASE_URL
-        ).rstrip("/")
-        request = urllib.request.Request(
-            f"{base_url}/models/{self.settings.model}:generateContent",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-            method="POST",
+        require_model(self.settings.provider, self.settings.model)
+        payload = gemini_json_request(
+            system,
+            user,
+            gemini_strict_schema(schema),
+            max_output_tokens=self.settings.max_output_tokens,
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-                document = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError:
-            # 🔴 **`HTTPError` 는 감싸지 않는다.** `URLError` 의 하위라 아래 except 가
-            #    같이 먹는데, 감싸면 **상태 코드가 사라진다.** 실측에서 429(quota)를
-            #    `RuntimeError("Master Gemini request failed")` 로 덮어 버려, 한도에
-            #    걸린 것과 서버가 죽은 것이 **로그에서 같아 보였다.**
-            #
-            #    지금은 `classify` 가 어떤 예외든 fallback 으로 보내므로 화면 동작은
-            #    같지만, 원인을 **꺼낼 수 있게는 두어야** 한다 — 물류도 같은 이유로
-            #    HTTPError 를 그대로 흘린다.
-            raise
-        except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            # 키를 메시지에 싣지 않는다. urllib 예외는 URL 을 담는데 키는 헤더라
-            # 안 끼지만, 여기서 새 메시지를 만들 때도 넣지 않는다.
-            raise RuntimeError("Master Gemini request failed") from error
-        # 🔴 **`parts[0]` 이 아니다 — 사고 조각이 앞에 오는 모델이 있다.**
-        #    `gemini-3.5-flash-lite` 는 생각을 켜고 답하며, 그때 `parts` 앞머리에
-        #    `thought: true` 인 조각이 붙는다. 첫 조각만 보면 `text` 가 없어 터지고,
-        #    **호출은 성공했는데 FALLBACK 으로 떨어진다** — 화면에는 "못 알아들음"
-        #    으로 보여서 모델이 틀린 것처럼 읽힌다. 실측에서 `SELECT_SCENARIO` 가
-        #    12번 중 11번 이렇게 죽었다 (승인 마디가 통째로 안 되는 상황이다).
-        #
-        #    같은 함정을 `AnthropicProvider` 가 이미 주석으로 남겨 뒀는데 여기 옮기지
-        #    않았다. **프로바이더가 늘 때마다 다시 밟는 자리다.**
-        candidates = document.get("candidates") or []
-        parts = ((candidates[0] if candidates else {}).get("content") or {}).get("parts") or []
-        for part in parts:
-            if part.get("thought"):
-                continue
-            text = part.get("text")
-            if isinstance(text, str) and text:
-                return text
-        raise TypeError("Gemini response did not contain text content")
+        request = gemini_request(
+            self.settings.model,
+            payload,
+            api_key=api_key,
+            base_url=scoped_env(_ENV_PREFIX, "GEMINI_BASE_URL", GEMINI_BASE_URL),
+        )
+        document = send_json(
+            request,
+            timeout=self.settings.timeout_seconds,
+            failure_message="Master Gemini request failed",
+            keep_http_errors=True,
+        )
+        text = first_text(gemini_parts(document), skip_thoughts=True, allow_whitespace=True)
+        if text is None:
+            raise TypeError("Gemini response did not contain text content")
+        return text
 
 
 class UnavailableProvider:
@@ -742,7 +597,10 @@ _DEPT_LABEL = {
 
 
 class IntentService:
-    """검증·재시도·fallback 을 소유한다. **프로바이더가 바뀌어도 이 층은 그대로다.**"""
+    """검증과 재시도 규칙(무엇을 다시 묻나)을 정한다. **프로바이더가 바뀌어도 이 층은 그대로다.**
+
+    재시도 · fallback 골격은 `app.core.llm.runtime.run_with_fallback` 이다(2026-09-30 BL-020).
+    """
 
     def __init__(self, settings: LLMSettings, provider: TextProvider) -> None:
         self.settings = settings
@@ -755,56 +613,53 @@ class IntentService:
           사용자는 자기가 안 시킨 일이 도는 것을 본다.
         """
         text = utterance.strip()
-        if not self.settings.enabled:
-            return self._result(
-                _UNKNOWN, status="DISABLED", attempts=0, fallback=False, utterance=text
-            )
-        if not text:
-            return self._result(_UNKNOWN, status="SKIPPED_TEMPLATE", attempts=0, fallback=False)
-        # 아래 경로는 전부 발화문을 넘긴다 — 빈 발화문에는 이름 붙일 것이 없다.
+        # 빈 발화문이면 부르지 않는다(SKIPPED_TEMPLATE) — 이름 붙일 것이 없다.
+        failed_attempts = 0
 
-        guidance: list[str] | None = None
-        attempts = 0
-        for _ in range(self.settings.max_retries + 1):
-            attempts += 1
-            try:
-                raw = self.provider.generate(
-                    SYSTEM_PROMPT, _user_payload(text, guidance), _intent_schema()
-                )
-                return self._result(
-                    validate_intent(raw, text),
-                    status="SUCCESS",
-                    attempts=attempts,
-                    fallback=False,
-                    utterance=text,
-                )
-            except IntentValidationError as error:
-                guidance = retry_guidance(error.issues)
-            except Exception as error:  # noqa: BLE001 — 분류 실패가 API 를 죽이면 안 된다
-                # 🔴 **사유를 버리지 않는다** (2026-09-16). 이 줄이 없어서 **죽은
-                #    Gemini 키(403)를 「복수 topic 분류 결함」으로 잘못 짚고 몇 시간을
-                #    팠다.** 화면에는 `FALLBACK` 만 떠서 403 인지 429 인지 타임아웃인지
-                #    스키마 오류인지 구분이 안 됐다 — 한 줄만 있었으면 즉시 키를
-                #    의심했다.
-                #
-                # 🔴 **발화문 원문은 안 싣는다.** 사용자가 친 문장이라 로그에 남길
-                #    것이 아니다 — 길이만 적는다.
-                #
-                # ⚠️ **`break` 는 그대로 둔다.** 분류 실패가 API 를 죽이면 안 된다는
-                #   앞선 판단은 맞다. 여기서 하는 일은 **드러내는 것뿐**이다.
-                logger.warning(
-                    "분류 프로바이더 실패 - FALLBACK 으로 되묻는다"
-                    " (provider=%s · model=%s · 시도 %d회 · 발화문 %d자): %s: %s",
-                    self.settings.provider,
-                    self.settings.model,
-                    attempts,
-                    len(text),
-                    type(error).__name__,
-                    error,
-                )
-                break
+        def next_guidance(error: Exception) -> list[str] | None:
+            """검증 실패는 고칠 곳을 짚어 다시 묻고, 그 밖의 실패는 **다시 묻지 않는다.**
+
+            `run_with_fallback` 은 실패한 시도마다 이것을 한 번 부른다 — 성공 전의 시도는
+            모두 실패이므로 여기서 센 횟수가 곧 그때까지의 시도 수다.
+            """
+            nonlocal failed_attempts
+            failed_attempts += 1
+            if isinstance(error, IntentValidationError):
+                return retry_guidance(error.issues)
+            # 🔴 **사유를 버리지 않는다** (2026-09-16). 이 줄이 없어서 **죽은 Gemini 키(403)를
+            #    「복수 topic 분류 결함」으로 잘못 짚고 몇 시간을 팠다.** 화면에는 `FALLBACK` 만
+            #    떠서 403 인지 429 인지 타임아웃인지 스키마 오류인지 구분이 안 됐다.
+            #
+            # 🔴 **발화문 원문은 안 싣는다.** 사용자가 친 문장이라 로그에 남길 것이 아니다 —
+            #    길이만 적는다.
+            #
+            # ⚠️ **다시 묻지 않는 것은 그대로다.** 분류 실패가 API 를 죽이면 안 된다는 판단은
+            #   맞다. 여기서 하는 일은 **드러내는 것뿐**이다.
+            logger.warning(
+                "분류 프로바이더 실패 - FALLBACK 으로 되묻는다"
+                " (provider=%s · model=%s · 시도 %d회 · 발화문 %d자): %s: %s",
+                self.settings.provider,
+                self.settings.model,
+                failed_attempts,
+                len(text),
+                type(error).__name__,
+                error,
+            )
+            return None
+
+        intent, status, attempts, fallback = run_with_fallback(
+            enabled=self.settings.enabled,
+            needs_call=bool(text),
+            max_retries=self.settings.max_retries,
+            call=lambda guidance: self.provider.generate(
+                SYSTEM_PROMPT, _user_payload(text, guidance), _intent_schema()
+            ),
+            validate=lambda raw: validate_intent(raw, text),
+            template=_UNKNOWN,
+            guidance_for=next_guidance,
+        )
         return self._result(
-            _UNKNOWN, status="FALLBACK", attempts=attempts, fallback=True, utterance=text
+            intent, status=status, attempts=attempts, fallback=fallback, utterance=text
         )
 
     def _result(

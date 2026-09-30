@@ -18,11 +18,11 @@ import pytest
 
 from app.finance.schemas.agent import FinanceMode, FinancePolicy
 from app.finance.schemas.data_port import FinanceDataNotReady
+from app.finance.schemas.planner import CAPABILITY_OWNER
 from app.finance.service.agent_replies import _CONTROLLER_MODES
 from app.finance.service.harness import (
     _ARGUMENT_SCHEMAS,
     _TOOL_DESCRIPTIONS,
-    CAPABILITY_OWNER,
     PRE_PURCHASE_TOOLS,
     SALES_REQUIRED_CAPABILITIES,
     SALES_VALIDATION_TOOLS,

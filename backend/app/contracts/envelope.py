@@ -164,9 +164,18 @@ FALLBACK           불렀는데 실패했다 — 규칙이 대신 답했다
 사람이 없는 문제를 찾는다.**
 
 ★ **새로 정한 규칙이 아니다.** 마스터 `IntentService` 와 Critic `JudgeService` 가
-  이미 이대로 쓴다 (`master/llm/runtime.py` · `critic/llm/runtime.py`). 다만 **뜻이
+  이미 이대로 쓴다 (`master/llm/runtime.py` · `master/critic/llm/runtime.py`). 다만 **뜻이
   어디에도 안 적혀 있어서** 각 파트가 남의 코드를 읽고 유추해야 했다. 그것이
   어휘가 갈리는 진짜 원인이었다.
+
+★ **정의는 여기 한 곳이다** (2026-09-30 재구성 BL-020). 부서 LLM 스키마 다섯 곳 · 판매 모델 세
+  곳 · 매입 역할 모델 두 곳에 같은 네 값이 따로 적혀 있던 것을 이 이름을 들이게 했다. 네 값을
+  내는 골격(`app/core/llm/runtime.py::run_with_fallback`)은 이 이름을 import 하지 않고 같은
+  문자열을 낸다 — core 는 contracts 를 모른다. 둘이 어긋나지 않는지는 검사가 본다.
+
+⚠️ 위 표의 «프로바이더 미지원 → DISABLED» 는 지금 구현과 다르다(2026-09-30 BL-020 확인 필요) —
+  마스터 · Critic · 물류 해석기 · 매입 · 판매는 미지원 프로바이더를 **부를 때 터뜨려 FALLBACK** 으로
+  낸다. 뜻을 고칠지 구현을 고칠지 정해지지 않아 둘 다 그대로 두었다.
 
 ★ **`FALLBACK` 은 실패지 오류가 아니다.** 답은 나간다 — 규칙이 만든 답이다.
   그래서 이 값이 없으면 **모델이 죽은 날과 산 날이 화면에서 같아 보인다.**
@@ -803,7 +812,7 @@ def forecast_is_clean(forecast: Mapping[str, Any] | None, as_of: date) -> bool:
 
 #: 🔴 **역할별 상태는 공용 ``LLMStatus`` 보다 넓다.** 「안 돌았다」의 사유가 여럿인데
 #: 네 값으로는 *"켜져 있었는데 게이트가 안 골랐다"* 와 *"설정이 꺼졌다"* 를 못 가른다.
-#: 그렇다고 공용 ``LLMStatus`` 를 넓히면 그 Literal 을 복제해 든 일곱 파일이 다 걸린다 —
+#: 그렇다고 공용 ``LLMStatus`` 를 넓히면 모든 부서 LLM 결과가 새 값을 받게 된다 —
 #: 그래서 **여기만 넓힌다.**
 LLMCallStatus = Literal[
     "SUCCESS",

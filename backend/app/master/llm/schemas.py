@@ -12,8 +12,8 @@ LLM 이 돌려주는 건 **닫힌 열거에서 고른 값들**뿐이고, 실제 
                                       └ flow.py 는 한 줄도 안 바뀐다
 ```
 
-상태 4종(`LLMStatus`)은 `app/contracts/envelope.py` 와 **같은 어휘**다 — 팀 공용 AI 카드가
-수정 없이 동작한다.
+상태 4종(`LLMStatus`)은 `app/contracts/envelope.py` 의 것을 그대로 들인다 — 팀 공용 AI 카드가
+수정 없이 동작한다(2026-09-30 BL-020 전에는 같은 네 값을 여기 따로 적었다).
 """
 
 from __future__ import annotations
@@ -22,10 +22,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.contracts.envelope import AgentName
-
-#: 봉투(`envelope.LLMStatus`)와 같은 4값. 새로 만들지 않는다.
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import AgentName, LLMStatus
 
 #: 마스터가 알아들을 수 있는 요청 종류. **이 목록 밖은 만들 수 없다.**
 #:

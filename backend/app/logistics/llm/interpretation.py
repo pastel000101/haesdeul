@@ -16,11 +16,11 @@ Master 어댑터   signals · measurements · preferred · missing 원재료
 """
 
 import logging
-import os
 from collections.abc import Sequence
 from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.core.llm.runtime import read_optional_bool
 from app.logistics.domain.rules import (
     BUSINESS_SIGNALS,
     SALES_PRIORITY_ADJUSTMENT,
@@ -95,7 +95,6 @@ _PROCUREMENT_ALLOWED_ADJUSTMENTS = ["quantity", "timing"]
 #: 값이 없으면 **켜짐**으로 읽힌다(`get_llm_settings`). 그 기본값만으로 마스터 동기
 #: 경로에 외부 호출이 얹히면 안 되므로 이 변수는 값이 없으면 **꺼짐**이다.
 MASTER_LLM_ENV = "LOGISTICS_MASTER_LLM_ENABLED"
-_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
 def translate_missing_data(codes: Sequence[str]) -> list[str]:
@@ -360,10 +359,7 @@ def master_llm_enabled() -> bool:
     손잡이라, 폴백하면 *"설정 부재"* 가 곧 *"마스터 경로도 켜짐"* 이 된다 — 이 함수가
     막는 것이 그것이다.
     """
-    value = os.getenv(MASTER_LLM_ENV)
-    if value is None:
-        return False
-    return value.strip().lower() in _TRUE_VALUES
+    return read_optional_bool(MASTER_LLM_ENV) or False
 
 
 def master_interpretation_service() -> InterpretationService:

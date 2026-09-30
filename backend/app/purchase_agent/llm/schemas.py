@@ -21,7 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LLMStatus = Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+from app.contracts.envelope import LLMStatus
 
 #: 스프레드 라벨. 숫자(0.212)를 그대로 주면 LLM이 그 숫자를 사유에 베껴 쓰고,
 #: 그 순간 "LLM이 만든 숫자"가 출력에 실린다. 판정은 규칙이 이미 끝냈으므로 결론만 준다.

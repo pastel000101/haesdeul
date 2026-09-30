@@ -559,7 +559,7 @@ def test_스위치를_끄면_해석기가_아예_안_부른다(monkeypatch):
 
     monkeypatch.setenv("ML_LLM_ENABLED", "0")
     monkeypatch.setenv("ML_GEMINI_API_KEY", "있는-척-하는-키")
-    monkeypatch.setattr(qa_llm.urllib.request, "urlopen", _절대_안_불려야_한다)
+    monkeypatch.setattr("app.core.llm.providers.urllib.request.urlopen", _절대_안_불려야_한다)
     assert qa_llm.interpret("내일 배추 얼마야?", BASE) is None
 
 
@@ -1961,9 +1961,12 @@ def test_지시문이_지난_날을_어떻게_고를지_말해_준다():
 def test_interpreter_reads_the_backend_env_then_the_repo_root_env():
     """★ 해석기 파일이 `app/ml/llm/qa.py` 로 한 단 깊어졌다 (2026-09-29 재구성 BL-017).
 
-    부모 번호로 셈하는 `.env` 두 자리가 옮기기 전과 같은 파일(`backend/.env` → 저장소 루트
-    `.env`)을 가리키는지 잰다 — 번호가 하나 어긋나면 키를 못 찾고 조용히 «해석 못 함» 이 된다.
+    `.env` 두 자리가 옮기기 전과 같은 파일(`backend/.env` → 저장소 루트 `.env`)인지 잰다 —
+    어긋나면 키를 못 찾고 조용히 «해석 못 함» 이 된다. 2026-09-30 BL-020 부터 두 자리는
+    `app.core.llm.runtime.ENV_FILES` 이고, 해석기는 그중 **있는 파일만** 읽는다.
     """
+    from app.core.llm import runtime as llm_runtime
     from app.core.settings import ENV_FILE
 
-    assert qa_llm._ENV_FILES == (ENV_FILE, ENV_FILE.parent.parent / ".env")
+    assert llm_runtime.ENV_FILES == (ENV_FILE, ENV_FILE.parent.parent / ".env")
+    assert qa_llm.ENV_FILES is llm_runtime.ENV_FILES

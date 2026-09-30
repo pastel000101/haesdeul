@@ -2,11 +2,13 @@
 
 ★ 운영 구조는 실제 provider function calling 이다. 테스트는 **가짜 LLM(chat)** 이
   tool_call 을 반환하게 해 orchestration 을 검증한다 — 네트워크를 타지 않는다.
-  provider wire 파싱은 `_post` 대역으로 별도 검증한다. `@pytest.mark.db` 하나만 실 DB.
+  provider wire 파싱은 `send_json` 대역(요청을 보내는 core 한 곳 — 2026-09-30 BL-020 전에는
+  이 파일 안의 `_post`)으로 별도 검증한다. `@pytest.mark.db` 하나만 실 DB.
 """
 
 from __future__ import annotations
 
+import json
 import types
 from datetime import date
 from decimal import Decimal
@@ -387,17 +389,27 @@ def _fake_settings(provider="ollama"):
     )
 
 
+def _fake_send(reply, captured: dict | None = None):
+    """`send_json` 대역 — 보낸 요청의 주소 · 본문 · 머리글을 적고 정한 응답 문서를 돌려준다."""
+
+    def fake(request, *, timeout, **_kwargs):
+        if captured is not None:
+            captured["url"] = request.full_url
+            captured["body"] = json.loads(request.data)
+            captured["headers"] = dict(request.header_items())
+            captured["timeout"] = timeout
+        return reply
+
+    return fake
+
+
 def test_ollama_chat_sends_tools_and_parses_tool_calls(monkeypatch):
     captured: dict = {}
+    reply = {"message": {"tool_calls": [
+        {"function": {"name": "get_item_lots", "arguments": {"item_name": "배추"}}}
+    ]}}
 
-    def fake_post(url, *, body, headers, timeout):
-        captured["url"] = url
-        captured["body"] = body
-        return {"message": {"tool_calls": [
-            {"function": {"name": "get_item_lots", "arguments": {"item_name": "배추"}}}
-        ]}}
-
-    monkeypatch.setattr(sqllm, "_post", fake_post)
+    monkeypatch.setattr(sqllm, "send_json", _fake_send(reply, captured))
     turn = sqllm._ollama_chat(
         _fake_settings(), [{"role": "user", "content": "배추 재고"}], list(TOOL_SCHEMAS)
     )
@@ -411,9 +423,7 @@ def test_ollama_chat_sends_tools_and_parses_tool_calls(monkeypatch):
 
 
 def test_ollama_chat_parses_final_text(monkeypatch):
-    monkeypatch.setattr(
-        sqllm, "_post", lambda url, *, body, headers, timeout: {"message": {"content": "최종 답"}}
-    )
+    monkeypatch.setattr(sqllm, "send_json", _fake_send({"message": {"content": "최종 답"}}))
     turn = sqllm._ollama_chat(_fake_settings(), [{"role": "user", "content": "x"}], [])
     assert turn.tool_calls == []
     assert turn.text == "최종 답"
@@ -422,14 +432,11 @@ def test_ollama_chat_parses_final_text(monkeypatch):
 def test_gemini_chat_parses_function_call(monkeypatch):
     monkeypatch.setenv("LOGISTICS_GEMINI_API_KEY", "k")
     captured: dict = {}
+    reply = {"candidates": [{"content": {"parts": [
+        {"functionCall": {"name": "get_capacity_context", "args": {}}}
+    ]}}]}
 
-    def fake_post(url, *, body, headers, timeout):
-        captured["body"] = body
-        return {"candidates": [{"content": {"parts": [
-            {"functionCall": {"name": "get_capacity_context", "args": {}}}
-        ]}}]}
-
-    monkeypatch.setattr(sqllm, "_post", fake_post)
+    monkeypatch.setattr(sqllm, "send_json", _fake_send(reply, captured))
     turn = sqllm._gemini_chat(
         _fake_settings("gemini"), [{"role": "user", "content": "창고 여유"}], list(TOOL_SCHEMAS)
     )
@@ -452,10 +459,7 @@ def _fake_settings_disabled():
 
 def test_build_chat_routes_provider_and_parses(monkeypatch):
     monkeypatch.setattr(sqllm, "get_llm_settings", lambda: _fake_settings("ollama"))
-    monkeypatch.setattr(
-        sqllm, "_post",
-        lambda url, *, body, headers, timeout: {"message": {"content": "ok"}},
-    )
+    monkeypatch.setattr(sqllm, "send_json", _fake_send({"message": {"content": "ok"}}))
     chat = sqllm.build_chat()
     turn = chat([{"role": "user", "content": "x"}], list(TOOL_SCHEMAS))
     assert turn.text == "ok"
@@ -518,11 +522,12 @@ def test_gemini_tool_call_keeps_the_raw_part(monkeypatch):
     한다 — 우리가 name·arguments 로 재구성하면 다음 턴이 400 으로 거절된다(실측).
     """
     monkeypatch.setattr(
-        sqllm, "_post",
-        lambda url, *, body, headers, timeout: {"candidates": [{"content": {"parts": [
+        sqllm,
+        "send_json",
+        _fake_send({"candidates": [{"content": {"parts": [
             {"functionCall": {"name": "get_item_lots", "args": {"item_name": "배추"}},
              "thoughtSignature": "SIG-XYZ"}
-        ]}}]},
+        ]}}]}),
     )
     monkeypatch.setenv("LOGISTICS_GEMINI_API_KEY", "k")
     turn = sqllm._gemini_chat(

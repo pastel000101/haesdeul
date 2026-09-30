@@ -18,6 +18,7 @@ from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+from app.contracts.envelope import LLMStatus
 from app.contracts.forecast import Forecast
 from app.sales.schemas.runs import RuntimeStatus
 
@@ -108,7 +109,7 @@ class SalesRecommendation(BaseModel):
     """숫자 없이 후보 선택과 설명만 담는 해석 결과다."""
 
     model_config = ConfigDict(extra="forbid")
-    status: Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"]
+    status: LLMStatus
     recommended_candidate_id: str | None = None
     summary: str
     recommendation_reason: str
@@ -689,9 +690,7 @@ class SalesProposalReply(BaseModel):
     #:   무슨 일이 있었나"* 다 — `DISABLED` 와 `FALLBACK` 은 둘 다 템플릿이지만
     #:   하나는 설정 문제이고 하나는 그날의 사고다 (envelope §LLMStatus).
     strategy_source: Literal["LLM", "TEMPLATE_FALLBACK"] = "TEMPLATE_FALLBACK"
-    strategy_llm_status: Literal["SUCCESS", "SKIPPED_TEMPLATE", "FALLBACK", "DISABLED"] = (
-        "DISABLED"
-    )
+    strategy_llm_status: LLMStatus = "DISABLED"
     #: 모델이 고른 자세를 사실이 내린 자리. 비어 있으면 깎인 것이 없다.
     strategy_clamped_reason_codes: list[str] = Field(default_factory=list)
     #: 🔴 **전략 모델이 왜 실패했나.** 성공했거나 안 켠 날은 `None`.

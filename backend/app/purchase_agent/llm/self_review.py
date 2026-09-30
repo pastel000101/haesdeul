@@ -12,6 +12,7 @@
 
 from collections.abc import Callable
 
+from app.core.llm.runtime import run_with_fallback
 from app.purchase_agent.domain.review_templates import FINDINGS
 from app.purchase_agent.llm.review_schemas import (
     ReviewContext,
@@ -24,7 +25,6 @@ from app.purchase_agent.llm.runtime import (
     RoleSpec,
     build_provider,
     get_llm_settings,
-    run_with_fallback,
 )
 from app.purchase_agent.llm.text_guard import contains_control_chars, contains_number
 
@@ -140,12 +140,12 @@ class SelfReviewService:
         """
         template = ReviewOutput(findings=[])
         출력, 상태, 시도, 떨어짐 = run_with_fallback(
-            settings=self.settings,
-            provider=self.provider,
-            context=context,
-            template=template,
-            validate=lambda raw: validate_output(raw, context),
+            enabled=self.settings.enabled,
             needs_call=needs_call(context),
+            max_retries=self.settings.max_retries,
+            call=lambda guidance: self.provider.generate(context, retry_guidance=guidance),
+            validate=lambda raw: validate_output(raw, context),
+            template=template,
             guidance_for=guidance_for,
         )
         return ReviewResult(

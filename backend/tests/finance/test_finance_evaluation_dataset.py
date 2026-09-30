@@ -14,8 +14,8 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.finance import adapter
-from app.finance.llm.planner import ToolAction
 from app.finance.schemas.agent import CashEvent
+from app.finance.schemas.planner import ToolAction
 from app.finance.service.agent import FinanceAgentController
 from tests.finance.finance_runtime_wiring import wire_context, wire_controller
 

@@ -17,8 +17,8 @@ from unittest.mock import patch
 import pytest
 
 from app.finance.domain import messages
-from app.finance.llm.planner import ToolAction
 from app.finance.schemas.agent_state import FinanceAgentState
+from app.finance.schemas.planner import ToolAction
 from app.finance.service.agent import FinanceAgentController, _settled_action
 from app.finance.service.harness import (
     _ADJUSTMENT_REQUIRED_VERDICTS,

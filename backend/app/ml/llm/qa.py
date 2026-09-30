@@ -22,32 +22,33 @@
   그래프가 «해석하지 못했습니다» 로 답한다. 그럴듯한 값을 지어내지 않는다.
 
 🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/qa_llm.py` 였다. 지시문 · 응답 스키마 ·
-  호출 방식 · 스위치는 그대로다. 프로바이더 호출을 `core/llm` 으로 합치는 것은 BL-020 이다.
+  호출 방식 · 스위치는 그대로다.
+
+★ 요청 만들기 · 보내기는 `app.core.llm` 이다 (2026-09-30 재구성 BL-020). 여기 남은 것은 ML 의
+  몫이다 — 지시문 · 응답 스키마 · `ML_` 스위치 · 8초 고정 timeout · 한 번만 묻고 실패하면
+  `None` · 고른 값 거르기. 주소가 잘못되면 요청을 만들 때 난 `ValueError` 를 삼키지 않는다
+  (삼키는 자리는 보내기부터다 — 옮기기 전 그대로).
 """
 
 from __future__ import annotations
 
 import json
 import os
-import urllib.request
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-
+from app.core.llm.providers import (
+    GEMINI_BASE_URL,
+    gemini_first_part_text,
+    gemini_json_request,
+    gemini_request,
+    send_json,
+)
+from app.core.llm.runtime import ENV_FILES, gemini_api_key, load_env_files
 from app.ml.schemas.qa import QA_ITEMS, QA_KINDS
 
-#: backend/.env 와 저장소 루트 .env 를 순서대로 읽는다 (마스터·물류와 같은 패턴).
-#: ★ 2026-09-29 재구성 BL-017 에 파일이 `app/ml/qa_llm.py` → `app/ml/llm/qa.py` 로 한 단 깊어져
-#:   부모 번호를 하나씩 올렸다 — 가리키는 파일은 그대로다.
-_ENV_FILES = (
-    Path(__file__).resolve().parents[3] / ".env",
-    Path(__file__).resolve().parents[4] / ".env",
-)
 _ENV_PREFIX = "ML_"
 _DEFAULT_MODEL = "gemini-3.5-flash-lite"
-_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 _TIMEOUT_SECONDS = 8.0
 
 SYSTEM_PROMPT_KO = """너는 농산물 가격 예측 질의응답의 해석 층이다.
@@ -349,10 +350,10 @@ def model() -> str:
 
 
 def _api_key() -> str:
-    for path in _ENV_FILES:
-        if path.exists():
-            load_dotenv(path, override=False)
-    return (os.getenv(f"{_ENV_PREFIX}GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+    """`ML_GEMINI_API_KEY` → `GEMINI_API_KEY` (앞뒤 공백을 뗀다). `.env` 는 **있는 파일만** 읽는다
+    (`backend/.env` · 저장소 루트 — 부를 때마다)."""
+    load_env_files(path for path in ENV_FILES if path.exists())
+    return (gemini_api_key(_ENV_PREFIX) or "").strip()
 
 
 def enabled() -> bool:
@@ -386,38 +387,20 @@ def interpret(question: str, base_dt: date) -> dict[str, Any] | None:
     key = _api_key()
     if not key:
         return None
-    payload = {
-        "system_instruction": {"parts": [{"text": _prompt(base_dt)}]},
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": json.dumps(
-                            {"question": question, "base_dt": base_dt.isoformat()},
-                            ensure_ascii=False,
-                        )
-                    }
-                ],
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseSchema": _schema(base_dt),
-        },
-    }
-    base = (os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL") or _BASE_URL).rstrip("/")
-    request = urllib.request.Request(
-        f"{base}/models/{model()}:generateContent",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-        method="POST",
+    payload = gemini_json_request(
+        _prompt(base_dt),
+        json.dumps({"question": question, "base_dt": base_dt.isoformat()}, ensure_ascii=False),
+        _schema(base_dt),
+    )
+    request = gemini_request(
+        model(),
+        payload,
+        api_key=key,
+        base_url=os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL") or GEMINI_BASE_URL,
     )
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            document = json.loads(response.read().decode("utf-8"))
-        text = document["candidates"][0]["content"]["parts"][0]["text"]
+        document = send_json(request, timeout=_TIMEOUT_SECONDS)
+        text = gemini_first_part_text(document)
         chosen = json.loads(text)
     except Exception:                                        # noqa: BLE001
         #   ★ 오류 문구를 밖으로 흘리지 않는다. 접속 정보가 오류에 실려 나온 적이 있다.

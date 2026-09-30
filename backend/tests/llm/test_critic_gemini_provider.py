@@ -171,7 +171,7 @@ def test_키가_없으면_즉시_터진다(monkeypatch: pytest.MonkeyPatch):
 def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     """`.env` 를 안 읽는 상태에서 환경변수만으로 판정한다 — 안 그러면 결과가
     **개발자 기계의 `.env` 에 따라 달라진다.**"""
-    monkeypatch.setattr(runtime, "load_dotenv", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *_a, **_k: None)
     for key in ("LLM_PROVIDER", "LLM_MODEL", "CRITIC_LLM_PROVIDER", "CRITIC_LLM_MODEL"):
         monkeypatch.delenv(key, raising=False)
     return monkeypatch

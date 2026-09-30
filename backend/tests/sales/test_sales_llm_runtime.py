@@ -119,12 +119,13 @@ def test_nested_model_schema_has_no_ref_or_defs():
     """
     import json
 
-    from app.sales.llm.runtime import LlmStrategyPlanOutput, _gemini_safe_schema
+    from app.core.llm.providers import gemini_safe_schema
+    from app.sales.llm.runtime import LlmStrategyPlanOutput
 
     raw = LlmStrategyPlanOutput.model_json_schema()
     assert "$defs" in raw, "중첩이 사라졌다면 이 검사가 무엇을 막는지 다시 본다"
 
-    safe = _gemini_safe_schema(raw)
+    safe = gemini_safe_schema(raw)
     wire = json.dumps(safe, ensure_ascii=False)
 
     assert "$defs" not in wire
@@ -133,9 +134,10 @@ def test_nested_model_schema_has_no_ref_or_defs():
 
 def test_nested_model_schema_keeps_the_contract():
     """펴 넣되 **계약은 그대로다** — 자세 어휘가 살아 있어야 한다."""
-    from app.sales.llm.runtime import LlmStrategyPlanOutput, _gemini_safe_schema
+    from app.core.llm.providers import gemini_safe_schema
+    from app.sales.llm.runtime import LlmStrategyPlanOutput
 
-    safe = _gemini_safe_schema(LlmStrategyPlanOutput.model_json_schema())
+    safe = gemini_safe_schema(LlmStrategyPlanOutput.model_json_schema())
     item = safe["properties"]["strategies"]["items"]
 
     assert item["properties"]["strategy"]["enum"] == [
@@ -154,17 +156,18 @@ def test_unresolvable_reference_is_not_silently_dropped():
     """못 펴는 참조를 빈 칸으로 두면 **계약이 조용히 달라진다.**"""
     import pytest as _pytest
 
-    from app.sales.llm.runtime import _gemini_safe_schema
+    from app.core.llm.providers import gemini_safe_schema
 
     with _pytest.raises(TypeError):
-        _gemini_safe_schema({"type": "object", "properties": {"x": {"$ref": "#/$defs/Missing"}}})
+        gemini_safe_schema({"type": "object", "properties": {"x": {"$ref": "#/$defs/Missing"}}})
 
 
 def test_flat_model_schema_still_passes_through():
     """해석 호출은 중첩이 없다 — 그 길이 안 바뀌었는지 같이 본다."""
-    from app.sales.llm.runtime import LlmInterpretationOutput, _gemini_safe_schema
+    from app.core.llm.providers import gemini_safe_schema
+    from app.sales.llm.runtime import LlmInterpretationOutput
 
-    safe = _gemini_safe_schema(LlmInterpretationOutput.model_json_schema())
+    safe = gemini_safe_schema(LlmInterpretationOutput.model_json_schema())
 
     assert set(safe["properties"]) == {
         "recommended_candidate_id",

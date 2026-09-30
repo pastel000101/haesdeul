@@ -1,34 +1,54 @@
-"""Logistics-owned LLM providers (Ollama·Gemini), policy, validator, retry and fallback runtime."""
+"""Logistics-owned LLM providers (Ollama·Gemini), policy, validator, retry and fallback runtime.
+
+★ 프로바이더 호출(요청 만들기 · 보내기 · 응답 읽기)은 `app.core.llm` 이 한다 (2026-09-30 재구성
+  BL-020). 여기 남은 것은 물류의 몫이다 — 지시문 · Gemini 응답 스키마 · 검증기 · `LOGISTICS_`
+  설정값과 오류 문장 · 토큰 사용량 읽기 · **전송 재시도와 검증 재시도를 따로 세는 루프**
+  (`InterpretationService`)와 오류 분류(`classify_llm_error`). 그 루프는 다른 부서의 골격
+  (`run_with_fallback`)과 규칙이 달라 여기 둔다.
+"""
 
 import json
 import os
 import re
 import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from time import perf_counter
 from typing import Protocol
 
-from dotenv import load_dotenv
 from pydantic import ValidationError
 
+from app.contracts.envelope import LLMStatus
+from app.core.llm.providers import (
+    GEMINI_BASE_URL,
+    chat_messages,
+    gemini_first_part_text,
+    gemini_json_request,
+    gemini_request,
+    ollama_chat_request,
+    ollama_request,
+    ollama_text,
+    send_json,
+)
+from app.core.llm.runtime import (
+    ENV_FILES,
+    OLLAMA_BASE_URL,
+    float_env,
+    gemini_api_key,
+    int_env,
+    load_env_files,
+    read_bool,
+    resolve_provider_model,
+    scoped_env,
+)
 from app.logistics.llm.schemas import (
     AgentInterpretation,
     ContextFact,
     InterpretationResult,
     LLMErrorKind,
-    LLMStatus,
     SanitizedLLMContext,
 )
 
-#: backend/.env 와 저장소 루트 .env 를 순서대로 읽는다 — 마스터 _ENV_FILES 패턴.
-#: 팀 환경에서 .env 가 루트에 있는 경우 backend/ 만 보면 키를 못 찾는다.
-_ENV_FILES = (
-    Path(__file__).resolve().parents[3] / ".env",
-    Path(__file__).resolve().parents[4] / ".env",
-)
 #: 물류 전용 환경변수 접두어 — 마스터의 MASTER_ 패턴 복제 (결정서 §6).
 #: 전역 LLM_PROVIDER 하나로 다른 Agent 까지 함께 바뀌는 것을 막는다.
 _ENV_PREFIX = "LOGISTICS_"
@@ -187,34 +207,21 @@ class OllamaProvider:
         *,
         retry_guidance: list[str] | None = None,
     ) -> ProviderResult:
-        user_payload: dict[str, object] = {"context": context.model_dump(mode="json")}
-        if retry_guidance:
-            user_payload["correction"] = retry_guidance
-        payload = {
-            "model": self.settings.model,
-            "stream": False,
-            "think": False,
-            "format": AgentInterpretation.model_json_schema(),
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-            ],
-            "options": {"temperature": 0, "num_ctx": 4096},
-        }
-        request = urllib.request.Request(
-            f"{self.settings.base_url}/api/chat",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        payload = ollama_request(
+            self.settings.model,
+            chat_messages(SYSTEM_PROMPT, _user_payload(context, retry_guidance)),
+            response_format=AgentInterpretation.model_json_schema(),
+            options={"temperature": 0, "num_ctx": 4096},
         )
-        try:
-            with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-                document = json.loads(response.read().decode("utf-8"))
-        except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise RuntimeError("Logistics Local LLM request failed") from error
-        content = (document.get("message") or {}).get("content")
-        if not isinstance(content, str):
-            raise TypeError("Logistics Local LLM response did not contain message content")
+        document = send_json(
+            ollama_chat_request(self.settings.base_url, payload),
+            timeout=self.settings.timeout_seconds,
+            failure_message="Logistics Local LLM request failed",
+        )
+        content = ollama_text(
+            document,
+            missing_message="Logistics Local LLM response did not contain message content",
+        )
         # 공식 `/api/chat` 응답의 토큰 두 칸만 읽는다 (#406). `*_duration` 은 가져오지
         # 않는다 — 서버측 생성 시간(ns)이라 `llm_provider_elapsed_ms`(클라이언트 실측 ·
         # 예외로 끝난 호출까지 포함)와 다른 축이고, 섞으면 #402 가 경고한 그 실수다.
@@ -225,10 +232,6 @@ class OllamaProvider:
             usage=_provider_usage(document.get("prompt_eval_count"), document.get("eval_count")),
         )
 
-
-#: Gemini API 기본 엔드포인트. LOGISTICS_GEMINI_BASE_URL 로만 바꾼다 —
-#: LLM_BASE_URL 은 Ollama 로컬 주소라 의미가 다르다.
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 #: Gemini 구조화 출력 스키마. AgentInterpretation 3필드를 Gemini 의 OpenAPI 서브셋
 #: 으로 평탄화한 것이다 — pydantic json_schema 의 anyOf 는 지원 범위 밖일 수 있어
@@ -250,8 +253,11 @@ class GeminiProvider:
     ★ API Key 는 호출 시점에 환경변수에서 읽는다 — `LLMSettings` 에 저장하지 않고
       로그·예외 메시지에도 원문을 싣지 않는다 (결정서 §6). 키는 Auth Key 로 신규
       발급한다 (2026-09 부터 Standard 키 전면 거부).
-    ★ SDK 를 쓰지 않고 표준 라이브러리만 쓴다 — 팀 Ollama 경로와 같은 규율이고,
-      HTTPError 가 그대로 전파되어 classify_llm_error 가 상태 코드로 분류한다.
+    ★ 전송 예외(HTTPError · URLError · TimeoutError · 깨진 JSON)를 **감싸지 않고** 그대로
+      올린다 — 분류는 classify_llm_error 한 곳이 한다(여기서 삼키면 재시도 정책이 눈을 잃는다).
+    ★ 주소는 `LOGISTICS_GEMINI_BASE_URL` 로만 바꾼다(공용 `GEMINI_BASE_URL` 은 보지 않는다 —
+      마스터 · Critic · 매입과 다르다). `LLM_BASE_URL` 은 Ollama 로컬 주소라 뜻이 다르다.
+    ★ 응답 글자는 `parts[0].text` 를 그대로 읽는다(사고 조각을 건너뛰지 않는다 — 마스터와 다르다).
     ★ 자체 재시도는 없다 — 재시도는 InterpretationService 가 소유한다.
     """
 
@@ -264,42 +270,21 @@ class GeminiProvider:
         *,
         retry_guidance: list[str] | None = None,
     ) -> ProviderResult:
-        api_key = os.getenv(f"{_ENV_PREFIX}GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+        api_key = gemini_api_key(_ENV_PREFIX)
         if not api_key:
             raise ProviderAuthError("GEMINI_API_KEY is not set")
-        user_payload: dict[str, object] = {"context": context.model_dump(mode="json")}
-        if retry_guidance:
-            user_payload["correction"] = retry_guidance
-        payload = {
-            "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": json.dumps(user_payload, ensure_ascii=False)}],
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": _GEMINI_RESPONSE_SCHEMA,
-            },
-        }
-        base_url = (os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL") or _GEMINI_BASE_URL).rstrip("/")
-        request = urllib.request.Request(
-            f"{base_url}/models/{self.settings.model}:generateContent",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            method="POST",
+        payload = gemini_json_request(
+            SYSTEM_PROMPT, _user_payload(context, retry_guidance), _GEMINI_RESPONSE_SCHEMA
         )
-        # HTTPError·URLError·TimeoutError 는 그대로 전파한다 — 분류는
-        # classify_llm_error 한 곳이 한다 (여기서 삼키면 재시도 정책이 눈을 잃는다).
-        with urllib.request.urlopen(request, timeout=self.settings.timeout_seconds) as response:
-            document = json.loads(response.read().decode("utf-8"))
+        request = gemini_request(
+            self.settings.model,
+            payload,
+            api_key=api_key,
+            base_url=os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL") or GEMINI_BASE_URL,
+        )
+        document = send_json(request, timeout=self.settings.timeout_seconds)
         try:
-            content = document["candidates"][0]["content"]["parts"][0]["text"]
+            content = gemini_first_part_text(document)
         except (KeyError, IndexError, TypeError) as error:
             raise TypeError("Gemini response did not contain text content") from error
         if not isinstance(content, str):
@@ -318,6 +303,13 @@ class GeminiProvider:
                 usage_metadata.get("candidatesTokenCount"),
             ),
         )
+
+
+def _user_payload(context: SanitizedLLMContext, retry_guidance: list[str] | None) -> str:
+    user_payload: dict[str, object] = {"context": context.model_dump(mode="json")}
+    if retry_guidance:
+        user_payload["correction"] = retry_guidance
+    return json.dumps(user_payload, ensure_ascii=False)
 
 
 class ProviderConfigurationError(RuntimeError):
@@ -551,49 +543,26 @@ def _add_observed(total: int | None, observed: int | None) -> int | None:
     return total + observed
 
 
-def _env(key: str, default: str) -> str:
-    return os.getenv(f"{_ENV_PREFIX}{key}") or os.getenv(key) or default
-
-
-def _int_env(key: str, default: str, *, minimum: int) -> int:
-    """파싱 실패는 기본값으로 되돌린다 — `.env` 오타 하나로 물류가 죽으면 안 된다."""
-    try:
-        return max(minimum, int(_env(key, default)))
-    except (TypeError, ValueError):
-        return max(minimum, int(default))
-
-
-def _float_env(key: str, default: str, *, minimum: float) -> float:
-    try:
-        return max(minimum, float(_env(key, default)))
-    except (TypeError, ValueError):
-        return max(minimum, float(default))
-
-
 def get_llm_settings() -> LLMSettings:
-    for env_file in _ENV_FILES:
-        load_dotenv(env_file)
-    scoped_provider = os.getenv(f"{_ENV_PREFIX}LLM_PROVIDER")
-    global_provider = (os.getenv("LLM_PROVIDER") or "ollama").strip().lower()
-    provider = (scoped_provider or global_provider).strip().lower()
-    # 모델은 provider 에 종속된 값이다. 물류 provider 가 전역과 **다를 때** 전역
-    # LLM_MODEL(예: Ollama 의 gemma3:4b)을 상속하면 Gemini 가 존재하지 않는 모델로
-    # 호출돼 400 이 난다 — 실호출 검증에서 실제로 발생한 사례다. 그 경우에만 전역
-    # 모델을 건너뛴다. provider 가 같으면(예: 둘 다 ollama) 전역 모델은 유효한
-    # 상속이므로 폴백 사슬(LOGISTICS_ → 전역 → 기본값)을 그대로 따른다.
-    if provider != global_provider and not os.getenv(f"{_ENV_PREFIX}LLM_MODEL"):
-        model = _DEFAULT_MODELS.get(provider, "")
-    else:
-        model = _env("LLM_MODEL", _DEFAULT_MODELS.get(provider, ""))
+    """`LOGISTICS_` → 공용 → 기본값. `.env` 는 부를 때마다 적재한다(이미 있는 값은 덮지 않는다).
+
+    모델은 provider 에 종속된 값이다 — 물류 provider 가 전역과 **다를 때** 전역 LLM_MODEL 을
+    상속하면 Gemini 가 존재하지 않는 모델로 호출돼 400 이 난다(실호출 검증 사례). 그 경우에만
+    전역 모델을 건너뛴다(`resolve_provider_model` · 마스터 · Critic 과 같은 규칙).
+    """
+    load_env_files(ENV_FILES)
+    provider, model = resolve_provider_model(
+        _ENV_PREFIX, default_provider="ollama", default_models=_DEFAULT_MODELS
+    )
     return LLMSettings(
-        enabled=_read_bool("LLM_ENABLED", default=True),
+        enabled=read_bool("LLM_ENABLED", prefix=_ENV_PREFIX, default=True),
         provider=provider,
         model=model.strip(),
-        base_url=_env("LLM_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
+        base_url=scoped_env(_ENV_PREFIX, "LLM_BASE_URL", OLLAMA_BASE_URL).rstrip("/"),
         # 기본 10초 (PROVISIONAL) — 원격 API 장애 시 최악 경로가 재시도 포함 약 20초
         # 에서 끊기도록 잡는다. AI 는 보조 기능이라 물류 응답을 오래 잡으면 안 된다.
-        timeout_seconds=_float_env("LLM_TIMEOUT_SECONDS", "10", minimum=0.1),
-        max_retries=min(1, _int_env("LLM_MAX_RETRIES", "1", minimum=0)),
+        timeout_seconds=float_env(_ENV_PREFIX, "LLM_TIMEOUT_SECONDS", "10", minimum=0.1),
+        max_retries=min(1, int_env(_ENV_PREFIX, "LLM_MAX_RETRIES", "1", minimum=0)),
     )
 
 
@@ -858,10 +827,3 @@ def build_template_interpretation(context: SanitizedLLMContext) -> AgentInterpre
         # 않는다. allowed[0] 자동 추천은 preferred 강제와 충돌해 폐기했다.
         suggested_adjustment=context.preferred_adjustment,
     )
-
-
-def _read_bool(key: str, *, default: bool) -> bool:
-    value = os.getenv(f"{_ENV_PREFIX}{key}") or os.getenv(key)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
