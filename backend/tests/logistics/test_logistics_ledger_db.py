@@ -21,11 +21,9 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 import psycopg
@@ -42,6 +40,7 @@ from app.logistics.schemas.ledger import (
 )
 from app.logistics.service import ledger as ledger_service
 from app.logistics.service.ledger import record_inventory_move
+from tests.logistics.logistics_schema_files import WMS, schema_sql
 
 pytestmark = pytest.mark.db
 
@@ -52,7 +51,6 @@ PURCHASE_ITEM_ID = "PI-TEST"
 LOT_ID = "LOT-TEST"
 MOVED_AT = date(2026, 1, 7)
 
-_DB_DIR = Path(__file__).resolve().parents[3] / "database"
 
 #: FK 대상만 되는 다른 도메인 표 — PK 만 있는 stub 이다.
 #: ★ 이번 단계가 Sales/Purchase 스키마를 **안 고친다**는 사실이 여기서도 드러난다.
@@ -66,20 +64,6 @@ CREATE TABLE {TMP_SCHEMA}.sale_items (sale_item_id text PRIMARY KEY);
 """
 
 
-def _repo_block(table: str) -> str:
-    """`10_domain_schema.sql` 의 표 하나를 CREATE·제약·주석까지 그대로 뜬다.
-
-    ★ 손으로 다시 적지 않는다 — 다시 적으면 **검사용 표와 실제 표가 갈린다.**
-      우리가 재려는 것 중 하나가 바로 DB CHECK 이라 그 순간 검사가 무의미해진다.
-    """
-    text = (_DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
-    match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
-    assert match is not None, f"10_domain_schema.sql 에 {table} 이 없다"
-    parts = [match.group(0)]
-    parts += re.findall(rf"ALTER TABLE ONLY haetdeul\.{table}\s+ADD CONSTRAINT [^;]+;", text)
-    return "\n".join(parts)
-
-
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     """임시 스키마에 원장 표를 세우고, 끝나면 **되돌린다**."""
@@ -89,11 +73,7 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
             with connection.cursor() as cur:
                 cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
                 cur.execute(_STUBS)
-                for table in ("inventory_lots", "inventory_moves"):
-                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                wms = (_DB_DIR / "30_logistics_wms_schema.sql").read_text(encoding="utf-8")
-                wms = re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", wms)
-                cur.execute(wms.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                cur.execute(schema_sql(TMP_SCHEMA, ("inventory_lots", "inventory_moves", *WMS)))
 
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.items VALUES (%s, %s)", (ITEM_ID, "배추"))
                 cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (SIM_RUN_ID,))

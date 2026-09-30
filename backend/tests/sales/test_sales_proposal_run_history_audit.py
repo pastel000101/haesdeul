@@ -25,7 +25,13 @@ from app.sales.schemas.proposal import (
 )
 from app.sales.schemas.runs import SalesCycle
 
-_DDL = pathlib.Path(__file__).resolve().parents[3] / "database" / "sales_agent_runs.sql"
+_DDL = (
+    pathlib.Path(__file__).resolve().parents[3]
+    / "database"
+    / "schema"
+    / "sales"
+    / "sales_agent_runs.sql"
+)
 
 _TRANSITION = (
     "권위 있는 Proposal 실행 identity 계약이 생기면 이 blocker 검사를 "

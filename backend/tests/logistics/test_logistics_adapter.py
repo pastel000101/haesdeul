@@ -2694,7 +2694,7 @@ def test_보관한계_부재_Lot_이_판매_계약으로도_읽힌다(monkeypatc
 #   어댑터가 값을 *나르는지* 아니면 *스스로 세는지* 를 구별할 수 없다.
 # ---------------------------------------------------------------------------
 
-#: 실 DB seed (`database/logistics_llm_policy_seed.sql`) 와 같은 선택 정책 2종.
+#: 실 DB seed (`database/seed/logistics/logistics_llm_policy_seed.sql`) 와 같은 선택 정책 2종.
 _CAPACITY_TIGHT_RATIO = Decimal("0.90")
 _FRESHNESS_PRESSURE_RATIO = Decimal("0.30")
 
@@ -3052,7 +3052,8 @@ def test_조회는_여전히_LLM_을_타지_않는다(monkeypatch):
 # ★ Provider 는 전부 가짜다. 실 Gemini · Ollama · HTTP 는 한 번도 열리지 않는다.
 # ---------------------------------------------------------------------------
 
-#: 선택 정책 2종 — 실 DB seed (`database/logistics_llm_policy_seed.sql`) 와 같은 값이다.
+#: 선택 정책 2종 — 실 DB seed (`database/seed/logistics/logistics_llm_policy_seed.sql`) 와
+#: 같은 값이다.
 _GOLDEN_TIGHT_RATIO = Decimal("0.90")
 _GOLDEN_FRESHNESS_RATIO = Decimal("0.30")
 

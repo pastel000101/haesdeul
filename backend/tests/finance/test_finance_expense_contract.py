@@ -1,7 +1,8 @@
 """비용 생명주기가 **원장 스키마와 API 계약에 실제로 서 있는가.**
 
 마이그레이션 SQL 만 만들고 끝내면, 코드가 쓰는 칸과 DB 의 칸이 다른 날이 온다. 정본
-스키마(`10_domain_schema.sql`)와 마이그레이션이 **같은 계약**을 말해야 한다.
+스키마(`schema/finance/expenses.sql` · `daily_closings.sql`)와 마이그레이션이
+**같은 계약**을 말해야 한다.
 """
 
 from __future__ import annotations
@@ -14,10 +15,13 @@ from app.finance.schemas.expenses import KNOWN_EXPENSE_CATEGORIES
 from app.main import app
 
 _ROOT = Path(__file__).parents[3]
-_MIGRATION = (_ROOT / "database" / "finance" / "expense_lifecycle.sql").read_text(
+_MIGRATION = (_ROOT / "database" / "migrations" / "finance" / "expense_lifecycle.sql").read_text(
     encoding="utf-8"
 )
-_CANONICAL = (_ROOT / "database" / "10_domain_schema.sql").read_text(encoding="utf-8")
+_CANONICAL = "\n".join(
+    (_ROOT / "database" / "schema" / "finance" / name).read_text(encoding="utf-8")
+    for name in ("expenses.sql", "daily_closings.sql")
+)
 
 
 # ── 마이그레이션 ──────────────────────────────────────────────────────────

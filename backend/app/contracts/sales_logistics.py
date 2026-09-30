@@ -8,7 +8,7 @@
 #
 #   🔴 **납품일 칸을 두지 않는다** (2026-09-08 · 물류·판매 합의).
 #      `sales.sale_date` 가 납품일의 **정본**이고, DDL 주석이 그렇게 정의한다
-#      (`database/10_domain_schema.sql:3534` — '판매/납품 기준일.').
+#      (`database/schema/sales/sales.sql:37` — '판매/납품 기준일.').
 #
 #      ★ 여기에 같은 날짜를 **복사**하면 두 값이 갈리는 날이 온다. 대신 마스터가
 #        그날 `sale_date` 인 판매를 골라 `reservation_id_for_sale_item` 으로
@@ -45,7 +45,7 @@ class SalesOutboundReservationRequest:
     ★ **납품일의 주인은 판매다.** DDL 주석이 이미 그렇게 정의한다.
 
     ```text
-    database/10_domain_schema.sql
+    database/schema/sales/sales.sql
       sales.order_date   '고객 주문일.'
       sales.sale_date    '판매/납품 기준일.'        ← 납품 기준일이 여기다
     ```

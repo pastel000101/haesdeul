@@ -64,7 +64,7 @@ receipts.check_receipt_state →  NEW                이 입고에 Receipt 행�
       `uq_inbound_receipts_inbound_id` 는 **최종 안전망**으로 남는다. 잠금이 있는데도
       그 그물이 터지면 그것은 버그이므로 **삼키지 않고 그대로 올린다.**
 
-★ **스키마 실측 (2026-09-05 · 현재 브랜치 `database/30_logistics_wms_schema.sql`).**
+★ **스키마 실측 (2026-09-05 · 현재 브랜치 `database/schema/logistics/inbound_receipts.sql`).**
 
   ```text
   PRIMARY KEY   inbound_receipts_pkey (receipt_id)

@@ -1,0 +1,88 @@
+# 새 DB(빈 PostgreSQL)를 세우는 적용 순서 — `backend/scripts/apply_sql.py --new-database` 가
+# 이 목록 순서대로만 적용한다. 한 줄에 파일 하나(저장소 루트 기준), `#` 줄과 빈 줄은 건너뛴다.
+#
+# ★ 순서는 파일 이름 정렬이 아니라 이 목록이다. FK · 뷰 · 함수가 가리키는 객체를 만드는 파일이
+#   먼저 온다(2026-09-30 BL-021 · 임시 PostgreSQL 17 빈 DB 에서 확인). 스키마 파일을 더하면
+#   여기에도 넣는다 — `tests/scripts/test_new_database_order.py` 가 빠진 파일과 순서를 잰다.
+# ★ schema/ 파일만 담는다. 각 파일이 새 DB 의 최종 정의다 — 2026-09-30 BL-021 보완으로 전에 목록
+#   끝에서 따로 돌던 migrations/ 8개의 효과를 해당 schema 파일에 담고 목록에서 뺐다. migrations/ 는
+#   이미 쓰는 DB 를 갱신할 때 한 파일씩 쓴다(`database/README.md` §2).
+# 🔴 seed/ 는 넣지 않는다 — 데이터는 사용자가 확인하고 직접 넣는다(`database/seed/README.md`).
+
+# ── 스키마 (객체마다 파일 하나) ──
+database/schema/common/haetdeul_schema.sql
+database/schema/common/agent_policy_config.sql
+database/schema/common/company_personas.sql
+database/schema/common/evidences.sql
+database/schema/common/items.sql
+database/schema/common/partners.sql
+database/schema/common/sim_runs.sql
+database/schema/common/agent_runs.sql
+database/schema/ml/forecasts.sql
+database/schema/ml/ml_batch_day_status.sql
+database/schema/ml/ml_calendar_days.sql
+database/schema/ml/ml_price_forecasts_history.sql
+database/schema/ml/ml_price_forecasts.sql
+database/schema/ml/v_ml_batch_days.sql
+database/schema/ml/v_ml_price_forecast.sql
+database/schema/purchase/auction_prices_daily.sql
+database/schema/purchase/market_quotes.sql
+database/schema/purchase/partner_item_demands.sql
+database/schema/purchase/proposals.sql
+database/schema/purchase/purchases.sql
+database/schema/purchase/purchase_items.sql
+database/schema/purchase/v_current_partner_demand.sql
+database/schema/sales/sales.sql
+database/schema/sales/sale_items.sql
+database/schema/sales/sales_agent_runs.sql
+database/schema/logistics/inbound_schedules.sql
+database/schema/logistics/inventory_reservations.sql
+database/schema/logistics/item_packaging_specs.sql
+database/schema/logistics/item_storage_policies.sql
+database/schema/logistics/item_turnover_policies.sql
+database/schema/logistics/logistics_agent_runs.sql
+database/schema/logistics/logistics_contracts.sql
+database/schema/logistics/deliveries.sql
+database/schema/logistics/logistics_cost_references.sql
+database/schema/logistics/logistics_exceptions.sql
+database/schema/logistics/logistics_investigations.sql
+database/schema/logistics/logistics_action_proposals.sql
+database/schema/logistics/logistics_runtime_fixture.sql
+database/schema/logistics/vehicle_specs.sql
+database/schema/logistics/vehicle_rate_table.sql
+database/schema/logistics/warehouses.sql
+database/schema/logistics/warehouse_zones.sql
+database/schema/logistics/inventory_count_sessions.sql
+database/schema/logistics/item_zone_assignments.sql
+database/schema/logistics/storage_locations.sql
+database/schema/logistics/inbound_receipts.sql
+database/schema/logistics/inbound_inspections.sql
+database/schema/logistics/inbound_inspection_checks.sql
+database/schema/logistics/inventory_lots.sql
+database/schema/logistics/inventory_moves.sql
+database/schema/logistics/pallets.sql
+database/schema/logistics/inventory_allocations.sql
+database/schema/logistics/inventory_count_lines.sql
+database/schema/logistics/inventory_count_discrepancies.sql
+database/schema/logistics/inventory_move_lines.sql
+database/schema/logistics/pallet_events.sql
+database/schema/logistics/v_move_line_integrity.sql
+database/schema/logistics/v_zone_position_occupancy.sql
+database/schema/logistics/zone_override_approvals.sql
+database/schema/finance/daily_closings.sql
+database/schema/finance/expenses.sql
+database/schema/finance/finance_agent_runs.sql
+database/schema/finance/finance_agent_runs_v22.sql
+database/schema/finance/finance_cash_adjustments.sql
+database/schema/finance/finance_states.sql
+database/schema/finance/partner_credit_limits.sql
+database/schema/finance/payables.sql
+database/schema/finance/finance_payable_closing_events.sql
+database/schema/finance/receivables.sql
+database/schema/finance/v_current_finance_state.sql
+database/schema/master/master_agent_runs.sql
+database/schema/master/master_collection_events.sql
+database/schema/master/master_day_openings.sql
+database/schema/master/master_purchase_records.sql
+database/schema/master/orchestrator_agent_runs.sql
+database/schema/master/master_decisions.sql

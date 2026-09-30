@@ -195,7 +195,7 @@ def wire_registries() -> None:
     #    `ON CONFLICT (sim_run_id, financing_mode, state_date)` 로 누적하는데, 실 DB 에 그
     #    UNIQUE 가 없어 승인 전이가 그 자리에서 터졌다 (실측:
     #    *"there is no unique or exclusion constraint matching the ON CONFLICT
-    #    specification"*). `database/finance/finance_state_daily_unique.sql` 을 적용한 뒤
+    #    specification"*). `database/migrations/finance/finance_state_daily_unique.sql` 을 적용한 뒤
     #    켰다 — **마이그레이션과 이 두 줄은 짝이다.**
     register_day_opening(
         "logistics",
@@ -226,8 +226,8 @@ def wire_registries() -> None:
     #
     # 🔴 **DB 어휘가 아직 없다.** `master_decisions.decision` 에 `CANCEL` 이,
     #    `payables.status` 에 `CANCELLED` 가 없어 실 DB 에서는 이 경로가 CHECK 로 막힌다 —
-    #    `database/master/master_decision_cancel.sql` 과
-    #    `database/finance/payable_cancellation.sql` 을 **한 번에** 적용하는 날 열린다.
+    #    `database/migrations/master/master_decision_cancel.sql` 과
+    #    `database/migrations/finance/payable_cancellation.sql` 을 **한 번에** 적용하는 날 열린다.
     #    등록을 먼저 해 두는 이유는 `apply_approval` 때와 같다: 배선이 없는 것과 어휘가
     #    없는 것은 다른 사실이고, 둘을 같은 문장으로 접으면 무엇을 고칠지가 사라진다.
     register_cancellation("finance", FinanceCancellationAdapter())

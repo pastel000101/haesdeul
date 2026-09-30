@@ -13,8 +13,8 @@ import app.finance
 from app.master.repository.sim_run_open import AXIS_COLUMN
 
 _REPO = Path(app.finance.__file__).parent.parent.parent.parent
-_FRESH = _REPO / "database" / "10_domain_schema.sql"
-_MIGRATION = _REPO / "database" / "finance" / "payable_closing_recognition.sql"
+_FRESH = _REPO / "database" / "schema" / "finance" / "finance_payable_closing_events.sql"
+_MIGRATION = _REPO / "database" / "migrations" / "finance" / "payable_closing_recognition.sql"
 _TABLE = "finance_payable_closing_events"
 
 

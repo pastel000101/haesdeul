@@ -523,7 +523,7 @@ def test_open_day_reseeds_the_schedule_axes_instead_of_carrying_them(칸):
        (`repository._schedule_source`).
 
     ★ **JSON 세 칸은 INSERT 에 아예 없다.** 그 칸들은 DROP 대상이라
-      (`database/logistics_drop_inbound_json.sql`) 값을 넣으면 migration 뒤에
+      (`database/migrations/logistics/logistics_drop_inbound_json.sql`) 값을 넣으면 migration 뒤에
       이 INSERT 가 깨진다.
     """
     칸과_식 = _칸과_식()
@@ -612,7 +612,9 @@ def test_b1_still_catches_a_broken_pair_from_any_other_source(complete_logistics
 def test_open_day_does_not_carry_lot_priority():
     """⑤ 🔴 **판단이라 물려받지 않는다.**
 
-    씨앗 SQL 이 그렇게 적었고(`database/27_...sql` 124행) 그대로 옮겼다. 어제 어느
+    씨앗 SQL 이 그렇게 적었고
+    (`database/seed/logistics/logistics_runtime_fixture_20260105_20260106.sql` 124행)
+    그대로 옮겼다. 어제 어느
     로트를 먼저 내보내기로 했는지는 어제의 판단이지 오늘의 사실이 아니다.
 
     ⚠️ `NULL` 이 아니라 `CONFIRMED_ZERO` · `[]` 다 — 물류가 정한 값이라 바꾸지 않는다.

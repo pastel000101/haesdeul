@@ -304,7 +304,7 @@ finance_port(mode=SALES_VALIDATION)
 ```
 
 저장 제약도 함께 열었다 — 신규 DDL 과 기존 DB 마이그레이션
-(`database/finance_agent_runs_v22_sales_validation.sql`) 둘 다.
+(`database/migrations/finance/finance_agent_runs_v22_sales_validation.sql`) 둘 다.
 **순서가 중요하다.** 제약보다 Controller 를 먼저 열면 판정은 되는데 저장이 전부
 실패한다.
 
@@ -421,10 +421,11 @@ as-of 질의                state_date <= as_of 중 가장 늦은 행  "그때"
 PostgreSQL VIEW 는 인자를 받지 않는다. `v_current_finance_state(as_of)` 같은 것은
 없고, 요청 `as_of` 는 View 가 아니라 **질의**가 건다.
 
-**공유 기본 스키마가 만드는 View 는 `finance_state_id = 'FIN-DAY30-LOAN'` 을 박아
-둔다.** 그래서 승인 전이가 다음 상태를 넣어도 DB 는 계속 T0 만 돌려줬다.
-`database/finance/finance_current_state_view.sql` 이 그 고정을 걷어낸다 — 기본 스키마
-파일은 건드리지 않고, 그 뒤에 `CREATE OR REPLACE VIEW` 로 덮는다.
+**옛 공유 기본 스키마(pg_dump 스냅샷)가 만들던 View 는 `finance_state_id = 'FIN-DAY30-LOAN'`
+을 박아 두었다.** 그래서 승인 전이가 다음 상태를 넣어도 DB 는 계속 T0 만 돌려줬다.
+이미 쓰는 DB 는 `database/migrations/finance/finance_current_state_view.sql` 이
+`CREATE OR REPLACE VIEW` 로 그 고정을 걷어내고, 새 DB 는 같은 정의를 담은
+`database/schema/finance/v_current_finance_state.sql` 로 선다(2026-09-30 BL-021 보완).
 
 ```text
 FROM finance_states fs

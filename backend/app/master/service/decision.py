@@ -432,7 +432,7 @@ def save_decision(
       실행이 없다 — 나머지 셋은 반드시 키가 같이 온다.
 
     ⚠️ `revalidation_request_id` 를 `follow_up_request_id` 자리에 넘기지 않는다.
-      DB 도 두 칸으로 갈라 두었다 (`master/master_decision_revalidation.sql`).
+      DB 도 두 칸으로 갈라 두었다 (`migrations/master/master_decision_revalidation.sql`).
     """
     # ★ 종전 `execute_returning_one` 과 같은 경계 — 결정 1건 = 연결 하나 · 트랜잭션 하나.
     #   전이(`apply_approval`)와 다른 트랜잭션이라 전이가 실패해도 결정은 남는다.

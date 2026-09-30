@@ -23,12 +23,10 @@ D4  다시 참        → 새 행 + previous_exception_id  (재오픈하지 않�
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
 from datetime import date, timedelta
 from decimal import Decimal
 from functools import partial
-from pathlib import Path
 from typing import Any, NamedTuple
 
 import psycopg
@@ -56,6 +54,7 @@ from app.logistics.schemas.monitoring import (
 )
 from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
 from app.logistics.service.monitoring import detect_logistics_exceptions
+from tests.logistics.logistics_schema_files import AGENT, WMS, migration_sql, schema_sql
 
 pytestmark = pytest.mark.db
 
@@ -78,7 +77,6 @@ D2 = D1 + timedelta(days=1)
 D3 = D1 + timedelta(days=2)
 D4 = D1 + timedelta(days=3)
 
-_DB_DIR = Path(__file__).resolve().parents[3] / "database"
 
 _STUBS = f"""
 CREATE TABLE {TMP_SCHEMA}.items (item_id text PRIMARY KEY, item_name text);
@@ -90,20 +88,6 @@ CREATE TABLE {TMP_SCHEMA}.sale_items (sale_item_id text PRIMARY KEY);
 """
 
 
-def _repo_block(table: str) -> str:
-    text = (_DB_DIR / "10_domain_schema.sql").read_text(encoding="utf-8")
-    match = re.search(rf"CREATE TABLE haetdeul\.{table}\s*\(.*?\n\);", text, re.DOTALL)
-    assert match is not None, table
-    parts = [match.group(0)]
-    parts += re.findall(rf"ALTER TABLE ONLY haetdeul\.{table}\s+ADD CONSTRAINT [^;]+;", text)
-    return "\n".join(parts)
-
-
-def _file(name: str) -> str:
-    text = (_DB_DIR / name).read_text(encoding="utf-8")
-    return re.sub(r"(?m)^\s*(BEGIN|COMMIT)\s*;\s*$", "", text)
-
-
 @pytest.fixture
 def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
     with core_db.connection() as connection:
@@ -112,16 +96,21 @@ def conn(monkeypatch: pytest.MonkeyPatch) -> Iterator[psycopg.Connection]:
             with connection.cursor() as cur:
                 cur.execute(f"CREATE SCHEMA {TMP_SCHEMA}")
                 cur.execute(_STUBS)
-                for table in ("inventory_lots", "inventory_moves", "item_storage_policies"):
-                    cur.execute(_repo_block(table).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                for name in (
-                    "30_logistics_wms_schema.sql",
-                    "logistics_inventory_lots_nullable.sql",
-                ):
-                    cur.execute(_file(name).replace("haetdeul.", f"{TMP_SCHEMA}."))
-                # 🔴 이 판이 만드는 표가 검사 대상이다 — 저장소의 DDL 을 **그대로** 돌린다.
-                에이전트 = _file("40_logistics_agent_schema.sql")
-                cur.execute(에이전트.replace("haetdeul.", f"{TMP_SCHEMA}."))
+                cur.execute(
+                    schema_sql(
+                        TMP_SCHEMA,
+                        (
+                            "inventory_lots",
+                            "inventory_moves",
+                            "item_storage_policies",
+                            *WMS,
+                            *AGENT,
+                        ),
+                    )
+                )
+                cur.execute(
+                    migration_sql(TMP_SCHEMA, "logistics/logistics_inventory_lots_nullable.sql")
+                )
 
                 for 실행 in (SIM, OTHER_SIM):
                     cur.execute(f"INSERT INTO {TMP_SCHEMA}.sim_runs VALUES (%s)", (실행,))

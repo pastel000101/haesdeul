@@ -51,9 +51,10 @@ def get_finance_runtime_axis(*, sim_run_id: str | None = None) -> FinanceRuntime
     """**그 실행**이 서 있는 재무 축 — 시뮬레이션 실행과 조달 방식.
 
     ★ `v_current_finance_state` 에서 축을 읽는다. 그 View 는 이제 상태 ID 에 매여
-      있지 않다 — `database/finance/finance_current_state_view.sql` 이 공유 기본
-      스키마의 `finance_state_id = 'FIN-DAY30-LOAN'` 고정을 걷어내고, `sim_runs` 가
-      정한 축에서 **가장 늦은 상태**를 돌려주도록 바꾼다.
+      있지 않다 — 옛 공유 기본 스키마의 `finance_state_id = 'FIN-DAY30-LOAN'` 고정 대신
+      `sim_runs` 가 정한 축에서 **가장 늦은 상태**를 돌려준다. 새 DB 는
+      `database/schema/finance/v_current_finance_state.sql`, 이미 쓰는 DB 는
+      `database/migrations/finance/finance_current_state_view.sql` 이 그 정의를 세운다.
 
     🔴 **`sim_run_id` 를 주면 그 실행만 본다.** 예전에는 View 전체에 대고
        *"시스템에 축이 하나뿐인가"* 를 물었다. 실행이 하나일 때는 같은 답이지만,

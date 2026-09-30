@@ -8,9 +8,10 @@ from pathlib import Path
 import app.finance
 
 _REPO = Path(app.finance.__file__).parent.parent.parent.parent
-_FRESH_DDL = _REPO / "database" / "10_domain_schema.sql"
-_MIGRATION_DDL = _REPO / "database" / "finance" / "finance_state_daily_unique.sql"
-_PAYABLE_MIGRATION_DDL = _REPO / "database" / "finance" / "payable_cancellation.sql"
+_FRESH_STATES_DDL = _REPO / "database" / "schema" / "finance" / "finance_states.sql"
+_FRESH_PAYABLES_DDL = _REPO / "database" / "schema" / "finance" / "payables.sql"
+_MIGRATION_DDL = _REPO / "database" / "migrations" / "finance" / "finance_state_daily_unique.sql"
+_PAYABLE_MIGRATION_DDL = _REPO / "database" / "migrations" / "finance" / "payable_cancellation.sql"
 _AXIS = ("sim_run_id", "financing_mode", "state_date")
 
 
@@ -24,13 +25,13 @@ def _columns(sql: str, pattern: str, *, source: Path) -> tuple[str, ...]:
 
 
 def test_fresh_and_migration_ddl_enforce_the_same_daily_state_axis():
-    fresh_sql = _FRESH_DDL.read_text(encoding="utf-8")
+    fresh_sql = _FRESH_STATES_DDL.read_text(encoding="utf-8")
     migration_sql = _MIGRATION_DDL.read_text(encoding="utf-8")
 
     fresh_axis = _columns(
         fresh_sql,
         r"ADD\s+CONSTRAINT\s+uq_finance_states_axis_date\s+UNIQUE\s*\(([^)]+)\)",
-        source=_FRESH_DDL,
+        source=_FRESH_STATES_DDL,
     )
     migration_axis = _columns(
         migration_sql,
@@ -61,7 +62,7 @@ def _normalized_sql(path: Path) -> str:
 
 
 def test_fresh_and_migration_ddl_agree_on_payable_cancellation_contract():
-    fresh = _normalized_sql(_FRESH_DDL)
+    fresh = _normalized_sql(_FRESH_PAYABLES_DDL)
     migration = _normalized_sql(_PAYABLE_MIGRATION_DDL)
 
     assert "cancelled_amount_krw numeric(18,6) default 0 not null" in fresh
@@ -106,8 +107,8 @@ def test_payable_cancellation_migration_does_not_rewrite_existing_rows():
 import pathlib
 
 DATABASE = pathlib.Path(__file__).resolve().parents[3] / "database"
-FRESH_DDL = DATABASE / "finance_agent_runs_v22.sql"
-MIGRATION = DATABASE / "finance_agent_runs_v22_sales_validation.sql"
+FRESH_DDL = DATABASE / "schema" / "finance" / "finance_agent_runs_v22.sql"
+MIGRATION = DATABASE / "migrations" / "finance" / "finance_agent_runs_v22_sales_validation.sql"
 
 FINANCE_RUN_MODES = ("PRE_PURCHASE", "SCENARIO_VALIDATION", "SALES_VALIDATION")
 
