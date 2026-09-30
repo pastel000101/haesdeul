@@ -14,9 +14,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import persistence
 from app.master.router import router
-from app.master.schemas import ProcurementRunRequest, ProcurementRunResponse, StepOut
+from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse
+from app.master.schemas.run_response import StepOut
+from app.master.service import persistence as service_persistence
 
 AS_OF = date(2026, 8, 27)
 
@@ -50,7 +51,7 @@ def response(**kw) -> ProcurementRunResponse:
 
 
 def test_E4_만_미가동이다():
-    assert persistence.runtime_status_of("E4_NOT_STARTED") == "RUNTIME_NOT_READY"
+    assert service_persistence.runtime_status_of("E4_NOT_STARTED") == "RUNTIME_NOT_READY"
 
 
 @pytest.mark.parametrize(
@@ -58,7 +59,7 @@ def test_E4_만_미가동이다():
 )
 def test_나머지는_돌긴_돈_날이다(end_code):
     """보류·반려·계획없음은 회사 상태이지 실행 환경 문제가 아니다."""
-    assert persistence.runtime_status_of(end_code) == "READY"
+    assert service_persistence.runtime_status_of(end_code) == "READY"
 
 
 # ---------------------------------------------------------------------------
@@ -67,19 +68,19 @@ def test_나머지는_돌긴_돈_날이다(end_code):
 
 
 def test_plan_이_JSON_으로_직렬화된다():
-    rows = persistence.plan_rows(response())
+    rows = service_persistence.plan_rows(response())
     assert rows[0]["agent"] == "finance"
     assert rows[0]["used_tools"] == ["assess_finance_position"]
 
 
 def test_plan_에_시각_필드가_없다():
     """계획은 같은 입력에 같은 값이어야 한다 — 언제 돌았는지는 created_at 이 답한다."""
-    row = persistence.plan_rows(response())[0]
+    row = service_persistence.plan_rows(response())[0]
     assert not any(k in row for k in ("created_at", "started_at", "timestamp", "elapsed_ms"))
 
 
 def test_계획이_비어도_적재_형태는_유지된다():
-    assert persistence.plan_rows(response(plan=[])) == []
+    assert service_persistence.plan_rows(response(plan=[])) == []
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ def test_계획이_비어도_적재_형태는_유지된다():
 
 def test_적재는_예외를_올리지_않는다():
     request = ProcurementRunRequest(as_of=AS_OF, policy_version="v1")
-    persistence.record(request, response(), elapsed_ms=12)  # 예외 없이 끝나면 통과
+    service_persistence.record(request, response(), elapsed_ms=12)  # 예외 없이 끝나면 통과
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +109,7 @@ def test_없는_요청은_404(client, monkeypatch):
     def missing(request_id, *, cycle=None):
         raise LookupError(f"실행이력을 찾을 수 없습니다: {request_id}")
 
-    monkeypatch.setattr("app.master.service.get_run_by_request_id", missing)
+    monkeypatch.setattr("app.master.readmodel.history.get_run_by_request_id", missing)
     r = client.get("/master/runs/REQ-NONE")
     assert r.status_code == 404
     assert "REQ-NONE" in r.json()["detail"]
@@ -130,8 +131,8 @@ def test_이력을_찾으면_계획과_지문을_돌려준다(client, monkeypatc
         "request_payload": {"as_of": "2026-08-27"},
         "response_payload": {"end_code": "E1_APPROVED"},
     }
-    monkeypatch.setattr("app.master.service.get_run_by_request_id", lambda _, **_kw: row)
-    monkeypatch.setattr("app.master.service.get_decisions", lambda _: [])
+    monkeypatch.setattr("app.master.readmodel.history.get_run_by_request_id", lambda _, **_kw: row)
+    monkeypatch.setattr("app.master.readmodel.history.list_decisions", lambda _: [])
 
     data = client.get("/master/runs/REQ-20260827-0001").json()
     assert data["agent"] == "master"
@@ -157,8 +158,8 @@ def test_계획이_NULL_이어도_깨지지_않는다(client, monkeypatch):
         "request_payload": None,
         "response_payload": None,
     }
-    monkeypatch.setattr("app.master.service.get_run_by_request_id", lambda _, **_kw: row)
-    monkeypatch.setattr("app.master.service.get_decisions", lambda _: [])
+    monkeypatch.setattr("app.master.readmodel.history.get_run_by_request_id", lambda _, **_kw: row)
+    monkeypatch.setattr("app.master.readmodel.history.list_decisions", lambda _: [])
 
     data = client.get("/master/runs/REQ-X").json()
     assert data["plan"] == []
@@ -175,8 +176,8 @@ def test_이미_결정이_붙은_키로_다시_돌면_경고한다(monkeypatch):
 
     ★ **막지 않고 드러낸다.** 승인 게이트를 마스터가 들고 있으면 안 된다(8/26 회의).
     """
-    from app.master.decision import DecisionOut
-    from app.master.service import _decision_collision
+    from app.master.schemas.decision import DecisionOut
+    from app.master.service.procurement import _decision_collision
 
     row = DecisionOut(
         decision_id=uuid4(),
@@ -189,7 +190,7 @@ def test_이미_결정이_붙은_키로_다시_돌면_경고한다(monkeypatch):
         created_at=datetime.now(UTC),
         is_current=True,
     )
-    monkeypatch.setattr("app.master.service.get_decisions", lambda _: [row])
+    monkeypatch.setattr("app.master.service.procurement.list_decisions", lambda _: [row])
     warnings = _decision_collision("REQ-1")
 
     assert len(warnings) == 1
@@ -200,7 +201,7 @@ def test_이미_결정이_붙은_키로_다시_돌면_경고한다(monkeypatch):
 
 def test_결정이_없으면_조용하다(monkeypatch):
     """**할 말이 없으면 안 한다** — 매번 경고를 내면 진짜 충돌이 묻힌다."""
-    from app.master.service import _decision_collision
+    from app.master.service.procurement import _decision_collision
 
-    monkeypatch.setattr("app.master.service.get_decisions", lambda _: [])
+    monkeypatch.setattr("app.master.service.procurement.list_decisions", lambda _: [])
     assert _decision_collision("REQ-1") == []

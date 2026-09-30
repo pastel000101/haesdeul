@@ -13,8 +13,8 @@ from fastapi import FastAPI
 from app.api.router import router as screen_router
 from app.core import db as core_db
 from app.finance.router import router as finance_router
-from app.master.bootstrap import wire_registries
 from app.master.critic.router import router as critic_router
+from app.master.registry.bootstrap import wire_registries
 from app.master.router import router as master_router
 from app.ml.console_proxy import router as ml_console_router
 from app.ml.router import router as ml_router
@@ -48,7 +48,7 @@ app.include_router(finance_router)
 # 🔴 **물류에는 자기 HTTP 라우터가 없다** (2026-09-15). 종전 `/logistics/…` 16 경로는
 #    화면도 마스터도 안 불렀다 — 화면은 `/api/logistics`(`app/api/logistics/routes.py`)를
 #    치고, 마스터는 `app/logistics/adapter.logistics_port` 를 **파이썬으로** 부른다
-#    (`master/bootstrap.py` 의 `register_agent("inventory", logistics_port)`).
+#    (`master/registry/bootstrap.py` 의 `register_agent("inventory", logistics_port)`).
 #
 #    ⚠️ 같은 콘솔 조회가 두 주소로 나가면 어느 쪽이 정본인지 갈린다. 물류 HTTP 경계는
 #       `app/api/logistics` 하나다.
@@ -56,7 +56,7 @@ app.include_router(master_router)
 
 # ── 등록소를 채운다 ────────────────────────────────────────────────────
 #
-# 🔴 **등록 줄은 여기 없다. `app/master/bootstrap.py` 하나에 있다** (2026-09-09).
+# 🔴 **등록 줄은 여기 없다. `app/master/registry/bootstrap.py` 하나에 있다** (2026-09-09).
 #
 #   전에는 이 자리에 register_agent · register_transition · register_day_opening ·
 #   register_cancellation · register_inbound · register_collection 이 모듈 수준으로

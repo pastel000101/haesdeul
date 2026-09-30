@@ -29,8 +29,9 @@ from typing import Any
 import pytest
 
 from app.api.purchase import query as purchase_query
-from app.master import purchase_tab_repository
 from app.master.readmodel.purchase_tab import read_purchase_tab
+from app.master.repository import purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 
@@ -63,7 +64,7 @@ def install(monkeypatch: pytest.MonkeyPatch):
 
     def _install(runs: list[dict[str, Any]]) -> _Recorder:
         rec = _Recorder(runs)
-        monkeypatch.setattr(purchase_tab_repository, "fetch_all", rec)
+        patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=rec)
         return rec
 
     return _install
@@ -117,7 +118,7 @@ def test_실행_조회가_본문을_통째로_안_끌어온다(install) -> None:
     ((text, _params),) = rec.only("run_id, request_id")
     assert "response_payload AS payload" not in text
     assert "jsonb_build_object" in text
-    for key, sub in purchase_tab_repository.RUN_PAYLOAD.items():
+    for key, sub in purchase_tab.RUN_PAYLOAD.items():
         assert f"response_payload->'{key}'" in text, key
         for inner in sub:
             assert f"response_payload->'{key}'->'{inner}'" in text, (key, inner)
@@ -181,7 +182,7 @@ def _payload_reads() -> dict[str, set[str]]:
 def test_payload_에서_읽는_칸이_전부_뽑혀_온다() -> None:
     """🔴 **빠뜨린 칸이 있으면 여기서 운다.** 새 칸을 읽으면 `RUN_PAYLOAD` 에 먼저 적는다."""
     reads = _payload_reads()
-    spec = {k: set(v) for k, v in purchase_tab_repository.RUN_PAYLOAD.items()}
+    spec = {k: set(v) for k, v in purchase_tab.RUN_PAYLOAD.items()}
 
     #  ★ 모으는 쪽이 고장 나 빈 집합이면 아래 비교가 거짓으로 초록이 된다 — 먼저 막는다
     assert reads, "소스에서 payload 읽기를 하나도 못 찾았다 — 스캐너가 낡았다"
@@ -195,6 +196,6 @@ def test_뽑아_오는_칸은_전부_실제로_쓰인다() -> None:
     """반대 방향 — 안 쓰는 칸을 뽑으면 좁힌 뜻이 조용히 흐려진다."""
     reads = _payload_reads()
 
-    assert set(purchase_tab_repository.RUN_PAYLOAD) <= set(reads)
-    for key, sub in purchase_tab_repository.RUN_PAYLOAD.items():
+    assert set(purchase_tab.RUN_PAYLOAD) <= set(reads)
+    for key, sub in purchase_tab.RUN_PAYLOAD.items():
         assert set(sub) <= reads[key], (key, sub, reads[key])

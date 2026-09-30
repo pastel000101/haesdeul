@@ -451,8 +451,8 @@ def test_status_query_answers_in_words_a_user_reads(monkeypatch):
 
 def test_the_master_speech_bubble_carries_no_machine_words(monkeypatch):
     """마스터가 실제로 렌더링한 문자열로 확인한다 — payload 만 보면 펴는 방식이 바뀐 날 놓친다."""
-    from app.master.answer import facts_from_status, render_answer
-    from app.master.status_flow import StatusOutcome
+    from app.master.domain.answer import facts_from_status, render_answer
+    from app.master.domain.status_flow import StatusOutcome
 
     reply, _ = _status(
         monkeypatch,

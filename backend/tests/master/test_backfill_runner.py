@@ -25,16 +25,18 @@ from uuid import uuid4
 
 import pytest
 
-from app.master import backfill_runner
-from app.master.backfill import ALWAYS_BASE, AUTO_BACKFILL, BackfillOut, backfill_decisions
-from app.master.backfill_runner import (
+from app.master.cli import backfill_runner as cli_backfill_runner
+from app.master.cli.backfill_runner import (
     BackfillRunOut,
     CountingDoor,
     format_summary,
     run_backfill,
 )
-from app.master.decision import DecisionIn, DecisionOut
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.master.domain.backfill import ALWAYS_BASE, BackfillOut
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service.backfill import backfill_decisions
 
 #: 이 검사가 쓰는 실행 축. 🔴 **번인을 안 쓴다** — 번인은 거부 검사에서만 쓴다.
 실행축 = "SIM-TEST-BACKFILL"
@@ -244,7 +246,7 @@ def test_세어_보이는_값이_어휘별로_갈린다() -> None:
 
 def test_commit_기본값이_안_쓰는_쪽이다() -> None:
     """🔴 **기본이 쓰는 쪽이면 실수 한 번이 되돌릴 수 없는 일이 된다.**"""
-    args = backfill_runner._parser().parse_args(
+    args = cli_backfill_runner._parser().parse_args(
         ["--sim-run-id", 실행축, "--start", "2026-09-07", "--end", "2026-09-09"]
     )
 
@@ -262,7 +264,7 @@ def test_sim_run_id_에_기본값이_없다() -> None:
     assert 칸.default is inspect.Parameter.empty, "실행 축에 기본값이 생겼다"
 
     with pytest.raises(SystemExit):
-        backfill_runner.main(["--start", "2026-09-07", "--end", "2026-09-09"])
+        cli_backfill_runner.main(["--start", "2026-09-07", "--end", "2026-09-09"])
 
 
 def test_빈_실행_축이면_한_행도_안_쓰고_터진다() -> None:
@@ -368,9 +370,9 @@ def test_진입점이_commit_을_그대로_넘긴다(monkeypatch: pytest.MonkeyP
         본것.update(kwargs)
         return _가짜_결과(kwargs["sim_run_id"], kwargs["start"], kwargs["end"])
 
-    monkeypatch.setattr(backfill_runner, "run_backfill", _가짜)
+    monkeypatch.setattr(cli_backfill_runner, "run_backfill", _가짜)
 
-    코드 = backfill_runner.main(
+    코드 = cli_backfill_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-09-07", "--end", "2026-09-09"]
     )
 
@@ -389,9 +391,9 @@ def test_진입점이_commit_을_줬을_때만_참으로_넘긴다(monkeypatch: 
         본것.update(kwargs)
         return _가짜_결과(kwargs["sim_run_id"], kwargs["start"], kwargs["end"])
 
-    monkeypatch.setattr(backfill_runner, "run_backfill", _가짜)
+    monkeypatch.setattr(cli_backfill_runner, "run_backfill", _가짜)
 
-    backfill_runner.main(
+    cli_backfill_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-09-07", "--end", "2026-09-09", "--commit"]
     )
 
@@ -407,7 +409,7 @@ def test_경계를_다시_검사하지_않는다() -> None:
     ★ 경계의 주인은 `backfill.BACKFILL_BOUNDARY_AS_OF` 하나다 — 이 파일은 그것이
       막아 놓은 날을 **세어 보이기만** 한다.
     """
-    코드 = _코드만(Path(backfill_runner.__file__).read_text(encoding="utf-8"))
+    코드 = _코드만(Path(cli_backfill_runner.__file__).read_text(encoding="utf-8"))
 
     assert "BACKFILL_BOUNDARY_AS_OF" not in 코드, "진입점이 경계를 다시 검사한다"
     assert "date(2026" not in 코드, "진입점에 경계 날짜가 박혀 있다"
@@ -427,9 +429,9 @@ def test_조립_뿌리가_저절로_승인을_켜지_않는다() -> None:
         `tests/master/test_walk_auto_approve.py` 가 잠근다 — 기본값 셋 · 안 주면
         이름조차 안 불림 · 설정에 규칙이 있어도 안 켜짐.
     """
-    from app.master import bootstrap
+    from app.master.registry import bootstrap as registry_bootstrap
 
-    원문 = Path(bootstrap.__file__).read_text(encoding="utf-8")
+    원문 = Path(registry_bootstrap.__file__).read_text(encoding="utf-8")
 
     assert "backfill" not in _코드만(원문), "조립 뿌리가 백필을 부른다"
 

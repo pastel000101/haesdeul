@@ -26,8 +26,10 @@ from typing import Any
 
 import pytest
 
-from app.master import inputs, service
-from app.master.inputs import MasterInputs, SourcedInput
+from app.master.readmodel import inputs as readmodel_inputs
+from app.master.schemas.inputs import MasterInputs, SourcedInput
+from app.master.service import procurement
+from tests.fake_core_db import patch_sql_helpers
 
 ITEM = "무"
 AS_OF = date(2026, 3, 19)
@@ -95,9 +97,9 @@ def 대역_DB(monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
     def fetch_one(*_a: Any, **_k: Any) -> None:
         raise AssertionError("실제 주문을 읽어야 할 자리에서 파생 경로로 떨어졌다")
 
-    monkeypatch.setattr(inputs, "fetch_all", fetch_all)
-    monkeypatch.setattr(inputs, "fetch_one", fetch_one)
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=fetch_all)
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=fetch_one)
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
     return conn
 
 
@@ -106,7 +108,7 @@ def 대역_DB(monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
 
 def test_다른_실행의_확정_주문은_이번_실행의_수요가_아니다(대역_DB):
     """★★ **이 판의 핵심.** 창 안에 다른 실행의 `CONFIRMED` 가 있어도 안 읽는다."""
-    got = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=MINE)
+    got = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=MINE)
 
     assert got.grade == "MEASURED", got.note
     ids = [o["sale_id"] for o in got.payload["orders"]]
@@ -116,8 +118,8 @@ def test_다른_실행의_확정_주문은_이번_실행의_수요가_아니다(
 
 def test_실행이_바뀌면_읽는_주문도_바뀐다(대역_DB):
     """같은 날 같은 품목이어도 축이 다르면 답이 갈린다 — 축이 조회에 실제로 걸렸다는 증거."""
-    mine = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=MINE)
-    other = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=OTHER)
+    mine = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=MINE)
+    other = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=OTHER)
 
     assert {o["sale_id"] for o in other.payload["orders"]} == {"S-OTHER-1", "S-OTHER-2"}
     assert mine.payload["total_kg"] != other.payload["total_kg"]
@@ -129,10 +131,10 @@ def test_실행이_바뀌면_읽는_주문도_바뀐다(대역_DB):
 @pytest.mark.parametrize(
     "fn",
     [
-        inputs.collect_inputs,
-        inputs.load_confirmed_orders,
-        inputs._orders_from_db,
-        service._inputs_for,
+        readmodel_inputs.collect_inputs,
+        readmodel_inputs.load_confirmed_orders,
+        readmodel_inputs._orders_from_db,
+        procurement._inputs_for,
     ],
     ids=lambda f: f.__name__,
 )
@@ -159,17 +161,19 @@ def test_collect_inputs_가_받은_축을_확정_주문에_넘긴다(monkeypatch
         seen.append(sim_run_id)
         return SourcedInput("confirmed_orders", None, "MISSING", "-", "")
 
-    monkeypatch.setattr(inputs, "load_confirmed_orders", load)
+    monkeypatch.setattr(readmodel_inputs, "load_confirmed_orders", load)
     monkeypatch.setattr(
-        inputs, "load_forecast", lambda *a, **k: SourcedInput("forecast", None, "MISSING", "-", "")
+        readmodel_inputs,
+        "load_forecast",
+        lambda *a, **k: SourcedInput("forecast", None, "MISSING", "-", ""),
     )
     monkeypatch.setattr(
-        inputs,
+        readmodel_inputs,
         "load_policy_values",
         lambda *a, **k: SourcedInput("policy_values", None, "MISSING", "-", ""),
     )
 
-    inputs.collect_inputs(ITEM, AS_OF, sim_run_id=MINE)
+    readmodel_inputs.collect_inputs(ITEM, AS_OF, sim_run_id=MINE)
 
     assert seen == [MINE]
 
@@ -177,8 +181,9 @@ def test_collect_inputs_가_받은_축을_확정_주문에_넘긴다(monkeypatch
 def test_run_procurement_이_봉투의_축으로_입력을_모은다(monkeypatch):
     """🔴 **요청이 준 축이 적재층까지 간다.** 번인 상수로 끊기면 걷기가 남의 판매를 읽는다."""
     from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-    from app.master import wiring
-    from app.master.schemas import ProcurementRunRequest
+    from app.master.registry import wiring as registry_wiring
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service import procurement
 
     seen: list[dict[str, Any]] = []
     missing = MasterInputs(
@@ -207,13 +212,13 @@ def test_run_procurement_이_봉투의_축으로_입력을_모은다(monkeypatch
             run_id=run_id, request_id=request.context.request_id, agent=request.agent
         )
 
-    monkeypatch.setattr("app.master.service.collect_inputs", collect)
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", collect)
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
-    wiring.reset()
+    registry_wiring.reset()
     for agent in ("finance", "inventory", "purchase"):
-        wiring.register(agent, port)
+        registry_wiring.register(agent, port)
 
-    service.run_procurement(
+    procurement.run_procurement(
         ProcurementRunRequest(
             as_of=date(2025, 12, 31),
             policy_version="v1.3",

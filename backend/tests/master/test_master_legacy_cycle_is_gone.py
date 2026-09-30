@@ -36,7 +36,21 @@ import app.master
 _GONE = frozenset({"cycle.py", "cycle_graph.py", "cycle_graph_b.py"})
 
 #: 🟢 **지우면 안 되는 것.** 앱이 부르는 자리가 있다 — 접두가 같을 뿐이다.
-_ALIVE = ("cycle_schemas.py", "cycle_persistence.py", "cycle_run_repository.py")
+#:
+#: ★ 2026-09-30 재구성 BL-018: 셋이 계층 폴더로 갔다 — `cycle_schemas.py` → `schemas/cycle.py`,
+#:   `cycle_persistence.py` → `service/cycle_persistence.py`, `cycle_run_repository.py` →
+#:   `repository/cycle_runs.py`(SQL) + `readmodel/cycle_runs.py`(조회 연결).
+_ALIVE = (
+    "schemas/cycle.py",
+    "service/cycle_persistence.py",
+    "repository/cycle_runs.py",
+    "readmodel/cycle_runs.py",
+)
+
+#: ★ 2026-09-30 재구성 BL-018: `schemas/cycle.py` 는 살아 있는 `cycle_schemas.py` 가 `schemas/`
+#:   폴더로 들어가며 접미를 뗀
+#:   이름이다 — 지운 오케스트레이터 `cycle.py` 와 이름만 같다. 되살아남으로 세지 않는다.
+_SAME_NAME_ALIVE = frozenset({"schemas/cycle.py"})
 
 #: 받침대가 옮겨 간 자리.
 _HARNESS = "tests/master/critic/cycle_harness.py"
@@ -47,8 +61,20 @@ _APP = _ROOT / "app"
 
 
 def _master_module_names(root: pathlib.Path) -> set[str]:
-    """`app/master/` 바로 밑의 파이썬 파일 이름."""
-    return {p.name for p in root.glob("*.py")}
+    """`app/master/` 아래 파이썬 파일의 상대 경로(`service/flow.py` 모양).
+
+    ★ 2026-09-30 재구성 BL-018: 전에는 바로 밑의 이름만 셌다. 이제 최상위에는 `router.py` 뿐이라
+      되살아난 파일은
+      계층 폴더 안에도 설 수 있다 — 폴더 전체를 센다.
+    """
+    return {
+        p.relative_to(root).as_posix() for p in root.rglob("*.py") if "__pycache__" not in p.parts
+    }
+
+
+def _returned(names: set[str]) -> set[str]:
+    """지운 이름으로 다시 선 파일. 살아 있는 동명 파일(`_SAME_NAME_ALIVE`)은 뺀다."""
+    return {n for n in names if n.rsplit("/", 1)[-1] in _GONE and n not in _SAME_NAME_ALIVE}
 
 
 # ── ① 지운 셋이 다시 생기지 않는다 ──────────────────────────────────────────
@@ -60,7 +86,7 @@ def test_옛_사이클_파일이_다시_생기지_않는다():
     다시 생기면 앱 폴더에 또 죽은 코드가 눕고, 다음 사람은 그것이 도는 줄 안다.
     같은 일이 필요해지면 픽스처(`cycle_harness.py`)를 고치는 것이 답이다.
     """
-    back = sorted(_master_module_names(_MASTER) & _GONE)
+    back = sorted(_returned(_master_module_names(_MASTER)))
 
     assert not back, (
         f"지운 사이클 파일이 `app/master/` 에 다시 있다: {back}. "
@@ -81,8 +107,8 @@ def test_스캐너가_마스터_파일을_실제로_센다():
     seen = _master_module_names(_MASTER)
 
     assert len(seen) > 10, f"마스터 파일을 {len(seen)}개밖에 못 봤다 — 스캐너가 폴더를 못 찾는다"
-    assert "flow.py" in seen, "마스터의 산 경로(flow.py)를 안 봤다"
-    assert "commitment.py" in seen, "승인 약정의 주인(commitment.py)을 안 봤다"
+    assert "service/flow.py" in seen, "마스터의 산 경로(service/flow.py)를 안 봤다"
+    assert "domain/commitment.py" in seen, "승인 약정의 주인(domain/commitment.py)을 안 봤다"
 
 
 def test_스캐너가_심어_둔_파일을_잡는다(tmp_path):
@@ -95,10 +121,18 @@ def test_스캐너가_심어_둔_파일을_잡는다(tmp_path):
     (tmp_path / "cycle_graph.py").write_text("# 되살아난 파일\n", encoding="utf-8")
     (tmp_path / "cycle_schemas.py").write_text("# 살아 있는 파일\n", encoding="utf-8")
     (tmp_path / "flow.py").write_text("# 산 경로\n", encoding="utf-8")
+    # ★ 2026-09-30 재구성 BL-018: 계층 폴더 안에 되살아난 것도 잡고, 살아 있는 동명 파일은 안
+    #   잡는다.
+    (tmp_path / "service").mkdir()
+    (tmp_path / "service" / "cycle.py").write_text("# 되살아난 파일\n", encoding="utf-8")
+    (tmp_path / "schemas").mkdir()
+    (tmp_path / "schemas" / "cycle.py").write_text("# 살아 있는 파일\n", encoding="utf-8")
 
-    caught = _master_module_names(tmp_path) & _GONE
+    caught = _returned(_master_module_names(tmp_path))
 
-    assert caught == {"cycle_graph.py"}, f"심어 둔 것만 잡혀야 한다: {sorted(caught)}"
+    assert caught == {"cycle_graph.py", "service/cycle.py"}, (
+        f"심어 둔 것만 잡혀야 한다: {sorted(caught)}"
+    )
 
 
 # ── ③ 접두가 같다고 같이 지우지 않는다 ──────────────────────────────────────

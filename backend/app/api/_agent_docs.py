@@ -317,6 +317,28 @@ rows = fetch_all(f'SELECT * FROM {{schema}}.{table} WHERE as_of = %s', (as_of,))
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 """
 
+#: 마스터 DB 안내 (2026-09-30 BL-018). `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 마스터
+#: 계층으로 — 조회 헬퍼 입구(`app.master.db`)는 없어졌다.
+MASTER_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
+## DB 는 이미 있는 것을 쓰세요
+
+마스터 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
+
+마스터는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/master/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/master/readmodel/` 입니다.
+
+```text
+app/master/repository/<자원>.py   SQL. 연결과 스키마 이름을 인자로 받고 commit 하지 않는다
+app/master/readmodel/<자원>.py    스키마 이름을 읽고 조회 연결을 빌려 repository 를 부른다
+```
+
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
+접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
+
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
+값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
+"""
+
 #: 판매 DB 안내. `sim_run_id` 절은 `DB_HELP` 와 같고, DB 절만 판매 계층 구조로 바꾼다.
 SALES_DB_HELP = DB_HELP.split("## DB 는 이미 있는 것을 쓰세요", 1)[0] + """\
 ## DB 는 이미 있는 것을 쓰세요
@@ -519,6 +541,7 @@ class Part(typing.NamedTuple):
     tables: str
     notes: str
     #: 판매처럼 `db_module` 의 조회 헬퍼가 없는 부서는 DB 안내를 따로 준다 (2026-09-29 BL-013).
+    #: 2026-09-30 BL-018 에 마스터 입구도 없어져 여섯 파트가 모두 따로 준다.
     db_help: str | None = None
 
 
@@ -526,7 +549,7 @@ PARTS = [
     Part(
         key="dashboard", owner="마스터", title="대시보드",
         route="/api/dashboard?as_of=2026-01-06", screen="/console",
-        db_module="app.master.db", table="daily_closings",
+        db_module="app.master.repository", table="daily_closings", db_help=MASTER_DB_HELP,
         model=DashboardTab,
         signature="def build(as_of: date) -> DashboardTab:",
         tables="""\
@@ -608,7 +631,7 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
     Part(
         key="purchase", owner="매입", title="매입",
         route="/api/purchase?as_of=2026-01-22", screen="/console/purchase",
-        db_module="app.master.db", table="purchases",
+        db_module="app.master.repository", table="purchases", db_help=MASTER_DB_HELP,
         model=PurchaseTab,
         signature="def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:",
         tables="""\
@@ -620,8 +643,8 @@ fc = get_forecast(item, as_of, "AUC")   # LookupError · RuntimeError 를 낸다
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
 🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
-(2026-09-29 — SQL 은 `app/master/purchase_tab_repository.py`, 조회 헬퍼는 마스터 입구
-`app.master.db`). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+(2026-09-30 — SQL 은 `app/master/repository/purchase_tab.py`, 조회 연결은 그 readmodel 이
+빌린다). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
 안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
 스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.

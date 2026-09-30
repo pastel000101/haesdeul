@@ -21,7 +21,7 @@ from decimal import Decimal
 from app.finance.domain.collections import build_collection_transition
 from app.finance.domain.tools import calculate_available_credit, summarize_partner_receivables
 from app.finance.schemas.sales_validation import PartnerReceivable
-from app.master.collection_seed import seed_collection_events
+from app.master.repository.collection_seed import seed_collection_events
 
 SIM = "SIM-7DAY-CHAIN"
 LIMIT = Decimal(10_000_000)

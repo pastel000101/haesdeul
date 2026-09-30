@@ -18,9 +18,10 @@ from typing import Any
 
 import pytest
 
-from app.master import market_calendar
-from app.master.execution_day import CalendarNotCovered
-from app.master.market_calendar import MlMarketDays
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.readmodel import market_calendar as readmodel_market_calendar
+from app.master.readmodel.market_calendar import MlMarketDays
+from tests.fake_core_db import patch_sql_helpers
 
 _설날 = date(2026, 2, 16)  # 월요일 · 공휴일인데 장이 선다
 _평일휴장 = date(2026, 1, 2)  # 금요일 · 공휴일이 아닌데 장이 안 선다
@@ -126,11 +127,11 @@ def _잡은_질의(monkeypatch: pytest.MonkeyPatch) -> str:
     """조회를 가로채 **원문만** 본다. DB 는 안 부른다."""
     잡은질의: list[Any] = []
 
-    monkeypatch.setattr(market_calendar, "get_db_schema", lambda: "haetdeul")
-    monkeypatch.setattr(
-        market_calendar,
-        "fetch_all",
-        lambda query: (잡은질의.append(query), [])[1],
+    monkeypatch.setattr(readmodel_market_calendar, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(
+        monkeypatch,
+        readmodel_market_calendar,
+        fetch_all=lambda query: (잡은질의.append(query), [])[1],
     )
 
     with pytest.raises(CalendarNotCovered):  # 빈 결과 — 질의만 보면 된다
@@ -162,26 +163,29 @@ def test_조회가_판정에_안_쓰는_칸을_가져오지_않는다(monkeypatc
 
 def test_두_모듈이_같은_표_이름을_쓴다():
     """★ ML 이 표 이름을 바꾸면 **한 자리만** 고치면 된다."""
-    from app.master import holiday_calendar
+    from app.master.readmodel import holiday_calendar as readmodel_holiday_calendar
 
-    assert market_calendar.TABLE is holiday_calendar.TABLE
+    assert readmodel_holiday_calendar.TABLE is readmodel_holiday_calendar.TABLE
 
 
 # ── ④ 프로세스 하나에 달력 하나 ───────────────────────────────────────────
 
 
 def test_get_market_calendar_는_같은_것을_돌려준다():
-    market_calendar.reset()
+    readmodel_market_calendar.reset()
     try:
-        assert market_calendar.get_market_calendar() is market_calendar.get_market_calendar()
+        assert (
+            readmodel_market_calendar.get_market_calendar()
+            is readmodel_market_calendar.get_market_calendar()
+        )
     finally:
-        market_calendar.reset()
+        readmodel_market_calendar.reset()
 
 
 def test_만드는_것은_안_터진다():
     """★ 표를 읽는 것은 첫 `is_market_open` 때다 — 문 앞에서 터지면 판단이 멈춘다."""
-    market_calendar.reset()
+    readmodel_market_calendar.reset()
     try:
-        market_calendar.get_market_calendar()  # 예외가 안 나야 한다
+        readmodel_market_calendar.get_market_calendar()  # 예외가 안 나야 한다
     finally:
-        market_calendar.reset()
+        readmodel_market_calendar.reset()

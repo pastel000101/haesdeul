@@ -16,7 +16,9 @@ from __future__ import annotations
 import json
 from datetime import date
 
-from app.master.answer import facts_from_status
+from app.master.domain.answer import facts_from_status
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
 from app.master.llm.runtime import (
     SYSTEM_PROMPT,
     IntentService,
@@ -25,8 +27,6 @@ from app.master.llm.runtime import (
     _known_gap,
 )
 from app.master.llm.schemas import Intent
-from app.master.plan import ExecutionPlan
-from app.master.status_flow import StatusOutcome
 
 _UNKNOWN = Intent(action="UNKNOWN", confidence="HIGH")
 

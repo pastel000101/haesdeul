@@ -36,9 +36,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.contracts.parts import InboundPartOut
-from app.master import inbound
-from app.master.day_gate import DayGate
-from app.master.inbound import receive_arrivals
+from app.master.registry import inbound as registry_inbound
+from app.master.schemas.day_gate import DayGate
+from app.master.service import inbound as service_inbound
+from app.master.service.inbound import receive_arrivals
 
 AS_OF = date(2026, 1, 7)
 
@@ -69,12 +70,12 @@ class _가짜커넥션:
 
 @pytest.fixture(autouse=True)
 def _빈_등록소() -> Any:
-    before = dict(inbound.registered())
-    inbound.reset()
+    before = dict(registry_inbound.registered())
+    registry_inbound.reset()
     yield
-    inbound.reset()
+    registry_inbound.reset()
     for part, impl in before.items():
-        inbound.register_inbound(part, impl)
+        registry_inbound.register_inbound(part, impl)
 
 
 def _막힌_Gate(as_of: date, *, borrow: Any = None, sim_run_id: str = "") -> DayGate:
@@ -120,9 +121,15 @@ def test_판단_경로가_입고를_부작용으로_돌리지_않는다() -> Non
     import ast
     import inspect as _inspect
 
-    from app.master import service
+    # ★ 2026-09-30 재구성 BL-018: 판단 경로가 매입(`service/procurement.py`) ·
+    #   판매(`service/sales.py`)
+    #   둘로 갈렸다 — 둘을 한 트리로 잇어 잰다.
+    from app.master.service import procurement, sales
 
-    tree = ast.parse(_inspect.getsource(service))
+    tree = ast.Module(
+        body=[n for m in (procurement, sales) for n in ast.parse(_inspect.getsource(m)).body],
+        type_ignores=[],
+    )
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
         for node in ast.walk(tree)
@@ -140,9 +147,9 @@ def test_판단_경로가_입고를_부작용으로_돌리지_않는다() -> Non
 
 def test_안_열린_날은_받지_않는다(monkeypatch: pytest.MonkeyPatch) -> None:
     """★ 전에는 docstring 에 *"open_day 다음이다"* 라고만 적혀 있었다."""
-    monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
+    monkeypatch.setattr(service_inbound, "check_day_gate", _막힌_Gate)
     물류 = _물류()
-    inbound.register_inbound("logistics", 물류)
+    registry_inbound.register_inbound("logistics", 물류)
 
     out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
@@ -152,8 +159,8 @@ def test_안_열린_날은_받지_않는다(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_안_열린_것과_받을_게_없는_것을_가른다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 **접으면 *"어제 개장을 안 돌렸다"* 가 *"오늘은 올 게 없었다"* 로 나간다.**"""
-    monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
-    inbound.register_inbound("logistics", _물류())
+    monkeypatch.setattr(service_inbound, "check_day_gate", _막힌_Gate)
+    registry_inbound.register_inbound("logistics", _물류())
 
     out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
@@ -165,8 +172,8 @@ def test_안_열린_것과_받을_게_없는_것을_가른다(monkeypatch: pytes
 
 def test_다음에_할_일을_해석하지_않고_옮긴다(monkeypatch: pytest.MonkeyPatch) -> None:
     """★ 무엇을 해야 하는지는 **개장이 아는 사실**이다. 입고가 다시 판정하면 주인이 둘이 된다."""
-    monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
-    inbound.register_inbound("logistics", _물류())
+    monkeypatch.setattr(service_inbound, "check_day_gate", _막힌_Gate)
+    registry_inbound.register_inbound("logistics", _물류())
 
     out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
@@ -177,14 +184,14 @@ def test_다음에_할_일을_해석하지_않고_옮긴다(monkeypatch: pytest.
 def test_열린_날은_평소대로_받는다(monkeypatch: pytest.MonkeyPatch) -> None:
     """⚠️ Gate 가 통과를 막으면 안 된다 — 미등록도 PASS 다 (`day_gate` 계약)."""
     monkeypatch.setattr(
-        inbound,
+        service_inbound,
         "check_day_gate",
         lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
         ),
     )
     물류 = _물류(InboundPartOut(part="logistics", status="RECEIVED", received=["INB-A-1"]))
-    inbound.register_inbound("logistics", 물류)
+    registry_inbound.register_inbound("logistics", 물류)
 
     out = receive_arrivals(AS_OF, borrow=_가짜커넥션, sim_run_id=축)
 
@@ -201,7 +208,7 @@ def test_입고가_하루를_열지_않는다(monkeypatch: pytest.MonkeyPatch) -
     import ast
     import inspect as _inspect
 
-    src = _inspect.getsource(inbound.receive_arrivals)
+    src = _inspect.getsource(service_inbound.receive_arrivals)
     tree = ast.parse(src.lstrip())
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
@@ -225,14 +232,14 @@ def test_토요일에도_받는다(monkeypatch: pytest.MonkeyPatch) -> None:
     ```
     """
     monkeypatch.setattr(
-        inbound,
+        service_inbound,
         "check_day_gate",
         lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
     물류 = _물류(InboundPartOut(part="logistics", status="RECEIVED", received=["INB-SAT-1"]))
-    inbound.register_inbound("logistics", 물류)
+    registry_inbound.register_inbound("logistics", 물류)
 
     out = receive_arrivals(토요일, borrow=_가짜커넥션, sim_run_id=축)
 
@@ -242,8 +249,8 @@ def test_토요일에도_받는다(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_엔드포인트가_실패도_200_으로_낸다(monkeypatch: pytest.MonkeyPatch) -> None:
     """★ `/days/{as_of}/open` 과 같은 태도 — 막힌 것은 오류가 아니라 **그날의 사실**이다."""
-    monkeypatch.setattr(inbound, "check_day_gate", _막힌_Gate)
-    inbound.register_inbound("logistics", _물류())
+    monkeypatch.setattr(service_inbound, "check_day_gate", _막힌_Gate)
+    registry_inbound.register_inbound("logistics", _물류())
 
     import app.main
 

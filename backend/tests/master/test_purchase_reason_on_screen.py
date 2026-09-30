@@ -36,8 +36,8 @@ import unicodedata
 
 import pytest
 
-from app.master.answer import facts_from_procurement, render_answer
-from app.master.schemas import ProcurementRunResponse
+from app.master.domain.answer import facts_from_procurement, render_answer
+from app.master.schemas.procurement import ProcurementRunResponse
 
 #: 자리표시자 둘. **매입의 실제 문장처럼 생기지 않게 둔다** — 여기 적힌 글자는
 #: 아무 뜻이 없고, 아무 뜻이 없어도 화면에 올라가야 한다는 것이 이 파일의 주장이다.

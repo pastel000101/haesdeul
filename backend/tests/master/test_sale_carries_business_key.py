@@ -57,7 +57,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from app.master import sales_approval
+from app.master.service import sales_approval as service_sales_approval
 from app.sales.domain.sale_ledger import sale_id_for
 
 #: 마스터 업무 키. 🔴 **`scheduler.daily_sales_request_id` 가 짓는 모양 그대로다** —
@@ -153,7 +153,7 @@ def _scenario() -> dict[str, Any]:
 
 
 def _확정(대역: 확정_대역, *, request_id: str = 업무키):
-    return sales_approval.confirm_approved_sale(
+    return service_sales_approval.confirm_approved_sale(
         request_id=request_id,
         run_id=str(RUN_UUID),
         as_of=원_실행일,

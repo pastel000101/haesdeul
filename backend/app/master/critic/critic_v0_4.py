@@ -70,7 +70,6 @@ from app.contracts.core import (
     T0Snapshot,
     T2Reply,
 )
-from app.master.band import check_occupancy_detailed, detect_collapse_type
 from app.master.critic.critic import (
     EvidenceResolver,
     RationaleJudge,
@@ -88,6 +87,7 @@ from app.master.critic.critic import (
 from app.master.critic.critic import (
     run_l4 as _run_llm_rationale,
 )
+from app.master.domain.band import check_occupancy_detailed, detect_collapse_type
 
 EPS = 1e-6
 

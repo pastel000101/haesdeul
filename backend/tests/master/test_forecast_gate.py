@@ -15,12 +15,9 @@ from typing import Any
 
 import pytest
 
-from app.master import forecast_gate as gate_mod
-from app.master.forecast_gate import (
-    check_forecast_gate,
-    day_forecast_readiness,
-)
-from app.master.inputs import SourcedInput
+from app.master.readmodel import forecast_gate
+from app.master.readmodel.forecast_gate import check_forecast_gate, day_forecast_readiness
+from app.master.schemas.inputs import SourcedInput
 
 AS_OF = date(2026, 9, 8)
 
@@ -132,7 +129,7 @@ def test_게이트는_load_forecast_를_그대로_부른다(monkeypatch):
         불린.append((item, as_of))
         return _measured(item)
 
-    monkeypatch.setattr(gate_mod, "load_forecast", 감시)
+    monkeypatch.setattr(forecast_gate, "load_forecast", 감시)
     # ★ 기본 인자는 import 시점에 굳으므로 기본값도 같이 갈아 끼운다.
     monkeypatch.setattr(
         check_forecast_gate, "__kwdefaults__", {**check_forecast_gate.__kwdefaults__, "load": 감시}
@@ -148,7 +145,7 @@ def test_게이트가_DB_를_직접_안_짚는다():
     """★ 소스에 조회가 없다 — 새 쿼리를 짜는 순간 여기서 운다."""
     from pathlib import Path
 
-    source = Path(gate_mod.__file__).read_text(encoding="utf-8")
+    source = Path(forecast_gate.__file__).read_text(encoding="utf-8")
     코드 = "\n".join(
         줄 for 줄 in source.splitlines() if not 줄.lstrip().startswith(("#", "*", "```"))
     )

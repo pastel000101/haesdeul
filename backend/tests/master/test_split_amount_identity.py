@@ -31,7 +31,7 @@ import pytest
 
 from app.contracts.core import Band, MinimalScenario, SourcingLot, SplitLeg
 from app.contracts.rules import check_triple_identity
-from app.master.band import clip_scenario
+from app.master.domain.band import clip_scenario
 
 AS_OF = date(2025, 12, 31)
 D2 = AS_OF + timedelta(days=2)

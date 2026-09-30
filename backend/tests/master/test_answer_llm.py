@@ -18,10 +18,10 @@ from datetime import date
 
 import pytest
 
-from app.master.answer import facts_from_status, render_answer
+from app.master.domain.answer import facts_from_status, render_answer
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
 from app.master.llm.answer_runtime import get_narrative_service
-from app.master.plan import ExecutionPlan
-from app.master.status_flow import StatusOutcome
 
 pytestmark = pytest.mark.llm
 

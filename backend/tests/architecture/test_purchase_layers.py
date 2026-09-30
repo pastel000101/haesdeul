@@ -102,7 +102,8 @@ def _resolved_calls(path: Path, function: str) -> set[tuple[str, str]]:
 
 
 def test_only_the_master_bootstrap_imports_the_purchase_adapter():
-    assert _importers_of(f"{_PKG}.adapter") == ["app.master.bootstrap"]
+    # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `app.master.registry.bootstrap` 이다.
+    assert _importers_of(f"{_PKG}.adapter") == ["app.master.registry.bootstrap"]
 
 
 @pytest.mark.parametrize(

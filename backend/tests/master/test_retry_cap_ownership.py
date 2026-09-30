@@ -27,7 +27,7 @@ from pathlib import Path
 import yaml
 
 import app.master
-from app.master.flow import MAX_PURCHASE_ATTEMPTS
+from app.master.service.flow import MAX_PURCHASE_ATTEMPTS
 from app.purchase_agent.config import CONSTRAINTS_PATH, load_constraints
 
 _MASTER_DIR = Path(app.master.__file__).parent
@@ -85,7 +85,8 @@ def test_서명_기본값이_리터럴이_아니라_상수다():
     서명에 리터럴 `2` 를 남기면 `MAX_PURCHASE_ATTEMPTS` 를 바꿔도 기본값이 안 따라오고,
     **소유자를 선언한 의미가 사라진다.**
     """
-    source = (_MASTER_DIR / "flow.py").read_text(encoding="utf-8")
+    # ★ 2026-09-30 재구성 BL-018: 매입 Flow 는 `service/flow.py` 다.
+    source = (_MASTER_DIR / "service" / "flow.py").read_text(encoding="utf-8")
     assert "max_purchase_attempts: int = MAX_PURCHASE_ATTEMPTS," in source
 
 
@@ -124,7 +125,8 @@ def test_마스터는_매입_설정을_런타임에_안_읽는다():
       그 경우를 막는 것은 이 테스트가 아니라 리뷰다.
     """
     offenders: list[str] = []
-    for path in sorted(_MASTER_DIR.glob("*.py")):
+    # ★ 2026-09-30 재구성 BL-018: 마스터가 계층 폴더로 갈라졌다 — 폴더 안까지 훑는다.
+    for path in sorted(_MASTER_DIR.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
 
         imported = any(
@@ -138,7 +140,7 @@ def test_마스터는_매입_설정을_런타임에_안_읽는다():
         reads_yaml = any("constraints.yaml" in text for text in _code_strings(tree))
 
         if imported or reads_yaml:
-            offenders.append(path.name)
+            offenders.append(path.relative_to(_MASTER_DIR).as_posix())
 
     assert not offenders, f"마스터가 매입 설정을 읽는다: {offenders}"
 

@@ -29,11 +29,11 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from app.master import critic_bridge as bridge
+from app.master.adapters import critic_bridge
 from app.master.critic.service import _to_scenario
-from app.master.cycle_schemas import SplitLegIn
-from app.master.plan import ExecutionPlan
-from app.master.verifier import MasterVerifier, VerificationContext
+from app.master.domain.plan import ExecutionPlan
+from app.master.schemas.cycle import SplitLegIn
+from app.master.service.verifier import MasterVerifier, VerificationContext
 from tests.master.test_critic_bridge import CONSTRAINTS, EVIDENCES, _proposal, _scenario
 
 AS_OF = date(2025, 12, 31)
@@ -76,7 +76,7 @@ def _verify(amount: int | None):
 
 def _legs_at_critic(amount: int | None):
     """매입 payload → 통로 셋 → `SplitLeg`. **세 파일을 다 지난 뒤의 값**이다."""
-    request = bridge.build_request(
+    request = critic_bridge.build_request(
         as_of=AS_OF,
         item=ITEM,
         proposal=_proposal_with(amount),
@@ -166,14 +166,14 @@ def test_스칼라를_실행_품목으로_이름표_붙여_옮긴다():
     ★ 창작이 아니다 - 실행 하나가 품목 하나라 **키가 하나뿐**이고 값은 매입이 보낸
       그대로다. 품목이 바뀌면 키도 따라 바뀌어야 한다.
     """
-    legs = bridge._split_legs({"split_plan": _split(WRONG_AMOUNT_KRW)}, "무", AS_OF, lead=2)
+    legs = critic_bridge._split_legs({"split_plan": _split(WRONG_AMOUNT_KRW)}, "무", AS_OF, lead=2)
 
     assert legs[0]["amount_krw"] == {"무": float(WRONG_AMOUNT_KRW)}
     assert legs[0]["qty_kg"] == {"무": float(TOTAL_QTY_KG)}
 
 
 def test_금액이_없으면_이름표도_안_붙인다():
-    legs = bridge._split_legs({"split_plan": _split(None)}, ITEM, AS_OF, lead=2)
+    legs = critic_bridge._split_legs({"split_plan": _split(None)}, ITEM, AS_OF, lead=2)
 
     assert legs[0]["amount_krw"] is None
 

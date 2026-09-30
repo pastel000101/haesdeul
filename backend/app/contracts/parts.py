@@ -4,11 +4,11 @@ parts.py — 하루 단계 **파트 결과** 계약
 마스터의 하루 단계(입고 · 마감 · 수금 · 채권 발행)는 등록소에 꽂힌 파트 구현을 부르고,
 파트는 이 모양으로 결과를 돌려준다. 마스터가 그것을 모아 단계 결과(`*Out`)를 만든다.
 
-  단계        등록소 Protocol (마스터)                    파트 결과 (여기)
-  입고        `app.master.inbound.InboundExecution`       `InboundPartOut`
-  마감        `app.master.closing.ClosingPort`            `ClosingPartOut`
-  수금        `app.master.collection.CollectionSource`    `CollectionPartOut`
-  채권 발행   `app.master.receivable.ReceivableSource`    `ReceivablePartOut`
+  단계        등록소 Protocol (마스터)                             파트 결과 (여기)
+  입고        `app.master.registry.inbound.InboundExecution`       `InboundPartOut`
+  마감        `app.master.registry.closing.ClosingPort`            `ClosingPartOut`
+  수금        `app.master.registry.collection.CollectionSource`    `CollectionPartOut`
+  채권 발행   `app.master.registry.receivable.ReceivableSource`    `ReceivablePartOut`
 
 🟢 **자리: `app/contracts/parts.py`** (2026-09-29 재구성 BL-011 — 전에는 각 단계 모듈 안에
   있었다). 부서 구현이 결과 타입을 만들려고 마스터 단계 모듈을 import 하던 역방향 의존을

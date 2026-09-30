@@ -467,18 +467,18 @@ def test_finance_dept_meta_reaches_critic_and_runs_both_checks(wired):
       연결과 무관한 이유로 깨진 것이다. Controller · Tool · Evidence · DeptMeta ·
       마스터 운반 · Critic 은 **전부 실제로** 돈다.
     """
-    from app.master import critic_bridge as bridge
-    from app.master import wiring
-    from app.master.budget import CallBudget
+    from app.master.adapters import critic_bridge
     from app.master.critic.service import run_critic_procurement
-    from app.master.runner import MasterRunner
+    from app.master.registry import wiring as registry_wiring
+    from app.master.service.budget import CallBudget
+    from app.master.service.runner import MasterRunner
     from tests.master.test_critic_bridge import CONSTRAINTS, EVIDENCES, _proposal
 
     # 전역 레지스트리를 빌려 쓰고 **원래대로 돌려놓는다** — 뒤에 도는 테스트가
     # 우리가 남긴 배선을 물려받으면 실패 원인이 여기라는 것을 아무도 못 찾는다.
-    saved_registry = wiring.registry()
-    wiring.reset()
-    wiring.register("finance", adapter.finance_port)
+    saved_registry = registry_wiring.registry()
+    registry_wiring.reset()
+    registry_wiring.register("finance", adapter.finance_port)
     context = ExecutionContext(
         request_id="REQ-DEPTMETA-E2E",
         as_of=AS_OF,
@@ -487,18 +487,18 @@ def test_finance_dept_meta_reaches_critic_and_runs_both_checks(wired):
         sim_run_id="SIM-TEST-RUN",
     )
     try:
-        runner = MasterRunner(context, wiring.registry(), CallBudget())
+        runner = MasterRunner(context, registry_wiring.registry(), CallBudget())
         with patch("app.finance.service.run_history.save_finance_execution"):
             reply = runner.call("finance", "PRE_PURCHASE")
     finally:
-        wiring._REGISTRY = saved_registry
+        registry_wiring._REGISTRY = saved_registry
     assert reply.runtime_status == "READY"
 
     # 마스터는 부서 관측을 **해석하지 않고** 실행계획에 담아 나른다.
     step = runner.plan.last("finance", "PRE_PURCHASE")
     assert step is not None and step.observations
 
-    request = bridge.build_request(
+    request = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),

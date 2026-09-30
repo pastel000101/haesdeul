@@ -1,8 +1,10 @@
 """부서 `db.py` 입구 — 풀 전환 뒤에도 **부서마다 다른 동작**이 그대로인지 (실 DB 연결 없음).
 
 ```text
-마스터         조회는 서비스 풀의 조회 연결 · RETURNING 쓰기는 한 호출 = 한 트랜잭션
-               (마스터 입구 `master/db.py` 는 2026-09-29 재구성 BL-014 전에 `finance/db.py` 였다)
+마스터         입구 `master/db.py` 가 없다 (2026-09-30 재구성 BL-018) — 조회는 readmodel 이
+               조회 연결을, 실행 이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
+               repository 에 넘긴다 (아래 마스터 절. 그 입구는 2026-09-29 BL-014 전에
+               `finance/db.py` 였다)
 재무           입구 `finance/db.py` 가 없다 (2026-09-29 재구성 BL-014) — 조회는 readmodel 이
                조회 연결을, 실행이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
                repository 에 넘긴다 (아래 재무 절)
@@ -36,70 +38,95 @@ import pytest
 from fake_pg_connection import FakeCursor, FakePgConnection
 from psycopg.rows import dict_row
 
-import app.master.db as master_db
 from app.core import db as core_db
 from app.core import settings
 from app.logistics.repository import rows as logistics_rows
 
-READ_MODULES = [master_db]
-WRITE_MODULES = [master_db]
+# ── 마스터 — 입구 대신 계층이 빌린다 (2026-09-30 재구성 BL-018) ─────────────────────────
+#
+# 옛 `master/db.py` 입구(`fetch_one` · `fetch_all` · `execute_returning_one`)에서 재던 것 — 조회는
+# 조회
+# 연결을 빌려 돌려주고 commit 하지 않는다 · 실패 뒤에도 연결을 돌려주고 오류를 그대로 올린다 ·
+# RETURNING 쓰기는 남의 연결에 얹히지 않는 한 트랜잭션이다 · 행이 없으면 종전 문구로 되돌린다 ·
+# 쓰기 실패는 되돌린다 — 를 그 일을 맡은 마스터 readmodel(실행 이력 조회) · service(실행 이력
+# 저장)에서 같은 진짜 풀로 잰다. 입구가 되내보내던 `get_db_schema` 는 없다 — 스키마 이름이 실제
+# SQL 에 실리는지를 조회 검사에서 본다.
 
 
-@pytest.mark.parametrize("module", READ_MODULES, ids=lambda m: m.__name__)
-def test_reads_borrow_a_read_connection_from_the_shared_pool_and_return_it(
-    module, service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+def _read_master_runs() -> object:
+    from app.master.readmodel.runs import list_runs
+
+    return list_runs(limit=1)
+
+
+def _read_master_latest_run() -> object:
+    from app.master.readmodel.runs import get_run_by_request_id
+
+    return get_run_by_request_id("REQ-20260105-0001", cycle="PROCUREMENT")
+
+
+def _save_master_run() -> object:
+    from app.master.service.run_history import save_run
+
+    return save_run(
+        cycle="PROCUREMENT", as_of=date(2026, 1, 5), request_payload={}, response_payload={}
+    )
+
+
+def test_master_reads_borrow_a_read_connection_from_the_shared_pool_and_return_it(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     fake_pg.one = {"a": 1}
     fake_pg.rows = [{"a": 1}]
 
-    assert module.fetch_all("SELECT", (1,)) == [{"a": 1}]
-    assert module.fetch_one("SELECT", (2,)) == {"a": 1}
+    assert _read_master_runs() == [{"a": 1}]
+    assert _read_master_latest_run() == {"a": 1}
 
     (conn,) = fake_pg.made  # 두 조회가 한 연결을 다시 썼다
-    assert conn.executed == [("SELECT", (1,)), ("SELECT", (2,))]
+    assert len(conn.executed) == 2
+    for query, _params in conn.executed:  # 스키마 이름은 DB_SCHEMA 에서
+        assert "haetdeul_test" in query.as_string(None)
     assert "commit" not in conn.events  # 조회는 트랜잭션을 열지 않는다
     assert conn.autocommit is False  # 돌려받은 연결은 쓰기용으로 되돌려져 있다
 
 
-@pytest.mark.parametrize("module", READ_MODULES, ids=lambda m: m.__name__)
-def test_a_failed_read_returns_the_connection_and_keeps_the_error(
-    module, service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+def test_master_failed_read_returns_the_connection_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     with core_db.connection() as warm:
         warm.fail_on_execute = psycopg.errors.UndefinedTable("no table")
 
     with pytest.raises(psycopg.errors.UndefinedTable):
-        module.fetch_all("SELECT")
+        _read_master_runs()
 
     (conn,) = fake_pg.made
     conn.fail_on_execute = None
-    assert module.fetch_all("SELECT") == []  # 다음 조회가 같은 연결로 멀쩡히 돈다
+    assert _read_master_runs() == []  # 다음 조회가 같은 연결로 멀쩡히 돈다
 
 
-@pytest.mark.parametrize("module", WRITE_MODULES, ids=lambda m: m.__name__)
-def test_returning_write_is_one_transaction_on_its_own_connection(
-    module, service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+def test_master_run_history_write_is_one_transaction_on_its_own_connection(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     """쓰기는 남이 쥔 연결에 얹히지 않는다 — 얹히면 커밋 시점이 바뀐다."""
-    fake_pg.one = {"id": "X"}
+    fake_pg.one = {"run_id": "X"}
 
     with core_db.connection() as held:
         _ = held.cursor().execute("SELECT held")
-        assert module.execute_returning_one("INSERT", ("v",)) == {"id": "X"}
+        assert _save_master_run() == {"run_id": "X"}
 
     write = next(c for c in fake_pg.made if c is not held)
-    assert write.executed == [("INSERT", ("v",))]
+    assert len(write.executed) == 1
+    assert "INSERT INTO" in write.executed[0][0].as_string(None)
     assert write.events[-1] == "commit"
     assert "commit" not in held.events
 
 
-@pytest.mark.parametrize("module", WRITE_MODULES, ids=lambda m: m.__name__)
-def test_returning_write_without_a_row_rolls_back(
-    module, service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+def test_master_run_history_write_without_a_row_rolls_back(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     """RETURNING 행이 없으면 종전 문구로 멈추고, 그 예외로 쓰기가 rollback 된다."""
     with pytest.raises(RuntimeError) as raised:
-        module.execute_returning_one("INSERT")
+        _save_master_run()
 
     assert str(raised.value) == "Database write did not return a row"
     (conn,) = fake_pg.made
@@ -107,15 +134,14 @@ def test_returning_write_without_a_row_rolls_back(
     assert "commit" not in conn.events
 
 
-@pytest.mark.parametrize("module", WRITE_MODULES, ids=lambda m: m.__name__)
-def test_returning_write_failure_rolls_back_and_keeps_the_error(
-    module, service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+def test_master_run_history_write_failure_rolls_back_and_keeps_the_error(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     with core_db.connection() as warm:
         warm.fail_on_execute = psycopg.errors.UniqueViolation("dup")
 
     with pytest.raises(psycopg.errors.UniqueViolation):
-        module.execute_returning_one("INSERT")
+        _save_master_run()
 
     (conn,) = fake_pg.made
     assert conn.events[-1] == "rollback"
@@ -126,26 +152,29 @@ def test_every_department_shares_the_one_service_pool(
     service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     """같은 접속 대상 · 같은 계정이라 부서별 풀을 따로 만들지 않는다."""
-    for module in READ_MODULES:
-        module.fetch_all("Q")
+    _read_master_runs()  # 마스터 실행 이력 조회 (2026-09-30 BL-018 전에는 `master/db.py` 입구)
     _read_quotes()  # 매입 시세 조회 (2026-09-29 BL-016 전에는 `purchase_agent/db.py` 입구)
     _read_logistics_runs()  # 물류 실행이력 조회 (2026-09-30 BL-015 전에는 `logistics/db.py` 입구)
 
     assert len(fake_pg.connects) == 1
 
 
-@pytest.mark.parametrize("module", READ_MODULES, ids=lambda m: m.__name__)
 def test_missing_env_message_is_unchanged(
-    module, monkeypatch: pytest.MonkeyPatch, fake_pg: type[FakePgConnection]
+    monkeypatch: pytest.MonkeyPatch, fake_pg: type[FakePgConnection]
 ) -> None:
-    """기준선 실패 21건의 원인 문구가 이것이다 — 바뀌면 원인 대조가 깨진다."""
+    """기준선 실패 21건의 원인 문구가 이것이다 — 바뀌면 원인 대조가 깨진다.
+
+    ★ 2026-09-30 재구성 BL-018: 마스터 실행 이력 조회로 잰다. 그 조회는 종전 입구처럼 스키마
+      이름을 먼저 읽으므로(문장 짓기 → 연결 대여) 스키마 이름은 주고 접속 정보만 뺀다.
+    """
     for key in settings.DB_CONNECTION_ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("DB_SCHEMA", "haetdeul_test")
     pool = core_db.DatabasePool("t-missing", settings.database_settings, connection_class=fake_pg)
     monkeypatch.setattr(core_db, "SERVICE_POOL", pool)
 
     with pytest.raises(RuntimeError) as raised:
-        module.fetch_all("Q")
+        _read_master_runs()
 
     assert str(raised.value) == (
         "Missing required database environment variables: "
@@ -153,11 +182,11 @@ def test_missing_env_message_is_unchanged(
     )
 
 
-@pytest.mark.parametrize(
-    "module", [master_db, logistics_rows], ids=lambda m: m.__name__
-)
-def test_schema_comes_from_db_schema(module, db_env: dict[str, str]) -> None:
-    assert module.get_db_schema() == "haetdeul_test"
+def test_schema_comes_from_db_schema(db_env: dict[str, str]) -> None:
+    """★ 2026-09-30 재구성 BL-018: 마스터 입구의 재수출(`master_db.get_db_schema`)은 없앴다 —
+    마스터는 `app.core.settings.get_db_schema` 를 직접 읽고, 그 이름이 SQL 에 실리는지는 위 마스터
+    조회 검사가 잰다. 물류는 자기 한 번 적재 입구(`logistics_rows.get_db_schema`)가 그대로다."""
+    assert logistics_rows.get_db_schema() == "haetdeul_test"
 
 
 def test_logistics_still_loads_env_once_while_the_shared_loader_reads_every_call(
@@ -186,12 +215,19 @@ def test_the_pool_reads_connection_settings_once_not_per_borrow(
     monkeypatch: pytest.MonkeyPatch,
     service_pool: core_db.DatabasePool,
 ) -> None:
-    """종전에는 연결마다 `.env` 를 읽었다(물류는 대시보드 한 번에 550회). 이제 풀을 열 때 한 번."""
+    """종전에는 연결마다 `.env` 를 읽었다(물류는 대시보드 한 번에 550회). 이제 풀을 열 때 한 번.
+
+    ★ 2026-09-30 재구성 BL-018: 마스터는 입구 대신 실행 이력 조회로 잰다. 그 조회가 문장을 지으며
+      스키마 이름을 읽는
+      적재(호출마다 — 공용 적재의 기본)는 이 검사가 재는 것이 아니라 고정값으로 준다 — 종전 입구
+      검사도 문장 없이 `"Q"` 를 넘겨 스키마를 안 읽었다.
+    """
     loads: list[object] = []
     monkeypatch.setattr(settings, "load_dotenv", lambda path: loads.append(path))
+    monkeypatch.setattr("app.master.readmodel.runs.get_db_schema", lambda: "haetdeul_test")
 
     for _ in range(3):
-        master_db.fetch_all("Q")
+        _read_master_runs()
         _read_logistics_runs()
 
     # 접속 정보 1 + 풀 크기 1 — 대여마다 늘지 않는다
@@ -261,11 +297,11 @@ def test_ml_service_read_borrows_one_read_connection_from_the_shared_pool(
     from app.ml.readmodel import qa_reads
 
     fake_pg.one = {"base_dt": date(2026, 9, 14)}
-    master_db.fetch_all("Q")
+    _read_master_runs()
 
     assert qa_reads.latest_base_date(date(2026, 9, 15)) == date(2026, 9, 14)
 
-    assert len(fake_pg.connects) == 1  # 마스터 입구와 같은 풀 · 같은 연결
+    assert len(fake_pg.connects) == 1  # 마스터 조회와 같은 풀 · 같은 연결
     (conn,) = fake_pg.made
     query, params = conn.executed[-1]
     assert "haetdeul_test.ml_price_forecasts" in query  # 스키마 이름은 DB_SCHEMA 에서
@@ -585,7 +621,8 @@ def test_purchase_borrows_only_read_connections() -> None:
 # 옛 `finance/db.py` 입구에서 재던 것 — 조회는 조회 연결을 빌려 돌려주고 commit 하지 않는다 ·
 # 쓰기는 남의 연결에 얹히지 않는 한 트랜잭션이다 · 행이 없으면 되돌린다 — 을 그 일을 맡은 재무
 # readmodel · service 에서 같은 진짜 풀로 잰다. 헬퍼 몸통은 마스터 입구(`app/master/db.py`)로
-# 옮겨 위 입구 검사가 그대로 잰다.
+# 옮겨 위 입구 검사가 그대로 잰다 — 2026-09-30 BL-018 에 그 입구도 없어져 위 마스터 절이 마스터
+# readmodel · service 에서 잰다.
 
 _FINANCE_STATE_ROW = {
     "finance_state_id": "FIN-DAY-SIM-1-LOAN_BASELINE-20260105",

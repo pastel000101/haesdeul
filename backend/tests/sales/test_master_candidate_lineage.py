@@ -5,10 +5,12 @@ from pathlib import Path
 from uuid import UUID
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import decision_service, persistence, wiring
-from app.master.day_gate import DayGate
-from app.master.schemas import SalesRunRequest
-from app.master.service import run_sales
+from app.master.readmodel import approvals
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.day_gate import DayGate
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import persistence as service_persistence
+from app.master.service.sales import run_sales
 from app.sales.readmodel.console_proposals import get_console_sales_proposals
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 from tests.sales.sales_fake_connection import lend
@@ -42,9 +44,9 @@ def _port(payload):
 
 def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(monkeypatch):
     """RUN-B가 뒤에 생겨도 화면이 본 RUN-A의 id와 안 번호를 승인 입력으로 유지한다."""
-    wiring.reset()
+    registry_wiring.reset()
     monkeypatch.setattr(
-        "app.master.service.check_day_gate",
+        "app.master.service.sales.check_day_gate",
         lambda as_of, **_kwargs: DayGate(
             as_of=as_of,
             gate="PASS",
@@ -52,8 +54,8 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
             last_opened_date=as_of,
         ),
     )
-    wiring.register("inventory", _port(PRE_SALES_PAYLOAD))
-    wiring.register(
+    registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD))
+    registry_wiring.register(
         "sales",
         _port(
             {
@@ -75,8 +77,8 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
             }
         ),
     )
-    wiring.register("finance", _port({"verdict": "PASS"}))
-    monkeypatch.setattr(persistence, "try_save_run", lambda **_kwargs: RUN_A)
+    registry_wiring.register("finance", _port({"verdict": "PASS"}))
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **_kwargs: RUN_A)
 
     created = run_sales(
         SalesRunRequest(
@@ -125,9 +127,9 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
         latest_was_used = True
         return {"run_id": UUID(RUN_B), "request_id": created.request_id}
 
-    monkeypatch.setattr(decision_service, "get_run_by_request_id", latest)
+    monkeypatch.setattr(approvals, "get_run_by_request_id", latest)
     monkeypatch.setattr(
-        decision_service,
+        approvals,
         "get_run",
         lambda run_id: {
             "run_id": run_id,
@@ -135,7 +137,7 @@ def test_user_candidate_keeps_master_run_through_today_proposals_and_approval(mo
             "response_payload": created.model_dump(mode="json"),
         },
     )
-    approval_run = decision_service._run_for(created.request_id, selected.history_run_id)
+    approval_run = approvals.run_for(created.request_id, selected.history_run_id)
 
     assert created.history_run_id == RUN_A
     assert selected.history_run_id == RUN_A

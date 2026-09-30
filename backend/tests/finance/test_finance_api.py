@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.contracts.envelope import AgentReply, ExecutionMetadata
 from app.main import app
-from app.master.wiring import registry
+from app.master.registry.wiring import registry
 
 
 def test_finance_agent_api_goes_through_finance_port():

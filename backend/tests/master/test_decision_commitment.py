@@ -17,8 +17,9 @@ from uuid import uuid4
 
 import pytest
 
-from app.master import decision_service as svc
-from app.master.decision import DecisionIn, DecisionOut
+from app.master.readmodel import approvals
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service import decision
 
 AS_OF = date(2025, 12, 31)
 
@@ -62,15 +63,17 @@ def wired(monkeypatch):
             **kw,
         )
 
-    monkeypatch.setattr(svc, "_run_for", _run_for)
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [])
-    monkeypatch.setattr(svc, "save_decision", _save)
+    monkeypatch.setattr(approvals, "run_for", _run_for)
+    monkeypatch.setattr(decision, "run_for", _run_for)
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "save_decision", _save)
 
     def _record(response: dict[str, Any], **payload: Any) -> DecisionOut:
         saved["response"] = response
         body = {"decision": "APPROVE", "scenario_label": "보수", "decided_by": "lhs"}
         body.update(payload)
-        return svc.record_decision("REQ-1", DecisionIn(**body))
+        return decision.record_decision("REQ-1", DecisionIn(**body))
 
     return _record
 
@@ -160,20 +163,19 @@ def test_라벨이_겹치면_첫_것을_고르지_않고_막는다(wired):
 
 
 def _current(monkeypatch, decisions, response):
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: decisions)
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: decisions)
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: decisions)
     # ★ 사람 승인은 실매입 기록을 찾아본다 (설계 260915 안 A §4-4). 여기서는 기록이
     #   없는 상태 — 재조립이 선정안 그대로 나와야 한다.
-    monkeypatch.setattr(svc, "list_purchase_record_legs", lambda request_id, decision_seq: [])
-    monkeypatch.setattr(
-        svc,
-        "_run_for",
-        lambda request_id, history_run_id: {
-            "run_id": uuid4(),
-            "request_id": request_id,
-            "response_payload": response,
-        },
-    )
-    return svc.current_commitment("REQ-1")
+    monkeypatch.setattr(approvals, "list_purchase_record_legs", lambda request_id, decision_seq: [])
+    def _run_for(request_id: str, history_run_id: str | None) -> dict[str, Any]:
+        return {"run_id": uuid4(), "request_id": request_id, "response_payload": response}
+
+    # ★ 2026-09-30 재구성 BL-018: `run_for` 는 readmodel/approvals 에 있고 결정 service 도 들여 쓴다
+    #   — 둘 다.
+    monkeypatch.setattr(approvals, "run_for", _run_for)
+    monkeypatch.setattr(decision, "run_for", _run_for)
+    return approvals.current_commitment("REQ-1")
 
 
 def _decision(**over):

@@ -58,7 +58,7 @@ from app.logistics.schemas.vocabulary import USAGE_SCOPE
 from app.logistics.service import inbound_execution
 from app.logistics.service import inspections as inspections_service
 from app.logistics.service.inbound_stock import load_in_transit_for_receiving
-from app.master.inbound import PARTS
+from app.master.registry.inbound import PARTS
 
 SIM_RUN_ID = "SIM-BURNIN-202512"
 AS_OF = date(2026, 1, 7)

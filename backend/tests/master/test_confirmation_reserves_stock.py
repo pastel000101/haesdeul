@@ -51,7 +51,9 @@ from uuid import UUID
 
 import pytest
 
-from app.master import outbound_flow, sales_approval
+from app.contracts import sales_logistics
+from app.logistics.service import outbound
+from app.master.service import sales_approval as service_sales_approval
 
 RUN_UUID = UUID("dddddddd-dddd-dddd-dddd-dddddddddddd")
 REQ = "REQ-DAILY-SALES-SIM-CHAIN-V4-20260106-배추"
@@ -158,7 +160,7 @@ def _scenario() -> dict[str, Any]:
 
 
 def _확정(확정: 확정_대역, 예약: 예약_대역, conn: 커넥션_대역 | None = None):
-    return sales_approval.confirm_approved_sale(
+    return service_sales_approval.confirm_approved_sale(
         request_id=REQ,
         run_id=str(RUN_UUID),
         as_of=원_실행일,
@@ -278,7 +280,7 @@ def test_예약_번호가_출고가_계산하는_것과_같다() -> None:
 
     결과 = _확정(확정, 예약)
 
-    출고가_계산하는_이름 = outbound_flow.reservation_id_for_sale_item(SALE_ITEM_ID)
+    출고가_계산하는_이름 = sales_logistics.reservation_id_for_sale_item(SALE_ITEM_ID)
     assert 예약.호출[0].reservation_id == 출고가_계산하는_이름, (
         "확정이 건 예약 이름이 출고가 계산하는 이름과 다르다 — 같은 재고를 두 번 잡는다"
     )
@@ -288,7 +290,7 @@ def test_예약_번호가_출고가_계산하는_것과_같다() -> None:
 def test_마스터가_예약_이름을_손으로_짓지_않는다() -> None:
     """★ 이름을 코드에서 조립하면 규칙이 갈리는 날이 온다 — 주인이 둘이 된다."""
     원문 = (
-        __import__("pathlib").Path(sales_approval.__file__).read_text(encoding="utf-8")
+        __import__("pathlib").Path(service_sales_approval.__file__).read_text(encoding="utf-8")
     )
     코드 = "\n".join(
         줄 for 줄 in 원문.splitlines() if not 줄.lstrip().startswith(("#", "#:"))
@@ -333,9 +335,9 @@ def test_걷기_요약에_예약어휘_한_줄이_선다() -> None:
     `SIM-CHAIN-V4` 에서 확정 34건을 보고 재고가 잡힌 줄 알았다 — 이 줄이 없으면
     *"팔렸다"* 와 *"그만큼 잡아 뒀다"* 를 성적표가 구별하지 못한다.
     """
-    from app.master.backfill import BackfilledRun, BackfillOut
-    from app.master.backtest_runner import WalkResult, format_summary
-    from app.master.scheduler import DayRunOutcome
+    from app.master.domain.backfill import BackfilledRun, BackfillOut
+    from app.master.domain.scheduler import DayRunOutcome
+    from app.master.report.walk_summary import WalkResult, format_summary
 
     def _행(예약어휘: str | None) -> BackfilledRun:
         return BackfilledRun(
@@ -392,7 +394,7 @@ def test_재검증이_막히면_예약까지_안_간다() -> None:
     """★ 확정을 안 부르는 길에서는 예약도 없다 — 예약이라는 사건 자체가 없다."""
     확정, 예약 = 확정_대역(), 예약_대역()
 
-    결과 = sales_approval.confirm_approved_sale(
+    결과 = service_sales_approval.confirm_approved_sale(
         request_id=REQ,
         run_id=str(RUN_UUID),
         as_of=원_실행일,
@@ -440,11 +442,15 @@ def test_기본_예약_함수가_시뮬레이션_경로의_것이다() -> None:
     """🔴 `reserve_confirmed_sale` 이 아니다 — 저쪽은 전량 아니면 멈춘다."""
     import inspect
 
-    기본값 = inspect.signature(sales_approval.confirm_approved_sale).parameters["reserve"].default
+    기본값 = (
+        inspect.signature(service_sales_approval.confirm_approved_sale)
+        .parameters["reserve"]
+        .default
+    )
 
     assert 기본값 is None, "기본값을 시그니처에 박으면 monkeypatch 가 안 닿는다"
     assert (
-        sales_approval.reserve_confirmed_sale_available.__name__
+        outbound.reserve_confirmed_sale_available.__name__
         == "reserve_confirmed_sale_available"
     )
 
@@ -452,7 +458,7 @@ def test_기본_예약_함수가_시뮬레이션_경로의_것이다() -> None:
 @pytest.mark.parametrize("칸", ["reservation_id", "required_qty_kg", "reserved_qty_kg"])
 def test_확정이_안_서면_예약_칸은_비어_있다(칸: str) -> None:
     """★ 없는 사실을 0 으로 채우지 않는다 — 0kg 잡은 것과 안 잡은 것은 다르다."""
-    결과 = sales_approval.confirm_approved_sale(
+    결과 = service_sales_approval.confirm_approved_sale(
         request_id="",
         run_id=str(RUN_UUID),
         as_of=원_실행일,

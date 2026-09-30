@@ -59,11 +59,11 @@ import app.main  # noqa: F401  — import 시점에 수금 실행을 등록한�
 from app.finance.schemas.collections import CollectionEvent
 from app.finance.schemas.data_port import FinanceDataNotReady
 from app.finance.schemas.finance_state import FinanceRuntimeAxis
-from app.master import collection
-from app.master.collection_events import read_collection_events
-from app.master.finance_collection import FinanceCollectionAdapter
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import bind_sim_run
+from app.master.adapters.finance_parts import FinanceCollectionAdapter
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.readmodel.collection_events import read_collection_events
+from app.master.registry import collection as registry_collection
+from app.master.registry.sim_run_binding import bind_sim_run
 
 AS_OF = date(2026, 1, 10)
 """토요일이다. **입금은 토요일에도 찍힌다** — 수금은 달력일이다."""
@@ -114,17 +114,17 @@ def _등록된() -> Any:
     ★ **재는 것은 그대로다** — *"등록된 것이 마스터 어댑터이고 마스터가 정한 장부에
       앉히는가"*. 바뀐 것은 **언제 서는가** 하나다.
     """
-    return bind_sim_run(collection.registered()["finance"], 등록축)
+    return bind_sim_run(registry_collection.registered()["finance"], 등록축)
 
 
 
 def test_수금_실행이_등록된다() -> None:
     """★ **미등록과 「들어올 것 없음」은 다른 사실이다.** 이 줄이 없으면 앞으로 나간다."""
-    assert collection.missing() == (), (
-        f"수금 실행이 미등록인 파트가 있다: {collection.missing()}. "
+    assert registry_collection.missing() == (), (
+        f"수금 실행이 미등록인 파트가 있다: {registry_collection.missing()}. "
         "app/main.py 의 register_collection 을 확인한다"
     )
-    assert "finance" in collection.registered()
+    assert "finance" in registry_collection.registered()
 
 
 def test_등록된_것이_마스터_어댑터다() -> None:
@@ -333,4 +333,4 @@ def test_사건이_0건이어도_미등록이_아니다() -> None:
     NOTHING_DUE   물어봤고 낼 것이 없었다
     ```
     """
-    assert "finance" not in collection.missing()
+    assert "finance" not in registry_collection.missing()

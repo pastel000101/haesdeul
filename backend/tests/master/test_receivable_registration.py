@@ -41,15 +41,15 @@ from app.finance.domain.receivables import receivable_id_for
 from app.finance.schemas.data_port import FinanceDataNotReady
 from app.finance.schemas.finance_state import FinanceRuntimeAxis
 from app.finance.schemas.receivables import ReceivablePersistenceConflict
-from app.master import receivable
-from app.master.finance_receivable import (
+from app.master.adapters.finance_parts import FinanceReceivableAdapter
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import receivable as registry_receivable
+from app.master.registry.sim_run_binding import bind_sim_run
+from app.master.repository.sales_reads import (
     ISSUABLE_ORDER_STATUSES,
     ConfirmedSale,
-    FinanceReceivableAdapter,
     read_confirmed_sales,
 )
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import bind_sim_run
 
 AS_OF = date(2026, 1, 5)
 남의_실행 = "SIM-SOMEONE-ELSE"
@@ -102,7 +102,7 @@ class _가짜원장:
     """`confirm_receivable` 대역. **`ON CONFLICT (sale_id) DO NOTHING` 을 흉내낸다.**
 
     ★ 이 대역이 있어야 *"두 번 불러도 행이 안 는다"* 를 DB 없이 잰다. 실 DB 실측은
-      걷기(`python -m app.master.backtest_runner`)가 따로 낸다.
+      걷기(`python -m app.master.cli.backtest_runner`)가 따로 낸다.
     """
 
     def __init__(self, *, conflict_on: str | None = None) -> None:
@@ -147,17 +147,17 @@ def _등록된() -> Any:
     ★ **재는 것은 그대로다** — 바뀐 것은 어댑터가 **언제 서는가** 하나다.
       전에는 `registered()["finance"]` 가 곧 어댑터라 축이 프로세스 시작 때 굳었다.
     """
-    return bind_sim_run(receivable.registered()["finance"], 등록축)
+    return bind_sim_run(registry_receivable.registered()["finance"], 등록축)
 
 
 
 def test_채권_발행이_등록된다() -> None:
     """★ **미등록과 「확정 판매 없음」은 다른 사실이다.** 이 줄이 없으면 앞으로 나간다."""
-    assert receivable.missing() == (), (
-        f"채권 발행이 미등록인 파트가 있다: {receivable.missing()}. "
+    assert registry_receivable.missing() == (), (
+        f"채권 발행이 미등록인 파트가 있다: {registry_receivable.missing()}. "
         "app/master/bootstrap.py 의 register_receivable 을 확인한다"
     )
-    assert "finance" in receivable.registered()
+    assert "finance" in registry_receivable.registered()
 
 
 def test_등록된_것이_마스터_어댑터다() -> None:
@@ -287,7 +287,7 @@ def test_판매조회_대역이_축을_실제로_받는다() -> None:
     """🔴 **자기 생존 검사.** 정본 조회가 `sim_run_id` 를 안 받으면 위 검사가 공짜다."""
     import inspect
 
-    from app.master.finance_receivable import read_confirmed_sales
+    from app.master.repository.sales_reads import read_confirmed_sales
 
     파라미터 = inspect.signature(read_confirmed_sales).parameters
     assert "sim_run_id" in 파라미터, (
@@ -571,16 +571,16 @@ def test_출고가_보는_목록과_같은_함수를_쓰지_않는다() -> None:
     조용히 바뀐다."""
     import inspect as _inspect
 
-    from app.master import outbound_flow
+    from app.master.repository import outbound_flow as repository_outbound_flow
 
-    출고_원문 = _inspect.getsource(outbound_flow.due_sale_items)
+    출고_원문 = _inspect.getsource(repository_outbound_flow.due_sale_items)
     assert "IN ('CONFIRMED', 'READY')" in 출고_원문, (
         "출고 조회의 상태 목록이 바뀌었다 — 이 검사가 무엇을 비교하는지부터 다시 본다"
     )
     assert "'DELIVERED'" not in 출고_원문.split("SELECT")[1], (
         "출고 목록이 이미 나간 판매를 다시 내보낸다"
     )
-    assert outbound_flow.due_sale_items is not read_confirmed_sales
+    assert repository_outbound_flow.due_sale_items is not read_confirmed_sales
 
 
 def test_DELIVERED_판매도_채권이_선다() -> None:

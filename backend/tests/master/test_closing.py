@@ -44,14 +44,17 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.contracts import parts
 from app.contracts.parts import ClosingPartOut
 from app.core.clock import SEOUL
 from app.finance import adapter as finance_closing_adapter
 from app.finance.adapter import FinanceClosingAdapter
 from app.finance.schemas.closing import FinanceDayClosingResult
-from app.master import closing
-from app.master.closing import close_day
-from app.master.day_gate import DayGate
+from app.master.registry import closing as registry_closing
+from app.master.schemas import closing as schemas_closing
+from app.master.schemas.day_gate import DayGate
+from app.master.service import closing as service_closing
+from app.master.service.closing import close_day
 
 AS_OF = date(2026, 1, 7)
 토요일 = date(2026, 1, 10)
@@ -156,7 +159,7 @@ def test_master_closing_registry_calls_finance_adapter(monkeypatch: pytest.Monke
         return FinanceDayClosingResult(part="finance", status="CLOSED", closed=["row"], created=1)
 
     monkeypatch.setattr(finance_closing_adapter, "close_finance_day", _finance_close_day)
-    closing.register_closing("finance", FinanceClosingAdapter())
+    registry_closing.register_closing("finance", FinanceClosingAdapter())
     conn = _가짜커넥션()
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
@@ -175,7 +178,7 @@ def _코드만() -> str:
 
     ★ `ast.unparse` 는 주석을 아예 안 싣는다. docstring 만 손으로 걷어낸다.
     """
-    tree = ast.parse(pathlib.Path(closing.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path(service_closing.__file__).read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef)):
             continue
@@ -210,7 +213,7 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
     ⚠️ **Gate 자체는 아래 `⑤` 절이 잰다.** 거기서는 이 fixture 를 다시 덮어쓴다.
     """
     monkeypatch.setattr(
-        closing,
+        service_closing,
         "check_day_gate",
         lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="ALREADY_OPENED"
@@ -221,12 +224,12 @@ def _열린_날로_둔다(monkeypatch: pytest.MonkeyPatch) -> Any:
 @pytest.fixture(autouse=True)
 def _등록소를_되돌린다() -> Any:
     """검사가 등록한 대역이 다음 검사로 새지 않게 한다."""
-    before = dict(closing.registered())
-    closing.reset()
+    before = dict(registry_closing.registered())
+    registry_closing.reset()
     yield
-    closing.reset()
+    registry_closing.reset()
     for part, impl in before.items():
-        closing.register_closing(part, impl)
+        registry_closing.register_closing(part, impl)
 
 
 # ── ① 앞의 여섯 등록소와 섞이지 않는다 ────────────────────────────────────
@@ -237,25 +240,31 @@ def test_일곱째_등록소는_앞의_여섯과_따로다():
 
     ★ **지금이 정확히 그 상태다** — 채권 배선은 `#489` 로 섰고 마감은 자리조차 없었다.
     """
-    from app.master import cancellation, collection, day_open, inbound, receivable, transition
+    from app.master.registry import cancellation as registry_cancellation
+    from app.master.registry import closing as registry_closing
+    from app.master.registry import collection as registry_collection
+    from app.master.registry import day_open as registry_day_open
+    from app.master.registry import inbound as registry_inbound
+    from app.master.registry import receivable as registry_receivable
+    from app.master.registry import transition as registry_transition
 
-    closing.register_closing("finance", _재무())
+    registry_closing.register_closing("finance", _재무())
 
-    assert "finance" in closing.registered()
-    assert closing.missing() == ()
-    assert set(closing.PARTS) == {"finance"}
-    assert "finance" not in inbound.registered(), "입고 등록소에 재무가 새어 들어갔다"
+    assert "finance" in registry_closing.registered()
+    assert registry_closing.missing() == ()
+    assert set(registry_closing.PARTS) == {"finance"}
+    assert "finance" not in registry_inbound.registered(), "입고 등록소에 재무가 새어 들어갔다"
     # 🔴 **일곱이 일곱 개의 다른 사전이다.** 마감을 등록해도 앞의 여섯에는 안 뜬다 —
     #    한 사전이면 여기 등록한 대역이 저쪽 `missing()` 을 조용히 채운다.
     앞의_여섯 = {
-        "transition": transition.registered(),
-        "day_open": day_open.registered(),
-        "cancellation": cancellation.registered_cancellations(),
-        "inbound": inbound.registered(),
-        "collection": collection.registered(),
-        "receivable": receivable.registered(),
+        "transition": registry_transition.registered(),
+        "day_open": registry_day_open.registered(),
+        "cancellation": registry_cancellation.registered_cancellations(),
+        "inbound": registry_inbound.registered(),
+        "collection": registry_collection.registered(),
+        "receivable": registry_receivable.registered(),
     }
-    대역 = closing.registered()["finance"]
+    대역 = registry_closing.registered()["finance"]
     for 이름, 등록 in 앞의_여섯.items():
         assert 대역 not in 등록.values(), f"{이름} 등록소에 마감 대역이 새어 들어갔다"
 
@@ -263,7 +272,7 @@ def test_일곱째_등록소는_앞의_여섯과_따로다():
 def test_마감_파트는_재무_하나다():
     """★ 물류가 재고를 알고 매입이 현금유출을 알지만, 셋을 한 줄로 만드는 것은 재무다."""
     with pytest.raises(ValueError, match="마감 파트가 아니다"):
-        closing.register_closing("logistics", _재무())  # type: ignore[arg-type]
+        registry_closing.register_closing("logistics", _재무())  # type: ignore[arg-type]
 
 
 # ── ② 미등록과 "닫을 것 없음" 은 다른 사실이다 ────────────────────────────
@@ -293,7 +302,7 @@ def test_미등록이어도_터지지_않는다():
 
 def test_닫을_움직임이_없는_것은_미등록이_아니다():
     """★ 둘 다 `NOTHING_DUE` 지만 `missing` 과 `reason` 이 가른다."""
-    closing.register_closing(
+    registry_closing.register_closing(
         "finance", _재무(out=ClosingPartOut(part="finance", status="NOTHING_DUE"))
     )
     conn = _가짜커넥션()
@@ -311,7 +320,7 @@ def test_닫을_움직임이_없는_것은_미등록이_아니다():
 
 
 def test_닫으면_한_번_커밋한다():
-    closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
+    registry_closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
     conn = _가짜커넥션()
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
@@ -325,7 +334,7 @@ def test_닫으면_한_번_커밋한다():
 
 def test_터지면_통째로_롤백한다():
     """🔴 반쯤 닫히면 **손익 곡선에 절반짜리 점이 확정값으로 앉는다.**"""
-    closing.register_closing("finance", _재무(raises=RuntimeError("잔액을 못 읽는다")))
+    registry_closing.register_closing("finance", _재무(raises=RuntimeError("잔액을 못 읽는다")))
     conn = _가짜커넥션()
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: conn)
@@ -349,7 +358,8 @@ def test_daily_closings_의_키가_sim_run_id_와_close_date_다():
     ★ 그래서 이 검사가 DDL 을 다시 읽는다 — 이 축이 바뀌는 날 마스터가 어댑터에게
       주는 두 값도 같이 바뀌어야 한다.
     """
-    repo = pathlib.Path(closing.__file__).parent.parent.parent.parent
+    # ★ 2026-09-30 재구성 BL-018: 마감 service 가 한 층 깊어졌다(`app/master/service/closing.py`).
+    repo = pathlib.Path(service_closing.__file__).parents[4]
     ddl = (repo / "database" / "10_domain_schema.sql").read_text(encoding="utf-8")
 
     match = re.search(
@@ -362,7 +372,7 @@ def test_daily_closings_의_키가_sim_run_id_와_close_date_다():
 
 def test_마스터가_어댑터에게_주는_것이_그_키_둘이다():
     """🔴 **마스터가 `closing_id` 같은 것을 지어내면 같은 날이 두 벌 쌓인다.**"""
-    파라미터 = _inspect.signature(closing.ClosingPort.close).parameters
+    파라미터 = _inspect.signature(registry_closing.ClosingPort.close).parameters
 
     assert set(파라미터) == {"self", "conn", "as_of", "sim_run_id"}, (
         f"마감 Port 가 키 밖의 것을 받는다: {sorted(파라미터)}"
@@ -372,7 +382,7 @@ def test_마스터가_어댑터에게_주는_것이_그_키_둘이다():
 def test_같은_날을_두_번_걸어도_두_벌이_안_쌓인다():
     """🔴 **마감 행은 하나다. 두 번째는 `CLOSED` 인데 새로 적은 건수가 0 이다.**"""
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     첫째 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
     둘째 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
@@ -392,7 +402,7 @@ def test_한_번_부르고_어댑터의_멱등에_기대지_않는다():
       그 제약이 내가 넣는 키를 안 막았다.
     """
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -404,7 +414,7 @@ def test_한_번_부르고_어댑터의_멱등에_기대지_않는다():
 
 def test_실패해도_예외가_안_오른다():
     """★ 이력 때문에 운영이 멈추면 안 된다 — `try_save_run` 이 `try_` 인 이유와 같다."""
-    closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
+    registry_closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -416,9 +426,9 @@ def test_실패해도_예외가_안_오른다():
 
 
 def test_안_열린_날은_닫지_않는다(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
+    monkeypatch.setattr(service_closing, "check_day_gate", _막힌_Gate)
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -434,8 +444,8 @@ def test_안_열린_것을_BLOCKED_로_접지_않는다(monkeypatch: pytest.Monk
     NOT_OPENED   **아직 아무것도 안 봤다** — 하루가 안 열려 물어보지도 못했다
     ```
     """
-    monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
-    closing.register_closing("finance", _재무())
+    monkeypatch.setattr(service_closing, "check_day_gate", _막힌_Gate)
+    registry_closing.register_closing("finance", _재무())
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -448,8 +458,8 @@ def test_안_열린_것을_BLOCKED_로_접지_않는다(monkeypatch: pytest.Monk
 
 def test_안_열린_날은_관문_사유보다_앞이다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 **판정 순서가 계약이다.** 하루가 안 열린 날은 장부 관문에 오지도 않는다."""
-    monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
-    closing.register_closing("finance", _재무())
+    monkeypatch.setattr(service_closing, "check_day_gate", _막힌_Gate)
+    registry_closing.register_closing("finance", _재무())
 
     out = close_day(
         AS_OF, sim_run_id=축, ledger_gap="장부가 안 서서", borrow=lambda: _가짜커넥션()
@@ -460,7 +470,7 @@ def test_안_열린_날은_관문_사유보다_앞이다(monkeypatch: pytest.Mon
 
 def test_마감이_하루를_열지_않는다() -> None:
     """🔴 **여기서 `open_day` 를 부르면 마감이 개장의 부작용이 된다.** 원문으로 잠근다."""
-    src = _inspect.getsource(closing.close_day)
+    src = _inspect.getsource(service_closing.close_day)
     tree = ast.parse(src.lstrip())
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
@@ -473,9 +483,16 @@ def test_마감이_하루를_열지_않는다() -> None:
 
 def test_판단_경로가_마감을_부작용으로_돌리지_않는다() -> None:
     """🔴 **`run_procurement` 이 이것을 부르면 판단 한 번이 그날을 닫는다.**"""
-    from app.master import service
 
-    tree = ast.parse(_inspect.getsource(service))
+    # ★ 2026-09-30 재구성 BL-018: 판단 경로가 매입(`service/procurement.py`) ·
+    #   판매(`service/sales.py`)
+    #   둘로 갈렸다 — 둘을 한 트리로 잇어 잰다.
+    from app.master.service import procurement, sales
+
+    tree = ast.Module(
+        body=[n for m in (procurement, sales) for n in ast.parse(_inspect.getsource(m)).body],
+        type_ignores=[],
+    )
     called = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
         for node in ast.walk(tree)
@@ -496,7 +513,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
     """★ 토요일 마감이 월요일 행에 앉으면 안 된다."""
     assert 토요일.weekday() == 5
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     out = close_day(토요일, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -510,7 +527,7 @@ def test_실행일_달력으로_as_of_를_보정하지_않는다():
 def test_sim_run_id_를_인자로_받아_어댑터까지_흘린다():
     """🔴 **상수로 박지 않는다.** 박으면 실행이 둘이 되는 날 이 파일을 고쳐야 한다."""
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     close_day(AS_OF, sim_run_id="SIM-다른실행", borrow=lambda: _가짜커넥션())
 
@@ -523,7 +540,7 @@ def test_빈_축을_조용히_전체로_바꾸지_않는다():
     ★ 그래도 걷기는 안 멈춘다 — `scheduler._stage` 가 이것을 `FAILED` 로 옮긴다.
       (`⑦` 절의 `test_마감이_터져도_그날_걷기_결과가_그대로다` 가 그 길을 잰다.)
     """
-    closing.register_closing("finance", _재무())
+    registry_closing.register_closing("finance", _재무())
 
     with pytest.raises(ValueError, match="sim_run_id 없이"):
         close_day(AS_OF, sim_run_id="  ", borrow=lambda: _가짜커넥션())
@@ -549,25 +566,25 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     본_것: set[str] = set()
 
     # ① NOT_OPENED — 하루가 안 열렸다
-    monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
-    closing.register_closing("finance", _재무())
+    monkeypatch.setattr(service_closing, "check_day_gate", _막힌_Gate)
+    registry_closing.register_closing("finance", _재무())
     본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     monkeypatch.setattr(
-        closing,
+        service_closing,
         "check_day_gate",
         lambda as_of, borrow=None, sim_run_id="": DayGate(
             as_of=as_of, gate="PASS", result="OPENED"
         ),
     )
     # ② NOTHING_DUE — 그날 닫을 움직임이 없다
-    closing.register_closing(
+    registry_closing.register_closing(
         "finance", _재무(out=ClosingPartOut(part="finance", status="NOTHING_DUE"))
     )
     본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     # ③ CLOSED — 닫았다
-    closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
+    registry_closing.register_closing("finance", _재무(out=_닫음("SIM-1:2026-01-07")))
     본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     # ④ BLOCKED — 장부가 안 서서 못 닫는다
@@ -578,7 +595,7 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
     )
 
     # ⑤ FAILED — 닫아 보다 터졌다
-    closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
+    registry_closing.register_closing("finance", _재무(raises=RuntimeError("boom")))
     본_것.add(close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션()).status)
 
     assert 본_것 == {"CLOSED", "NOTHING_DUE", "BLOCKED", "NOT_OPENED", "FAILED"}, (
@@ -588,13 +605,13 @@ def test_다섯_어휘가_각각_나오는_길이_있다(monkeypatch: pytest.Mon
 
 def test_어휘_다섯을_채권에서_가져왔고_새로_만들지_않았다() -> None:
     """🔴 **새 어휘를 지어내지 않았다.** 채권 등록소가 쓰는 그 다섯이다."""
-    from app.master.receivable import ReceivableOut
+    from app.master.schemas.receivable import ReceivableOut
 
     def _값들(model: Any, field: str) -> set[str]:
         return set(model.model_fields[field].annotation.__args__)  # type: ignore[union-attr]
 
     채권 = _값들(ReceivableOut, "status")
-    마감 = _값들(closing.ClosingOut, "status")
+    마감 = _값들(schemas_closing.ClosingOut, "status")
 
     # 🔴 **`ISSUED` ↔ `CLOSED` 한 낱말만 다르다.** 그 하나는 동사가 다르기 때문이고,
     #    나머지 넷은 **글자 그대로** 채권 것이다.
@@ -609,7 +626,7 @@ def test_BLOCKED_를_NOTHING_DUE_로_접지_않는다():
     ⚠️ 접으면 손익 곡선의 빈 칸 두 종류가 화면에서 같아 보인다 — 앞은 고칠 것이
       있고 뒤는 없다.
     """
-    closing.register_closing("finance", _재무())
+    registry_closing.register_closing("finance", _재무())
 
     막힘 = close_day(
         AS_OF,
@@ -633,7 +650,7 @@ def test_파트가_BLOCKED_면_전체도_BLOCKED_다():
         created=0,
         reason="한쪽이 막혔다",
     )
-    closing.register_closing("finance", _재무(out=막힘))
+    registry_closing.register_closing("finance", _재무(out=막힘))
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -649,7 +666,7 @@ def test_CLOSED_인데_새로_적은_건수가_0_일_수_있다():
       두 번째 걸음이 매일 *"아무것도 안 했다"* 로 읽힌다.
     """
     두번째_걸음 = _닫음("SIM-1:2026-01-07", created=0)
-    closing.register_closing("finance", _재무(out=두번째_걸음))
+    registry_closing.register_closing("finance", _재무(out=두번째_걸음))
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 
@@ -657,7 +674,7 @@ def test_CLOSED_인데_새로_적은_건수가_0_일_수_있다():
     assert out.parts[0].created == 0, "어댑터가 낸 값 대신 마스터가 다시 셌다"
     assert out.parts[0].closed == ["SIM-1:2026-01-07"], "서 있는 마감을 안 실었다"
     # 🔴 닫을 것이 없던 날과 **다른 값**이어야 한다.
-    closing.register_closing(
+    registry_closing.register_closing(
         "finance", _재무(out=ClosingPartOut(part="finance", status="NOTHING_DUE"))
     )
     없던_날 = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
@@ -698,22 +715,23 @@ def test_장부를_바꾸는_사건_다섯이_다_다른_엔드포인트다() ->
 def test_엔드포인트가_부르는_함수가_하루_실행이_부르는_함수와_같다() -> None:
     """🔴 **둘이 갈리면 손으로 부른 결과와 걷기 결과가 다른 코드를 지난다.**"""
     from app.master import router as router_module
-    from app.master import scheduler
+    from app.master.service import closing as service_closing
+    from app.master.service import scheduler as service_scheduler
 
     사람_경로 = _inspect.getsource(router_module.master_close_day)
     assert "run_close_day(as_of, sim_run_id=_walk_axis(sim_run_id))" in 사람_경로
 
-    assert router_module.run_close_day is closing.close_day
+    assert router_module.run_close_day is service_closing.close_day
     assert (
-        _inspect.signature(scheduler.run_scheduled_day).parameters["close_fn"].default
-        is closing.close_day
+        _inspect.signature(service_scheduler.run_scheduled_day).parameters["close_fn"].default
+        is service_closing.close_day
     ), "하루 실행이 다른 함수를 부른다"
 
 
 def test_엔드포인트가_실패도_200_으로_낸다(monkeypatch: pytest.MonkeyPatch) -> None:
     """★ 막힌 것은 오류가 아니라 **그날의 사실**이다."""
-    monkeypatch.setattr(closing, "check_day_gate", _막힌_Gate)
-    closing.register_closing("finance", _재무())
+    monkeypatch.setattr(service_closing, "check_day_gate", _막힌_Gate)
+    registry_closing.register_closing("finance", _재무())
 
     import app.main
 
@@ -759,7 +777,8 @@ class _Procure:
 
 
 def _하루(**kwargs) -> Any:
-    from app.master.scheduler import ScheduledAction, run_scheduled_day
+    from app.master.domain.scheduler import ScheduledAction
+    from app.master.service.scheduler import run_scheduled_day
 
     defaults: dict[str, Any] = {
         "open_day_fn": _Spy(_Out("OPENED")),
@@ -832,7 +851,7 @@ def test_하루_실행의_축에는_기본값이_없다() -> None:
     전에는 기본값이 번인 상수였고, 축을 안 준 하루가 조용히 번인 장부에 썼다.
     관문 행 · 마감 행이 싣는 값은 부르는 쪽이 준 축 하나다.
     """
-    from app.master.scheduler import run_scheduled_day
+    from app.master.service.scheduler import run_scheduled_day
 
     칸 = _inspect.signature(run_scheduled_day).parameters["sim_run_id"]
     assert 칸.default is _inspect.Parameter.empty
@@ -861,7 +880,7 @@ def test_관문이_막은_날에는_어댑터를_안_부른다() -> None:
       어댑터를 부르는지가 물음이기 때문이다.
     """
     재무 = _재무()
-    closing.register_closing("finance", 재무)
+    registry_closing.register_closing("finance", 재무)
 
     out, _ = _하루(
         issue_fn=_Spy(_Out("BLOCKED", "기일이 없다")),
@@ -876,7 +895,8 @@ def test_관문이_막은_날에는_어댑터를_안_부른다() -> None:
 
 def test_안_도는_날은_마감을_아예_안_탄다() -> None:
     """🔴 **`WAIT` · 휴장일은 `NOT_ATTEMPTED` 다.** 막힌 것과 다른 사실이다."""
-    from app.master.scheduler import ScheduledAction, run_scheduled_day
+    from app.master.domain.scheduler import ScheduledAction
+    from app.master.service.scheduler import run_scheduled_day
 
     close_fn = _Spy(_Out("CLOSED"))
     action = ScheduledAction(
@@ -937,7 +957,7 @@ def test_마감_어휘에_금액_칸이_하나도_없다() -> None:
     ⚠️ 그러면 같은 사실의 주인이 둘이 되고, 재무가 세는 값과 갈리는 날
       **에러 없이 손익만 틀린다.**
     """
-    칸 = set(closing.ClosingPartOut.model_fields) | set(closing.ClosingOut.model_fields)
+    칸 = set(parts.ClosingPartOut.model_fields) | set(schemas_closing.ClosingOut.model_fields)
     금액스러운_것 = {
         이름
         for 이름 in 칸
@@ -953,7 +973,7 @@ def test_마감_모듈에_산술이_하나도_없다() -> None:
     ⚠️ `created` 를 `len(closed)` 로 다시 세는 것도 셈이다 — 세는 순간
       *"이미 닫혀 있어서 안 적었다"* 가 사라진다.
     """
-    tree = ast.parse(pathlib.Path(closing.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(pathlib.Path(service_closing.__file__).read_text(encoding="utf-8"))
     산술 = [
         node
         for node in ast.walk(tree)
@@ -967,7 +987,7 @@ def test_마감_모듈에_산술이_하나도_없다() -> None:
 def test_어댑터가_낸_값을_그대로_옮긴다() -> None:
     """🔴 **파트 결과를 다시 만들지 않는다.** 같은 객체여야 한다."""
     파트 = _닫음("SIM-1:2026-01-07", "SIM-1:2026-01-08", created=0)
-    closing.register_closing("finance", _재무(out=파트))
+    registry_closing.register_closing("finance", _재무(out=파트))
 
     out = close_day(AS_OF, sim_run_id=축, borrow=lambda: _가짜커넥션())
 

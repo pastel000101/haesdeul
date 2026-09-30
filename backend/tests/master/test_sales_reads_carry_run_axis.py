@@ -30,7 +30,10 @@ BACKEND = Path(__file__).resolve().parents[2]
 SCAN_ROOTS: tuple[Path, ...] = (BACKEND / "app" / "master",)
 
 #: 지금 반드시 걸려야 하는 조회 자리 (파일 이름). 하나라도 안 걸리면 스캔이 눈을 감은 것이다.
-EXPECTED_FILES = frozenset({"finance_receivable.py", "outbound_flow.py", "inputs.py"})
+#: ★ 2026-09-30 재구성 BL-018: 재무 매출채권 파트의 확정 판매 조회는 `repository/sales_reads.py` 로,
+#:   출고 · 입력 조회는
+#:   `repository/outbound_flow.py` · `repository/inputs.py` 로 갔다.
+EXPECTED_FILES = frozenset({"sales_reads.py", "outbound_flow.py", "inputs.py"})
 
 #: `FROM {}.sales` · `JOIN {sch}.sales s` · `FROM haetdeul.sales` 모양. `sale_items` 는 안 걸린다.
 _READS_SALES = re.compile(r"\b(?:FROM|JOIN)\s+(?:\{\w*\}\.|\"?\w+\"?\.)?sales\b", re.IGNORECASE)

@@ -43,16 +43,20 @@ def test_조회_이름을_가져간_모듈이_실제로_잡힌다() -> None:
     """
     잡힌_모듈 = {모듈.__name__ for 모듈 in 개장_정본_이름을_가져간_모듈들("read_day_opening")}
 
-    assert "app.master.day_gate" in 잡힌_모듈
-    assert "app.master.day_opening_repository" in 잡힌_모듈
+    # ★ 2026-09-30 재구성 BL-018: 관문은 `service/day_gate.py`, 조회는 `readmodel/day_openings.py`
+    #   다.
+    assert "app.master.service.day_gate" in 잡힌_모듈
+    assert "app.master.readmodel.day_openings" in 잡힌_모듈
 
 
 def test_적재_이름을_가져간_모듈도_실제로_잡힌다() -> None:
     """★ 조회와 **같은 구조다.** `day_open` 이 `record_day_opening` 을 가져간다."""
     잡힌_모듈 = {모듈.__name__ for 모듈 in 개장_정본_이름을_가져간_모듈들("record_day_opening")}
 
-    assert "app.master.day_open" in 잡힌_모듈
-    assert "app.master.day_opening_repository" in 잡힌_모듈
+    # ★ 2026-09-30 재구성 BL-018: 적재 함수를 쓰는 자리(`service/day_open.py`)로 옮겨 정의한 모듈과
+    #   가져간 모듈이 하나가 됐다 — 정의한 모듈이 잡히는지도 따로 잰다(종전 두 번째 단언).
+    assert "app.master.service.day_open" in 잡힌_모듈
+    assert 진짜_개장_정본_함수["record_day_opening"].__module__ in 잡힌_모듈
 
 
 # ── 개장 **관문** — 진입점마다 이름을 복사해 간다 ──────────────────────────────
@@ -82,9 +86,12 @@ def test_관문_이름을_가져간_모듈이_실제로_잡힌다() -> None:
     """
     잡힌_모듈 = {모듈.__name__ for 모듈 in 개장_관문_이름을_가져간_모듈들()}
 
-    assert "app.master.day_gate" in 잡힌_모듈
-    assert "app.master.service" in 잡힌_모듈
-    assert "app.master.revalidation" in 잡힌_모듈, (
+    # ★ 2026-09-30 재구성 BL-018: 매입 · 판매 진입점이 `service/procurement.py` · `service/sales.py`
+    #   둘로 갈렸다.
+    assert "app.master.service.day_gate" in 잡힌_모듈
+    assert "app.master.service.procurement" in 잡힌_모듈
+    assert "app.master.service.sales" in 잡힌_모듈
+    assert "app.master.service.revalidation" in 잡힌_모듈, (
         "재검증 모듈이 안 잡힌다 — 승인 한 번이 실 DB 로 개장을 물으러 나간다"
     )
 
@@ -102,10 +109,12 @@ def test_미적용_전이_조회가_막혀_있다() -> None:
     ★ 문이 하나라 한 줄로 잰다 — `approved_decisions` 도 `ledger_purchase_ids` 도
       같은 `fetch_all` 을 지난다.
     """
-    from app.finance.repository._cursor import fetch_all as 진짜
-    from app.master import pending_transition_repository as 저장소
+    # ★ 2026-09-30 재구성 BL-018: 문이 `fetch_all` 헬퍼에서 조회 모듈의 연결 대여(`core_db`)로
+    #   바뀌었다.
+    from app.core import db as 진짜
+    from app.master.readmodel import pending_transitions
 
-    assert 저장소.fetch_all is not 진짜, (
+    assert pending_transitions.core_db is not 진짜, (
         "미적용 전이 조회가 안 막혔다 — 재시도가 실 DB 를 읽고 apply_approval 이 쓴다"
     )
 
@@ -116,10 +125,7 @@ def test_미적용_조회가_막힌_채로_빈_답을_준다() -> None:
     ★ 빈 목록이어야 재시도가 `NOTHING_DUE` 로 돌아서고 `apply_approval` 이 이름조차
       안 불린다.
     """
-    from app.master.pending_transition_repository import (
-        approved_decisions,
-        ledger_purchase_ids,
-    )
+    from app.master.readmodel.pending_transitions import approved_decisions, ledger_purchase_ids
 
     assert approved_decisions(sim_run_id="SIM-ANY") == []
     assert ledger_purchase_ids(sim_run_id="SIM-ANY") == []
@@ -134,8 +140,8 @@ def test_매입_경계_조회가_막혀_있다() -> None:
     ★ `run_sales` → `_procurement_boundary` → `read_procurement_boundary` →
       `list_runs` 순서라, 판매를 부르는 검사는 전부 이 문을 지난다.
     """
-    from app.master import procurement_boundary
-    from app.master.run_repository import list_runs as 진짜
+    from app.master.readmodel import procurement_boundary
+    from app.master.readmodel.runs import list_runs as 진짜
 
     assert procurement_boundary.list_runs is not 진짜, (
         "매입 경계 조회가 안 막혔다 — 판매 검사가 실 DB 를 읽는다"
@@ -150,7 +156,7 @@ def test_경계_조회가_막힌_채로_행이_없다고_답한다() -> None:
     """
     from datetime import date
 
-    from app.master.procurement_boundary import read_procurement_boundary
+    from app.master.readmodel.procurement_boundary import read_procurement_boundary
 
     경계 = read_procurement_boundary(as_of=date(2026, 9, 10), sim_run_id="SIM-ANY")
 

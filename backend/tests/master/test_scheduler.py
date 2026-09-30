@@ -15,18 +15,15 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from app.core.clock import SEOUL
-from app.master import scheduler
-from app.master.execution_day import CalendarNotCovered
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.pending_transition import RetriedTransition, RetryOut
-from app.master.scheduler import (
-    DayRunOutcome,
-    ScheduledAction,
-    plan_next_action,
-    run_scheduled_day,
-    wake_up,
-)
+from app.master.domain import request_ids, schedule_times
+from app.master.domain import scheduler as domain_scheduler
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction, plan_next_action
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.schemas.pending_transition import RetriedTransition, RetryOut
+from app.master.service import scheduler as service_scheduler
+from app.master.service.scheduler import run_scheduled_day, wake_up
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -281,7 +278,7 @@ def test_NONE_READY_이고_마감_전이면_WAIT():
     action = _plan(now=_at(9, 30), gate=NONE_READY)
 
     assert action.action == "WAIT"
-    assert action.retry_after == scheduler.SCHEDULE_INTERVAL
+    assert action.retry_after == schedule_times.SCHEDULE_INTERVAL
 
 
 def test_NONE_READY_이고_마감_뒤면_RUN_AND_RECORD():
@@ -418,11 +415,11 @@ def test_열두_번_WAIT_해도_판단은_0회다():
     sales = _Sales()
     moment = _at(9, 30)
     waits = 0
-    while moment < scheduler.deadline_at(AS_OF):
+    while moment < domain_scheduler.deadline_at(AS_OF):
         action = _plan(now=moment, gate=NONE_READY)
         run_scheduled_day(action, procure_fn=procure, sales_fn=sales, items=ITEMS, sim_run_id=축)
         waits += action.action == "WAIT"
-        moment += scheduler.SCHEDULE_INTERVAL
+        moment += schedule_times.SCHEDULE_INTERVAL
 
     assert waits == 12
     assert procure.requests == []
@@ -855,8 +852,8 @@ def test_같은_날_두_번_돌아도_행이_안_는다():
 
 def test_request_id_에_시각이_안_들어간다():
     """★ 시각이 들어가면 같은 날 두 번째가 새 행이 된다."""
-    첫번째 = scheduler.daily_request_id(AS_OF, "배추", sim_run_id=축)
-    두번째 = scheduler.daily_request_id(AS_OF, "배추", sim_run_id=축)
+    첫번째 = request_ids.daily_request_id(AS_OF, "배추", sim_run_id=축)
+    두번째 = request_ids.daily_request_id(AS_OF, "배추", sim_run_id=축)
 
     assert 첫번째 == 두번째 == f"REQ-DAILY-{축}-20260908-배추"
 
@@ -865,7 +862,7 @@ def test_품목_목록을_다시_안_센다():
     """★ `commitment.ITEM_CODES` 하나가 주인이다."""
     from app.contracts.commitment import ITEM_CODES
 
-    assert set(scheduler.scheduled_items()) == set(ITEM_CODES)
+    assert set(domain_scheduler.scheduled_items()) == set(ITEM_CODES)
 
 
 # ── 진입점 ──────────────────────────────────────────────────────────────
@@ -1025,8 +1022,8 @@ def test_판매_request_id_가_매입_것과_다르다():
 
 def test_판매_request_id_에_시각이_안_들어간다():
     """★ 시각이 들어가면 같은 날 두 번째 깨어남이 새 행이 된다 — 매입과 같은 이유다."""
-    첫번째 = scheduler.daily_sales_request_id(AS_OF, "배추", sim_run_id=축)
-    두번째 = scheduler.daily_sales_request_id(AS_OF, "배추", sim_run_id=축)
+    첫번째 = request_ids.daily_sales_request_id(AS_OF, "배추", sim_run_id=축)
+    두번째 = request_ids.daily_sales_request_id(AS_OF, "배추", sim_run_id=축)
 
     assert 첫번째 == 두번째 == f"REQ-DAILY-SALES-{축}-20260908-배추"
 
@@ -1052,12 +1049,12 @@ def test_판매_요청이_SPOT_SALES_를_싣는다():
     _run(_plan(now=_at(9, 30), gate=ALL_READY), sales_fn=sales)
 
     assert {r.business_mode for r in sales.requests} == {"SPOT_SALES"}
-    assert scheduler.WALK_BUSINESS_MODE == "SPOT_SALES"
+    assert service_scheduler.WALK_BUSINESS_MODE == "SPOT_SALES"
 
 
 def test_한_곳에서_영업_모드를_바꾼다(monkeypatch):
     """★ **판매가 어휘를 정하면 여기 한 줄만 바꾼다.** 값이 두 벌이면 한쪽만 고쳐진다."""
-    monkeypatch.setattr(scheduler, "WALK_BUSINESS_MODE", "CONTRACT_PROPOSAL_NEW")
+    monkeypatch.setattr(service_scheduler, "WALK_BUSINESS_MODE", "CONTRACT_PROPOSAL_NEW")
     sales = _Sales()
 
     _run(_plan(now=_at(9, 30), gate=ALL_READY), sales_fn=sales)
@@ -1224,9 +1221,14 @@ def test_판매_판단이_승인을_안_한다():
     import ast
     import inspect
 
+    # ★ 2026-09-30 재구성 BL-018: 하루 순서가 service(순서) · domain(판정) · service/expenses(비용
+    #   정산)로 갈렸다 — 함께 잰다.
+    from app.master.service import expenses as service_expenses
+
     부른이름 = {
         node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
-        for node in ast.walk(ast.parse(inspect.getsource(scheduler)))
+        for 모듈 in (service_scheduler, domain_scheduler, service_expenses)
+        for node in ast.walk(ast.parse(inspect.getsource(모듈)))
         if isinstance(node, ast.Call)
     }
 
@@ -1238,7 +1240,7 @@ def test_wake_up_이_판매를_흘려_준다():
     """★ 기본값이 실제 `run_sales` 자체다 — `None` 을 안 받는다 (`clock.py` 와 같은 규율)."""
     import inspect
 
-    from app.master.service import run_sales
+    from app.master.service.sales import run_sales
 
     assert inspect.signature(wake_up).parameters["sales_fn"].default is run_sales
 
@@ -1258,7 +1260,7 @@ def test_wake_up_이_판매를_흘려_준다():
         sim_run_id=축,
     )
 
-    assert len(sales.requests) == len(scheduler.scheduled_items())
+    assert len(sales.requests) == len(domain_scheduler.scheduled_items())
     assert out.sales_status == "RAN"
 
 
@@ -1266,6 +1268,6 @@ def test_run_scheduled_day_기본값이_run_sales_자체다():
     """🔴 기본값이 대역이면 운영이 조용히 아무것도 안 부른다."""
     import inspect
 
-    from app.master.service import run_sales
+    from app.master.service.sales import run_sales
 
     assert inspect.signature(run_scheduled_day).parameters["sales_fn"].default is run_sales

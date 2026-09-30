@@ -26,10 +26,17 @@ from typing import Any
 
 from app.contracts.core import Evidence
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.master.budget import CallBudget
-from app.master.flow import ADVISORS, ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
-from app.master.service import _evidences_out, _to_response
+from app.master.domain.flow import ADVISORS
+from app.master.domain.run_response import (
+    evidences_out as _evidences_out,
+)
+from app.master.domain.run_response import (
+    to_response as _to_response,
+)
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 

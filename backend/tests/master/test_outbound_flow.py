@@ -27,14 +27,13 @@ from typing import Any
 
 import pytest
 
-from app.master import outbound_flow
-from app.master.outbound_flow import (
-    DueSaleItem,
-    SaleItemOutcome,
-    fully_shipped_sales,
-    ship_due_sales,
-)
-from app.master.sim_time import phase_instant
+from app.master.domain import outbound_flow as domain_outbound_flow
+from app.master.domain.outbound_flow import fully_shipped_sales
+from app.master.domain.sim_time import phase_instant
+from app.master.repository import outbound_flow as repository_outbound_flow
+from app.master.schemas.outbound_flow import DueSaleItem, SaleItemOutcome
+from app.master.service import outbound_flow as service_outbound_flow
+from app.master.service.outbound_flow import ship_due_sales
 
 AS_OF = date(2026, 9, 8)
 OTHER_DAY = date(2026, 9, 9)
@@ -467,8 +466,13 @@ def test_ship_이_터져도_allocate_는_커밋된_뒤다():
 
 
 def test_되돌리는_함수를_임포트조차_안_한다():
-    """★ `cancel_allocation` 이 이 모듈에 없다 — 실수로 부를 자리가 없다."""
-    assert not hasattr(outbound_flow, "cancel_allocation")
+    """★ `cancel_allocation` 이 이 모듈에 없다 — 실수로 부를 자리가 없다.
+
+    ★ 2026-09-30 재구성 BL-018: 출고 흐름이 순서(service) · 판정(domain) · 조회(repository) 셋으로
+      갈렸다 — 셋 다 본다.
+    """
+    for 모듈 in (service_outbound_flow, domain_outbound_flow, repository_outbound_flow):
+        assert not hasattr(모듈, "cancel_allocation"), 모듈.__name__
 
 
 # ── 순서 · 어휘 ────────────────────────────────────────────────────────
@@ -492,7 +496,7 @@ def test_출고일은_as_of_다():
 
 def test_전량_예약_함수를_안_부른다():
     """🔴 시뮬레이션 경로는 `reserve_confirmed_sale_available` 이다."""
-    assert outbound_flow.ship_due_sales.__defaults__ is None
+    assert service_outbound_flow.ship_due_sales.__defaults__ is None
     import inspect
 
     기본값 = inspect.signature(ship_due_sales).parameters["reserve_fn"].default

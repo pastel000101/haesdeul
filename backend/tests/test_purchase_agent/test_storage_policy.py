@@ -11,7 +11,7 @@ from datetime import date
 
 import pytest
 
-from app.master.verifier import supplied_but_unresolved, unresolved_supplied_keys
+from app.master.domain.verifier import supplied_but_unresolved, unresolved_supplied_keys
 from app.purchase_agent.config import load_constraints
 from app.purchase_agent.domain.allocate_sourcing import (
     evaluate_mid_grade,

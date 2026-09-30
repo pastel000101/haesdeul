@@ -22,7 +22,7 @@ from datetime import date
 from app.master.critic.llm.judge import JudgeRunner
 from app.master.critic.llm.runtime import JudgeService, get_llm_settings
 from app.master.critic.llm.runtime import LLMSettings as CriticLLMSettings
-from app.master.cycle_schemas import BandOut, ClipResultOut, ProcurementResponse
+from app.master.schemas.cycle import BandOut, ClipResultOut, ProcurementResponse
 
 _LLM_FIELDS = {
     "interpretation",

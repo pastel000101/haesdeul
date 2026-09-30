@@ -45,19 +45,18 @@ from psycopg import errors as pg_errors
 from pydantic import ValidationError
 
 from app.contracts.commitment import ApprovedCommitment
-from app.master import decision_service as svc
-from app.master import purchase_record as pr
-from app.master.commitment import RecordedLeg
-from app.master.decision import (
-    AUTO_BACKFILL,
-    DecisionIn,
-    DecisionOut,
-    DecisionRejected,
-    PurchaseRecordIn,
-)
-from app.master.pending_transition import pending_approvals, retry_pending_transitions
-from app.master.revalidation import Revalidation
-from app.master.transition import TransitionOut
+from app.master.domain import purchase_record as domain_purchase_record
+from app.master.domain.commitment import RecordedLeg
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.domain.pending_transition import pending_approvals
+from app.master.readmodel import approvals, purchase_record
+from app.master.schemas.decision import DecisionIn, DecisionOut, DecisionRejected
+from app.master.schemas.purchase_record import PurchaseRecordIn
+from app.master.schemas.revalidation import Revalidation
+from app.master.schemas.transition import TransitionOut
+from app.master.service import decision
+from app.master.service import purchase_record as service_purchase_record
+from app.master.service.pending_transition import retry_pending_transitions
 
 실행축 = "SIM-A"
 업무키 = "REQ-DAILY-20260911-배추"
@@ -257,13 +256,20 @@ def 세상(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
                 }
             )
 
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: state["decisions"])
-    monkeypatch.setattr(svc, "_run_for", lambda request_id, history_run_id: state["row"])
-    monkeypatch.setattr(svc, "list_purchase_record_legs", _rows)
-    monkeypatch.setattr(pr, "list_purchase_record_legs", _rows)
-    monkeypatch.setattr(pr, "insert_purchase_record_legs", _insert)
-    monkeypatch.setattr(pr, "last_closed_date", lambda *, sim_run_id: state["closed"])
-    monkeypatch.setattr(pr, "revalidate_recorded", lambda a, s: state["reval"](a, s))
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: state["decisions"])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: state["decisions"])
+    monkeypatch.setattr(approvals, "run_for", lambda request_id, history_run_id: state["row"])
+    monkeypatch.setattr(decision, "run_for", lambda request_id, history_run_id: state["row"])
+    monkeypatch.setattr(approvals, "list_purchase_record_legs", _rows)
+    monkeypatch.setattr(purchase_record, "list_purchase_record_legs", _rows)
+    monkeypatch.setattr(service_purchase_record, "list_purchase_record_legs", _rows)
+    monkeypatch.setattr(service_purchase_record, "insert_purchase_record_legs", _insert)
+    monkeypatch.setattr(
+        service_purchase_record, "last_closed_date", lambda *, sim_run_id: state["closed"]
+    )
+    monkeypatch.setattr(
+        service_purchase_record, "revalidate_recorded", lambda a, s: state["reval"](a, s)
+    )
 
     def _connect() -> _커넥션:
         conn = _커넥션(state["store"])
@@ -322,7 +328,9 @@ def _실매입(**over: Any) -> dict[str, Any]:
 
 def _기록한다(세상: dict[str, Any], body: dict[str, Any], 전이: _전이 | None = None):
     문 = 전이 or _전이()
-    out = pr.record_purchase(업무키, PurchaseRecordIn(**body), borrow=세상["connect"], apply_fn=문)
+    out = service_purchase_record.record_purchase(
+        업무키, PurchaseRecordIn(**body), borrow=세상["connect"], apply_fn=문
+    )
     return out, 문
 
 
@@ -347,14 +355,16 @@ def 승인문(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         calls.append(commitment)
         return TransitionOut(status="APPLIED", parts=["finance", "logistics"])
 
-    monkeypatch.setattr(svc, "_run_for", lambda request_id, history_run_id: _실행행())
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [])
-    monkeypatch.setattr(svc, "save_decision", _save)
-    monkeypatch.setattr(svc, "_revalidation_for", lambda *a, **k: None)
-    monkeypatch.setattr(svc, "apply_approval", _apply)
+    monkeypatch.setattr(approvals, "run_for", lambda request_id, history_run_id: _실행행())
+    monkeypatch.setattr(decision, "run_for", lambda request_id, history_run_id: _실행행())
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "save_decision", _save)
+    monkeypatch.setattr(decision, "_revalidation_for", lambda *a, **k: None)
+    monkeypatch.setattr(decision, "apply_approval", _apply)
 
     def _approve(decided_by: str) -> DecisionOut:
-        return svc.record_decision(
+        return decision.record_decision(
             업무키, DecisionIn(decision="APPROVE", scenario_label="기본", decided_by=decided_by)
         )
 
@@ -449,8 +459,8 @@ def test_전이가_롤백하며_실패해도_기록은_남는다(
     assert len(세상["store"]) == 2, "전이 실패가 기록 행을 같이 지웠다"
     assert [행["leg_seq"] for 행 in 세상["store"]] == [1, 2]
 
-    monkeypatch.setattr(pr, "ledger_purchase_ids", lambda *, sim_run_id: [])
-    조회 = pr.get_purchase_record(업무키)
+    monkeypatch.setattr(purchase_record, "ledger_purchase_ids", lambda *, sim_run_id: [])
+    조회 = purchase_record.get_purchase_record(업무키)
     assert 조회.status == "NOT_APPLIED", "기록 있음 · 아직 원장에 없다"
     assert 조회.record is not None and len(조회.record.legs) == 2
 
@@ -464,7 +474,7 @@ def test_전이가_실패해도_응답은_201_에_FAILED_그대로다(
     monkeypatch.setattr(
         router_module,
         "record_purchase",
-        lambda request_id, body: pr.record_purchase(
+        lambda request_id, body: service_purchase_record.record_purchase(
             request_id, body, borrow=세상["connect"], apply_fn=문
         ),
     )
@@ -499,7 +509,7 @@ def test_적재가_UniqueViolation_이면_409_고_전이를_안_부른다(
     def _boom(conn: Any, **_: Any) -> None:
         raise pg_errors.UniqueViolation("duplicate key")
 
-    monkeypatch.setattr(pr, "insert_purchase_record_legs", _boom)
+    monkeypatch.setattr(service_purchase_record, "insert_purchase_record_legs", _boom)
     문 = _전이()
 
     with pytest.raises(DecisionRejected) as caught:
@@ -521,7 +531,7 @@ def test_기록_적재가_터지면_전이를_안_부른다(
     def _boom(conn: Any, **_: Any) -> None:
         raise RuntimeError("적재 실패")
 
-    monkeypatch.setattr(pr, "insert_purchase_record_legs", _boom)
+    monkeypatch.setattr(service_purchase_record, "insert_purchase_record_legs", _boom)
     문 = _전이()
 
     with pytest.raises(RuntimeError):
@@ -662,17 +672,21 @@ def test_기록값_재검증은_승인_재검증과_같은_문을_지난다(monk
         seen.update(kw)
         return Revalidation(outcome="PASSED", request_id="REV-X")
 
-    monkeypatch.setattr(svc, "revalidate_procurement_scenario", _revalidate)
+    monkeypatch.setattr(decision, "revalidate_procurement_scenario", _revalidate)
     monkeypatch.setattr(
-        svc, "revalidate_scenario", lambda **kw: pytest.fail("매입 안을 판매 재검증으로 보냈다")
+        decision,
+        "revalidate_scenario",
+        lambda **kw: pytest.fail("매입 안을 판매 재검증으로 보냈다"),
     )
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [_결정()])
-    monkeypatch.setattr(svc, "_run_for", lambda request_id, history_run_id: _실행행())
-    approval = svc.current_approval(업무키)
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [_결정()])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [_결정()])
+    monkeypatch.setattr(approvals, "run_for", lambda request_id, history_run_id: _실행행())
+    monkeypatch.setattr(decision, "run_for", lambda request_id, history_run_id: _실행행())
+    approval = approvals.current_approval(업무키)
     assert approval is not None
     사본 = {"label": "기본", "total_qty_kg": 1}
 
-    out = svc.revalidate_recorded(approval, 사본)
+    out = decision.revalidate_recorded(approval, 사본)
 
     assert out.outcome == "PASSED"
     assert seen["scenario"] is 사본
@@ -697,7 +711,7 @@ def _경계한다(세상: dict[str, Any], body: dict[str, Any]) -> None:
       전체 경로로 더 갈 수 없게 됐다 (2026-09-16). 지급기일 · 동일일 예외 규칙 자체는
       그대로 살아 있으므로 **경계 함수 단위로** 잰다 — 규칙이 지워진 것이 아니다.
     """
-    approval = svc.current_approval(업무키)
+    approval = approvals.current_approval(업무키)
     assert approval is not None
     one = PurchaseRecordIn(**body)
     legs = tuple(
@@ -710,8 +724,8 @@ def _경계한다(세상: dict[str, Any], body: dict[str, Any]) -> None:
         )
         for leg in one.legs
     )
-    recorded = svc.commitment_with_record(approval, legs, one.grade)
-    pr._check_purchase_dates(approval, recorded, sim_run_id=실행축)
+    recorded = approvals.commitment_with_record(approval, legs, one.grade)
+    service_purchase_record._check_purchase_dates(approval, recorded, sim_run_id=실행축)
 
 
 def test_2회차_매입일이_승인_기준일보다_앞서면_경계가_거부한다(세상: dict[str, Any]) -> None:
@@ -719,7 +733,9 @@ def test_2회차_매입일이_승인_기준일보다_앞서면_경계가_거부�
     body = _본문()
     body["legs"][1].update(purchase_date="2026-09-10", arrival_date="2026-09-11")
 
-    with pytest.raises(DecisionRejected, match=pr.BEFORE_APPROVAL_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.BEFORE_APPROVAL_MESSAGE
+    ) as caught:
         _기록한다(세상, body)
     assert caught.value.conflict is False
     assert "2회차 매입일 2026-09-10" in str(caught.value)
@@ -749,7 +765,9 @@ def test_지급기일이_마지막_재무_일마감일보다_앞이면_거부한
     """🔴 이미 지난 지급기일의 채무가 새로 생기면 그날 지급에 한 번도 안 잡힌다."""
     세상["closed"] = 마감일
 
-    with pytest.raises(DecisionRejected, match=pr.CLOSED_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.CLOSED_DUE_DATE_MESSAGE
+    ) as caught:
         _기록한다(세상, _본문())
     assert caught.value.conflict is False, "본문이 틀린 것이다 (422)"
     assert "1회차 지급기일 2026-09-18" in str(caught.value)
@@ -767,7 +785,9 @@ def test_지급기일은_회차마다_잰다(세상: dict[str, Any]) -> None:
     body["legs"][0].update(purchase_date="2026-09-15", arrival_date="2026-09-16")  # 9/22
     body["legs"][1].update(purchase_date="2026-09-12", arrival_date="2026-09-15")  # 9/19
 
-    with pytest.raises(DecisionRejected, match=pr.CLOSED_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.CLOSED_DUE_DATE_MESSAGE
+    ) as caught:
         _경계한다(세상, body)
     assert "2회차 지급기일 2026-09-19" in str(caught.value)
     assert 세상["store"] == []
@@ -793,7 +813,9 @@ def test_당일_지급인데_지급기일이_마감일_하루_앞이면_거부�
     세상["row"]["response_payload"]["constraints"]["finance"]["purchase_payment_days"] = 0
     세상["closed"] = date(2026, 9, 12)
 
-    with pytest.raises(DecisionRejected, match=pr.CLOSED_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.CLOSED_DUE_DATE_MESSAGE
+    ) as caught:
         _기록한다(세상, _본문())
     assert "1회차 지급기일 2026-09-11" in str(caught.value)
     assert 세상["store"] == [] and 세상["conns"] == []
@@ -806,7 +828,9 @@ def test_지급기일이_마감일과_같아도_과거_승인이면_거부한다
     """
     세상["closed"] = date(2026, 9, 18)
 
-    with pytest.raises(DecisionRejected, match=pr.SAME_DAY_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.SAME_DAY_DUE_DATE_MESSAGE
+    ) as caught:
         _기록한다(세상, _본문())
     assert caught.value.conflict is False, "본문이 틀린 것이다 (422)"
     assert "1회차 승인 기준일 2026-09-11 · 매입일 2026-09-11" in str(caught.value)
@@ -824,7 +848,9 @@ def test_지급기일이_마감일과_같아도_매입일이_승인일_뒤면_�
     body = _본문()
     body["legs"][0].update(purchase_date="2026-09-12", arrival_date="2026-09-13")
 
-    with pytest.raises(DecisionRejected, match=pr.SAME_DAY_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.SAME_DAY_DUE_DATE_MESSAGE
+    ) as caught:
         _경계한다(세상, body)
     assert "매입일 2026-09-12 · 지급기일 2026-09-12" in str(caught.value)
     assert 세상["store"] == [] and 세상["conns"] == []
@@ -843,7 +869,9 @@ def test_동일일_예외는_회차마다_따진다(세상: dict[str, Any]) -> N
     body["legs"][0].update(purchase_date="2026-09-14", arrival_date="2026-09-15")
     body["legs"][1].update(purchase_date="2026-09-12", arrival_date="2026-09-13")
 
-    with pytest.raises(DecisionRejected, match=pr.SAME_DAY_DUE_DATE_MESSAGE) as caught:
+    with pytest.raises(
+        DecisionRejected, match=domain_purchase_record.SAME_DAY_DUE_DATE_MESSAGE
+    ) as caught:
         _경계한다(세상, body)
     assert "2회차 승인 기준일 2026-09-11 · 매입일 2026-09-12" in str(caught.value)
     assert 세상["store"] == []
@@ -880,7 +908,7 @@ def test_1회차_매입일이_승인한_날과_다르면_새_문구로_거부한
 
     말 = str(caught.value)
     assert caught.value.conflict is False, "본문이 틀린 것이다 (422)"
-    assert 말 == pr.PURCHASE_DATE_MESSAGE.format(as_of=기준일, seq=1)
+    assert 말 == domain_purchase_record.PURCHASE_DATE_MESSAGE.format(as_of=기준일, seq=1)
     assert 말 == "매입일은 승인한 날(2026-09-11)과 같아야 합니다 — 1회차"
     # 🔴 **재검증 문구가 아니다.** 알기 어려운 말이 사람에게 가는 것이 이 판의 이유다.
     assert "재검증" not in 말 and "다시 검증" not in 말
@@ -922,15 +950,15 @@ def test_소수점_수량은_선검사가_사람_말로도_거부한다(세상: 
         )
         for i, one in enumerate(_본문()["legs"])
     ]
-    approval = svc.current_approval(업무키)
+    approval = approvals.current_approval(업무키)
     assert approval is not None
 
     with pytest.raises(DecisionRejected) as caught:
-        pr._check_recordable_values(approval, legs)
+        domain_purchase_record.check_recordable_values(approval, legs)
 
     말 = str(caught.value)
     assert caught.value.conflict is False
-    assert 말 == pr.WHOLE_QTY_MESSAGE.format(seq=회차 + 1)
+    assert 말 == domain_purchase_record.WHOLE_QTY_MESSAGE.format(seq=회차 + 1)
     assert 말 == f"수량은 1kg 단위로 적어 주세요 — {회차 + 1}회차"
     assert "재검증" not in 말
 
@@ -963,15 +991,15 @@ def test_수량으로_안_나뉘는_금액은_단가_문구로_거부한다(세�
         )
         for i, one in enumerate(_본문()["legs"])
     ]
-    approval = svc.current_approval(업무키)
+    approval = approvals.current_approval(업무키)
     assert approval is not None
 
     with pytest.raises(DecisionRejected) as caught:
-        pr._check_recordable_values(approval, legs)
+        domain_purchase_record.check_recordable_values(approval, legs)
 
     말 = str(caught.value)
     assert caught.value.conflict is False
-    assert 말 == pr.WHOLE_UNIT_PRICE_MESSAGE.format(seq=회차 + 1)
+    assert 말 == domain_purchase_record.WHOLE_UNIT_PRICE_MESSAGE.format(seq=회차 + 1)
     assert 말 == f"단가는 원 단위 정수로 적어 주세요 — {회차 + 1}회차"
     assert "재검증" not in 말
 
@@ -1019,7 +1047,7 @@ def test_등급이_둘인_안에는_기록을_받지_않는다(세상: dict[str,
 
     말 = str(caught.value)
     assert caught.value.conflict is False, "본문이 틀린 것이다 (422)"
-    assert 말 == pr.MULTI_GRADE_MESSAGE.format(세기="둘", 등급="상 · 중")
+    assert 말 == domain_purchase_record.MULTI_GRADE_MESSAGE.format(세기="둘", 등급="상 · 중")
     assert 말 == (
         "이 안은 등급이 둘입니다 (상 · 중). 실매입 기록은 한 등급만 받습니다"
         " — 매입 화면에서 등급이 하나인 다른 안을 골라 주세요."
@@ -1043,7 +1071,7 @@ def test_등급이_셋이어도_막힌다(세상: dict[str, Any]) -> None:
 
     말 = str(caught.value)
     assert caught.value.conflict is False
-    assert 말 == pr.MULTI_GRADE_MESSAGE.format(세기="셋", 등급="특 · 상 · 중")
+    assert 말 == domain_purchase_record.MULTI_GRADE_MESSAGE.format(세기="셋", 등급="특 · 상 · 중")
     assert "특" in 말 and "상" in 말 and "중" in 말
 
 
@@ -1156,13 +1184,13 @@ def test_원장_단가가_정수로_떨어지고_Line_금액과_맞는다(세상
     """
     from decimal import Decimal
 
-    from app.master import ledger
-    from app.master.transition import purchase_id_for
+    from app.master.domain import ledger as domain_ledger
+    from app.master.domain.purchase_ids import purchase_id_for
 
     _, 전이 = _기록한다(세상, _단가기록())
     commitment, _ = 전이.calls[0]
 
-    rows = ledger.build_purchase_rows(
+    rows = domain_ledger.build_purchase_rows(
         commitment,
         purchase_ids={
             leg.seq: purchase_id_for(commitment, leg.seq) for leg in commitment.arrival_schedule
@@ -1218,13 +1246,17 @@ class _조언자:
 @pytest.fixture
 def 조언자들(세상: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> dict[str, _조언자]:
     """기록 재검증을 **대역 없이** 태운다. 부서만 대역이다."""
-    from app.master import wiring
+    from app.master.registry import wiring as registry_wiring
+    from app.master.service import decision
+    from app.master.service import purchase_record as service_purchase_record
 
-    wiring.reset()
+    registry_wiring.reset()
     등록 = {"finance": _조언자(), "inventory": _조언자()}
     for 이름, 포트 in 등록.items():
-        wiring.register(이름, 포트)
-    monkeypatch.setattr(pr, "revalidate_recorded", svc.revalidate_recorded)
+        registry_wiring.register(이름, 포트)
+    monkeypatch.setattr(
+        service_purchase_record, "revalidate_recorded", decision.revalidate_recorded
+    )
     return 등록
 
 
@@ -1323,8 +1355,8 @@ def test_재조립이_기록값으로_덮는다(세상: dict[str, Any]) -> None:
     문 = _전이(TransitionOut(status="NOT_APPLIED", reason="도착분 없음"), opens=False)
     _기록한다(세상, _실매입(), 문)
 
-    commitment = svc.current_approved_commitment(업무키)
-    out = svc.current_commitment(업무키)
+    commitment = approvals.current_approved_commitment(업무키)
+    out = approvals.current_commitment(업무키)
 
     assert commitment is not None and commitment.total_qty_kg == 290.0
     assert commitment.grades == ("특",)
@@ -1342,7 +1374,7 @@ def test_재시도가_기록_있는_사람_승인을_기록값으로_세운다(�
         decisions_of=lambda **kw: [_승인행(업무키, decided_by=사람)],
         purchase_ids_of=lambda **kw: [],
         recorded_of=lambda **kw: [(업무키, 1)],
-        commitment_of=svc.current_approved_commitment,
+        commitment_of=approvals.current_approved_commitment,
         apply_fn=재시도문,
     )
 
@@ -1375,7 +1407,7 @@ def test_재시도가_기록_없는_사람_승인에는_전이를_안_부른다(
 
 
 def test_조회가_선정안_기본값과_대기_상태를_낸다(세상: dict[str, Any]) -> None:
-    out = pr.get_purchase_record(업무키)
+    out = purchase_record.get_purchase_record(업무키)
 
     assert out.status == "AWAITING_PURCHASE_RECORD"
     assert out.plan.grade == "상"
@@ -1390,11 +1422,13 @@ def test_조회가_기록과_반영_상태를_낸다(
     세상: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _기록한다(세상, _실매입())
-    monkeypatch.setattr(pr, "ledger_purchase_ids", lambda *, sim_run_id: [])
-    assert pr.get_purchase_record(업무키).status == "NOT_APPLIED"
+    monkeypatch.setattr(purchase_record, "ledger_purchase_ids", lambda *, sim_run_id: [])
+    assert purchase_record.get_purchase_record(업무키).status == "NOT_APPLIED"
 
-    monkeypatch.setattr(pr, "ledger_purchase_ids", lambda *, sim_run_id: [f"PUR-{업무키}-D1-S1"])
-    out = pr.get_purchase_record(업무키)
+    monkeypatch.setattr(
+        purchase_record, "ledger_purchase_ids", lambda *, sim_run_id: [f"PUR-{업무키}-D1-S1"]
+    )
+    out = purchase_record.get_purchase_record(업무키)
 
     assert out.status == "APPLIED"
     assert out.record is not None and out.record.grade == "특"
@@ -1408,7 +1442,7 @@ def test_안에_단가가_없으면_폼_기본_단가는_비어_있다(세상: d
     """⑥ 🔴 **지어내지 않는다.** 금액 ÷ 수량으로 채우면 안이 적지 않은 값이 폼에 앉는다."""
     del 세상["row"]["response_payload"]["scenarios"][0]["sourcing_plan"][0]["grade_unit_price"]
 
-    out = pr.get_purchase_record(업무키)
+    out = purchase_record.get_purchase_record(업무키)
 
     assert [leg.unit_price_krw for leg in out.plan.legs] == [None, None]
     assert [leg.amount_krw for leg in out.plan.legs] == [500000.0, 1000000.0], "금액은 그대로 온다"
@@ -1422,7 +1456,7 @@ def test_등급_줄이_여럿이면_폼_기본_단가는_비어_있다(세상: d
         {"market": "가락", "grade": "특", "qty_kg": 100, "grade_unit_price": 5500},
     ]
 
-    out = pr.get_purchase_record(업무키)
+    out = purchase_record.get_purchase_record(업무키)
 
     assert [leg.unit_price_krw for leg in out.plan.legs] == [None, None]
 
@@ -1430,7 +1464,7 @@ def test_등급_줄이_여럿이면_폼_기본_단가는_비어_있다(세상: d
 def test_자동_승인_조회는_기록_대상이_아니다(세상: dict[str, Any]) -> None:
     세상["decisions"] = [_결정(decided_by=AUTO_BACKFILL)]
 
-    assert pr.get_purchase_record(업무키).status == "NOT_REQUIRED"
+    assert purchase_record.get_purchase_record(업무키).status == "NOT_REQUIRED"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1455,7 +1489,7 @@ def 손님(monkeypatch: pytest.MonkeyPatch):
     [
         (LookupError("승인 없음"), 404),
         (DecisionRejected("이미 기록", conflict=True), 409),
-        (DecisionRejected(pr.CLOSED_DUE_DATE_MESSAGE), 422),
+        (DecisionRejected(domain_purchase_record.CLOSED_DUE_DATE_MESSAGE), 422),
     ],
 )
 def test_기록_API_가_거부를_상태_코드로_접는다(

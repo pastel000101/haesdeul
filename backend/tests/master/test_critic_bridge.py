@@ -16,9 +16,9 @@ from datetime import date
 import pytest
 
 from app.contracts.core import Evidence
-from app.master import critic_bridge as bridge
-from app.master.plan import ExecutionPlan
-from app.master.verifier import MasterVerifier, VerificationContext
+from app.master.adapters import critic_bridge
+from app.master.domain.plan import ExecutionPlan
+from app.master.service.verifier import MasterVerifier, VerificationContext
 
 AS_OF = date(2025, 12, 31)
 
@@ -108,7 +108,7 @@ def test_품목_단일가는_금액을_되돌린다():
     만들어지므로, 등급 단가 중 하나를 고르거나 평균을 내면 **매입이 주장한 금액과
     다른 금액을 검사**하게 된다. 숫자는 나오고 에러도 안 난다.
     """
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -122,7 +122,7 @@ def test_품목_단일가는_금액을_되돌린다():
 
 
 def test_절대날짜를_offset_으로_되돌릴_수_있게_옮긴다():
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -137,7 +137,7 @@ def test_절대날짜를_offset_으로_되돌릴_수_있게_옮긴다():
 def test_리드타임이_없으면_도착일을_비운다():
     """0 일로 치면 **도착일 분해 검사가 통과해 버린다.**"""
     constraints = {**CONSTRAINTS, "inventory": {"warehouse_free_kg": 7636.72}}
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -150,7 +150,7 @@ def test_리드타임이_없으면_도착일을_비운다():
 
 def test_stance_는_매입_label_그대로다():
     """매입 `보수·기본·공격` 과 Critic `stance` 는 같은 어휘다 — 매핑표가 없다."""
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(_scenario(label="공격")),
@@ -163,7 +163,7 @@ def test_stance_는_매입_label_그대로다():
 
 def test_cap_축을_뒷받침하는_근거만_붙인다():
     """근거는 많이 붙이는 것이 아니라 **가리키는 것이 맞아야** 한다."""
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -182,7 +182,7 @@ def test_dept_meta_를_보내지_않는다():
     비워 보내면 Critic 의 등급 누출 검사가 "금지 입력 없음"으로 읽는다.
     안 보내면 Critic 이 `skipped` 에 남긴다.
     """
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -194,7 +194,7 @@ def test_dept_meta_를_보내지_않는다():
 
 def test_rationale_을_비워_LLM_을_타지_않는다():
     """L5 판정 대상은 오케 selector 문장인데 1차 Flow 에 그 단계가 없다."""
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -205,7 +205,7 @@ def test_rationale_을_비워_LLM_을_타지_않는다():
 
 
 def test_sourcing_lot_에_ref_ids_를_지어내지_않는다():
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -221,8 +221,8 @@ def test_sourcing_lot_에_ref_ids_를_지어내지_않는다():
 
 
 def test_품목을_모르면_넘기지_않는다():
-    with pytest.raises(bridge.CriticSkipped):
-        bridge.build_request(
+    with pytest.raises(critic_bridge.CriticSkipped):
+        critic_bridge.build_request(
             as_of=AS_OF,
             item=None,
             proposal=_proposal(),
@@ -233,8 +233,8 @@ def test_품목을_모르면_넘기지_않는다():
 
 def test_밴드_축이_없으면_넘기지_않는다():
     """cap 없는 회신을 넘기면 Critic 밴드가 무한대가 되어 **무제한 매입이 통과**한다."""
-    with pytest.raises(bridge.CriticSkipped):
-        bridge.build_request(
+    with pytest.raises(critic_bridge.CriticSkipped):
+        critic_bridge.build_request(
             as_of=AS_OF,
             item="배추",
             proposal=_proposal(),
@@ -245,8 +245,8 @@ def test_밴드_축이_없으면_넘기지_않는다():
 
 def test_수량이_0_이면_그_시나리오를_옮기지_않는다():
     """단가가 `금액/수량` 이라 0 으로 나눌 수 없다 — 0 을 채우지 않고 뺀다."""
-    with pytest.raises(bridge.CriticSkipped):
-        bridge.build_request(
+    with pytest.raises(critic_bridge.CriticSkipped):
+        critic_bridge.build_request(
             as_of=AS_OF,
             item="배추",
             proposal=_proposal(_scenario(total_qty_kg=0)),
@@ -382,7 +382,7 @@ def _ctx_with_meta(observation: str) -> VerificationContext:
 
 def test_부서가_적어_보낸_dept_meta_를_그대로_옮긴다():
     """마스터는 **추측하지 않는다** — 부서가 적은 값을 Critic 어휘로 옮기기만 한다."""
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -410,7 +410,7 @@ def test_관측이_없거나_모양이_어긋나면_보내지_않는다():
         {"finance": (json.dumps({"observation_type": "finance_dept_meta"}),)},
         {},
     ):
-        req = bridge.build_request(
+        req = critic_bridge.build_request(
             as_of=AS_OF,
             item="배추",
             proposal=_proposal(),
@@ -461,7 +461,7 @@ def test_split_legs_는_매입_도착일을_그대로_옮긴다():
     """★ 매입 #141 — 여기가 "같은 사실을 두 곳에서 계산하는" 마지막 자리였다.
 
     매입 값(01-09)이 N4 계산(01-02)과 달라도 매입 값이 이긴다."""
-    from app.master.critic_bridge import _split_legs
+    from app.master.adapters.critic_bridge import _split_legs
 
     scenario = {
         "split_plan": [
@@ -474,7 +474,7 @@ def test_split_legs_는_매입_도착일을_그대로_옮긴다():
 
 
 def test_split_legs_는_매입_값이_없으면_폴백_계산한다():
-    from app.master.critic_bridge import _split_legs
+    from app.master.adapters.critic_bridge import _split_legs
 
     scenario = {"split_plan": [{"date": "2025-12-31", "qty_kg": 44.0}]}
     legs = _split_legs(scenario, "배추", date(2025, 12, 31), lead=2)
@@ -492,7 +492,7 @@ def test_창_길이를_같이_나른다():
     앞만 보내면 Critic 이 *"cap 키가 없는 날짜"* 를 **창 밖(검사 대상 아님)인지
     창 안 누락(미결)인지** 가르지 못하고, 창 밖 도착이 조용히 통과한다.
     """
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -509,7 +509,7 @@ def test_물류가_창_길이를_안_보내면_지어내지_않는다():
     inventory = {
         k: v for k, v in CONSTRAINTS["inventory"].items() if k != "cap_by_date_window_days"
     }
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),
@@ -524,7 +524,7 @@ def test_창_길이가_float_로_와도_나른다():
     """⚠️ 실 payload 는 숫자를 float 로 싣는다 — `inbound_lead_days` 가 `2.0` 으로
     온다는 것이 실측으로 확인됐다 (2026-09-03 매입). 창 길이도 같은 전선을 탄다."""
     inventory = {**CONSTRAINTS["inventory"], "cap_by_date_window_days": 18.0}
-    req = bridge.build_request(
+    req = critic_bridge.build_request(
         as_of=AS_OF,
         item="배추",
         proposal=_proposal(),

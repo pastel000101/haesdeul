@@ -89,7 +89,8 @@ runtime in_transit
   모드별 업무 조립(스냅샷 읽기 · 규칙 · Tool · 해석 · 회신)은 `service/`(`agent_status` ·
   `pre_purchase` · `pre_sales` · `scenario_validation`), 근거 · 회신 · 실행 흔적 조립은
   `domain/agent_evidence.py` · `domain/agent_replies.py`, 판매 요청 해석은 `domain/pre_sales.py` 로
-  갔다. 이 파일을 import 하는 곳은 마스터 등록소 조립(`master/bootstrap.py`) 하나다.
+  갔다. 이 파일을 import 하는 곳은 마스터 등록소 조립(`master/registry/bootstrap.py`)
+  하나다.
 """
 
 from __future__ import annotations
@@ -154,7 +155,7 @@ def logistics_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata
 
 
 class LogisticsTransitionAdapter:
-    """마스터 전이 Protocol(`app.master.transition.LogisticsTransition`)의 물류 입구.
+    """마스터 전이 Protocol(`app.master.registry.transition.LogisticsTransition`)의 물류 입구.
 
     ★ **여기에는 업무가 없다.** 재무 `FinanceTransitionAdapter` 와 같은 결이다 —
       얇게 두어야 계약이 바뀔 때 고칠 자리가 한 곳으로 남는다.
@@ -182,7 +183,7 @@ class LogisticsTransitionAdapter:
           바꾸는 fixture 행이 하나뿐이라 묶음도 하나다.
 
         🔴 **`purchase_ids` 는 기본값 `None` 이어야 한다.** 마스터 전이 규약
-           (`app/master/transition.py` 의 `LogisticsTransition`)은 이 인자를 **받지
+           (`app/master/registry/transition.py` 의 `LogisticsTransition`)은 이 인자를 **받지
            않기로 확정했고**, **그 파일은 마스터 소유라 물류가 고칠 자리가 아니다.**
            필수로 만들면 마스터 호출이 그대로 `TypeError` 로 터진다 —
 
@@ -232,7 +233,7 @@ class LogisticsCancellationAdapter:
 
     🔴 **`sim_run_id` 는 생성 인자다.** *"어느 실행의 장부인가"* 는 실행 정체성이라
       물류가 아니라 마스터가 정한다 — `LogisticsTransitionAdapter` 와 같은 판단이고,
-      배선 자리(`app/master/bootstrap.py`)에서 눈에 보이게 주입한다.
+      배선 자리(`app/master/registry/bootstrap.py`)에서 눈에 보이게 주입한다.
     """
 
     def __init__(self, *, sim_run_id: str) -> None:
@@ -272,7 +273,7 @@ class LogisticsCancellationAdapter:
 
 
 class LogisticsDayOpening:
-    """`app.master.day_open.DayOpening` 의 물류 구현.
+    """`app.master.registry.day_open.DayOpening` 의 물류 구현.
 
     🔴 **commit 도 rollback 도 하지 않고 커넥션을 새로 열지도 않는다.** 커넥션은
        마스터가 주고 커밋은 두 파트가 모두 끝난 뒤 마스터가 한 번 한다. 여기서
@@ -325,7 +326,7 @@ class LogisticsDayOpening:
 
 
 class LogisticsInboundExecution:
-    """`app.master.inbound.InboundExecution` 의 물류 구현.
+    """`app.master.registry.inbound.InboundExecution` 의 물류 구현.
 
     🔴 **`sim_run_id` 는 생성 인자다.** *"어느 실행의 장부인가"* 는 물류 사실이 아니라
        실행 정체성이고, Protocol 의 `receive(conn, *, as_of)` 는 그 값을 안 나른다 —

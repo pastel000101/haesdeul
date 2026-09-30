@@ -23,13 +23,10 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app.logistics.schemas.monitoring import DetectOut
-from app.master.inspection import (
-    AFTER_INBOUND,
-    AFTER_OUTBOUND,
-    InspectionOut,
-    run_logistics_inspection,
-)
-from app.master.scheduler import ScheduledAction, run_scheduled_day
+from app.master.domain.scheduler import ScheduledAction
+from app.master.schemas.inspection import AFTER_INBOUND, AFTER_OUTBOUND, InspectionOut
+from app.master.service.inspection import run_logistics_inspection
+from app.master.service.scheduler import run_scheduled_day
 
 SEOUL = ZoneInfo("Asia/Seoul")
 AS_OF = date(2026, 1, 7)

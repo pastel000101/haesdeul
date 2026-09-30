@@ -23,8 +23,10 @@ from app.contracts.core import SuggestedAdjustment
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
 from app.finance.domain.evidence import adjustment_from_dict
 from app.finance.domain.sales_validation import CREDIT_LIMIT_EXCEEDED, build_sales_adjustments
-from app.master import AgentRegistry, CallBudget, MasterRunner
-from app.master.sales_flow import SalesFlow
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import SalesFlow
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 AS_OF = date(2026, 9, 16)

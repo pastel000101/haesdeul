@@ -32,9 +32,10 @@ from app.contracts.envelope import (
     ExecutionMetadata,
     wire_adjustment,
 )
-from app.master.budget import CallBudget
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 SPLIT = date(2026, 9, 11)

@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 
 from app.core.clock import SEOUL
-from app.master import sim_time
-from app.master.schedule_times import SCHEDULE_START
-from app.master.sim_time import PHASES, phase_instant
+from app.master.domain import sim_time as domain_sim_time
+from app.master.domain.schedule_times import SCHEDULE_START
+from app.master.domain.sim_time import PHASES, phase_instant
 
 _AS_OF = date(2026, 9, 8)
 
@@ -107,7 +107,7 @@ def test_모르는_단계는_막는다():
 #   `clock.today_in_seoul()` 은 `datetime.now` 가 아니라서 그 검사를 통과하지만,
 #   이 모듈이 부르는 순간 `as_of` 파생이 아니라 **오늘로 답하기** 시작한다.
 
-_SOURCE = Path(sim_time.__file__)
+_SOURCE = Path(domain_sim_time.__file__)
 
 #: 이 모듈이 부르면 안 되는 호출. **벽시계 셋 + clock 의 시계 함수 둘.**
 _FORBIDDEN = frozenset(
@@ -179,7 +179,7 @@ def test_기준점_상수를_새로_만들지_않는다():
     }
 
     assert not literals, f"시각 상수를 새로 만들었다: {literals}"
-    assert "from app.master.schedule_times import SCHEDULE_START" in source
+    assert "from app.master.domain.schedule_times import SCHEDULE_START" in source
 
 
 def test_시각_모듈이_스케줄러를_안_들인다():
@@ -196,7 +196,7 @@ def test_시각_모듈이_스케줄러를_안_들인다():
     import ast
     import pathlib
 
-    source = pathlib.Path(sim_time.__file__).read_text(encoding="utf-8")
+    source = pathlib.Path(domain_sim_time.__file__).read_text(encoding="utf-8")
     나무 = ast.parse(source)
 
     들인_것 = {
@@ -206,7 +206,7 @@ def test_시각_모듈이_스케줄러를_안_들인다():
     }
 
     # ★ 자기 생존 검사 — 스캐너가 실제로 임포트를 찾았는가. 0건을 세면 공짜 초록이다.
-    assert "app.master.schedule_times" in 들인_것, (
+    assert "app.master.domain.schedule_times" in 들인_것, (
         f"스캐너가 임포트를 못 찾았다: {sorted(들인_것)}"
     )
 

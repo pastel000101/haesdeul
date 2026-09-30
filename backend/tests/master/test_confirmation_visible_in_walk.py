@@ -40,16 +40,12 @@ from uuid import uuid4
 
 import pytest
 
-from app.master.backfill import (
-    ALWAYS_FIXED_TYPE,
-    BackfilledRun,
-    BackfillOut,
-    backfill_decisions,
-)
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.decision import DecisionIn, DecisionOut
-from app.master.sales_approval import SaleConfirmationOut
-from app.master.scheduler import DayRunOutcome
+from app.master.domain.backfill import ALWAYS_FIXED_TYPE, BackfilledRun, BackfillOut
+from app.master.domain.scheduler import DayRunOutcome
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.schemas.sales_approval import SaleConfirmationOut
+from app.master.service.backfill import backfill_decisions
 
 오늘 = date(2026, 1, 6)
 

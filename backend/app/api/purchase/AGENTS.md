@@ -65,8 +65,8 @@ def build(as_of: date, sim_run_id: str | None = None) -> PurchaseTab:
 결과만 읽습니다 (화면을 열 때마다 LLM 이 돌면 안 됩니다).
 
 🔴 **읽기는 마스터 조회 `app.master.readmodel.purchase_tab.read_purchase_tab` 입니다**
-(2026-09-29 — SQL 은 `app/master/purchase_tab_repository.py`, 조회 헬퍼는 마스터 입구
-`app.master.db`). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
+(2026-09-30 — SQL 은 `app/master/repository/purchase_tab.py`, 조회 연결은 그 readmodel 이
+빌린다). 매입 에이전트(`app.purchase_agent`)는 `get_db_schema` 를 **쓰지 않습니다** —
 일부러 뺐고 (`readmodel/quotes.py` 머리말) 이유는 *"`.env` 가 어느 시세 테이블을 읽을지 정하면
 안 된다"* 입니다. 그건 에이전트 경로의 사정이고, 화면은 `haetdeul` 도메인 표를 읽으므로
 스키마를 `.env` 가 정하는 것이 맞습니다. ⚠️ 쓰기 헬퍼는 가져오지 않습니다.
@@ -104,28 +104,20 @@ get_finance_dashboard(sim_run_id=..., as_of=as_of)
 
 ## DB 는 이미 있는 것을 쓰세요
 
-부서 서비스로 안 되는 값만 직접 읽습니다. **먼저 위를 보세요.**
+마스터 조회로 안 되는 값만 새로 읽습니다. **먼저 위를 보세요.**
 
-```python
-from app.master.db import fetch_one, fetch_all, get_db_schema
+마스터는 계층으로 나뉘어 있습니다 (2026-09-30). **SQL 은 `app/master/repository/` 에만** 두고,
+화면이 부르는 것은 그 위의 조회 `app/master/readmodel/` 입니다.
+
+```text
+app/master/repository/<자원>.py   SQL. 연결과 스키마 이름을 인자로 받고 commit 하지 않는다
+app/master/readmodel/<자원>.py    스키마 이름을 읽고 조회 연결을 빌려 repository 를 부른다
 ```
 
-```python
-fetch_one(query, params) -> dict | None      # 없으면 None. 반드시 다룰 것
-fetch_all(query, params) -> list[dict]       # 없으면 빈 목록
-get_db_schema()          -> str              # 스키마 이름. 하드코딩 금지
-```
-
-**새 DB 모듈을 만들지 마세요.** 접속 정보가 두 군데로 갈라집니다.
+**새 DB 모듈을 만들지 마세요.** 연결은 `app.core.db` 의 풀에서 빌립니다.
 접속 정보는 `.env` 에 있습니다 — **코드나 문서에 절대 쓰지 마세요.**
 
-스키마 이름은 문자열로 박지 말고 `get_db_schema()` 로 받아 씁니다.
-
-```python
-schema = get_db_schema()
-rows = fetch_all(f'SELECT * FROM {schema}.purchases WHERE as_of = %s', (as_of,))
-```
-
+스키마 이름은 문자열로 박지 말고 `app.core.settings.get_db_schema()` 로 받아 씁니다.
 값은 `%s` 자리표시자로 넘기세요. **f-string 으로 이어붙이지 마세요** (SQL 주입).
 
 ---

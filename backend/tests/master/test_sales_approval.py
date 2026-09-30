@@ -38,20 +38,23 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from app import core
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import decision_service, sales_approval, wiring
-from app.master.decision import (
+from app.master.domain import sales_approval as domain_sales_approval
+from app.master.domain.decision import (
     _APPROVE_END_CODES,
     _SALES_APPROVE_END_CODES,
-    DecisionIn,
-    DecisionOut,
-    DecisionRejected,
     approve_end_codes,
     check_decidable,
     mark_current,
     scenario_ids_of,
 )
-from app.master.sales_flow import CandidateVerdict
+from app.master.domain.sales_flow import CandidateVerdict
+from app.master.readmodel import approvals
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.decision import DecisionIn, DecisionOut, DecisionRejected
+from app.master.service import decision
+from app.master.service import sales_approval as service_sales_approval
 
 REQ = "REQ-20260910-0001"
 RUN_UUID = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -136,10 +139,10 @@ class 부서:
 
 @pytest.fixture
 def 부서들() -> dict[str, 부서]:
-    wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 테스트 밖으로 안 샌다
+    registry_wiring.reset()  # 루트 conftest 가 스냅샷을 떠 두므로 이 테스트 밖으로 안 샌다
     등록 = {"inventory": 부서(), "finance": 부서()}
     for 이름, 포트 in 등록.items():
-        wiring.register(이름, 포트)
+        registry_wiring.register(이름, 포트)
     return 등록
 
 
@@ -235,12 +238,12 @@ def 확정(monkeypatch) -> 확정_대역:
     대역 = 확정_대역()
     conn = 커넥션_대역()
     예약 = 예약_대역()
-    monkeypatch.setattr(sales_approval, "confirm_sale", 대역)
+    monkeypatch.setattr(service_sales_approval, "confirm_sale", 대역)
     # 🔴 **예약도 대역이다** (2026-09-12). 확정이 서면 그 자리에서 물류 예약이
     #    불리므로, 안 갈아 끼우면 이 파일이 실 DB 를 친다.
-    monkeypatch.setattr(sales_approval, "reserve_confirmed_sale_available", 예약)
+    monkeypatch.setattr(service_sales_approval, "reserve_confirmed_sale_available", 예약)
     # ★ 연결은 공통 풀에서 빌린다(2026-09-29) — 그 대여 자리를 대역으로 바꾼다.
-    monkeypatch.setattr(sales_approval.core_db, "connection", lambda: conn)
+    monkeypatch.setattr(core.db, "connection", lambda: conn)
     대역.conn = conn  # type: ignore[attr-defined]
     대역.예약 = 예약  # type: ignore[attr-defined]
     return 대역
@@ -319,16 +322,17 @@ def _매입_실행(*, end_code: str = "E1_APPROVED") -> dict[str, Any]:
 @pytest.fixture
 def 이력(monkeypatch) -> 결정_저장소:
     저장소 = 결정_저장소()
-    monkeypatch.setattr(decision_service, "list_decisions", 저장소.list_decisions)
-    monkeypatch.setattr(decision_service, "save_decision", 저장소.save_decision)
+    monkeypatch.setattr(approvals, "list_decisions", 저장소.list_decisions)
+    monkeypatch.setattr(decision, "list_decisions", 저장소.list_decisions)
+    monkeypatch.setattr(decision, "save_decision", 저장소.save_decision)
     return 저장소
 
 
 def _실행을_세운다(monkeypatch, row: Mapping[str, Any]) -> None:
     monkeypatch.setattr(
-        decision_service, "get_run_by_request_id", lambda request_id, **kw: dict(row)
+        approvals, "get_run_by_request_id", lambda request_id, **kw: dict(row)
     )
-    monkeypatch.setattr(decision_service, "get_run", lambda run_id: dict(row))
+    monkeypatch.setattr(approvals, "get_run", lambda run_id: dict(row))
 
 
 def _승인(label: str = SCN, **kw: Any) -> DecisionIn:
@@ -386,7 +390,7 @@ def test_SL1_실행에_승인이_통과한다(monkeypatch, 이력, 부서들, �
     """🔴 **이것이 이 판의 목적이다.** 전에는 여기서 409 가 났다."""
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.decision == "APPROVE"
     assert saved.end_code_at_decision == "SL1_PRESENTED"
@@ -405,7 +409,7 @@ def test_매입_실행에_SL1_을_우겨도_안_통한다(monkeypatch, 이력, �
     _실행을_세운다(monkeypatch, 행)
 
     with pytest.raises(DecisionRejected):
-        decision_service.record_decision(REQ, _승인("기본"))
+        decision.record_decision(REQ, _승인("기본"))
 
     assert 확정.호출 == [], "매입 실행에서 판매 확정이 불렸다"
 
@@ -415,7 +419,7 @@ def test_판매_실행에_E1_을_우겨도_안_통한다(monkeypatch, 이력, �
     _실행을_세운다(monkeypatch, _판매_실행(end_code="E1_APPROVED"))
 
     with pytest.raises(DecisionRejected):
-        decision_service.record_decision(REQ, _승인())
+        decision.record_decision(REQ, _승인())
 
     assert 확정.호출 == []
 
@@ -459,7 +463,7 @@ def test_없는_scenario_id_는_거절된다(monkeypatch, 이력, 부서들, 확
     _실행을_세운다(monkeypatch, _판매_실행())
 
     with pytest.raises(DecisionRejected, match="내놓은 안이 아니다"):
-        decision_service.record_decision(REQ, _승인("SALES-999-Z-R9"))
+        decision.record_decision(REQ, _승인("SALES-999-Z-R9"))
 
     assert 확정.호출 == []
 
@@ -473,7 +477,7 @@ def test_재검증은_그_실행의_날로_돈다(monkeypatch, 이력, 부서들
     """🔴 `#455` 계약 — 재검증이 서는 날은 **실행 이력 행이 정한다.** 벽시계가 아니다."""
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     쓴_날 = {as_of for 부 in 부서들.values() for (_a, _m, as_of) in 부.호출}
     assert 쓴_날 == {원_실행일}, f"재검증이 원 실행의 날로 안 돌았다: {쓴_날}"
@@ -482,7 +486,7 @@ def test_재검증은_그_실행의_날로_돈다(monkeypatch, 이력, 부서들
 def test_재검증이_통과해야만_확정한다(monkeypatch, 이력, 부서들, 확정):
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.revalidation_outcome == "PASSED"
     assert len(확정.호출) == 1, "재검증이 통과했는데 confirm_sale 이 안 불렸다"
@@ -496,7 +500,7 @@ def test_재검증이_막히면_확정하지_않는다(monkeypatch, 이력, 부�
     부서들["finance"].business_status = "reject"
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.revalidation_outcome == "FAILED"
     assert 확정.호출 == [], "재검증이 막혔는데 confirm_sale 이 불렸다"
@@ -509,7 +513,7 @@ def test_CONDITIONAL_도_통과가_아니다(monkeypatch):
     그것은 다른 안이라, `PASSED` 로 접으면 사용자가 본 적 없는 조건이 승인으로 남는다.
     """
     대역 = 확정_대역()
-    결과 = sales_approval.confirm_approved_sale(
+    결과 = service_sales_approval.confirm_approved_sale(
         request_id=REQ,
         run_id=str(RUN_UUID),
         as_of=원_실행일,
@@ -533,7 +537,7 @@ def test_CONDITIONAL_도_통과가_아니다(monkeypatch):
 
 
 def _확정(scenario: Mapping[str, Any], 대역: 확정_대역 | None = None):
-    return sales_approval.confirm_approved_sale(
+    return service_sales_approval.confirm_approved_sale(
         request_id=REQ,
         run_id=str(RUN_UUID),
         as_of=원_실행일,
@@ -590,7 +594,7 @@ def test_칸이_아예_없어도_같다():
 def test_payment_days_0_은_없는_값이_아니다():
     """🔴 **`0` 은 정해진 조건이다** — *"당일 수금"*. `falsy` 로 세면 그 안이 조용히
     *"조건이 없는 안"* 이 된다."""
-    assert sales_approval.missing_commercial_terms(_scenario(payment_days=0)) == ()
+    assert domain_sales_approval.missing_commercial_terms(_scenario(payment_days=0)) == ()
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +609,7 @@ def test_order_date_는_그_실행의_as_of_다(monkeypatch, 이력, 부서들, 
     """
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     보낸것 = 확정.호출[0]
     assert 보낸것.order_date == 원_실행일, (
@@ -628,7 +632,7 @@ def test_sale_date_는_scenario_의_납품일이다(monkeypatch, 이력, 부서�
     """★ 납품일 정본은 `sales.sale_date` 이고 그 출처는 **그 안이 말한 날**이다."""
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     assert 확정.호출[0].sale_date == 납품일
 
@@ -642,10 +646,11 @@ def _두_실행을_승인한다(monkeypatch, 확정, 부서들) -> tuple[list[st
     """
     for 축 in (실행축, 다른_실행축):
         저장소 = 결정_저장소()
-        monkeypatch.setattr(decision_service, "list_decisions", 저장소.list_decisions)
-        monkeypatch.setattr(decision_service, "save_decision", 저장소.save_decision)
+        monkeypatch.setattr(approvals, "list_decisions", 저장소.list_decisions)
+        monkeypatch.setattr(decision, "list_decisions", 저장소.list_decisions)
+        monkeypatch.setattr(decision, "save_decision", 저장소.save_decision)
         _실행을_세운다(monkeypatch, _판매_실행(sim_run_id=축))
-        decision_service.record_decision(REQ, _승인())
+        decision.record_decision(REQ, _승인())
 
     확정_축 = [보낸것.sim_run_id for 보낸것 in 확정.호출]
     재검증_축 = [축 for 부 in 부서들.values() for 축 in 부.축]
@@ -700,7 +705,7 @@ def test_축을_못_읽으면_확정하지_않는다(monkeypatch, 이력, 부서
     행.pop("sim_run_id")
     _실행을_세운다(monkeypatch, 행)
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.revalidation_outcome == "ERROR"
     assert 확정.호출 == [], "축을 못 읽었는데 판매를 확정했다"
@@ -710,7 +715,7 @@ def test_축을_못_읽으면_확정하지_않는다(monkeypatch, 이력, 부서
 def test_고른_안을_그대로_넘긴다(monkeypatch, 이력, 부서들, 확정):
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     보낸것 = 확정.호출[0]
     assert 보낸것.selected_scenario_id == SCN
@@ -728,10 +733,10 @@ def test_승인이_출고를_하지_않는다(monkeypatch, 이력, 부서들, �
     """
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.sale is not None and saved.sale.shipped is False
-    원문 = (sales_approval.__file__,)
+    원문 = (service_sales_approval.__file__,)
     for path in 원문:
         본문 = Path(path).read_text(encoding="utf-8")
         for 금지 in ("ship", "reserve_", "fefo", "FEFO", "DELIVERED"):
@@ -744,7 +749,7 @@ def test_판매_승인은_매입_약정을_만들지_않는다(monkeypatch, 이�
     약정을 못 만들었다"* 가 실린다."""
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    saved = decision_service.record_decision(REQ, _승인())
+    saved = decision.record_decision(REQ, _승인())
 
     assert saved.commitment is None
     assert saved.transition is None
@@ -824,11 +829,11 @@ def test_부서가_반려한_후보의_사유는_그대로_남는다():
 def test_후보_판정의_필수값_목록은_확정_쪽과_같은_것이다():
     """🔴 **주인이 하나다.** 두 곳에 베껴 두면 *"올려도 되는 안"* 과 *"확정할 수 있는
     안"* 이 갈리는 날이 온다."""
-    assert sales_approval.REQUIRED_COMMERCIAL_TERMS == ("delivery_date", "payment_days")
+    assert domain_sales_approval.REQUIRED_COMMERCIAL_TERMS == ("delivery_date", "payment_days")
     assert tuple(
-        sales_approval.term_of_origin(o)
+        domain_sales_approval.term_of_origin(o)
         for o in CandidateVerdict(scenario=_scenario(delivery_date=None)).missing_terms
-    ) == sales_approval.missing_commercial_terms(_scenario(delivery_date=None))
+    ) == domain_sales_approval.missing_commercial_terms(_scenario(delivery_date=None))
 
 
 # ---------------------------------------------------------------------------
@@ -844,7 +849,7 @@ def test_확정_대역이_실제로_불릴_수_있다(monkeypatch, 이력, 부�
     """
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     assert len(확정.호출) == 1
     assert 확정.conn.commits == 1, "확정했는데 커밋을 안 했다"
@@ -862,6 +867,6 @@ def test_부서가_실제로_불린다(monkeypatch, 이력, 부서들, 확정):
     """★ `test_재검증은_그_실행의_날로_돈다` 가 **빈 집합**을 재고 있지 않다는 보증."""
     _실행을_세운다(monkeypatch, _판매_실행())
 
-    decision_service.record_decision(REQ, _승인())
+    decision.record_decision(REQ, _승인())
 
     assert [부.호출 for 부 in 부서들.values() if 부.호출], "재검증이 부서를 한 번도 안 불렀다"

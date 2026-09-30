@@ -32,21 +32,21 @@ from typing import Any, Self
 
 import pytest
 
-from app.master.backfill import BackfillRuleMissing
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_open import BaselineLineage, LedgerReset, reset_sim_run_ledger
-from app.master.sim_run_runner import (
-    SimRunOpened,
-    _parser,
-    format_summary,
-    open_sim_run,
-)
+from app.master.cli.sim_run_runner import _parser, format_summary
+from app.master.domain.backfill import BackfillRuleMissing
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.repository.sim_run_open import BaselineLineage, LedgerReset, reset_sim_run_ledger
+from app.master.service.sim_run import SimRunOpened, open_sim_run
 
-_문 = Path(__file__).resolve().parents[2] / "app" / "master" / "sim_run_runner.py"
+_마스터 = Path(__file__).resolve().parents[2] / "app" / "master"
+#: 실행을 여는 **문**. ★ 2026-09-30 재구성 BL-018 에 한 파일을 둘로 갈랐다 — 인자 · 출력은
+#:   `cli/sim_run_runner.py`, 여는 순서 · 커밋은 `service/sim_run.py`. 문 원문 잠금은 **둘을 함께**
+#: 잰다.
+_문 = (_마스터 / "cli" / "sim_run_runner.py", _마스터 / "service" / "sim_run.py")
 #: 실행 행을 **만드는** 파일. 🔴 `ON CONFLICT` 로 푸는 길을 여기서도 잠근다.
-_만드는파일 = Path(__file__).resolve().parents[2] / "app" / "master" / "sim_run.py"
+_만드는파일 = _마스터 / "repository" / "sim_runs.py"
 #: 실행 행을 **지우는** 파일. ★ 지우는 것의 주인이 한 파일이다.
-_지우는파일 = Path(__file__).resolve().parents[2] / "app" / "master" / "sim_run_open.py"
+_지우는파일 = _마스터 / "repository" / "sim_run_open.py"
 
 새실행 = "SIM-WALK-202601"
 새조달 = "LOAN_BASELINE"
@@ -67,27 +67,31 @@ def _NFC(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-def _벗긴_트리(path: Path = _문) -> ast.Module:
-    """주석과 docstring 을 걷어낸 트리.
+def _벗긴_트리(path: Path | tuple[Path, ...] = _문) -> ast.Module:
+    """주석과 docstring 을 걷어낸 트리. 파일 여럿을 주면 **각각 걷어낸 뒤** 한 모듈로 잇는다.
 
     🔴 **왜 걷어내나.** 이 문은 근거를 길게 적는다 — 금지어가 **설명 문장 안에**
       있어서 원문 잠금이 늘 실패하면, 그 검사는 코드가 아니라 문장을 재는 것이 된다.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            body = node.body
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-                and isinstance(body[0].value.value, str)
-            ):
-                body.pop(0)
-    return tree
+    paths = path if isinstance(path, tuple) else (path,)
+    body: list[ast.stmt] = []
+    for one in paths:
+        tree = ast.parse(one.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                inner = node.body
+                if (
+                    inner
+                    and isinstance(inner[0], ast.Expr)
+                    and isinstance(inner[0].value, ast.Constant)
+                    and isinstance(inner[0].value.value, str)
+                ):
+                    inner.pop(0)
+        body += tree.body
+    return ast.Module(body=body, type_ignores=[])
 
 
-def _벗긴_원문(path: Path = _문) -> str:
+def _벗긴_원문(path: Path | tuple[Path, ...] = _문) -> str:
     return _NFC(ast.unparse(_벗긴_트리(path)))
 
 
@@ -783,7 +787,7 @@ def test_요약이_다음에_부를_명령을_적어_준다() -> None:
             )
         )
     )
-    assert "app.master.backtest_runner" in 요약
+    assert "app.master.cli.backtest_runner" in 요약  # ★ 2026-09-30 재구성 BL-018: CLI 자리
     assert f"--sim-run-id {새실행}" in 요약
     assert "--start 2026-01-01" in 요약
     assert "--end 2026-06-29" in 요약

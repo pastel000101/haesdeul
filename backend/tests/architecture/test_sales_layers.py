@@ -94,7 +94,9 @@ def _resolved_calls(path: Path, function: str) -> set[tuple[str, str]]:
 
 _PARTNERS_SERVICE = "app.sales.service.partners"
 _ROUTER = _SALES / "router.py"
-_ASK = _APP / "master" / "ask_service.py"
+#: ★ 2026-09-30 재구성 BL-018: 채팅의 도메인 행동(조회 · 쓰기 실행)은 `master/service/ask.py` 에서
+#:   `master/service/ask_domain_actions.py` 로 갈라 나왔다 — `_domain_write` 가 그 파일에 있다.
+_ASK = _APP / "master" / "service" / "ask_domain_actions.py"
 
 
 @pytest.mark.parametrize(
@@ -160,7 +162,8 @@ def test_only_the_master_bootstrap_imports_the_sales_adapter():
         if any(is_under(name, "app.sales.adapter") for name in _imported(_read(path)))
     )
 
-    assert importers == ["app.master.bootstrap"]
+    # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `app.master.registry.bootstrap` 이다.
+    assert importers == ["app.master.registry.bootstrap"]
 
 
 #: 어댑터가 들일 수 있는 것 — 봉투 계약 · 판매 판단(회신 어휘) · 조회 · 후보 생성 service ·

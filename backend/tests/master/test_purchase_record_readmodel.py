@@ -19,10 +19,10 @@ from typing import Any
 
 import pytest
 
-from app.master import purchase_record_repository
 from app.master.domain import plan_state
 from app.master.readmodel import purchase_record
 from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 4, 13)
 
@@ -36,7 +36,7 @@ def rows(monkeypatch) -> dict[str, Any]:
         return [dict(row) for row in state["rows"]]
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
-    monkeypatch.setattr(purchase_record_repository, "fetch_all", fetch_all)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_record", fetch_all=fetch_all)
     return state
 
 
@@ -74,10 +74,13 @@ def test_no_records_give_empty_totals(rows):
 def test_read_errors_propagate(monkeypatch):
     """⚠️ 삼키는 것은 화면의 태도다(빈 표로 화면을 띄운다) — readmodel 은 숨기지 않는다."""
 
-    def failing_read(**_: Any):
+    def failing_read(*_: Any):
         raise RuntimeError("DB 가 죽었다")
 
-    monkeypatch.setattr(purchase_record, "recorded_sums_by_plan", failing_read)
+    # ★ 2026-09-30 재구성 BL-018: 조회 함수가 연결을 스스로 빌리지 않는다 — readmodel 이 빌린
+    #   연결에서 읽다가 죽는 자리를 꽂는다.
+    monkeypatch.setenv("DB_SCHEMA", "haetdeul")
+    patch_sql_helpers(monkeypatch, purchase_record, fetch_all=failing_read)
     with pytest.raises(RuntimeError, match="DB 가 죽었다"):
         recorded_totals_by_plan(sim_run_id="SIM-A", as_of=AS_OF)
 

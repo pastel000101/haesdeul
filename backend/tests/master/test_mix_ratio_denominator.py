@@ -35,7 +35,8 @@ from typing import Any
 import pytest
 
 from app.contracts.core import ITEMS
-from app.master import inputs
+from app.master.readmodel import inputs as readmodel_inputs
+from tests.fake_core_db import patch_sql_helpers
 
 #: 매입이 실측한 다섯 행 그대로. 🔴 **뒤 둘은 계약 밖이다.**
 DEMAND_ROWS = [
@@ -72,9 +73,9 @@ def _대역_DB(찍힌: list[tuple[Any, Any]]):
 @pytest.fixture
 def 찍힌_질의(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any]]:
     찍힌: list[tuple[Any, Any]] = []
-    monkeypatch.setattr(inputs, "fetch_all", _대역_DB(찍힌))
-    monkeypatch.setattr(inputs, "fetch_one", lambda *a, **k: None)
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=_대역_DB(찍힌))
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=lambda *a, **k: None)
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
     return 찍힌
 
 
@@ -83,7 +84,7 @@ def 찍힌_질의(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Any, Any]]:
 
 def test_계약_밖_품목은_분모에_안_든다(찍힌_질의):
     """🔴 전에는 배추가 `0.7643` 이었다. 계약 셋만 분모면 `0.8096` 이다."""
-    ratios = inputs._mix_ratio_from_demand()
+    ratios = readmodel_inputs._mix_ratio_from_demand()
 
     분모 = 717.3 + 154.4 + 14.3
     assert ratios["배추"] == pytest.approx(717.3 / 분모, abs=1e-4)
@@ -94,7 +95,7 @@ def test_계약_밖_품목은_분모에_안_든다(찍힌_질의):
 
 def test_계약_밖_품목은_표에도_안_나온다(찍힌_질의):
     """★ 분모에서 뺐는데 표에는 남으면 합이 1 을 넘어 받는 쪽이 다시 눌러 읽는다."""
-    ratios = inputs._mix_ratio_from_demand()
+    ratios = readmodel_inputs._mix_ratio_from_demand()
 
     for 이름 in 계약_밖:
         assert 이름 not in ratios, f"계약 밖 품목이 비중표에 남았다: {이름}"
@@ -104,7 +105,7 @@ def test_계약_밖_품목은_표에도_안_나온다(찍힌_질의):
 
 def test_정책값까지_눌리지_않고_간다(찍힌_질의):
     """★ **원천만 재지 않는다.** `policy_values` 로 실려 나가는 값이 눌리면 소용없다."""
-    got = inputs.load_policy_values("배추", None)  # type: ignore[arg-type]
+    got = readmodel_inputs.load_policy_values("배추", None)  # type: ignore[arg-type]
 
     assert got.grade == "DERIVED"
     assert got.payload["item_mix_ratio"]["배추"] == pytest.approx(0.8096, abs=1e-4)
@@ -117,7 +118,7 @@ def test_정책값까지_눌리지_않고_간다(찍힌_질의):
 
 def test_질의가_계약_세_품목만_묻는다(찍힌_질의):
     """★ **원천에서 막는다.** 다 읽고 파이썬에서 거르면 분모가 이미 눌린 뒤다."""
-    inputs._mix_ratio_from_demand()
+    readmodel_inputs._mix_ratio_from_demand()
 
     assert 찍힌_질의, "질의가 안 나갔다"
     query, params = 찍힌_질의[0]
@@ -165,7 +166,7 @@ def test_계약_품목_이름이_적재층에_안_박혀_있다():
     두 벌을 두면 계약이 늘거나 줄 때 한쪽만 바뀐다. `commitment.py` 가 피마늘로
     어긋났던 자리가 정확히 이것이다.
     """
-    박힌 = _코드에_박힌_문자열(Path(inputs.__file__))
+    박힌 = _코드에_박힌_문자열(Path(readmodel_inputs.__file__))
     겹치는 = sorted(박힌 & set(ITEMS))
 
     assert not 겹치는, (

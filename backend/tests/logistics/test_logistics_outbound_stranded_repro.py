@@ -12,7 +12,8 @@ import pytest
 
 from app.logistics.service.fefo_allocation import allocate_reserved_stock_fefo
 from app.logistics.service.outbound import reserve_available_stock, ship_allocated_stock
-from app.master.outbound_flow import ALLOCATE_PHASE, phase_instant
+from app.master.domain.sim_time import phase_instant
+from app.master.service.outbound_flow import ALLOCATE_PHASE
 from tests.logistics.test_logistics_outbound_db import (
     ITEM_ID,
     RSV,
@@ -142,7 +143,8 @@ def test_할당이_터진_예약은_그날_놓아주고_가용재고가_돌아�
     from psycopg import sql
 
     from app.logistics.service import outbound
-    from app.master.outbound_flow import DueSaleItem, ship_due_sales
+    from app.master.schemas.outbound_flow import DueSaleItem
+    from app.master.service.outbound_flow import ship_due_sales
 
     _lot(conn, "LOT-A", qty="500", received_at=date(2026, 7, 1))  # AS_OF(07-08) 기준 신선
     schema = sql.Identifier(TMP_SCHEMA)

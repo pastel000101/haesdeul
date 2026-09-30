@@ -8,7 +8,7 @@ Sales proposal core로 옮기고, typed Sales 결과를 AgentReply로 되돌리�
   부른다), 회신 조립은 `domain/proposal_reply.py`, 진행 상황 조회는 `readmodel/status.py`,
   사람이 읽는 사실은 `domain/status_facts.py` 다. 여기 남은 것은 mode 분기, 조회 결과를
   STATUS_QUERY 회신으로 옮기기, 마스터만 받는 실행 메타데이터(`ExecutionMetadata`)다.
-  이 파일을 import 하는 곳은 마스터 등록소 조립(`master/bootstrap.py`) 하나다.
+  이 파일을 import 하는 곳은 마스터 등록소 조립(`master/registry/bootstrap.py`) 하나다.
 """
 
 from __future__ import annotations

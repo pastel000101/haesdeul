@@ -25,20 +25,24 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import persistence, run_repository
-from app.master import walk_report as walk_report_module
-from app.master.execution_day import CalendarNotCovered
-from app.master.router import router
-from app.master.run_repository import DayRunCount, count_runs_by_day
-from app.master.walk_report import (
+from app.master.domain import request_ids
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.readmodel import runs
+from app.master.readmodel.runs import count_runs_by_day
+from app.master.report import walk_report as report_walk_report
+from app.master.report.walk_report import (
     NO_ROW_ON_EXECUTION_DAY,
     ROW_ON_OFF_DAY,
     SKIPPED_OFF_DAY,
     UNKNOWN_CALENDAR,
     WALKED,
-    WalkReport,
     walk_report,
 )
+from app.master.router import router
+from app.master.schemas.runs import DayRunCount
+from app.master.schemas.walk_report import WalkReport
+from app.master.service import persistence as service_persistence
+from tests.fake_core_db import patch_sql_helpers
 
 _SIM = "SIM-WALK-1"
 
@@ -79,7 +83,7 @@ class _Calendar:
 
 def _report(monkeypatch, rows: list[DayRunCount], **kw) -> WalkReport:
     """집계를 갈아 끼우고 성적표를 만든다. **판정만 잰다.**"""
-    monkeypatch.setattr(walk_report_module, "count_runs_by_day", lambda **_: list(rows))
+    monkeypatch.setattr(report_walk_report, "count_runs_by_day", lambda **_: list(rows))
     base = {"sim_run_id": _SIM, "start": _MON, "end": _SUN}
     base.update(kw)
     return walk_report(**base)  # type: ignore[arg-type]
@@ -159,7 +163,7 @@ def test_행_없는_날도_한_줄이다(성적표):
 
 
 def test_거꾸로_된_범위는_거부한다(monkeypatch):
-    monkeypatch.setattr(walk_report_module, "count_runs_by_day", lambda **_: [])
+    monkeypatch.setattr(report_walk_report, "count_runs_by_day", lambda **_: [])
     with pytest.raises(ValueError):
         walk_report(sim_run_id=_SIM, start=_SUN, end=_MON)
 
@@ -187,7 +191,7 @@ def test_행_수와_종료코드와_실행일_여부가_따로_나온다(monkeyp
 
 def test_장부_관문_행이_잡힌다(monkeypatch):
     """🟢 `#465` 가 남기는 행 — 품목이 없고 `E4_NOT_STARTED` 다."""
-    관문코드 = run_repository.LEDGER_GAP_END_CODE
+    관문코드 = request_ids.LEDGER_GAP_END_CODE
     보고서 = _report(
         monkeypatch,
         [_row(_MON, end_codes={관문코드: 1}, items=(), gate_blocked=True)],
@@ -234,14 +238,14 @@ def test_못_덮은_날만_모른다로_두고_나머지는_계속_낸다(monkey
 @pytest.mark.parametrize("없음", ["", None])
 def test_축_없이_성적표를_못_만든다(monkeypatch, 없음):
     """🔴 **`list_runs` 와 반대다.** 좁히지 않으면 손 호출 1,206행이 섞여 들어온다."""
-    monkeypatch.setattr(run_repository, "fetch_all", lambda *a: [])
+    patch_sql_helpers(monkeypatch, runs, fetch_all=lambda *a: [])
     with pytest.raises(ValueError):
         count_runs_by_day(sim_run_id=없음, start=_MON, end=_SUN)
 
 
 def test_두_함수가_서로를_가리킨다():
     """★ 태도가 반대인 두 함수가 **왜 반대인지**를 서로 옆에 두고 적는다."""
-    assert "count_runs_by_day" in (run_repository.list_runs.__doc__ or "")
+    assert "count_runs_by_day" in (runs.list_runs.__doc__ or "")
     assert "list_runs" in (count_runs_by_day.__doc__ or "")
 
 
@@ -256,7 +260,7 @@ def _asked(monkeypatch, **kw) -> tuple[str, tuple]:
         잡힘["params"] = params
         return []
 
-    monkeypatch.setattr(run_repository, "fetch_all", _fake)
+    patch_sql_helpers(monkeypatch, runs, fetch_all=_fake)
     base = {"sim_run_id": _SIM, "start": _MON, "end": _SUN}
     base.update(kw)
     count_runs_by_day(**base)
@@ -316,13 +320,13 @@ def test_관문_행을_업무_키로_되찾는다(monkeypatch):
     query, params = _asked(monkeypatch)
 
     assert "request_id LIKE %s" in query, f"업무 키로 안 묻는다: {query}"
-    assert run_repository.LEDGER_GAP_REQUEST_LIKE in params
+    assert request_ids.LEDGER_GAP_REQUEST_LIKE in params
     assert "item IS NULL AND end_code" not in query, "옛 모양 판정이 남아 있다"
 
 
 def test_종료코드는_적는_쪽에서_주인이_하나다():
     """★ 판정에서는 빠졌어도 **적을 때 쓰는 값**의 주인은 여전히 하나다."""
-    assert persistence._LEDGER_GAP_END_CODE is run_repository.LEDGER_GAP_END_CODE
+    assert service_persistence._LEDGER_GAP_END_CODE is request_ids.LEDGER_GAP_END_CODE
 
 
 def test_집계_결과의_모양(monkeypatch):
@@ -339,7 +343,7 @@ def test_집계_결과의_모양(monkeypatch):
             }
         ]
 
-    monkeypatch.setattr(run_repository, "fetch_all", _fake)
+    patch_sql_helpers(monkeypatch, runs, fetch_all=_fake)
     [row] = count_runs_by_day(sim_run_id=_SIM, start=_MON, end=_SUN)
 
     assert row == {
@@ -363,7 +367,7 @@ def client():
 
 def _no_db(monkeypatch, rows: list[DayRunCount]) -> None:
     """DB 와 달력을 둘 다 끊는다 — 진입점 모양만 잰다."""
-    monkeypatch.setattr(walk_report_module, "count_runs_by_day", lambda **_: list(rows))
+    monkeypatch.setattr(report_walk_report, "count_runs_by_day", lambda **_: list(rows))
     monkeypatch.setattr("app.master.router.get_calendar", lambda: _Calendar())
 
 

@@ -15,7 +15,7 @@ AgentPort = (AgentRequest) -> (AgentReply, ExecutionMetadata)
 
 ## 두 갈래인 이유 — 지금 마스터는 질문을 안 실어 보낸다
 
-`master/status_flow.py:110` 이 `runner.call(agent, "STATUS_QUERY")` 만 부른다.
+`master/service/status_flow.py` 가 `runner.call(agent, "STATUS_QUERY")` 만 부른다.
 **`payload` 가 비어서 온다.** 그래서 두 경우를 다 받는다.
 
 ```text
@@ -39,7 +39,7 @@ AgentName = Literal["finance", "inventory", "purchase", "sales", "ml"]
 # app/contracts/envelope.py  _AGENT_MODES
 "ml": frozenset({"STATUS_QUERY"}),
 
-# app/master/bootstrap.py  wire_registries
+# app/master/registry/bootstrap.py  wire_registries
 register_agent("ml", ml_port)
 ```
 
@@ -57,7 +57,7 @@ register_agent("ml", ml_port)
 
 ## payload 를 어떻게 짜나 — 마스터가 한 줄씩 펼쳐 쓴다
 
-`master/answer.py::facts_from_status` 가 payload 의 **키마다 한 줄**을 만든다.
+`master/domain/answer.py::facts_from_status` 가 payload 의 **키마다 한 줄**을 만든다.
 아는 키는 라벨을 붙이고, 모르는 키는 **이름 그대로** 나간다.
 
 그래서 마크다운 한 덩어리를 payload 에 그냥 넣으면 **표가 한 줄로 뭉개진다.**
@@ -79,7 +79,7 @@ answer_markdown   사람에게 그대로 보여줄 글. 마스터가 통째로 �
 질의응답 실행은 `service/qa_graph.py::answer`(화면 `/ml/qa` 도 같은 함수), 질문 없는 상태
 조회가 읽는 최신 기준일은 `readmodel/qa_reads.py`, 봉인 개봉 조건 문구는 `config.py`,
 LLM 설정은 `llm/qa.py` 에 있다. 이 파일을 import 하는 곳은 마스터 등록소 조립
-(`master/bootstrap.py`) 하나다.
+(`master/registry/bootstrap.py`) 하나다.
 
 ## Evidence 등급을 ASSUMED 로 두는 이유
 

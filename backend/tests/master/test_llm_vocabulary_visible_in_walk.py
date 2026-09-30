@@ -39,9 +39,11 @@ from pathlib import Path
 import pytest
 
 from app.contracts.envelope import LLM_STATUSES, LLMStatus
-from app.master import backtest_runner
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.scheduler import DayRunOutcome, ItemRunOutcome, _llm_statuses
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome
+from app.master.report import walk_summary
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.service.scheduler import _llm_statuses
 
 오늘 = date(2026, 9, 12)
 
@@ -229,7 +231,9 @@ def test_실측_분포가_그대로_요약에_올라온다() -> None:
 # ---------------------------------------------------------------------------
 
 
-_요약파일 = Path(backtest_runner.__file__)
+#: ★ 2026-09-30 재구성 BL-018: 옛 `backtest_runner.py` 가 걷기(`cli/backtest_runner.py`)와 요약 짓기
+#:   (`report/walk_summary.py`) 둘로 갈렸다 — **둘을 함께** 잰다.
+_요약파일들 = (Path(walk_summary.__file__), Path(cli_backtest_runner.__file__))
 
 
 def _문자열들(source: str) -> list[str]:
@@ -250,7 +254,7 @@ def test_요약_모듈이_네_이름을_손으로_안_적는다() -> None:
     ★ **자기 생존 검사를 같이 둔다.** 스캐너가 문자열을 실제로 찾는지부터 본다 —
       안 그러면 0건을 세는 날 공짜 초록이 난다.
     """
-    문자열 = _문자열들(_요약파일.read_text(encoding="utf-8"))
+    문자열 = [one for 파일 in _요약파일들 for one in _문자열들(파일.read_text(encoding="utf-8"))]
 
     assert 문자열, "스캐너가 문자열을 한 개도 못 찾았다 — 아래 단언은 공짜 초록이다"
     assert any(_NFC("LLM어휘") in one for one in 문자열), (
@@ -275,7 +279,8 @@ def test_요약_모듈이_어휘_집합을_주인에게서_들여온다() -> Non
     """★ 안 들여오면 위 검사는 *"안 적었다"* 만 말하고 0 이 사라져도 초록이 난다."""
     들여온것 = {
         alias.asname or alias.name
-        for node in ast.walk(ast.parse(_요약파일.read_text(encoding="utf-8")))
+        for 파일 in _요약파일들
+        for node in ast.walk(ast.parse(파일.read_text(encoding="utf-8")))
         if isinstance(node, ast.ImportFrom) and node.module == "app.contracts.envelope"
         for alias in node.names
     }

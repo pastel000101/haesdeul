@@ -40,7 +40,9 @@ from collections.abc import Iterator
 
 import pytest
 
-from app.master import day_open, transition, wiring
+from app.master.registry import day_open as registry_day_open
+from app.master.registry import transition as registry_transition
+from app.master.registry import wiring as registry_wiring
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +52,11 @@ def 전역_에이전트_레지스트리를_되돌린다() -> Iterator[None]:
     ★ 테스트 앞에서 비우지 않는다. 그러면 *"등록된 상태를 전제하는"* 테스트가
       전부 깨진다 — 되돌리는 것이지 초기화하는 것이 아니다.
     """
-    saved = wiring.snapshot()
+    saved = registry_wiring.snapshot()
     try:
         yield
     finally:
-        wiring.restore(saved)
+        registry_wiring.restore(saved)
 
 
 @pytest.fixture(autouse=True)
@@ -73,13 +75,13 @@ def 전역_전이_등록소를_되돌린다() -> Iterator[None]:
       `reset()` + `register_transition()` 으로 되돌린다 — 마스터 모듈에 검사 전용
       함수를 더하지 않는다.
     """
-    saved = dict(transition.registered())
+    saved = dict(registry_transition.registered())
     try:
         yield
     finally:
-        transition.reset()
+        registry_transition.reset()
         for part, impl in saved.items():
-            transition.register_transition(part, impl)
+            registry_transition.register_transition(part, impl)
 
 
 @pytest.fixture(autouse=True)
@@ -98,13 +100,13 @@ def 전역_하루넘김_등록소를_되돌린다() -> Iterator[None]:
     ★ 위 전이 fixture 와 같은 방식이다 — `registered()` 로 뜨고 `reset()` +
       `register_day_opening()` 으로 되돌린다.
     """
-    saved = dict(day_open.registered())
+    saved = dict(registry_day_open.registered())
     try:
         yield
     finally:
-        day_open.reset()
+        registry_day_open.reset()
         for part, impl in saved.items():
-            day_open.register_day_opening(part, impl)
+            registry_day_open.register_day_opening(part, impl)
 
 
 # ── 실 DB 차단 — 스위트 전체 (2026-09-29 · 풀 전환) ─────────────────────────

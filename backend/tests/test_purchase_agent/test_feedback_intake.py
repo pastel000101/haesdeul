@@ -20,9 +20,9 @@ import pytest
 
 from app.contracts.core import SuggestedAdjustment
 from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
-from app.master.flow import ProcurementFlow
-from app.master.ports import AgentRegistry
-from app.master.runner import MasterRunner
+from app.master.registry.ports import AgentRegistry
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 from app.purchase_agent import ports
 from app.purchase_agent.adapter import purchase_port
 from app.purchase_agent.service.scenarios import build_state

@@ -11,57 +11,43 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, status
 
 from app.contracts.core import ContractViolation
-from app.master.ask_schemas import AskExecuteRequest, AskRequest, AskResponse
-from app.master.ask_service import ask as run_ask
-from app.master.ask_service import execute as run_ask_execute
-from app.master.closing import ClosingOut
-from app.master.closing import close_day as run_close_day
-from app.master.collection import CollectionOut
-from app.master.collection import collect_receipts as run_collect_receipts
-from app.master.day_open import DayOpenOut
-from app.master.day_open import open_day as run_open_day
-from app.master.decision import (
-    CommitmentOut,
-    DecisionIn,
-    DecisionOut,
-    DecisionRejected,
-    PurchaseRecordIn,
-    PurchaseRecordOut,
-)
-from app.master.decision_service import current_commitment, get_decisions, record_decision
-from app.master.holiday_calendar import get_calendar
-from app.master.inbound import InboundOut
-from app.master.inbound import receive_arrivals as run_receive_arrivals
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.outbound_flow import OutboundOut
-from app.master.outbound_flow import ship_due_sales as run_ship_due_sales
-from app.master.pending_transition import RetryOut
-from app.master.pending_transition import (
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.readmodel.approvals import current_commitment
+from app.master.readmodel.decisions import list_decisions
+from app.master.readmodel.history import get_burn_in_history, get_run_history, get_run_report
+from app.master.readmodel.holiday_calendar import get_calendar
+from app.master.readmodel.purchase_record import get_purchase_record
+from app.master.report.walk_report import walk_report as build_walk_report
+from app.master.schemas.ask import AskExecuteRequest, AskRequest, AskResponse
+from app.master.schemas.closing import ClosingOut
+from app.master.schemas.collection import CollectionOut
+from app.master.schemas.day_open import DayOpenOut
+from app.master.schemas.decision import CommitmentOut, DecisionIn, DecisionOut, DecisionRejected
+from app.master.schemas.history import BurnInOut, ReportOut, RunHistoryOut
+from app.master.schemas.inbound import InboundOut
+from app.master.schemas.outbound_flow import OutboundOut
+from app.master.schemas.pending_transition import RetryOut
+from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse, TriggerAck
+from app.master.schemas.purchase_record import PurchaseRecordIn, PurchaseRecordOut
+from app.master.schemas.receivable import ReceivableOut
+from app.master.schemas.sales import SalesRunRequest, SalesRunResponse
+from app.master.schemas.transition import TransitionOut
+from app.master.schemas.walk_report import WalkReport
+from app.master.service.ask import ask as run_ask
+from app.master.service.ask import execute as run_ask_execute
+from app.master.service.closing import close_day as run_close_day
+from app.master.service.collection import collect_receipts as run_collect_receipts
+from app.master.service.day_open import open_day as run_open_day
+from app.master.service.decision import record_decision
+from app.master.service.inbound import receive_arrivals as run_receive_arrivals
+from app.master.service.outbound_flow import ship_due_sales as run_ship_due_sales
+from app.master.service.pending_transition import (
     retry_pending_transitions as run_retry_pending_transitions,
 )
-from app.master.purchase_record import get_purchase_record, record_purchase
-from app.master.receivable import ReceivableOut
-from app.master.receivable import issue_receivables as run_issue_receivables
-from app.master.schemas import (
-    BurnInOut,
-    ProcurementRunRequest,
-    ProcurementRunResponse,
-    ReportOut,
-    RunHistoryOut,
-    SalesRunRequest,
-    SalesRunResponse,
-    TriggerAck,
-)
-from app.master.service import (
-    get_burn_in_history,
-    get_run_history,
-    get_run_report,
-    run_procurement,
-    run_sales,
-)
-from app.master.transition import TransitionOut
-from app.master.walk_report import WalkReport
-from app.master.walk_report import walk_report as build_walk_report
+from app.master.service.procurement import run_procurement
+from app.master.service.purchase_record import record_purchase
+from app.master.service.receivable import issue_receivables as run_issue_receivables
+from app.master.service.sales import run_sales
 
 router = APIRouter(prefix="/master", tags=["master"])
 
@@ -510,7 +496,7 @@ def master_decision_history(request_id: str) -> list[DecisionOut]:
     ★ 실행이 없어도 **빈 목록**을 돌려준다. 결정이 없는 것과 요청이 없는 것을 여기서는
       구분하지 않는다 — 그 구분은 `GET /master/runs/{request_id}` 가 404 로 답한다.
     """
-    return get_decisions(request_id)
+    return list_decisions(request_id)
 
 
 @router.post(

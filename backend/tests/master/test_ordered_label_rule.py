@@ -44,19 +44,19 @@ from uuid import uuid4
 
 import pytest
 
-from app.master.backfill import (
+from app.master.domain.backfill import (
     ALWAYS_BASE,
     FIRST_OFFERED,
     BackfilledRun,
     BackfillOut,
     BackfillRuleMissing,
     OrderedLabelRule,
-    backfill_decisions,
     read_rules,
 )
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.decision import DecisionIn, DecisionOut
-from app.master.scheduler import DayRunOutcome
+from app.master.domain.scheduler import DayRunOutcome
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service.backfill import backfill_decisions
 
 #: 🔴 **라벨 이름의 주인은 매입이다.** 대역이 적고 코드는 모른다.
 보수 = "보수"

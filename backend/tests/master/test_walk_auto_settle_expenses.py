@@ -50,20 +50,21 @@ from app.core.settings import get_db_schema
 from app.finance.adapter import FinanceClosingAdapter
 from app.finance.schemas.expenses import ExpenseSettlement
 from app.finance.service.expenses import settle_due_expenses
-from app.master import backtest_runner
-from app.master import closing as master_closing
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.closing import close_day
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.maintenance import MaintenanceOut
-from app.master.pending_transition import RetryOut
-from app.master.scheduler import (
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import (
     EXPENSE_SETTLEMENT_STATUSES,
     DayRunOutcome,
     ScheduledAction,
     plan_next_action,
-    run_scheduled_day,
 )
+from app.master.registry import closing
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.maintenance import MaintenanceOut
+from app.master.schemas.pending_transition import RetryOut
+from app.master.service.closing import close_day
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 1, 12)
 ITEMS = ("무", "배추", "양파")
@@ -333,13 +334,13 @@ def test_기본이_꺼짐이다(함수: Any) -> None:
 
 def test_문에도_기본이_꺼짐이다() -> None:
     """🔴 **CLI 도 안 주면 안 켠다.** `store_true` 이고 기본이 거짓이다."""
-    from app.master import backtest_runner
+    from app.master.cli import backtest_runner as cli_backtest_runner
 
     공통 = ["--sim-run-id", 실행, "--start", "2026-01-01", "--end", "2026-03-31"]
     공통 += ["--now", "2026-09-17T10:35+09:00"]
 
-    안준것 = backtest_runner._parser().parse_args(공통)
-    준것 = backtest_runner._parser().parse_args([*공통, "--auto-settle-expenses"])
+    안준것 = cli_backtest_runner._parser().parse_args(공통)
+    준것 = cli_backtest_runner._parser().parse_args([*공통, "--auto-settle-expenses"])
 
     assert 안준것.auto_settle_expenses is False
     assert 준것.auto_settle_expenses is True
@@ -492,9 +493,9 @@ def 재무마감이_등록된다():
     ⚠️ 여기 재무는 **실 어댑터**이지만 커넥션이 대역이라 DB 를 안 탄다 — 이 판이
       잠그는 것은 *"막힌 날에 어댑터를 부르지도 않는다"* 이다.
     """
-    master_closing.register_closing("finance", FinanceClosingAdapter())
+    closing.register_closing("finance", FinanceClosingAdapter())
     yield
-    master_closing.reset()
+    closing.reset()
 
 
 def _마감문(연결: _연결):
@@ -679,7 +680,7 @@ def test_그날_지급한_운영비가_마감행의_운영비_칸에_잡힌다()
         비용 = f"EXP-{uuid.uuid4().hex[:8]}"
 
 
-        master_closing.register_closing("finance", FinanceClosingAdapter())
+        closing.register_closing("finance", FinanceClosingAdapter())
         try:
             with conn.cursor() as cur:
                 cur.execute(
@@ -763,7 +764,7 @@ def test_그날_지급한_운영비가_마감행의_운영비_칸에_잡힌다()
             assert Decimal(str(행["base_net_cash_krw"])) == -금액
             assert Decimal(str(행["base_cash_balance_krw"])) == 시작현금 - 금액
         finally:
-            master_closing.reset()
+            closing.reset()
             conn.rollback()
 
 
@@ -901,7 +902,7 @@ def test_지급이_터진_날이_사고로_세진다() -> None:
     ★ 마감 `FAILED` 를 사고로 센 것과 같은 이유다 — 그날 장부가 안 닫혔으면 다음 날
       판단은 **안 닫힌 장부 위에서** 돈다.
     """
-    사유 = backtest_runner._incident_reason(_터진하루(AS_OF), scope="FULL")
+    사유 = cli_backtest_runner._incident_reason(_터진하루(AS_OF), scope="FULL")
 
     assert 사유 is not None, "지급이 터진 날이 사고로 안 세졌다"
     assert _NFC("운영비를 못 지급했다") in _NFC(사유)
@@ -924,7 +925,7 @@ def test_지급이_선_날은_사고가_아니다() -> None:
             expense_settlement_status=상태,
             closing_status="CLOSED",
         )
-        assert backtest_runner._incident_reason(하루, scope="FULL") is None, 상태
+        assert cli_backtest_runner._incident_reason(하루, scope="FULL") is None, 상태
 
 
 def test_지급이_날마다_터지면_걷기가_연속_사고_상한에_걸려_멈춘다() -> None:

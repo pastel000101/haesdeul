@@ -36,7 +36,7 @@ DB/스냅샷으로 갈아끼울 때 바뀌는 건 이 파일의 본문뿐이고,
         → mock 이라고 막는다      ← 지금
 
   ★ **막는 기준은 "테스트인가"** 다 (`PYTEST_CURRENT_TEST`). 저장소가 실행이력 적재를
-    막을 때 보는 것과 같은 기준이다 (`master/run_repository.py` 의 ``history_enabled``).
+    막을 때 보는 것과 같은 기준이다 (`master/service/run_history.py` 의 ``history_enabled``).
 
   🔴 **다만 «같은 가드» 는 아니다** (2026-09-09 확인). 그쪽에는 손으로 끄는 스위치가
     있고 (``RUN_HISTORY_ENABLED``) 여기에는 없다 — 이력은 안 남아도 결과가 나오지만,

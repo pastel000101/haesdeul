@@ -32,11 +32,13 @@ from app.contracts.envelope import (
     agent_allowed_modes,
     route_capability,
 )
-from app.master import AgentRegistry, CallBudget, MasterRunner
-from app.master.sales_flow import (
+from app.master.registry.ports import AgentRegistry
+from app.master.schemas.sales import SalesEndCode
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import (
     MAX_FEEDBACK_ATTEMPTS,
     SALES_BUDGET,
-    SalesEndCode,
     SalesFlow,
     sales_call_budget,
 )
@@ -706,7 +708,7 @@ def test_판매가_못_돌면_SL2_이고_사유가_실린다():
 
 def test_판매_예산은_매입_기본값과_다르다():
     """🔴 매입 12 를 건드리지 않는다. 올리면 매입이 안 쓰는 상한이 매입 쪽에서 풀린다."""
-    from app.master.schemas import ProcurementRunRequest
+    from app.master.schemas.procurement import ProcurementRunRequest
 
     assert SALES_BUDGET == 25
     assert ProcurementRunRequest.model_fields["budget"].default == 12

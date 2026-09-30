@@ -16,10 +16,11 @@ from decimal import Decimal
 from typing import Any
 
 from app.core.clock import SEOUL
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.closing import ClosingOut
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.ledger_repository import (
+from app.master.cli.backtest_runner import walk
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.repository.ledger import (
     BASE_CASH_BALANCE,
     COLLECTION_CASH_IN,
     LOGISTICS_CASH_OUT,
@@ -28,7 +29,7 @@ from app.master.ledger_repository import (
     PAYROLL_INTEREST_CASH_OUT,
     PURCHASE_CASH_OUT,
 )
-from app.master.scheduler import DayRunOutcome, ItemRunOutcome
+from app.master.schemas.closing import ClosingOut
 
 실행축 = "SIM-TEST-CLOSING-LINE"
 첫날 = date(2026, 3, 2)
@@ -218,7 +219,7 @@ def test_마감행이_0행이어도_현금_줄에_일수를_찍는다() -> None:
 
 def test_하루가_마감이_낸_값을_싣는다() -> None:
     """★ 값이 하루 결과에 안 실리면 요약의 사유는 영영 `모름` 이다."""
-    from app.master import scheduler
+    from app.master.service import scheduler as service_scheduler
 
     낸값 = ClosingOut(as_of=첫날, status="FAILED", reason=실패사유)
     받은: list[dict[str, Any]] = []
@@ -227,12 +228,12 @@ def test_하루가_마감이_낸_값을_싣는다() -> None:
         받은.append(kw)
         return 낸값
 
-    상태, out, note = scheduler._closing(as_of=첫날, sim_run_id=실행축, close_fn=_마감)
+    상태, out, note = service_scheduler._closing(as_of=첫날, sim_run_id=실행축, close_fn=_마감)
     assert (상태, out) == ("FAILED", 낸값)
     assert 실패사유 in note
     assert 받은 == [{"sim_run_id": 실행축}], "관문이 통과한 날 ledger_gap 을 넘겼다"
 
-    상태, out, _ = scheduler._closing(
+    상태, out, _ = service_scheduler._closing(
         as_of=첫날, sim_run_id=실행축, close_fn=_마감, ledger_gap="장부가 안 섰다"
     )
     assert out == 낸값
@@ -240,12 +241,12 @@ def test_하루가_마감이_낸_값을_싣는다() -> None:
 
 
 def test_마감이_예외로_터지면_값은_없고_사유는_모름이다() -> None:
-    from app.master import scheduler
+    from app.master.service import scheduler as service_scheduler
 
     def _터진다(as_of: date, **kw: Any) -> ClosingOut:
         raise RuntimeError("재무가 죽었다")
 
-    상태, out, note = scheduler._closing(as_of=첫날, sim_run_id=실행축, close_fn=_터진다)
+    상태, out, note = service_scheduler._closing(as_of=첫날, sim_run_id=실행축, close_fn=_터진다)
     assert (상태, out) == ("FAILED", None)
     assert "재무가 죽었다" in note
 

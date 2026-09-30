@@ -32,10 +32,10 @@ from typing import Any
 import pytest
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import wiring
-from app.master.inputs import MasterInputs, SourcedInput
-from app.master.schemas import ProcurementRunRequest
-from app.master.service import run_procurement
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.inputs import MasterInputs, SourcedInput
+from app.master.schemas.procurement import ProcurementRunRequest
+from app.master.service.procurement import run_procurement
 
 AS_OF = date(2025, 12, 31)
 
@@ -76,7 +76,7 @@ def _port(payload: dict[str, Any] | None = None):
 @pytest.fixture
 def 매입이_받은_payload(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """⚠️ **DB 를 치지 않는다.** `collect_inputs` 는 대역으로 갈아 끼운다."""
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: _loaded())
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", lambda *a, **k: _loaded())
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
 
     got: list[dict[str, Any]] = []
@@ -85,10 +85,10 @@ def 매입이_받은_payload(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, 
         got.append(dict(request.payload))
         return _port({"scenarios": [{"scenario_id": "SCN-1"}]})(request)
 
-    wiring.reset()
-    wiring.register("finance", _port())
-    wiring.register("inventory", _port())
-    wiring.register("purchase", purchase)
+    registry_wiring.reset()
+    registry_wiring.register("finance", _port())
+    registry_wiring.register("inventory", _port())
+    registry_wiring.register("purchase", purchase)
     return got
 
 

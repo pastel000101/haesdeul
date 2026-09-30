@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from app.master.verifier import supplied_but_unresolved
+from app.master.domain.verifier import supplied_but_unresolved
 
 
 def _concerns(constraints: dict, risks: list[str]) -> list[str]:
@@ -123,10 +123,10 @@ def test_공개_진입점이_관통과_같은_것을_본다():
 
     이 검사는 **관통이 쓰는 것과 같은 함수**를 부르는지 붙잡는다.
     """
-    from app.master import verifier
+    from app.master.domain import verifier as domain_verifier
 
     seen: list[str] = []
-    verifier.MasterVerifier()._check_supplied_but_unused(
+    domain_verifier._check_supplied_but_unused(
         ({"label": "기본", "risks": ["inbound_lead_days 미확정"]},),
         {"inventory": {"inbound_lead_days": 2.0}},
         seen,

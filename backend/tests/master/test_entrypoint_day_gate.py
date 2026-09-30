@@ -36,7 +36,7 @@ import inspect
 
 import pytest
 
-from app.master import revalidation, service
+from app.master.service import procurement, revalidation, sales
 
 #: 🔴 **모듈 하나만 훑으면 그 파일 밖의 진입점이 통째로 안 보인다.**
 #:
@@ -47,7 +47,9 @@ from app.master import revalidation, service
 #:
 #: ★ **다음에 또 늘어난다는 전제로 목록을 여기 하나로 둔다.** 아래 검사는 전부 이
 #:   목록에서 진입점을 찾는다 — 모듈을 더하면 검사가 자동으로 따라 는다.
-_SCANNED = (service, revalidation)
+#: ★ 2026-09-30 재구성 BL-018: 옛 `service.py` 의 진입점이 `service/procurement.py` ·
+#:   `service/sales.py` 로 갈렸다.
+_SCANNED = (procurement, sales, revalidation)
 
 _TREES = {모듈.__name__: ast.parse(inspect.getsource(모듈)) for 모듈 in _SCANNED}
 
@@ -214,12 +216,15 @@ def test_두_사이클이_응답_조립을_공유하지_않는다():
     """
     calls = {name: _calls_in(node) for name, node in _entrypoints().items()}
 
-    assert "_empty_response" in calls["run_procurement"]
-    assert "_empty_sales_response" in calls["run_sales"]
-    assert "_empty_response" not in calls["run_sales"], (
+    # ★ 2026-09-30 재구성 BL-018: 빈 응답 짓기 둘이 `domain/run_response.py` 로 가며 두 진입점
+    #   파일이
+    #   함께 쓰게 되어 이름을 열었다(`_empty_response` → `empty_response`, 판매도 같다).
+    assert "empty_response" in calls["run_procurement"]
+    assert "empty_sales_response" in calls["run_sales"]
+    assert "empty_response" not in calls["run_sales"], (
         "판매가 매입의 빈 응답을 쓴다 — end_code 가 E4 로 나간다"
     )
-    assert "_empty_sales_response" not in calls["run_procurement"]
+    assert "empty_sales_response" not in calls["run_procurement"]
 
 
 # ── ④ 🔴 실행일 Gate 는 매입만 지난다 ───────────────────────────────────────

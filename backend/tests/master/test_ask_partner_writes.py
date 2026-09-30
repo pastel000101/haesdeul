@@ -65,7 +65,7 @@ def fake_partner_sql(monkeypatch):
     monkeypatch.setattr("app.sales.service.partners.write_partner", write_partner)
     #  ask 의 거래처 찾기(`_partner_id`)가 보는 판매 조회 — 거래처 하나가 이 이름으로 있다.
     monkeypatch.setattr(
-        "app.master.ask_service.get_console_partners",
+        "app.master.service.ask_domain_actions.get_console_partners",
         lambda **_kwargs: SimpleNamespace(
             rows=[SimpleNamespace(partner_id=PARTNER, partner_name="김치공장")]
         ),

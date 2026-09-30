@@ -10,9 +10,11 @@ from dataclasses import replace
 from datetime import date
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.master import AgentRegistry, CallBudget, MasterRunner
-from app.master.flow import ProcurementFlow
-from app.master.verifier import VerificationResult
+from app.master.domain.verifier import VerificationResult
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2026, 8, 26)
 

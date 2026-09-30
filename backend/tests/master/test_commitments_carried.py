@@ -25,9 +25,10 @@ from datetime import date
 from typing import Any
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.master.budget import CallBudget
-from app.master.flow import ProcurementFlow
-from app.master.runner import AgentRegistry, MasterRunner
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.flow import ProcurementFlow
+from app.master.service.runner import MasterRunner
 
 AS_OF = date(2025, 12, 31)
 SCN = [{"scenario_id": "SCN-1", "total_amount_krw": 30000000}]

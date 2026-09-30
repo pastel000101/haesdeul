@@ -30,12 +30,13 @@ from functools import partial
 from pathlib import Path
 
 import app.main  # noqa: F401  — import 시점에 조립 뿌리를 부른다. 이 검사의 전제다
-from app.master import bootstrap, wiring
+from app.master.registry import bootstrap as registry_bootstrap
+from app.master.registry import wiring as registry_wiring
 from app.purchase_agent.adapter import purchase_port
 
 
 def _registered_purchase():
-    return wiring.registry().get("purchase")
+    return registry_wiring.registry().get("purchase")
 
 
 def test_등록된_매입이_시세를_주입받았다():
@@ -84,7 +85,7 @@ def test_등록_한_줄이_mock_으로_되돌아가지_않았다():
       `app/master/bootstrap.py` 로 옮겨졌다 — 진입점이 둘(FastAPI · CLI)이라 마스터가
       조립 뿌리를 함수로 뺐다. **재는 것도 등록 내용도 그대로다** — 주소만 옮겼다.
     """
-    wiring_py = Path(bootstrap.__file__)
+    wiring_py = Path(registry_bootstrap.__file__)
     tree = ast.parse(wiring_py.read_text(encoding="utf-8"))
 
     calls = [

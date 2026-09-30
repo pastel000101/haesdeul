@@ -36,16 +36,15 @@ from typing import Any
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.decision import AUTO_BACKFILL
-from app.master.pending_transition import (
-    RetriedTransition,
-    RetryOut,
-    pending_approvals,
-    retry_pending_transitions,
-)
-from app.master.scheduler import DayRunOutcome
-from app.master.transition import TransitionOut, purchase_id_for, purchase_id_prefix_for
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.domain.pending_transition import pending_approvals
+from app.master.domain.purchase_ids import purchase_id_for, purchase_id_prefix_for
+from app.master.domain.scheduler import DayRunOutcome
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.pending_transition import RetriedTransition, RetryOut
+from app.master.schemas.transition import TransitionOut
+from app.master.service.pending_transition import retry_pending_transitions
+from tests.fake_core_db import patch_sql_helpers
 
 오늘 = date(2026, 1, 10)
 실행 = "SIM-WALK-2026-APPROVED"
@@ -452,7 +451,7 @@ def _잡아둔_조회(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, tuple[
         잡힌.append((query.as_string(None), params))
         return []
 
-    monkeypatch.setattr("app.master.pending_transition_repository.fetch_all", 가짜)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.pending_transitions", fetch_all=가짜)
     return 잡힌
 
 
@@ -462,8 +461,8 @@ def test_승인_조회가_실행_축과_매입_사이클로_좁힌다(monkeypatc
     🔴 **매입 사이클을 안 좁히면 판매 승인이 영영 미적용으로 남는다** — 판매 승인은
       `sales` 표로 흘러 `purchases` 에 안 앉기 때문이다.
     """
-    from app.master.decision import PROCUREMENT_CYCLE
-    from app.master.pending_transition_repository import approved_decisions
+    from app.master.domain.decision import PROCUREMENT_CYCLE
+    from app.master.readmodel.pending_transitions import approved_decisions
 
     잡힌 = _잡아둔_조회(monkeypatch)
     approved_decisions(sim_run_id=실행)
@@ -475,7 +474,7 @@ def test_승인_조회가_실행_축과_매입_사이클로_좁힌다(monkeypatc
 
 def test_원장_조회도_실행_축으로_좁힌다(monkeypatch: pytest.MonkeyPatch) -> None:
     """🔴 남의 실행 원장을 *"닿았다"* 로 읽으면 이 승인이 영영 안 선다."""
-    from app.master.pending_transition_repository import ledger_purchase_ids
+    from app.master.readmodel.pending_transitions import ledger_purchase_ids
 
     잡힌 = _잡아둔_조회(monkeypatch)
     ledger_purchase_ids(sim_run_id=실행)

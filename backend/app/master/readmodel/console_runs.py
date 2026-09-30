@@ -1,8 +1,8 @@
 """운영 콘솔의 실행 목록 — **읽기 전용**이다.
 
 ★ **실행(`sim_runs`)의 주인은 마스터다.** 이 모듈은 그 표를 **읽기만** 한다. 실행을
-  만들거나 고치거나 상태를 바꾸는 길은 여기 없다 — 그것은 `app/master/sim_run.py` 와
-  `sim_run_runner` 가 하는 일이고, 화면이 그 자리를 대신하면 «화면에서 실행을 열었다»
+  만들거나 고치거나 상태를 바꾸는 길은 여기 없다 — 그것은 `app/master/service/sim_run.py` 와
+  `cli/sim_run_runner` 가 하는 일이고, 화면이 그 자리를 대신하면 «화면에서 실행을 열었다»
   같은 경로가 생긴다.
 
 🔴 **없는 칸을 만들지 않는다.** `sim_runs` 가 들고 있는 값만 낸다. 정책 버전처럼 그
@@ -15,13 +15,19 @@
 
 ★ 2026-09-29 재구성 BL-014: 화면 `api/console/runs.py` 에서 옮겼다(응답 모델 · 조립 그대로). SQL 은
   `master/console_runs_repository.py`. 화면 라우트(`GET /api/console/runs`)는 이 함수를 부른다.
+
+★ 2026-09-30 재구성 BL-018: SQL 은 `repository/console_runs.py`(받은 연결)로 옮겼다. 응답 모델은
+  여기 그대로다 — 화면은 마스터에서 readmodel · domain 만 들인다. 조회 연결은 여기서 한 번 빌린다
+  (종전 `fetch_all` 과 같은 대여).
 """
 
 from datetime import date, datetime
 
 from pydantic import BaseModel
 
-from app.master.console_runs_repository import read_console_runs
+from app.core import db as core_db
+from app.core.settings import get_db_schema
+from app.master.repository.console_runs import select_console_runs
 
 
 class ConsoleRun(BaseModel):
@@ -49,6 +55,9 @@ class ConsoleRunsResponse(BaseModel):
 
 def get_console_runs(*, limit: int = 100) -> ConsoleRunsResponse:
     """고를 수 있는 실행 목록.  판단하지 않고 저장된 행을 옮기기만 한다."""
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        raws = select_console_runs(conn, limit=limit, schema=schema)
     return ConsoleRunsResponse(
         rows=[
             ConsoleRun(
@@ -69,6 +78,6 @@ def get_console_runs(*, limit: int = 100) -> ConsoleRunsResponse:
                 latest_activity_at=raw["latest_activity_at"],
                 note=None if raw["note"] is None else str(raw["note"]),
             )
-            for raw in read_console_runs(limit=limit)
+            for raw in raws
         ]
     )

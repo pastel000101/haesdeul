@@ -119,7 +119,8 @@ def test_no_module_imports_the_ml_routers_except_the_app_root(router):
 
 
 def test_only_the_master_bootstrap_imports_the_ml_adapter():
-    assert _importers_of("app.ml.adapter") == ["app.master.bootstrap"]
+    # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `app.master.registry.bootstrap` 이다.
+    assert _importers_of("app.ml.adapter") == ["app.master.registry.bootstrap"]
 
 
 #: 어댑터가 들일 수 있는 것 — 봉투 계약 · 질의응답 service · 상태 조회 · 모델(schemas) ·

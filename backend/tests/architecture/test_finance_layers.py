@@ -41,7 +41,9 @@ _FINANCE = _APP / "finance"
 _BACKEND = _APP.parent
 _ROUTER = _FINANCE / "router.py"
 _ADAPTER = _FINANCE / "adapter.py"
-_ASK = _APP / "master" / "ask_service.py"
+#: ★ 2026-09-30 재구성 BL-018: 채팅의 도메인 행동(조회 · 쓰기 실행)은 `master/service/ask.py` 에서
+#:   `master/service/ask_domain_actions.py` 로 갈라 나왔다 — `_domain_write` 가 그 파일에 있다.
+_ASK = _APP / "master" / "service" / "ask_domain_actions.py"
 
 
 def _module_name(path: Path) -> str:
@@ -208,7 +210,8 @@ def test_only_the_registry_and_the_agent_route_import_the_finance_adapter():
         if any(is_under(name, "app.finance.adapter") for name in _imported(_read(path)))
     )
 
-    assert importers == ["app.finance.router", "app.master.bootstrap"]
+    # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `app.master.registry.bootstrap` 이다.
+    assert importers == ["app.finance.router", "app.master.registry.bootstrap"]
     router_takes = {
         name for name in _imported(_read(_ROUTER)) if is_under(name, "app.finance.adapter")
     }

@@ -75,7 +75,11 @@ def test_scanner_reads_master_files():
     """★ 0 개를 읽으면 위 검사가 공짜 초록이 된다. 무엇을 읽었는지를 먼저 잰다."""
     names = {_rel(path) for path in _files("master")}
 
-    assert {"master/ask_service.py", "master/report.py", "master/domain/plan_state.py"} <= names
+    # ★ 2026-09-30 재구성 BL-018: 채팅 실행 `master/service/ask.py` · 채팅 보고서
+    #   `master/report/chat_reports.py`.
+    assert {
+        "master/service/ask.py", "master/report/chat_reports.py", "master/domain/plan_state.py"
+    } <= names
     assert len(names) > 80, f"마스터 파일을 {len(names)}개밖에 못 읽었다"
 
 

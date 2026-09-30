@@ -22,7 +22,7 @@ import json
 from datetime import date
 
 from app.contracts.envelope import DEPT_CAP_CHECK_ID
-from app.master import critic_bridge as bridge
+from app.master.adapters import critic_bridge
 from app.master.critic.service import run_critic_procurement
 from tests.master.test_critic_bridge import CONSTRAINTS, EVIDENCES, _proposal
 
@@ -38,7 +38,7 @@ def _meta(dept: str) -> str:
 
 
 def _verdict(observations):
-    request = bridge.build_request(
+    request = critic_bridge.build_request(
         as_of=date(2025, 12, 31),
         item="배추",
         proposal=_proposal(),

@@ -18,8 +18,8 @@ from app.master.critic.schemas import (
     CriticVerdictOut,
 )
 from app.master.critic.service import run_critic_procurement, run_critic_sales
-from app.master.cycle_persistence import record
-from app.master.cycle_run_repository import get_run, list_runs
+from app.master.readmodel.cycle_runs import get_run, list_runs
+from app.master.service.cycle_persistence import record
 
 router = APIRouter(prefix="/critic", tags=["critic"])
 

@@ -23,7 +23,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.contracts.core import ITEMS
-from app.master.schemas import ProcurementRunRequest
+from app.master.schemas.procurement import ProcurementRunRequest
 
 
 def _request(**kw):

@@ -39,7 +39,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.master.answer import AnswerFacts, agent_labels
+from app.master.domain.answer import AnswerFacts, agent_labels
 from app.master.llm.runtime import (
     LLMSettings,
     TextProvider,

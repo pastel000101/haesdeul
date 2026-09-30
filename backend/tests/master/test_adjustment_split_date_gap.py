@@ -57,7 +57,7 @@ import pytest
 import app.master
 from app.contracts.core import ContractViolation, SuggestedAdjustment
 from app.contracts.envelope import wire_adjustment
-from app.master.answer import _scope
+from app.master.domain.answer import _scope
 
 _BACKEND = Path(app.master.__file__).parent.parent.parent
 #: 2026-09-30 재구성 BL-015: 물류 조정 제안을 세우는 자리는 `logistics/adapter.py` 에서

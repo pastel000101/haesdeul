@@ -30,14 +30,16 @@ from typing import Any, ClassVar
 from zoneinfo import ZoneInfo
 
 from app.logistics.schemas.monitoring import DetectOut
-from app.master.backtest_runner import WalkResult, _incident_reason, format_summary
-from app.master.inspection import (
+from app.master.cli.backtest_runner import _incident_reason
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.inspection import (
     AFTER_INBOUND,
     AFTER_OUTBOUND,
     INSPECTION_STATUSES,
     InspectionOut,
 )
-from app.master.scheduler import DayRunOutcome, ScheduledAction, run_scheduled_day
+from app.master.service.scheduler import run_scheduled_day
 
 SEOUL = ZoneInfo("Asia/Seoul")
 오늘 = date(2026, 1, 7)

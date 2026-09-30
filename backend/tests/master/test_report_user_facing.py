@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from app.master.report import render_report, report_filename
+from app.master.report.purchase_report import render_report, report_filename
 
 _FORBIDDEN = (
     "검증",

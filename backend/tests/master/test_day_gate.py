@@ -23,8 +23,8 @@ from typing import Any
 
 import pytest
 
-from app.master import day_open
-from app.master.day_gate import SPLIT_THRESHOLD_DAYS, check_day_gate
+from app.master.registry import day_open as registry_day_open
+from app.master.service.day_gate import SPLIT_THRESHOLD_DAYS, check_day_gate
 
 AS_OF = date(2026, 1, 7)
 
@@ -63,18 +63,18 @@ class _파트:
 
 @pytest.fixture(autouse=True)
 def _빈_등록소() -> Any:
-    before = dict(day_open.registered())
-    day_open.reset()
+    before = dict(registry_day_open.registered())
+    registry_day_open.reset()
     yield
-    day_open.reset()
+    registry_day_open.reset()
     for part, impl in before.items():
-        day_open.register_day_opening(part, impl)
+        registry_day_open.register_day_opening(part, impl)
 
 
 def _등록(finance: date | None, logistics: date | None) -> tuple[_파트, _파트]:
     f, lg = _파트(finance), _파트(logistics)
-    day_open.register_day_opening("finance", f)
-    day_open.register_day_opening("logistics", lg)
+    registry_day_open.register_day_opening("finance", f)
+    registry_day_open.register_day_opening("logistics", lg)
     return f, lg
 
 
@@ -235,7 +235,7 @@ def test_연속_실패_2회부터_사람을_부른다(monkeypatch: pytest.Monkey
     ★ **`failure_count`(연속 실패)를 본다. `attempt_count` 가 아니다.** 어제 성공하고
       오늘 처음 실패한 것을 *"2번째"* 로 세면 **재시도 한 번 없이 사람을 부른다.**
     """
-    from app.master.day_opening_repository import DayOpeningRecord
+    from app.master.schemas.day_open import DayOpeningRecord
 
     def 정본(failure_count: int):
         return DayOpeningRecord(
@@ -245,11 +245,11 @@ def test_연속_실패_2회부터_사람을_부른다(monkeypatch: pytest.Monkey
 
     _등록(AS_OF - timedelta(days=2), AS_OF - timedelta(days=2))
 
-    monkeypatch.setattr("app.master.day_gate.read_day_opening", lambda **kw: 정본(1))
+    monkeypatch.setattr("app.master.service.day_gate.read_day_opening", lambda **kw: 정본(1))
     gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert gate.next_action == "RETRY_OPEN_DAY"
 
-    monkeypatch.setattr("app.master.day_gate.read_day_opening", lambda **kw: 정본(2))
+    monkeypatch.setattr("app.master.service.day_gate.read_day_opening", lambda **kw: 정본(2))
     gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
     assert gate.next_action == "CONTACT_OPERATOR"
     assert "연속 2회 실패" in gate.reason
@@ -258,10 +258,10 @@ def test_연속_실패_2회부터_사람을_부른다(monkeypatch: pytest.Monkey
 def test_attempt_count_가_많아도_연속_실패가_적으면_재시도다(monkeypatch: pytest.MonkeyPatch):
     """★ **어제 성공하고 오늘 처음 실패한 경우다.** `attempt_count` 로 갈랐으면 여기서
     사람을 불렀을 것이다."""
-    from app.master.day_opening_repository import DayOpeningRecord
+    from app.master.schemas.day_open import DayOpeningRecord
 
     monkeypatch.setattr(
-        "app.master.day_gate.read_day_opening",
+        "app.master.service.day_gate.read_day_opening",
         lambda **kw: DayOpeningRecord(
             as_of=AS_OF, sim_run_id="SIM-1", result="NOT_OPENED",
             attempt_count=17, failure_count=1, reason=None,
@@ -283,7 +283,7 @@ def test_조회가_터지면_CONTACT_OPERATOR():
         def is_open(self, conn: Any, *, as_of: date) -> bool:
             raise RuntimeError("연결 없음")
 
-    day_open.register_day_opening("finance", _터지는파트())
+    registry_day_open.register_day_opening("finance", _터지는파트())
 
     gate = check_day_gate(AS_OF, borrow=lambda: _가짜커넥션(), sim_run_id=축)
 
@@ -298,9 +298,9 @@ def test_조회가_터지면_CONTACT_OPERATOR():
 def test_run_procurement_이_개장을_먼저_본다(monkeypatch: pytest.MonkeyPatch):
     """🔴 **개장이 실행일보다 먼저다.** 그 날 장부가 안 열렸으면 실행일이어도 읽을
     상태가 없다."""
-    from app.master.day_gate import DayGate
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.day_gate import DayGate
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     막힘 = DayGate(
         as_of=AS_OF,
@@ -309,7 +309,8 @@ def test_run_procurement_이_개장을_먼저_본다(monkeypatch: pytest.MonkeyP
         reason="재무가 안 열렸다",
         next_action="RETRY_OPEN_DAY",
     )
-    monkeypatch.setattr("app.master.service.check_day_gate", lambda as_of, **kw: 막힘)
+    monkeypatch.setattr("app.master.service.procurement.check_day_gate", lambda as_of, **kw: 막힘)
+    monkeypatch.setattr("app.master.service.sales.check_day_gate", lambda as_of, **kw: 막힘)
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: "RUN-1")
 
     평일 = date(2026, 1, 7)
@@ -328,8 +329,8 @@ def test_run_procurement_이_개장을_먼저_본다(monkeypatch: pytest.MonkeyP
 
 def test_토요일은_개장을_통과하고_실행일에서_막힌다(monkeypatch: pytest.MonkeyPatch):
     """★ **`E4_NOT_STARTED` 하나로는 그 둘이 같아 보인다.** `day_gate` 가 가른다."""
-    from app.master.schemas import ProcurementRunRequest
-    from app.master.service import run_procurement
+    from app.master.schemas.procurement import ProcurementRunRequest
+    from app.master.service.procurement import run_procurement
 
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: "RUN-2")
 

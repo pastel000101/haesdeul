@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import wiring
+from app.master.registry import wiring as registry_wiring
 from app.master.router import router
 
 AS_OF = "2026-08-26"
@@ -22,9 +22,9 @@ AS_OF = "2026-08-26"
 def client():
     app = FastAPI()
     app.include_router(router)
-    wiring.reset()
+    registry_wiring.reset()
     yield TestClient(app)
-    wiring.reset()
+    registry_wiring.reset()
 
 
 def body(**kw) -> dict:
@@ -68,9 +68,9 @@ def wire_all(scenarios=None):
     def purchase(request: AgentRequest):
         return _port({"scenarios": list(scn)})(request)
 
-    wiring.register("finance", _port({"cap": 1}))
-    wiring.register("inventory", _port({"cap": 2}))
-    wiring.register("purchase", purchase)
+    registry_wiring.register("finance", _port({"cap": 1}))
+    registry_wiring.register("inventory", _port({"cap": 2}))
+    registry_wiring.register("purchase", purchase)
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def test_어댑터가_없으면_500_이_아니라_E4(client):
 
 
 def test_일부만_등록돼도_누가_없는지_알려준다(client):
-    wiring.register("finance", _port())
+    registry_wiring.register("finance", _port())
     data = client.post("/master/request", json=body()).json()
     assert data["missing_adapters"] == ["inventory", "purchase"]
     assert "inventory" in data["reason"]
@@ -182,12 +182,12 @@ def test_단일안이_표시된다(client):
 
 def test_부서_미가동은_200_에_E4(client):
     """실패도 오류가 아니라 그날의 결과다 (§5.3)."""
-    wiring.register("finance", _port())
-    wiring.register(
+    registry_wiring.register("finance", _port())
+    registry_wiring.register(
         "inventory",
         _port(runtime_status="RUNTIME_NOT_READY", business_status="skipped", missing_data=("N2",)),
     )
-    wiring.register("purchase", _port({"scenarios": []}))
+    registry_wiring.register("purchase", _port({"scenarios": []}))
 
     r = client.post("/master/request", json=body())
     assert r.status_code == 200
@@ -254,9 +254,9 @@ def test_trigger_는_ML_COMPLETE_로_바꿔_실행한다(client):
         seen["trigger"] = request.context.trigger
         return _port({"cap": 1})(request)
 
-    wiring.register("finance", watching)
-    wiring.register("inventory", _port({"cap": 2}))
-    wiring.register("purchase", _port({"scenarios": [{"scenario_id": "SCN-1"}]}))
+    registry_wiring.register("finance", watching)
+    registry_wiring.register("inventory", _port({"cap": 2}))
+    registry_wiring.register("purchase", _port({"scenarios": [{"scenario_id": "SCN-1"}]}))
 
     r = client.post("/master/trigger", json=body(trigger="USER_REQUEST"))
     assert r.status_code == 200
@@ -294,9 +294,9 @@ def test_예측을_요청에_실으면_매입에_전달된다(client):
             seen.update(request.payload)
         return _port({"scenarios": [{"scenario_id": "SCN-1"}]})(request)
 
-    wiring.register("finance", _port({"cap": 1}))
-    wiring.register("inventory", _port({"cap": 2}))
-    wiring.register("purchase", purchase)
+    registry_wiring.register("finance", _port({"cap": 1}))
+    registry_wiring.register("inventory", _port({"cap": 2}))
+    registry_wiring.register("purchase", purchase)
 
     r = client.post(
         "/master/request",
@@ -328,7 +328,7 @@ def test_약정을_못_읽으면_응답_concerns_에_남는다(client, monkeypat
     def boom(item, as_of, **kw):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr("app.master.service.commitments_before", boom)
+    monkeypatch.setattr("app.master.service.procurement.commitments_before", boom)
 
     data = client.post("/master/request", json=body(item="배추")).json()
 
@@ -344,7 +344,7 @@ def test_약정을_못_읽어도_실행은_끝까지_돈다(client, monkeypatch)
     def boom(item, as_of, **kw):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr("app.master.service.commitments_before", boom)
+    monkeypatch.setattr("app.master.service.procurement.commitments_before", boom)
 
     r = client.post("/master/request", json=body(item="배추"))
 
@@ -355,7 +355,9 @@ def test_약정을_못_읽어도_실행은_끝까지_돈다(client, monkeypatch)
 def test_약정_조회가_되면_concern_이_안_붙는다(client, monkeypatch):
     """대조군. 없으면 위 둘이 **항상 concern 을 내는 코드**로도 통과한다."""
     wire_all()
-    monkeypatch.setattr("app.master.service.commitments_before", lambda item, as_of, **kw: [])
+    monkeypatch.setattr(
+        "app.master.service.procurement.commitments_before", lambda item, as_of, **kw: []
+    )
 
     data = client.post("/master/request", json=body(item="배추")).json()
 

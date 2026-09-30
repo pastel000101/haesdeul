@@ -13,19 +13,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.master.answer import (
-    facts_from_procurement,
-    facts_from_status,
-    render_answer,
-)
+from app.master.domain.answer import facts_from_procurement, facts_from_status, render_answer
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
 from app.master.llm.answer_runtime import (
     NarrativeRejected,
     NarrativeService,
     validate_narrative,
 )
 from app.master.llm.runtime import LLMSettings
-from app.master.plan import ExecutionPlan
-from app.master.status_flow import StatusOutcome
 
 SETTINGS = LLMSettings(
     enabled=True,
@@ -370,7 +366,7 @@ def test_판매가_답한_요청이면_판매를_문장에_써도_된다():
 
 def test_부서_이름표는_한_곳에서만_센다():
     """세는 곳이 둘이면 어긋난다 — 실제로 어긋나서 가드가 절반만 돌았다."""
-    from app.master.answer import agent_labels
+    from app.master.domain.answer import agent_labels
     from app.master.llm.answer_runtime import _AGENT_WORDS
 
     assert set(_AGENT_WORDS) == set(agent_labels())

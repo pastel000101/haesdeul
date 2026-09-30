@@ -121,8 +121,12 @@ _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 #: (해석 노드와 `_asked_on`). 2026-09-29 재구성 BL-017 에 그래프가 `ml/service/qa_graph.py` 로
 #: 옮겼다 — 판단(`ml/domain/`) · 답 조립(`ml/readmodel/`)은 시계를 가져가지 않고 그래프가
 #: 정한 날을 인자로 받는다.
+#: ★ 2026-09-30 재구성 BL-018: 스케줄러 · 소급 승인의 진입 함수가 `master/service/` 로 갔다(같은 두
+#:   함수 —
+#: `wake_up` · `backfill_decisions`). 판정 조각(`master/domain/scheduler.py` 등)은 시계를 가져가지
+#: 않는다.
 _CLOCK_READER_IMPORTERS = frozenset(
-    {"master/scheduler.py", "master/backfill.py", "ml/service/qa_graph.py"}
+    {"master/service/scheduler.py", "master/service/backfill.py", "ml/service/qa_graph.py"}
 )
 
 #: 🟡 **서울 지역 시간대가 아니라 고정 오프셋 UTC+9 를 따로 드는 자리** (2026-09-29 확인).
@@ -340,10 +344,10 @@ def test_스캐너가_시계를_가져가는_진입점을_실제로_찾는다():
     hits = _scan_clock_readers()
 
     assert hits, "시계를 가져가는 파일을 하나도 못 찾았다 — 스캐너가 고장 났다"
-    assert "seoul_now" in hits.get("master/scheduler.py", set()), (
+    assert "seoul_now" in hits.get("master/service/scheduler.py", set()), (
         f"`from app.core import clock` + `clock.seoul_now` 모양을 못 잡았다: {hits}"
     )
-    assert "today_in_seoul" in hits.get("master/backfill.py", set()), (
+    assert "today_in_seoul" in hits.get("master/service/backfill.py", set()), (
         f"`from app.core.clock import today_in_seoul` 모양을 못 잡았다: {hits}"
     )
     assert _clock_readers_in(
@@ -378,7 +382,8 @@ def test_재검증은_시계를_안_가져간다():
     ★ 위 검사가 이미 이것을 덮지만, **이름을 적어 둔다.** 목록이 넓어지는 날
       `revalidation.py` 가 슬쩍 끼는 것과 진입점이 하나 느는 것은 다른 일이다.
     """
-    assert "master/revalidation.py" not in _scan_clock_readers(), (
+    # ★ 2026-09-30 재구성 BL-018: 재검증은 `master/service/revalidation.py` 다.
+    assert "master/service/revalidation.py" not in _scan_clock_readers(), (
         "재검증이 clock 을 다시 가져간다 — as_of 는 진입점이 정해서 넘겨야 한다"
     )
 

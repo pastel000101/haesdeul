@@ -34,24 +34,16 @@ from typing import Any
 import pytest
 
 from app.core.clock import SEOUL
-from app.master import backtest_runner, scheduler
-from app.master.backfill import (
-    BACKFILL_BOUNDARY_AS_OF,
-    BackfillOut,
-    BackfillRuleMissing,
-    BackfillRules,
-    backfill_decisions,
-)
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.scheduler import (
-    DayRunOutcome,
-    ScheduledAction,
-    daily_request_id,
-    daily_sales_request_id,
-    plan_next_action,
-    run_scheduled_day,
-)
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.backfill import BackfillOut, BackfillRuleMissing, BackfillRules
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.request_ids import daily_request_id, daily_sales_request_id
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction, plan_next_action
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.service import scheduler as service_scheduler
+from app.master.service.backfill import BACKFILL_BOUNDARY_AS_OF, backfill_decisions
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 9, 8)
 ITEMS = ("무", "배추", "양파")
@@ -70,8 +62,8 @@ ITEMS = ("무", "배추", "양파")
     "FAILED",
 )
 
-_스케줄러 = Path(scheduler.__file__)
-_걷기 = Path(backtest_runner.__file__)
+_스케줄러 = Path(service_scheduler.__file__)
+_걷기 = Path(cli_backtest_runner.__file__)
 
 
 def _NFC(text: str) -> str:
@@ -161,7 +153,7 @@ class _승인문:
 
 
 def _행결과(as_of: date, outcome: str):
-    from app.master.backfill import BackfilledRun
+    from app.master.domain.backfill import BackfilledRun
 
     return BackfilledRun(as_of=as_of, run_id="run-1", request_id="req-1", outcome=outcome)  # type: ignore[arg-type]
 
@@ -255,7 +247,7 @@ def test_안_켠_날은_사유_줄도_안_남긴다() -> None:
     ("함수", "인자"),
     [
         (run_scheduled_day, "auto_approve"),
-        (scheduler.wake_up, "auto_approve"),
+        (service_scheduler.wake_up, "auto_approve"),
         (walk, "auto_approve"),
     ],
 )
@@ -271,8 +263,8 @@ def test_문에도_기본이_꺼짐이다() -> None:
     공통 = ["--sim-run-id", 실행, "--start", "2026-02-07", "--end", "2026-09-09"]
     공통 += ["--now", "2026-09-11T10:35+09:00"]
 
-    안준것 = backtest_runner._parser().parse_args(공통)
-    준것 = backtest_runner._parser().parse_args([*공통, "--auto-approve"])
+    안준것 = cli_backtest_runner._parser().parse_args(공통)
+    준것 = cli_backtest_runner._parser().parse_args([*공통, "--auto-approve"])
 
     assert 안준것.auto_approve is False
     assert 준것.auto_approve is True
@@ -360,7 +352,7 @@ def test_승인은_제_사이클이_낸_행만_본다() -> None:
 
 def _걸러진(runs_on: Any, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """`runs_on` 이 `list_runs` 자리에서 무엇을 걸러 내는지 잰다. **DB 를 안 탄다.**"""
-    import app.master.scheduler as _s
+    from app.master.service import scheduler as _s
 
     원래 = _s.list_runs
     _s.list_runs = lambda **kwargs: rows  # type: ignore[assignment]
@@ -497,7 +489,7 @@ def test_경계_뒤_날짜는_BLOCKED_BY_BOUNDARY_로_센다(monkeypatch: pytest
         }
         for item in ITEMS
     ]
-    monkeypatch.setattr(scheduler, "list_runs", lambda **kwargs: 행)
+    monkeypatch.setattr(service_scheduler, "list_runs", lambda **kwargs: 행)
     문지기 = _문지기()
     # ⚠️ 라벨은 **설정에서** 온다 — 검사가 값을 들되 코드는 안 든다.
     설정 = {"backfill": {"procurement": {"rule": "ALWAYS_BASE", "scenario_label": "라벨"}}}
@@ -622,7 +614,7 @@ def test_승인_단계와_어휘를_한_줄로_묶지_않는다() -> None:
 
 
 def _백필결과(outcomes: dict[str, int]) -> BackfillOut:
-    from app.master.backfill import BackfilledRun
+    from app.master.domain.backfill import BackfilledRun
 
     return BackfillOut(
         sim_run_id=실행,

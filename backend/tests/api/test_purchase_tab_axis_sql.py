@@ -34,6 +34,7 @@ import pytest
 
 from app.api.purchase import query as purchase_query
 from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 AXIS = "SIM-AXIS-SQL-TEST"
@@ -93,11 +94,10 @@ class _Recorder:
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     """`_read` 가 함수 **안에서** import 하므로 모듈 속성을 갈아 끼우면 잡힌다."""
-    from app.master import purchase_tab_repository
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     rec = _Recorder()
-    monkeypatch.setattr(purchase_tab_repository, "fetch_all", rec)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=rec)
     return rec
 
 

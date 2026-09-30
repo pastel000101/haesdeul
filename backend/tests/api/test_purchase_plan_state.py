@@ -44,6 +44,7 @@ from app.api.purchase import query as purchase_query
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals
 from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 4, 13)
 AXIS = "SIM-CHECK-HOLIDAY-0916"
@@ -442,7 +443,6 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
     대역 검사들은 `_read` 를 통째로 갈아 끼우므로 이 칸이 빠져도 안 운다 — 질의 문면을
     직접 본다.
     """
-    from app.master import purchase_tab_repository
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     문면: list[str] = []
@@ -451,7 +451,7 @@ def test_결정_조회가_회차를_같이_읽는다(monkeypatch):
         문면.append(query.as_string(None))
         return []
 
-    monkeypatch.setattr(purchase_tab_repository, "fetch_all", _record)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=_record)
 
     read_purchase_tab(AS_OF, sim_run_id=AXIS)
 

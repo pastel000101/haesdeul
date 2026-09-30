@@ -16,9 +16,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import decision_service
-from app.master.decision import Decision, DecisionOut, mark_current
+from app.master import router as master_router
+from app.master.domain.decision import mark_current
+from app.master.readmodel import approvals
 from app.master.router import router
+from app.master.schemas.decision import Decision, DecisionOut
+from app.master.service import decision as service_decision
 
 REQ = "REQ-20260827-0001"
 LABELS = ("보수", "기본", "공격")
@@ -98,8 +101,12 @@ def _run_row(
 @pytest.fixture
 def store(monkeypatch) -> FakeStore:
     fake = FakeStore()
-    monkeypatch.setattr(decision_service, "list_decisions", fake.list_decisions)
-    monkeypatch.setattr(decision_service, "save_decision", fake.save_decision)
+    monkeypatch.setattr(approvals, "list_decisions", fake.list_decisions)
+    monkeypatch.setattr(service_decision, "list_decisions", fake.list_decisions)
+    monkeypatch.setattr(service_decision, "save_decision", fake.save_decision)
+    # ★ 2026-09-30 재구성 BL-018: 결정 목록 화면은 걸러 주던 래퍼(`get_decisions`) 없이 라우터가
+    #   `list_decisions` 를 바로 부른다.
+    monkeypatch.setattr(master_router, "list_decisions", fake.list_decisions)
     return fake
 
 
@@ -134,8 +141,8 @@ def _set_run(
             raise LookupError(f"실행 이력이 없다: {run_id}")
         return target
 
-    monkeypatch.setattr(decision_service, "get_run_by_request_id", latest)
-    monkeypatch.setattr(decision_service, "get_run", by_uuid)
+    monkeypatch.setattr(approvals, "get_run_by_request_id", latest)
+    monkeypatch.setattr(approvals, "get_run", by_uuid)
 
 
 def _post(client, **kw):

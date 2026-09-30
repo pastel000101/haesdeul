@@ -256,7 +256,7 @@ def test_implementation_matches_master_structural_protocol_shape():
     import app.finance.domain.day_open as rules
     import app.finance.repository.day_open as statements
     import app.finance.service.day_open as service
-    from app.master.day_open import DayOpening
+    from app.master.registry.day_open import DayOpening
 
     implementation = FinanceDayOpening()
     for method in ("is_open", "open_day"):

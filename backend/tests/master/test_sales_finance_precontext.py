@@ -20,9 +20,10 @@ from typing import Any
 import pytest
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import persistence, wiring
-from app.master.schemas import SalesRunRequest
-from app.master.service import run_sales
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import persistence as service_persistence
+from app.master.service.sales import run_sales
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 평일 = date(2026, 9, 10)
@@ -86,9 +87,9 @@ _SCENARIOS = {
 
 def _wire(*, finance_facts: dict[str, Any] | None = None, finance_ready: bool = True) -> list:
     called: list = []
-    wiring.reset()
-    wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
-    wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
+    registry_wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
 
     facts = FINANCE_FACTS if finance_facts is None else finance_facts
 
@@ -112,7 +113,7 @@ def _wire(*, finance_facts: dict[str, Any] | None = None, finance_ready: bool = 
         )
         return reply, meta
 
-    wiring.register("finance", finance)
+    registry_wiring.register("finance", finance)
     return called
 
 
@@ -149,7 +150,7 @@ def 적재를_지켜본다(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, An
         seen.append(kwargs)
         return f"RUN-FAKE-{counter['n']}"
 
-    monkeypatch.setattr("app.master.persistence.try_save_run", fake)
+    monkeypatch.setattr("app.master.service.persistence.try_save_run", fake)
     return seen
 
 
@@ -253,9 +254,9 @@ def test_사실_조회가_그_실행의_as_of_로_나간다():
     """과거 `as_of` 요청이 오늘 재무 상태를 받으면 백테스트가 성립하지 않는다."""
     called: list = []
     seen_as_of: list[date] = []
-    wiring.reset()
-    wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
-    wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
+    registry_wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
 
     def finance(request: AgentRequest):
         if request.mode == "PRE_SALES_FACTS":
@@ -266,7 +267,7 @@ def test_사실_조회가_그_실행의_as_of_로_나간다():
         )
         return reply, meta
 
-    wiring.register("finance", finance)
+    registry_wiring.register("finance", finance)
 
     run_sales(_request(as_of=어제, preferred_delivery_date=date(2026, 9, 16)))
 
@@ -334,9 +335,9 @@ def test_사실_조회가_그_실행의_sim_run_id_축으로_나간다():
     """어느 실행의 장부인가는 마스터가 정한다 — 재무가 추측하면 남의 잔액을 읽는다."""
     called: list = []
     본_축: list[str] = []
-    wiring.reset()
-    wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
-    wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port({"PRE_SALES": PRE_SALES_PAYLOAD}, called))
+    registry_wiring.register("sales", _port({"GENERATE_SALES_PROPOSAL": _SCENARIOS}, called))
 
     def finance(request: AgentRequest):
         if request.mode == "PRE_SALES_FACTS":
@@ -347,7 +348,7 @@ def test_사실_조회가_그_실행의_sim_run_id_축으로_나간다():
         )
         return reply, meta
 
-    wiring.register("finance", finance)
+    registry_wiring.register("finance", finance)
 
     run_sales(_request(sim_run_id="SIM-AXIS-1"))
 
@@ -421,7 +422,7 @@ def test_적재_함수는_갱신이_아니라_추가다():
     """★ 저장소 계약을 이름으로 잠근다 — `record_sales` 는 UPDATE 를 부르지 않는다."""
     import inspect
 
-    source = inspect.getsource(persistence.record_sales)
+    source = inspect.getsource(service_persistence.record_sales)
 
     assert "try_save_run" in source
     assert "UPDATE" not in source.upper()

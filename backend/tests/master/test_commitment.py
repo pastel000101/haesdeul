@@ -22,7 +22,7 @@ from datetime import date
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg, CommitmentNotBuildable
-from app.master.commitment import build_commitment
+from app.master.domain.commitment import build_commitment
 
 AS_OF = date(2025, 12, 31)
 
@@ -201,9 +201,9 @@ def test_오케를_import_하지_않는다():
     import ast
     from pathlib import Path
 
-    import app.master.commitment as module
+    from app.master.domain import commitment as domain_commitment
 
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(domain_commitment.__file__).read_text(encoding="utf-8"))
     modules = {
         node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module
     }

@@ -22,7 +22,8 @@ from typing import Any
 
 import pytest
 
-from app.master import inputs
+from app.master.readmodel import inputs as readmodel_inputs
+from tests.fake_core_db import patch_sql_helpers
 
 ITEM = "배추"
 AS_OF = date(2025, 12, 31)
@@ -36,9 +37,9 @@ DEMAND = {
 
 
 def _patch(monkeypatch: pytest.MonkeyPatch, *, many: Any, one: Any) -> None:
-    monkeypatch.setattr(inputs, "fetch_all", many)
-    monkeypatch.setattr(inputs, "fetch_one", one)
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=many)
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=one)
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
 
 
 def _demand_one() -> Any:
@@ -58,7 +59,7 @@ def test_확정_주문_조회가_터지면_명목_수요로_메우지_않는다(
     # 파생 경로는 **성공할 수 있게** 둔다 — 그래야 예외가 파생으로 새는지를 잰다.
     _patch(monkeypatch, many=boom, one=_demand_one())
 
-    got = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MISSING", f"조회 실패가 {got.grade} 로 샜다: {got.note}"
     assert got.payload is None, "못 읽었는데 수요가 실렸다"
@@ -77,7 +78,7 @@ def test_조회가_성공하고_0건이면_그대로_파생한다(monkeypatch):
     """🔴 **숫자 불변.** 정상 경로의 등급 · 사유 · 값이 전 판과 같다."""
     _patch(monkeypatch, many=lambda *a: [], one=_demand_one())
 
-    got = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "DERIVED"
     assert got.source == "partner_item_demands · v_current_partner_demand"
@@ -110,7 +111,7 @@ def test_조회가_성공하고_N건이면_그대로_실측이다(monkeypatch):
 
     _patch(monkeypatch, many=lambda *a: rows, one=one)
 
-    got = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MEASURED"
     assert got.source == "sales + sale_items"
@@ -137,7 +138,7 @@ def test_파생_조회가_터져도_지어내지_않고_비운다(monkeypatch):
 
     _patch(monkeypatch, many=lambda *a: [], one=boom)
 
-    got = inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders(ITEM, AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MISSING"
     assert got.payload is None

@@ -23,9 +23,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.master import outbound_flow, pending_transition
-from app.master.outbound_flow import OutboundOut, SaleItemOutcome
-from app.master.pending_transition import RetriedTransition, RetryOut
+from app.master.schemas.outbound_flow import OutboundOut, SaleItemOutcome
+from app.master.schemas.pending_transition import RetriedTransition, RetryOut
 
 AS_OF = date(2026, 9, 15)
 축 = "SIM-TEST-DAY-STEP"
@@ -52,20 +51,22 @@ def test_전이_재시도와_출고에도_진입점이_있다() -> None:
 def test_두_진입점이_부르는_함수가_하루_실행이_부르는_함수와_같다() -> None:
     """🔴 **둘이 갈리면 손으로 부른 결과와 걷기 결과가 다른 코드를 지난다.**"""
     from app.master import router as router_module
-    from app.master import scheduler
+    from app.master.service import outbound_flow as service_outbound_flow
+    from app.master.service import pending_transition as service_pending_transition
+    from app.master.service import scheduler as service_scheduler
 
     전이_경로 = _inspect.getsource(router_module.master_retry_pending_transitions)
     출고_경로 = _inspect.getsource(router_module.master_ship_due_sales)
     assert "run_retry_pending_transitions(as_of, sim_run_id=_walk_axis(sim_run_id))" in 전이_경로
     assert "run_ship_due_sales(as_of, sim_run_id=_walk_axis(sim_run_id))" in 출고_경로
 
-    재시도 = pending_transition.retry_pending_transitions
+    재시도 = service_pending_transition.retry_pending_transitions
     assert router_module.run_retry_pending_transitions is 재시도
-    assert router_module.run_ship_due_sales is outbound_flow.ship_due_sales
+    assert router_module.run_ship_due_sales is service_outbound_flow.ship_due_sales
 
-    걷기 = _inspect.signature(scheduler.run_scheduled_day).parameters
-    assert 걷기["retry_fn"].default is pending_transition.retry_pending_transitions
-    assert 걷기["outbound_fn"].default is outbound_flow.ship_due_sales
+    걷기 = _inspect.signature(service_scheduler.run_scheduled_day).parameters
+    assert 걷기["retry_fn"].default is service_pending_transition.retry_pending_transitions
+    assert 걷기["outbound_fn"].default is service_outbound_flow.ship_due_sales
 
 
 def test_전이_재시도_응답이_서버가_낸_사유를_그대로_싣는다(

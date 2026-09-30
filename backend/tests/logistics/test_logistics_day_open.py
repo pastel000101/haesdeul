@@ -44,11 +44,11 @@ from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
 from app.logistics.schemas.transition import LogisticsFixtureMissing
 from app.logistics.schemas.vocabulary import USAGE_SCOPE
 from app.logistics.service import day_open
-from app.master import cancellation as master_cancellation
-from app.master import day_open as master_day_open
-from app.master import transition as master_transition
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import bind_sim_run
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import cancellation, transition
+from app.master.registry import day_open as registry_day_open
+from app.master.registry.sim_run_binding import bind_sim_run
+from app.master.service import day_open as service_day_open
 
 CARRY_FROM = date(2026, 1, 6)
 AS_OF = CARRY_FROM + timedelta(days=1)
@@ -788,11 +788,11 @@ def test_master_open_day_walks_logistics_after_registration():
     # 🔴 **물류만 남기고 잰다 (2026-09-05).** `app/main.py` 가 이제 재무도 등록하므로
     #    비우지 않으면 이 가짜 커넥션이 재무 질의까지 받게 되고, 그러면 이 검사가
     #    재는 것이 "물류를 부르는가" 가 아니라 "두 파트가 다 도는가" 로 바뀐다.
-    master_day_open.reset()
-    master_day_open.register_day_opening("logistics", LogisticsDayOpening())
+    registry_day_open.reset()
+    registry_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM))
 
-    결과 = master_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
+    결과 = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     assert 결과.status == "OPENED"
     assert [part.part for part in 결과.parts] == ["logistics"]
@@ -804,11 +804,11 @@ def test_master_open_day_walks_logistics_after_registration():
 
 def test_master_open_day_is_idempotent_for_an_already_open_day():
     """⑨ 이미 열려 있으면 아무것도 안 한다 — INSERT 자체가 없다."""
-    master_day_open.reset()  # 위와 같은 이유 — 물류만 남기고 잰다
-    master_day_open.register_day_opening("logistics", LogisticsDayOpening())
+    registry_day_open.reset()  # 위와 같은 이유 — 물류만 남기고 잰다
+    registry_day_open.register_day_opening("logistics", LogisticsDayOpening())
     conn = 가짜커넥션(_한_실행이_연_날들(CARRY_FROM, AS_OF))
 
-    결과 = master_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
+    결과 = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=SIM_A)
 
     # 🔴 **`ALREADY_OPENED` 다** (계약 어휘 · 2026-09-06 정정). 멱등 no-op 은 실패가
     #    아니다 — `NOT_OPENED` 로 접으면 매일 도는 정상 상태가 실패로 보인다.
@@ -833,15 +833,15 @@ def test_master_open_day_walks_each_run_on_its_own_row():
     """
     열린_날 = {CARRY_FROM: {SIM_A, SIM_B}, AS_OF: {SIM_A}}
 
-    master_day_open.reset()
-    master_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_A))
+    registry_day_open.reset()
+    registry_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_A))
     a_conn = 가짜커넥션(dict(열린_날))
-    a결과 = master_day_open.open_day(AS_OF, borrow=lambda: a_conn, sim_run_id=SIM_A)
+    a결과 = service_day_open.open_day(AS_OF, borrow=lambda: a_conn, sim_run_id=SIM_A)
 
-    master_day_open.reset()
-    master_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_B))
+    registry_day_open.reset()
+    registry_day_open.register_day_opening("logistics", LogisticsDayOpening(sim_run_id=SIM_B))
     b_conn = 가짜커넥션(dict(열린_날))
-    b결과 = master_day_open.open_day(AS_OF, borrow=lambda: b_conn, sim_run_id=SIM_B)
+    b결과 = service_day_open.open_day(AS_OF, borrow=lambda: b_conn, sim_run_id=SIM_B)
 
     assert a결과.status == "ALREADY_OPENED"
     assert not [query for query in a_conn.커서.queries if "INSERT INTO" in query]
@@ -888,7 +888,7 @@ def 실제_배선() -> Iterator[None]:
       autouse fixture 가 이미 이 fixture 보다 **먼저 떠서** 스냅샷을 들고 있다.
       여기서 또 뜨면 같은 일을 두 번 하는 것이고, 어느 쪽이 정본인지가 흐려진다.
     """
-    이전_취소 = dict(master_cancellation.registered_cancellations())
+    이전_취소 = dict(cancellation.registered_cancellations())
     try:
         # ★ 모듈 레벨 코드(등록 네 벌)를 다시 돌린다. FastAPI 앱을 새로 만들지만
         #   기존 참조(`test_logistics_persistence_api` 의 `app`)는 그대로 살아 있고,
@@ -896,9 +896,9 @@ def 실제_배선() -> Iterator[None]:
         importlib.reload(app.main)
         yield
     finally:
-        master_cancellation.reset()
+        cancellation.reset()
         for part, impl in 이전_취소.items():
-            master_cancellation.register_cancellation(part, impl)
+            cancellation.register_cancellation(part, impl)
 
 
 def test_production_wiring_pins_the_day_opening_to_the_master_owned_run(실제_배선):
@@ -928,7 +928,7 @@ def test_production_wiring_pins_the_day_opening_to_the_master_owned_run(실제_�
       ★ **재는 것은 오히려 세졌다.** 전에는 배선이 든 상수를 쟀는데, 그러면 걷기가
         번인 아닌 실행을 타는 날 **하루 넘김만 번인에 남는 것**을 못 잡았다.
     """
-    등록된 = bind_sim_run(master_day_open.registered()["logistics"], BURN_IN_SIM_RUN_ID)
+    등록된 = bind_sim_run(registry_day_open.registered()["logistics"], BURN_IN_SIM_RUN_ID)
     assert isinstance(등록된, LogisticsDayOpening)
 
     # ★ **행동으로 잰다.** 같은 날에 실행이 둘 보이는 커넥션을 준다 — 주입이 빠진
@@ -954,9 +954,9 @@ def test_production_wiring_reuses_the_run_the_other_two_adapters_already_use(실
       그리고 그것이 **막으려는 갈림 그 자체**다.
     """
     축 = "SIM-WIRING-ONE"
-    하루넘김 = bind_sim_run(master_day_open.registered()["logistics"], 축)
-    전이 = bind_sim_run(master_transition.registered()["logistics"], 축)
-    취소 = bind_sim_run(master_cancellation.registered_cancellations()["logistics"], 축)
+    하루넘김 = bind_sim_run(registry_day_open.registered()["logistics"], 축)
+    전이 = bind_sim_run(transition.registered()["logistics"], 축)
+    취소 = bind_sim_run(cancellation.registered_cancellations()["logistics"], 축)
 
     assert 하루넘김._sim_run_id == 축
     assert 하루넘김._sim_run_id != BURN_IN_SIM_RUN_ID, (

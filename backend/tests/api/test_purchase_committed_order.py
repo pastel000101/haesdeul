@@ -25,6 +25,7 @@ import pytest
 
 from app.api.purchase import query as purchase_query
 from app.master.readmodel.purchase_tab import read_purchase_tab
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2026, 8, 31)
 AXIS = "SIM-ORDER-TEST"
@@ -46,7 +47,6 @@ def _buy(purchase_id: str, purchase_date: date) -> dict[str, Any]:
 
 
 def test_원장_조회가_최신순으로_나간다(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.master import purchase_tab_repository
 
     monkeypatch.setenv("DB_SCHEMA", "haetdeul")
     문면: list[str] = []
@@ -55,7 +55,7 @@ def test_원장_조회가_최신순으로_나간다(monkeypatch: pytest.MonkeyPa
         문면.append(query.as_string(None))
         return []
 
-    monkeypatch.setattr(purchase_tab_repository, "fetch_all", _record)
+    patch_sql_helpers(monkeypatch, "app.master.readmodel.purchase_tab", fetch_all=_record)
 
     read_purchase_tab(AS_OF, sim_run_id=AXIS)
 

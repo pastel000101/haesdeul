@@ -50,10 +50,13 @@ from typing import Any, Self
 import pytest
 
 from app.core.clock import SEOUL
-from app.master import outbound_flow, scheduler
-from app.master.outbound_flow import due_sale_items, ship_due_sales
-from app.master.pending_transition import RetryOut
-from app.master.scheduler import ScheduledAction, run_scheduled_day
+from app.master.domain import outbound_flow as domain_outbound_flow
+from app.master.domain.scheduler import ScheduledAction
+from app.master.repository.outbound_flow import due_sale_items
+from app.master.schemas.pending_transition import RetryOut
+from app.master.service import scheduler as service_scheduler
+from app.master.service.outbound_flow import ship_due_sales
+from app.master.service.scheduler import run_scheduled_day
 
 #: 두 실행이 **같은 날짜**로 부딪히는 날. 날짜를 고정해야 축만 재게 된다.
 고른_날 = date(2026, 9, 8)
@@ -67,7 +70,7 @@ from app.master.scheduler import ScheduledAction, run_scheduled_day
 
 #: 검사 대상 파일. 🔴 **`__file__` 에서 얻는다** — 경로를 손으로 적으면 파일이
 #:   옮겨간 날 조용한 빈 통과가 될 길이 생긴다.
-_스케줄러 = pathlib.Path(scheduler.__file__)
+_스케줄러 = pathlib.Path(service_scheduler.__file__)
 
 
 @pytest.fixture(autouse=True)
@@ -493,7 +496,7 @@ def test_축을_읽어_두는_칸과_거르는_자리를_안_섞는다():
     🔴 `_due_today` 는 날짜만 본다 — 축을 거기서 다시 거르면 *"조회가 정본"* 이
        두 벌이 되고, 한쪽만 고치는 날 둘이 갈린다.
     """
-    원문 = inspect.getsource(outbound_flow._due_today)
+    원문 = inspect.getsource(domain_outbound_flow.due_today)
 
     assert "sim_run_id" not in 원문, (
         f"_due_today 가 축을 다시 거른다 — 거르는 자리는 조회 하나다:\n{원문}"

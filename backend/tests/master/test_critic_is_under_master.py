@@ -170,14 +170,18 @@ def test_이름이_마스터와_겹치지_않는다():
     폈다면 넷이 덮어써졌다. 겹치는 이름이 실제로 있다는 것을 여기서 고정한다 —
     없어지면 *"굳이 하위로 안 넣어도 됐다"* 가 되므로 그때 다시 판단하면 된다.
     """
-    master_names = {p.name for p in _MASTER_DIR.glob("*.py")} | {
+    # ★ 2026-09-30 재구성 BL-018: 마스터의 `schemas` · `service` 가 파일이 아니라 폴더(패키지)가
+    #   됐다 —
+    #   겹침은 **import 이름**으로 잰다(파일 `schemas.py` 와 폴더 `schemas/` 는 같은 이름으로
+    # 부딪힌다).
+    master_names = {p.stem for p in _MASTER_DIR.glob("*.py")} | {
         d.name for d in _MASTER_DIR.iterdir() if d.is_dir() and (d / "__init__.py").exists()
     }
-    critic_names = {p.name for p in _CRITIC_DIR.glob("*.py")} | {
+    critic_names = {p.stem for p in _CRITIC_DIR.glob("*.py")} | {
         d.name for d in _CRITIC_DIR.iterdir() if d.is_dir() and (d / "__init__.py").exists()
     }
 
-    assert {"router.py", "schemas.py", "service.py", "llm"} <= (master_names & critic_names), (
+    assert {"router", "schemas", "service", "llm"} <= (master_names & critic_names), (
         f"겹치던 이름이 달라졌다 — 마스터 {sorted(master_names)} / Critic {sorted(critic_names)}"
     )
 
@@ -193,10 +197,10 @@ def test_지연_import_를_되돌렸다():
     """
     import ast
 
-    import app.master.critic_bridge as bridge
-    from app.master import verifier
+    from app.master.adapters import critic_bridge as adapters_critic_bridge
+    from app.master.service import verifier as service_verifier
 
-    for module in (bridge, verifier):
+    for module in (adapters_critic_bridge, service_verifier):
         tree = ast.parse(pathlib.Path(module.__file__).read_text(encoding="utf-8"))
 
         deferred = [
@@ -215,11 +219,13 @@ def test_지연_import_를_되돌렸다():
             f"{module.__name__} 이 Critic 을 최상단에서 안 들인다: {sorted(top_level)}"
         )
 
-    assert not hasattr(verifier, "_default_critic"), "래퍼가 되살아났다 — 순환이 다시 생겼는가"
+    assert not hasattr(service_verifier, "_default_critic"), (
+        "래퍼가 되살아났다 — 순환이 다시 생겼는가"
+    )
 
     from app.master.critic.service import run_critic_procurement
 
-    assert verifier.MasterVerifier().critic is run_critic_procurement, (
+    assert service_verifier.MasterVerifier().critic is run_critic_procurement, (
         "기본 Critic 이 실제 진입점이 아니다"
     )
 
@@ -230,7 +236,7 @@ def test_기본값_없음과_None_은_다른_뜻이다():
     `critic=None` 은 *"Critic 을 안 돌렸다"* 는 뜻이고 그 사실이 `skipped` 에 남는다.
     기본값과 뜻이 다르므로 기본값 자리에 `None` 이 오면 안 된다.
     """
-    from app.master.verifier import MasterVerifier
+    from app.master.service.verifier import MasterVerifier
 
     assert MasterVerifier().critic is not None, "기본값이 '안 돌렸다'가 됐다"
     assert MasterVerifier(critic=None).critic is None, "명시한 None 이 기본값에 먹혔다"

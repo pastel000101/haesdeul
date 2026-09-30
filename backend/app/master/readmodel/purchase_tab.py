@@ -4,6 +4,10 @@
   돌려주는 모양 그대로). 화면은 재무 DB 입구를 더 부르지 않고 이 함수를 부른다. SQL 은
   `master/purchase_tab_repository.py`. 실행 고르기(`_pick`)와 표 · 문장 조립은 화면에 남았다
   (BL-019 에서 presenter 와 함께 정리).
+
+★ 2026-09-30 재구성 BL-018: SQL 은 `repository/purchase_tab.py`(받은 연결). 조회 연결은 여기서
+  조회마다 하나씩 빌린다 — 종전 `fetch_all` 헬퍼와 같은 횟수 · 순서다(도착일 조회는 날짜가 있을
+  때만).
 """
 
 from __future__ import annotations
@@ -11,12 +15,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from app.master.purchase_tab_repository import (
-    read_approved_purchase_lines,
-    read_arrival_runs,
-    read_decisions,
-    read_item_names,
-    read_procurement_runs,
+from app.core import db as core_db
+from app.core.settings import get_db_schema
+from app.master.repository.purchase_tab import (
+    select_approved_purchase_lines,
+    select_arrival_runs,
+    select_decisions,
+    select_item_names,
+    select_procurement_runs,
 )
 
 __all__ = ["read_purchase_tab"]
@@ -62,8 +68,12 @@ def read_purchase_tab(
     도착일을 못 채운 채 「입고 예정 0kg」 을 적으면 «확정된 0» 과 «안 읽었다» 가 한 값이
     된다 (규칙 3). 그 칸을 쓰는 자리는 ``build`` 다.
     """
-    runs = read_procurement_runs(as_of)
-    buys = read_approved_purchase_lines(as_of)
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        runs = select_procurement_runs(conn, as_of, schema=schema)
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        buys = select_approved_purchase_lines(conn, as_of, schema=schema)
     #  🔵 **그날 실행의 요청 ID 로 좁힌다** (2026-09-17). 전에는 조건이 없어 결정 표 전부
     #     (11,427행)를 읽었다. 읽은 결정을 쓰는 자리는 `build` 가 **그날 고른 실행의 요청**을
     #     찾는 것 하나이고, 그 요청은 전부 위 `runs` 안에 있다 — 그래서 결과가 같다.
@@ -71,8 +81,12 @@ def read_purchase_tab(
     #    (건수를 센다 · 주입)은 여기 안 걸린다: 결정으로 세는 수가 없고, 주입 검사는 이 함수
     #    (화면이 부르는 `read_purchase_tab`)를 통째로 갈아 끼운다.
     request_ids = sorted({str(r["request_id"]) for r in runs if r["request_id"] is not None})
-    decisions = read_decisions(request_ids)
-    items = read_item_names()
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        decisions = select_decisions(conn, request_ids, schema=schema)
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        items = select_item_names(conn, schema=schema)
     #  확정 매입의 도착일은 원장에 없다. 그날 실행의 시나리오에서 **금액으로**
     #  맞춰 온다 — purchase_id 문자열을 쪼개면 이름 규칙에 묶인다.
     #  🔵 축을 주면 **그 축의 원장 날짜만** 건다. 도착일이 필요한 줄은 `_committed` 가
@@ -90,7 +104,7 @@ def read_purchase_tab(
     dates = all_dates if window_days is None else [
         d for d in all_dates if 0 <= (as_of - d).days < window_days
     ]
-    arrivals = read_arrival_runs(dates, sim_run_id) if dates else []
+    arrivals = _arrival_runs(dates, sim_run_id) if dates else []
     return {
         "runs": runs,
         "buys": buys,
@@ -104,3 +118,9 @@ def read_purchase_tab(
         #     아니다 — 그 줄은 `_committed` 가 어차피 뺀다.
         "arrivals_complete": dates == all_dates,
     }
+
+
+def _arrival_runs(dates: list[date], sim_run_id: str | None) -> list[dict[str, Any]]:
+    schema = get_db_schema()
+    with core_db.read_connection() as conn:
+        return select_arrival_runs(conn, dates, sim_run_id, schema=schema)

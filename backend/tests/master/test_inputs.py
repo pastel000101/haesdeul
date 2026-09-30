@@ -12,7 +12,10 @@ from decimal import Decimal
 
 import pytest
 
-from app.master import inputs
+from app.master.domain import inputs as domain_inputs
+from app.master.readmodel import inputs as readmodel_inputs
+from app.master.schemas import inputs as schemas_inputs
+from tests.fake_core_db import patch_sql_helpers
 
 AS_OF = date(2025, 12, 31)
 #: 확정 주문은 실행마다 다르다. 축은 호출 자리가 넘긴다 (기본값 없음).
@@ -42,9 +45,9 @@ DEMAND_ROWS = [
 
 
 def patch(monkeypatch, *, one=None, many=None):
-    monkeypatch.setattr(inputs, "fetch_one", one or (lambda *a: None))
-    monkeypatch.setattr(inputs, "fetch_all", many or (lambda *a: []))
-    monkeypatch.setattr(inputs, "get_db_schema", lambda: "haetdeul")
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_one=one or (lambda *a: None))
+    patch_sql_helpers(monkeypatch, readmodel_inputs, fetch_all=many or (lambda *a: []))
+    monkeypatch.setattr(readmodel_inputs, "get_db_schema", lambda: "haetdeul")
 
 
 # ── forecast ────────────────────────────────────────────────────────────
@@ -52,7 +55,9 @@ def patch(monkeypatch, *, one=None, many=None):
 
 def test_실_DB_에서_읽으면_MEASURED_다(monkeypatch):
     patch(monkeypatch, one=lambda *a: FORECAST_ROW)
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MEASURED"
     assert got.payload["current_price"] == 645
@@ -70,7 +75,9 @@ def test_예측_배치가_없으면_비운다_mock_으로_안_메운다(monkeypa
     ★ 이제 비운다. 매입이 `missing_data: ["forecast"]` 로 답한다.
     """
     patch(monkeypatch)  # fetch_one → None
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     assert got.grade == "MISSING"
     assert got.payload is None, "못 읽었는데 값이 있다 — mock 다리가 다시 생겼다"
@@ -82,7 +89,9 @@ def test_DB_가_터져도_Flow_를_죽이지_않는다(monkeypatch):
         raise RuntimeError("커넥션 없음")
 
     patch(monkeypatch, one=boom)
-    got = inputs.load_forecast("배추", AS_OF, target_kind=inputs.PROCUREMENT_TARGET_KIND)
+    got = readmodel_inputs.load_forecast(
+        "배추", AS_OF, target_kind=schemas_inputs.PROCUREMENT_TARGET_KIND
+    )
 
     # ⚠️ 전에는 {"MOCK", "MISSING"} 둘 다 받았다. 그 느슨함이 mock 다리를 가렸다.
     assert got.grade == "MISSING"
@@ -96,7 +105,7 @@ def test_DB_가_터져도_Flow_를_죽이지_않는다(monkeypatch):
 def test_실제_납품_예정이_있으면_MEASURED_다(monkeypatch):
     rows = [{"sale_id": 7, "sale_date": date(2026, 1, 3), "quantity_kg": 12000}]
     patch(monkeypatch, many=lambda *a: rows)
-    got = inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MEASURED"
     assert got.payload["total_kg"] == 12000
@@ -116,7 +125,7 @@ def test_미출고_확정주문은_수요_fallback보다_우선한다(monkeypatc
         raise AssertionError("실제 확정 주문이 있으면 demand fallback 을 호출하지 않는다")
 
     patch(monkeypatch, one=one, many=many)
-    got = inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MEASURED"
     assert got.source == "sales + sale_items"
@@ -140,7 +149,7 @@ def test_납품_예정이_없으면_수요에서_파생하되_확정이라_부�
     }
     calls = iter([demand, {"order_cycle_days": 2}])
     patch(monkeypatch, one=lambda *a: next(calls), many=lambda *a: [])
-    got = inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "DERIVED"
     assert "확정 주문이 아니다" in got.note
@@ -153,7 +162,7 @@ def test_납품_예정이_없으면_수요에서_파생하되_확정이라_부�
 
 def test_수요도_없으면_지어내지_않고_비운다(monkeypatch):
     patch(monkeypatch)
-    got = inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.load_confirmed_orders("배추", AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.grade == "MISSING"
     assert got.payload is None
@@ -164,7 +173,7 @@ def test_수요도_없으면_지어내지_않고_비운다(monkeypatch):
 
 def test_품목_비중은_수요에서_파생한다(monkeypatch):
     patch(monkeypatch, many=lambda *a: DEMAND_ROWS)
-    got = inputs.load_policy_values("배추", AS_OF)
+    got = readmodel_inputs.load_policy_values("배추", AS_OF)
 
     assert got.grade == "DERIVED"
     ratios = got.payload["item_mix_ratio"]
@@ -175,7 +184,7 @@ def test_품목_비중은_수요에서_파생한다(monkeypatch):
 def test_계약_단가는_평균으로_메우지_않는다(monkeypatch):
     """없으면 `margin_warning` 이 `null` 로 나가는 것이 **정상 경로**다."""
     patch(monkeypatch, many=lambda *a: DEMAND_ROWS)
-    got = inputs.load_policy_values("배추", AS_OF)
+    got = readmodel_inputs.load_policy_values("배추", AS_OF)
 
     assert "contract_price_krw" not in got.payload
     assert "DB 에 없어 비움" in got.note
@@ -183,7 +192,7 @@ def test_계약_단가는_평균으로_메우지_않는다(monkeypatch):
 
 def test_수요_행이_없으면_비중을_지어내지_않는다(monkeypatch):
     patch(monkeypatch)
-    got = inputs.load_policy_values("배추", AS_OF)
+    got = readmodel_inputs.load_policy_values("배추", AS_OF)
 
     assert got.grade == "MISSING"
 
@@ -198,7 +207,7 @@ def test_이제_mock_에서_오는_것이_없다(monkeypatch):
     새 다리가 생기면 여기가 운다 — 그리고 `ProcurementFlow` 가 실행을 세운다.
     """
     patch(monkeypatch, many=lambda *a: DEMAND_ROWS)
-    got = inputs.collect_inputs("배추", AS_OF, sim_run_id=SIM_RUN_ID)
+    got = readmodel_inputs.collect_inputs("배추", AS_OF, sim_run_id=SIM_RUN_ID)
 
     assert got.mocked == (), f"mock 다리가 다시 생겼다: {got.mocked}"
     assert got.sources()["forecast"].startswith("MISSING:")
@@ -207,6 +216,6 @@ def test_이제_mock_에서_오는_것이_없다(monkeypatch):
 
 def test_Decimal_은_정수면_정수로_남는다():
     """매입 계약이 정수를 받는 자리가 있어, 무조건 float 로 바꾸면 거기서 터진다."""
-    assert inputs._plain(Decimal(8000)) == 8000
-    assert isinstance(inputs._plain(Decimal(8000)), int)
-    assert inputs._plain(Decimal("717.3")) == pytest.approx(717.3)
+    assert domain_inputs.plain(Decimal(8000)) == 8000
+    assert isinstance(domain_inputs.plain(Decimal(8000)), int)
+    assert domain_inputs.plain(Decimal("717.3")) == pytest.approx(717.3)

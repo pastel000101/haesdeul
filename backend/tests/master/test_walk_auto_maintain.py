@@ -46,22 +46,17 @@ import pytest
 from app.core.clock import SEOUL
 from app.logistics.schemas.maintenance import AutoMaintenanceResult, LotMaintenanceOutcome
 from app.logistics.service.maintenance import run_logistics_auto_maintenance
-from app.master import backtest_runner, maintenance, scheduler
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.maintenance import (
-    AUTO_MAINTENANCE,
-    FRESHNESS_EXPIRED,
-    MaintenanceOut,
-    run_auto_maintenance,
-)
-from app.master.pending_transition import RetryOut
-from app.master.scheduler import (
-    DayRunOutcome,
-    ScheduledAction,
-    plan_next_action,
-    run_scheduled_day,
-)
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction, plan_next_action
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.schemas.maintenance import MaintenanceOut
+from app.master.schemas.pending_transition import RetryOut
+from app.master.service import maintenance as service_maintenance
+from app.master.service import scheduler as service_scheduler
+from app.master.service.maintenance import AUTO_MAINTENANCE, FRESHNESS_EXPIRED, run_auto_maintenance
+from app.master.service.scheduler import run_scheduled_day
 
 AS_OF = date(2026, 1, 12)
 ITEMS = ("무", "배추", "양파")
@@ -74,8 +69,8 @@ ITEMS = ("무", "배추", "양파")
 #: 베낀다** — 이 목록이 저쪽과 갈리면 잠금이 옛 어휘를 재게 된다.
 넷 = ("DISPOSED", "SKIPPED_HELD_ALLOCATION", "PALLETS_EMPTIED", "FAILED")
 
-_스케줄러 = Path(scheduler.__file__)
-_걷기 = Path(backtest_runner.__file__)
+_스케줄러 = Path(service_scheduler.__file__)
+_걷기 = Path(cli_backtest_runner.__file__)
 
 #: 물류가 안전 조건을 건 자리들. 🔴 **마스터가 이것을 직접 들여오면 그 조건이
 #: 이 자리만 안 지나게 된다** — 경계는 `run_logistics_auto_maintenance` 하나다.
@@ -268,7 +263,7 @@ def test_안_켠_날은_사유_줄도_안_남긴다() -> None:
 
 @pytest.mark.parametrize(
     "함수",
-    [run_scheduled_day, scheduler.wake_up, walk],
+    [run_scheduled_day, service_scheduler.wake_up, walk],
 )
 def test_기본이_꺼짐이다(함수: Any) -> None:
     """🔴 **세 자리 다 거짓이다.** 한 자리라도 참이면 그 자리가 우회로가 된다."""
@@ -282,8 +277,8 @@ def test_문에도_기본이_꺼짐이다() -> None:
     공통 = ["--sim-run-id", 실행, "--start", "2026-01-01", "--end", "2026-03-31"]
     공통 += ["--now", "2026-09-11T10:35+09:00"]
 
-    안준것 = backtest_runner._parser().parse_args(공통)
-    준것 = backtest_runner._parser().parse_args([*공통, "--auto-maintain"])
+    안준것 = cli_backtest_runner._parser().parse_args(공통)
+    준것 = cli_backtest_runner._parser().parse_args([*공통, "--auto-maintain"])
 
     assert 안준것.auto_maintain is False
     assert 준것.auto_maintain is True
@@ -454,7 +449,7 @@ def test_행위자가_사람_이름이_아니다() -> None:
     ★ `pallet_events.recorded_by` 는 NOT NULL 이다 — 자동화 주체를 코드가 지어내면
       **그 이름이 장부에 사실로 남는다.**
     """
-    from app.master.backfill import AUTO_BACKFILL
+    from app.master.domain.decision import AUTO_BACKFILL
 
     assert AUTO_MAINTENANCE.startswith("AUTO-")
     assert AUTO_MAINTENANCE != AUTO_BACKFILL, "두 자동화가 같은 이름으로 적히면 못 가른다"
@@ -533,7 +528,7 @@ def test_마스터_유지보수가_시계를_안_읽는다() -> None:
     ★ `tests/core/test_clock_is_the_only_wall_clock.py` 와 같은 결이다 —
       이 파일에 `datetime.now` 나 `utcnow` 가 들어오면 시간축의 주인이 둘이 된다.
     """
-    원문 = Path(maintenance.__file__).read_text(encoding="utf-8")
+    원문 = Path(service_maintenance.__file__).read_text(encoding="utf-8")
 
     for 금지 in ("datetime.now", "utcnow", "date.today", "time.time"):
         assert 금지 not in 원문, f"maintenance.py 가 {금지} 로 시계를 읽는다"
@@ -751,7 +746,7 @@ def test_마스터가_물류_경계를_우회하지_않는다() -> None:
     🔴 `confirm_disposal` 이나 `empty_pallet` 을 직접 들여오면 *"살아있는 할당이
       있으면 통째로 건너뛴다"* 는 물류의 안전 조건이 **이 자리만 안 지나게** 된다.
     """
-    for 파일 in (_스케줄러, _걷기, Path(maintenance.__file__)):
+    for 파일 in (_스케줄러, _걷기, Path(service_maintenance.__file__)):
         가져온것 = {
             별칭.name
             for node in ast.walk(ast.parse(파일.read_text(encoding="utf-8")))
@@ -763,7 +758,9 @@ def test_마스터가_물류_경계를_우회하지_않는다() -> None:
 
     들여온것 = {
         별칭.name
-        for node in ast.walk(ast.parse(Path(maintenance.__file__).read_text(encoding="utf-8")))
+        for node in ast.walk(
+            ast.parse(Path(service_maintenance.__file__).read_text(encoding="utf-8"))
+        )
         if isinstance(node, ast.Import | ast.ImportFrom)
         for 별칭 in node.names
     }
@@ -772,7 +769,7 @@ def test_마스터가_물류_경계를_우회하지_않는다() -> None:
 
 def test_기본_유지보수_자리가_run_auto_maintenance_자체다() -> None:
     """★ 갈아 끼울 자리에 **기본값이 진짜 함수**다 — `None` 을 안 받는다."""
-    for 함수 in (run_scheduled_day, scheduler.wake_up):
+    for 함수 in (run_scheduled_day, service_scheduler.wake_up):
         기본 = inspect.signature(함수).parameters["maintain_fn"].default
         assert 기본 is run_auto_maintenance, f"{함수.__name__} 의 기본 유지보수 자리가 다르다"
 
@@ -784,7 +781,7 @@ def test_걷기_코드가_유지보수_어휘를_제_손으로_안_짓는다(어
     ⚠️ **`FAILED` 는 뺀다.** 그 한 낱말은 스케줄러가 단계마다 이미 쓰는 말이라
       원문 잠금이 유지보수와 무관한 자리를 잡는다.
     """
-    for 파일 in (_스케줄러, _걷기, Path(maintenance.__file__)):
+    for 파일 in (_스케줄러, _걷기, Path(service_maintenance.__file__)):
         코드 = 파일.read_text(encoding="utf-8")
         assert f'"{어휘}"' not in 코드, f"{파일.name} 에 유지보수 어휘 '{어휘}' 가 박혀 있다"
 

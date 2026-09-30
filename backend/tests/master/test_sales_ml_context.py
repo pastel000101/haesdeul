@@ -24,6 +24,7 @@ from typing import Any, get_args
 import pytest
 
 from app.contracts import envelope
+from app.contracts import envelope as contracts_envelope
 from app.contracts.envelope import (
     CAPABILITY_ROUTING,
     AgentName,
@@ -33,13 +34,16 @@ from app.contracts.envelope import (
     ExecutionMetadata,
     agent_allowed_modes,
 )
-from app.master import AgentRegistry, CallBudget, MasterRunner, persistence, wiring
-from app.master import flow as procurement_flow
-from app.master import sales_flow as sales_flow_module
-from app.master.inputs import SourcedInput
-from app.master.sales_flow import SalesFlow
-from app.master.schemas import SalesRunRequest
-from app.master.service import run_sales
+from app.master.registry import wiring as registry_wiring
+from app.master.registry.ports import AgentRegistry
+from app.master.schemas.inputs import SourcedInput
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service import flow
+from app.master.service import persistence as service_persistence
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales import run_sales
+from app.master.service.sales_flow import SalesFlow
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
 AS_OF = date(2026, 9, 6)
@@ -210,13 +214,13 @@ def test_look_ahead_대조는_매입과_판매가_같은_한_벌이다():
     ★ 봉투가 주인인 것은 `PASSING_VERDICTS` · `wire_adjustment` 와 같은 이유다 —
       *"무엇을 실어도 되는가"* 는 사이클에 매인 물음이 아니다.
     """
-    assert procurement_flow.forecast_is_clean is envelope.forecast_is_clean
-    assert sales_flow_module.forecast_is_clean is envelope.forecast_is_clean
+    assert contracts_envelope.forecast_is_clean is envelope.forecast_is_clean
+    assert contracts_envelope.forecast_is_clean is envelope.forecast_is_clean
 
 
 def test_매입_Flow_에_사본이_남아_있지_않다():
     """옮겼으면 옛 자리는 비어 있어야 한다. 남아 있으면 그것이 곧 두 벌이다."""
-    assert not hasattr(procurement_flow.ProcurementFlow, "_forecast_is_clean")
+    assert not hasattr(flow.ProcurementFlow, "_forecast_is_clean")
 
 
 # ---------------------------------------------------------------------------
@@ -350,11 +354,11 @@ def test_ML_은_사이클에서_호출_대상이_아니다():
 @pytest.fixture
 def _판매_배선(monkeypatch: pytest.MonkeyPatch) -> list:
     capture: list = []
-    wiring.reset()
-    wiring.register("inventory", _port(PRE_SALES_PAYLOAD, capture))
-    wiring.register("sales", _port(dict(_후보), capture))
-    wiring.register("finance", _port({"verdict": "ok"}, capture))
-    monkeypatch.setattr(persistence, "record_sales", lambda *a, **k: None)
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD, capture))
+    registry_wiring.register("sales", _port(dict(_후보), capture))
+    registry_wiring.register("finance", _port({"verdict": "ok"}, capture))
+    monkeypatch.setattr(service_persistence, "record_sales", lambda *a, **k: None)
     return capture
 
 
@@ -371,7 +375,7 @@ def _요청(**kw) -> SalesRunRequest:
 
 def _적재(monkeypatch: pytest.MonkeyPatch, sourced: SourcedInput) -> None:
     """진입점이 부르는 적재층을 갈아 끼운다 — **실 DB 를 안 친다.**"""
-    monkeypatch.setattr("app.master.service.load_forecast", lambda *a, **k: sourced)
+    monkeypatch.setattr("app.master.service.sales.load_forecast", lambda *a, **k: sourced)
 
 
 def test_진입점이_읽어_판매까지_나른다(monkeypatch: pytest.MonkeyPatch, _판매_배선: list) -> None:
@@ -415,7 +419,7 @@ def test_품목이_없으면_묻지도_않는다(monkeypatch: pytest.MonkeyPatch
     def 부르면_터진다(*a, **k):
         raise AssertionError("품목이 없는데 예측을 조회했다")
 
-    monkeypatch.setattr("app.master.service.load_forecast", 부르면_터진다)
+    monkeypatch.setattr("app.master.service.sales.load_forecast", 부르면_터진다)
 
     response = run_sales(_요청(item=None))
 

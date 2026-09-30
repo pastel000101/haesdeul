@@ -37,11 +37,11 @@ from typing import Any
 import pytest
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import wiring
-from app.master.execution_day import CalendarNotCovered
-from app.master.inputs import MasterInputs, SourcedInput
-from app.master.schemas import ProcurementRunRequest
-from app.master.service import run_procurement
+from app.master.domain.execution_day import CalendarNotCovered
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.inputs import MasterInputs, SourcedInput
+from app.master.schemas.procurement import ProcurementRunRequest
+from app.master.service.procurement import run_procurement
 
 AS_OF = date(2025, 12, 31)
 
@@ -81,7 +81,7 @@ def _port(payload: dict[str, Any] | None = None):
 
 @pytest.fixture
 def 매입이_받은_payload(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    monkeypatch.setattr("app.master.service.collect_inputs", lambda *a, **k: _loaded())
+    monkeypatch.setattr("app.master.service.procurement.collect_inputs", lambda *a, **k: _loaded())
     monkeypatch.setattr("app.master.service.persistence.record", lambda *a, **k: None)
 
     got: list[dict[str, Any]] = []
@@ -90,10 +90,10 @@ def 매입이_받은_payload(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, 
         got.append(dict(request.payload))
         return _port({"scenarios": [{"scenario_id": "SCN-1"}]})(request)
 
-    wiring.reset()
-    wiring.register("finance", _port())
-    wiring.register("inventory", _port())
-    wiring.register("purchase", purchase)
+    registry_wiring.reset()
+    registry_wiring.register("finance", _port())
+    registry_wiring.register("inventory", _port())
+    registry_wiring.register("purchase", purchase)
     return got
 
 
@@ -104,8 +104,10 @@ def _봉투가_선다(monkeypatch: pytest.MonkeyPatch) -> None:
         def as_payload(self) -> dict[str, Any]:
             return {"non_execution_days": ["2026-01-01"], "horizon_end": "2026-01-18"}
 
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: object())
-    monkeypatch.setattr("app.master.service.build_execution_calendar", lambda *a, **k: _봉투())
+    monkeypatch.setattr("app.master.service.procurement.get_market_calendar", lambda: object())
+    monkeypatch.setattr(
+        "app.master.service.procurement.build_execution_calendar", lambda *a, **k: _봉투()
+    )
 
 
 def _봉투가_안_선다(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -114,8 +116,8 @@ def _봉투가_안_선다(monkeypatch: pytest.MonkeyPatch) -> None:
     def 못_덮는다(*a: Any, **k: Any):
         raise CalendarNotCovered("2026-01-18 이 달력에 없다")
 
-    monkeypatch.setattr("app.master.service.get_market_calendar", lambda: object())
-    monkeypatch.setattr("app.master.service.build_execution_calendar", 못_덮는다)
+    monkeypatch.setattr("app.master.service.procurement.get_market_calendar", lambda: object())
+    monkeypatch.setattr("app.master.service.procurement.build_execution_calendar", 못_덮는다)
 
 
 def _run(request_id: str):

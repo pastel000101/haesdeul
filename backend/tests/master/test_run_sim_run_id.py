@@ -28,15 +28,19 @@ from datetime import date
 import pytest
 
 from app.contracts.envelope import ExecutionContext
-from app.master import ask_service, persistence, run_repository, service
-from app.master.plan import ExecutionPlan
-from app.master.schemas import (
-    ProcurementRunRequest,
-    ProcurementRunResponse,
-    SalesRunRequest,
-    SalesRunResponse,
-)
-from app.master.status_flow import StatusOutcome
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.status_flow import StatusOutcome
+from app.master.readmodel import runs
+from app.master.repository import runs as repository_runs
+from app.master.schemas import runs as schemas_runs
+from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse
+from app.master.schemas.sales import SalesRunRequest, SalesRunResponse
+from app.master.service import ask as service_ask
+from app.master.service import persistence as service_persistence
+from app.master.service import procurement as service_procurement
+from app.master.service import run_history
+from app.master.service import sales as service_sales
+from tests.fake_core_db import patch_sql_helpers
 
 _AS_OF = date(2025, 12, 31)
 _REQUEST_ID = "REQ-20251231-0001"
@@ -52,7 +56,7 @@ def _columns_from_source() -> list[str]:
     ★ 값(`run_repository._COLUMNS`)을 그냥 쓰지 않는 이유는 아래 짝 검사가 소스에서
       읽은 TypedDict 키와 맞추는 것이라, 한쪽만 값이면 비교가 비대칭이 되기 때문이다.
     """
-    tree = ast.parse(inspect.getsource(run_repository))
+    tree = ast.parse(inspect.getsource(repository_runs))
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
             continue
@@ -70,7 +74,7 @@ def _columns_from_source() -> list[str]:
 
 def _typeddict_keys_from_source() -> list[str]:
     """`MasterAgentRun` 의 키를 소스에서 읽는다."""
-    tree = ast.parse(inspect.getsource(run_repository))
+    tree = ast.parse(inspect.getsource(schemas_runs))
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "MasterAgentRun":
             return [
@@ -179,25 +183,25 @@ def _context(sim_run_id: str = _SIM) -> ExecutionContext:
 
 def _capture(monkeypatch) -> dict[str, object]:
     captured: dict[str, object] = {}
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: captured.update(kw))
+    monkeypatch.setattr(service_persistence, "try_save_run", lambda **kw: captured.update(kw))
     return captured
 
 
 def test_매입_적재가_축을_넘긴다(monkeypatch):
     captured = _capture(monkeypatch)
-    persistence.record(_procurement_request(), _procurement_response(), sim_run_id=_SIM)
+    service_persistence.record(_procurement_request(), _procurement_response(), sim_run_id=_SIM)
     assert captured["sim_run_id"] == _SIM
 
 
 def test_판매_적재가_축을_넘긴다(monkeypatch):
     captured = _capture(monkeypatch)
-    persistence.record_sales(_sales_request(), _sales_response(), sim_run_id=_SIM)
+    service_persistence.record_sales(_sales_request(), _sales_response(), sim_run_id=_SIM)
     assert captured["sim_run_id"] == _SIM
 
 
 def test_조회_적재가_축을_넘긴다(monkeypatch):
     captured = _capture(monkeypatch)
-    persistence.record_status(
+    service_persistence.record_status(
         request_id=_REQUEST_ID,
         as_of=_AS_OF,
         policy_version="v1.3",
@@ -213,7 +217,7 @@ def test_재검증_적재가_축을_넘긴다(monkeypatch):
     `ExecutionContext` 를 받는다. 같은 사실의 주인은 하나다.
     """
     captured = _capture(monkeypatch)
-    persistence.record_revalidation(
+    service_persistence.record_revalidation(
         _context(),
         cycle="SALES",
         outcome="PASSED",
@@ -230,7 +234,7 @@ def test_재검증_적재가_축을_넘긴다(monkeypatch):
 
 def _record_functions() -> list[str]:
     """`persistence` 의 적재 함수 이름 전부."""
-    tree = ast.parse(inspect.getsource(persistence))
+    tree = ast.parse(inspect.getsource(service_persistence))
     return [
         node.name
         for node in tree.body
@@ -248,7 +252,7 @@ def test_적재_함수_전부가_축을_넘긴다():
     names = _record_functions()
     assert len(names) >= 4, f"적재 함수를 못 찾았다: {names} — 스캐너가 죽었다"
 
-    source = inspect.getsource(persistence)
+    source = inspect.getsource(service_persistence)
     tree = ast.parse(source)
     offenders = []
     for node in tree.body:
@@ -279,8 +283,10 @@ def test_진입점이_봉투에서_축을_꺼낸다():
     checked = 0
     offenders = []
     for module, callees, from_envelope in (
-        (service, ("persistence.record(", "persistence.record_sales("), True),
-        (ask_service, ("persistence.record_status(",), False),
+        # ★ 2026-09-30 재구성 BL-018: 매입 · 판매 진입점이 두 파일로 갈렸다.
+        (service_procurement, ("persistence.record(",), True),
+        (service_sales, ("persistence.record_sales(",), True),
+        (service_ask, ("persistence.record_status(",), False),
     ):
         source = inspect.getsource(module)
         tree = ast.parse(source)
@@ -317,8 +323,8 @@ def _saved_params(monkeypatch, sim_run_id) -> tuple:
         captured["params"] = params
         return {"run_id": "x"}
 
-    monkeypatch.setattr(run_repository, "execute_returning_one", _fake)
-    run_repository.save_run(
+    patch_sql_helpers(monkeypatch, run_history, execute_returning_one=_fake)
+    run_history.save_run(
         cycle="PROCUREMENT",
         as_of=_AS_OF,
         request_payload={},
@@ -356,8 +362,8 @@ def _listed(monkeypatch, **kwargs) -> tuple[str, tuple]:
         captured["params"] = params
         return []
 
-    monkeypatch.setattr(run_repository, "fetch_all", _fake)
-    run_repository.list_runs(**kwargs)
+    patch_sql_helpers(monkeypatch, runs, fetch_all=_fake)
+    runs.list_runs(**kwargs)
     return captured["query"], captured["params"]  # type: ignore[return-value]
 
 

@@ -30,8 +30,8 @@ from app.core.settings import SHOWN_SIM_RUN_ID
 from app.finance import router as finance_router
 from app.finance.schemas.write_rejection import FinanceWriteRejected
 from app.main import app as whole_app
-from app.master import ask_service
 from app.master.router import router as master_router
+from app.master.service import ask_domain_actions
 from tests.finance.finance_fake_connection import FakeConnection, lend
 
 AS_OF = "2026-09-17"
@@ -79,7 +79,7 @@ def ledger(monkeypatch) -> tuple[_Ledger, FakeConnection]:
     conn = lend(monkeypatch, answer)
     #  ask 의 거래처 찾기(`_partner_id`)가 보는 판매 조회 — 거래처 하나가 이 코드로 있다.
     monkeypatch.setattr(
-        ask_service,
+        ask_domain_actions,
         "get_console_partners",
         lambda **_kwargs: SimpleNamespace(
             rows=[SimpleNamespace(partner_id=PARTNER, partner_name="김치공장")]
@@ -314,7 +314,7 @@ def test_every_rejection_reason_maps_to_the_same_status(master, monkeypatch, rea
     def rejecting(_conn, _expense_id, _request):
         raise error
 
-    monkeypatch.setattr(ask_service, "cancel_accrued_expense", rejecting)
+    monkeypatch.setattr(ask_domain_actions, "cancel_accrued_expense", rejecting)
     lend(monkeypatch)
     via_ask = _ask(master, "FINANCE_EXPENSE_CANCEL", {"expense_id": EXPENSE})
 

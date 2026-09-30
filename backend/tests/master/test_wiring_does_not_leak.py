@@ -21,7 +21,7 @@ pytest (전체 · 기본 순서)                                → 통과
 from __future__ import annotations
 
 import app.main  # noqa: F401  — import 시점에 세 파트를 등록한다. 이 검사의 전제다
-from app.master import wiring
+from app.master.registry import wiring as registry_wiring
 
 
 def _fake_port(request):  # pragma: no cover - 부르지 않는다
@@ -37,11 +37,11 @@ def test_reset_은_되돌릴_수_없다():
     `reset()` 자체는 정당하다 — 마스터 API 가 *"어댑터 미등록"* 경로를 재려면
     필요하다. 문제는 **비운 채로 나가는 것**이고, 그것을 conftest 가 막는다.
     """
-    assert wiring.registry().has("finance"), "app.main 이 등록해야 이 검사가 성립한다"
+    assert registry_wiring.registry().has("finance"), "app.main 이 등록해야 이 검사가 성립한다"
 
-    wiring.reset()
+    registry_wiring.reset()
 
-    assert wiring.registry().registered == (), "reset 이 안 비웠다"
+    assert registry_wiring.registry().registered == (), "reset 이 안 비웠다"
     # ⚠️ 여기서 끝나도 다음 테스트는 등록된 상태를 본다 — conftest 가 되돌린다
 
 
@@ -52,25 +52,25 @@ def test_앞_테스트의_reset_이_안_샜다():
       파일 안에서 정의 순서대로 돌고, 이 저장소에는 순서를 섞는 플러그인이 없다
       (실측 2026-09-03).
     """
-    assert wiring.registry().has("finance"), (
+    assert registry_wiring.registry().has("finance"), (
         "앞 테스트의 reset 이 새어 나왔다 — tests/conftest.py 의 autouse fixture 를 확인한다"
     )
-    assert wiring.registry().has("inventory")
-    assert wiring.registry().has("purchase")
+    assert registry_wiring.registry().has("inventory")
+    assert registry_wiring.registry().has("purchase")
 
 
 def test_등록을_더해도_안_샌다():
     """비우는 것만이 아니라 **더하는 것**도 되돌린다."""
-    wiring.register("finance", _fake_port)  # type: ignore[arg-type]
+    registry_wiring.register("finance", _fake_port)  # type: ignore[arg-type]
 
-    assert wiring.registry().get("finance") is _fake_port
+    assert registry_wiring.registry().get("finance") is _fake_port
 
 
 def test_앞_테스트가_더한_것도_안_샜다():
     """바로 위가 남긴 가짜 포트가 여기서는 없어야 한다."""
     from app.finance.adapter import finance_port
 
-    assert wiring.registry().get("finance") is finance_port, (
+    assert registry_wiring.registry().get("finance") is finance_port, (
         "앞 테스트가 등록한 가짜 포트가 새어 나왔다"
     )
 
@@ -91,37 +91,37 @@ def test_restore_는_합치지_않고_되돌린다():
 
       `saved` 에 **없는** 이름이 등록돼 있어야 갈린다.
     """
-    wiring.reset()
-    saved = wiring.snapshot()
+    registry_wiring.reset()
+    saved = registry_wiring.snapshot()
     assert saved == {}, "빈 상태를 떠야 이 검사가 의미 있다"
 
-    wiring.register("finance", _fake_port)  # type: ignore[arg-type]
-    wiring.restore(saved)
+    registry_wiring.register("finance", _fake_port)  # type: ignore[arg-type]
+    registry_wiring.restore(saved)
 
-    assert wiring.registry().registered == (), (
+    assert registry_wiring.registry().registered == (), (
         "restore 가 지금 등록된 것을 남겼다 — 되돌린 것이 아니라 합친 것이다"
     )
 
 
 def test_restore_는_뜬_그대로_되살린다():
     """되돌리는 쪽도 본다 — 비우기만 하면 그것도 복원이 아니다."""
-    saved = wiring.snapshot()
+    saved = registry_wiring.snapshot()
     assert saved, "등록된 상태를 떠야 이 검사가 의미 있다"
 
-    wiring.reset()
-    wiring.restore(saved)
+    registry_wiring.reset()
+    registry_wiring.restore(saved)
 
-    assert wiring.registry().registered == tuple(sorted(saved))
+    assert registry_wiring.registry().registered == tuple(sorted(saved))
     for name, port in saved.items():
-        assert wiring.registry().get(name) is port
+        assert registry_wiring.registry().get(name) is port
 
 
 def test_snapshot_은_그때의_사본이다():
     """뜬 뒤에 바뀌어도 사본은 안 바뀐다 — 아니면 되돌릴 대상이 흔들린다."""
-    saved = wiring.snapshot()
+    saved = registry_wiring.snapshot()
     before = dict(saved)
 
-    wiring.reset()
-    wiring.register("finance", _fake_port)  # type: ignore[arg-type]
+    registry_wiring.reset()
+    registry_wiring.register("finance", _fake_port)  # type: ignore[arg-type]
 
     assert saved == before, "snapshot 이 살아 있는 레지스트리를 가리킨다"

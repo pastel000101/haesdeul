@@ -33,8 +33,8 @@ import ast
 from pathlib import Path
 
 import app.master
-from app.master import critic_bridge
-from app.master.flow import ProcurementFlow
+from app.master.adapters import critic_bridge
+from app.master.service.flow import ProcurementFlow
 
 _ROOT = Path(app.master.__file__).parent.parent.parent
 
@@ -47,8 +47,8 @@ _OWN = "tests/master"
 #:   아무도 안 물었다. *"묻는 쪽만 보이는"* 것이 이 검사가 필요한 이유다.
 EXPECTED: dict[str, set[str]] = {
     "tests/logistics/test_logistics_adapter.py": {
-        "app.master.critic_bridge._replies_in",
-        "app.master.critic_bridge._dept_meta_in",
+        "app.master.adapters.critic_bridge._replies_in",
+        "app.master.adapters.critic_bridge._dept_meta_in",
     },
     "tests/test_purchase_agent/test_feedback_intake.py": {
         "ProcurementFlow._purchase_input",
@@ -62,7 +62,7 @@ _FLOW_TOUCHED = ("_purchase_input", "suggested_adjustments")
 #: `critic_bridge` 의 비공개 함수 중 밖이 부르는 것.
 _BRIDGE_TOUCHED = ("_replies_in", "_dept_meta_in")
 
-_FLOW_SOURCE = _ROOT / "app" / "master" / "flow.py"
+_FLOW_SOURCE = _ROOT / "app" / "master" / "service" / "flow.py"
 
 
 def _flow_defines(name: str) -> bool:

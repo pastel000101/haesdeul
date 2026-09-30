@@ -20,8 +20,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.master import day_open
+from app.master.registry import day_open as registry_day_open
 from app.master.router import router
+from app.master.service import day_open as service_day_open
 
 AS_OF = date(2026, 1, 5)
 
@@ -37,11 +38,11 @@ def 하루넘김_등록소를_비운다() -> Iterator[None]:
     ★ 끝나고만 비우면 앞 테스트가 남긴 등록이 이 파일로 흘러든다
       (`test_transition_boundary.py` 와 같은 규율).
     """
-    day_open.reset()
+    registry_day_open.reset()
     try:
         yield
     finally:
-        day_open.reset()
+        registry_day_open.reset()
 
 
 class 가짜커넥션:
@@ -115,8 +116,8 @@ def _both(open_days: set[date]) -> tuple[가짜하루열기, 가짜하루열기]
     """두 파트를 같은 상태로 등록한다."""
     finance = 가짜하루열기("finance", open_days)
     logistics = 가짜하루열기("logistics", open_days)
-    day_open.register_day_opening("finance", finance)
-    day_open.register_day_opening("logistics", logistics)
+    registry_day_open.register_day_opening("finance", finance)
+    registry_day_open.register_day_opening("logistics", logistics)
     return finance, logistics
 
 
@@ -127,7 +128,7 @@ def test_등록이_0건이면_커넥션을_열지_않는다() -> None:
     """🔴 열고 나서 아무 일도 안 하면 **빈 트랜잭션**이 하루 넘김마다 열렸다 닫힌다."""
     calls: list[int] = []
 
-    out = day_open.open_day(AS_OF, borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=_connect_spy(가짜커넥션(), calls), sim_run_id=축)
 
     assert out.status == "NOT_OPENED", "미등록은 '못 했다' 다"
     assert out.missing == ["finance", "logistics"]
@@ -149,7 +150,7 @@ def test_이미_열려_있으면_아무것도_안_하고_빈_목록을_낸다() 
     finance, logistics = _both({AS_OF})
     conn = 가짜커넥션()
 
-    out = day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "ALREADY_OPENED"
     assert "이미 열려" in out.reason
@@ -162,8 +163,8 @@ def test_두_번_열어도_두_번째는_아무것도_안_만든다() -> None:
     """★ 멱등을 **연속 호출로** 잰다 — 첫 호출이 만든 행이 둘째 호출의 전제가 된다."""
     finance, _ = _both({AS_OF - timedelta(days=2)})
 
-    첫째 = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
-    둘째 = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    첫째 = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    둘째 = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert 첫째.status == "OPENED"
     assert 둘째.status == "ALREADY_OPENED", "멱등 no-op 은 실패가 아니다"
@@ -182,7 +183,7 @@ def test_사흘이_비면_세_날을_순서대로_채운다() -> None:
     """
     finance, logistics = _both({date(2025, 12, 31)})
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     만든날 = [as_of for as_of, _ in finance.opened]
     assert 만든날 == [
@@ -204,7 +205,7 @@ def test_carry_from_이_바로_전날이다() -> None:
     """🔴 건너뛴 날에서 물려받으면 그 사이 하루치 사실이 **장부에 없는 채로** 선다."""
     finance, _ = _both({date(2025, 12, 31)})
 
-    day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     for as_of, carry_from in finance.opened:
         assert carry_from == as_of - timedelta(days=1), (
@@ -224,7 +225,7 @@ def test_주말도_채운다() -> None:
     """
     finance, _ = _both({date(2026, 1, 2)})  # 금요일
 
-    day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)  # 01-05 는 월요일
+    service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)  # 01-05 는 월요일
 
     만든날 = [as_of for as_of, _ in finance.opened]
     assert date(2026, 1, 3) in 만든날, "토요일을 걸렀다 — 실행일 달력을 썼다"
@@ -241,7 +242,7 @@ def test_공휴일도_채운다() -> None:
     설날 = date(2026, 2, 17)
     finance, _ = _both({설날 - timedelta(days=1)})
 
-    day_open.open_day(설날, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    service_day_open.open_day(설날, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert [as_of for as_of, _ in finance.opened] == [설날]
 
@@ -252,7 +253,7 @@ def test_하루넘김_모듈이_실행일_달력을_임포트하지_않는다() 
     ★ import 로는 안 잡힌다 — 쓰지 않는 import 는 아무 흔적이 없고, 쓰는 순간에는
       이미 하루가 사라져 있다.
     """
-    source = Path(day_open.__file__).read_text(encoding="utf-8")
+    source = Path(service_day_open.__file__).read_text(encoding="utf-8")
 
     for 금지 in ("import execution_day", "next_execution_day(", "is_execution_day("):
         assert 금지 not in source, f"하루 넘김이 실행일 달력을 썼다: {금지}"
@@ -274,7 +275,7 @@ def test_31일을_넘으면_막고_행을_안_만든다() -> None:
     finance, logistics = _both({먼날})
     conn = 가짜커넥션()
 
-    out = day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "REJECTED_GAP"
     assert [part.status for part in out.parts] == ["PART_FAILED", "PART_FAILED"]
@@ -287,7 +288,7 @@ def test_딱_31일이면_막지_않고_31행을_만든다() -> None:
     """★ 경계는 **포함**이다. 30일 번인 바로 다음 칸까지는 연다."""
     finance, _ = _both({AS_OF - timedelta(days=31)})
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert out.status == "OPENED"
     assert len(finance.opened) == 31
@@ -298,11 +299,11 @@ def test_상한을_넘으면_뒤로_더_걷지_않는다() -> None:
     """🔴 막는 것만으로는 부족하다 — **찾는 걸음 자체가 상한 안에서 끝나야 한다.**"""
     finance, _ = _both(set())
 
-    day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert finance.asked[0] == AS_OF, "as_of 부터 물어봐야 한다"
-    assert finance.asked[-1] == AS_OF - timedelta(days=day_open.MAX_CARRY_DAYS)
-    assert len(finance.asked) == day_open.MAX_CARRY_DAYS + 1
+    assert finance.asked[-1] == AS_OF - timedelta(days=service_day_open.MAX_CARRY_DAYS)
+    assert len(finance.asked) == service_day_open.MAX_CARRY_DAYS + 1
 
 
 # ── ⑦ 파트마다 따로 걷는다 ──────────────────────────────────────────────
@@ -316,10 +317,10 @@ def test_파트마다_자기_마지막_날에서_걷는다() -> None:
     """
     finance = 가짜하루열기("finance", {date(2026, 1, 4)})
     logistics = 가짜하루열기("logistics", {date(2026, 1, 1)})
-    day_open.register_day_opening("finance", finance)
-    day_open.register_day_opening("logistics", logistics)
+    registry_day_open.register_day_opening("finance", finance)
+    registry_day_open.register_day_opening("logistics", logistics)
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert [as_of for as_of, _ in finance.opened] == [date(2026, 1, 5)]
     assert [as_of for as_of, _ in logistics.opened] == [
@@ -339,11 +340,11 @@ def test_한쪽이_막혀도_다른_쪽을_되돌리지_않는다() -> None:
     """
     finance = 가짜하루열기("finance", {AS_OF - timedelta(days=40)})
     logistics = 가짜하루열기("logistics", {AS_OF - timedelta(days=1)})
-    day_open.register_day_opening("finance", finance)
-    day_open.register_day_opening("logistics", logistics)
+    registry_day_open.register_day_opening("finance", finance)
+    registry_day_open.register_day_opening("logistics", logistics)
     conn = 가짜커넥션()
 
-    out = day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     # 🔴 **전체는 REJECTED_GAP 이다** (계약 §5 · 2026-09-06 정정).
     #    재무가 상한을 넘겨 막혔으면 그 날은 온전히 열리지 않았고, 다음 걸음이
@@ -364,9 +365,9 @@ def test_한쪽만_등록되면_등록된_쪽만_걷는다() -> None:
     행을 만들고 엮이지 않는다 — 물류가 먼저 붙은 날 재무를 기다릴 이유가 없다.
     """
     logistics = 가짜하루열기("logistics", {AS_OF - timedelta(days=1)})
-    day_open.register_day_opening("logistics", logistics)
+    registry_day_open.register_day_opening("logistics", logistics)
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert out.status == "OPENED"
     assert out.missing == ["finance"]
@@ -382,7 +383,7 @@ def test_한_커넥션으로_한_번_커밋한다() -> None:
     conn = 가짜커넥션()
     calls: list[int] = []
 
-    out = day_open.open_day(AS_OF, borrow=_connect_spy(conn, calls), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=_connect_spy(conn, calls), sim_run_id=축)
 
     assert out.status == "OPENED"
     assert calls == [1], "커넥션은 하나만 연다"
@@ -399,11 +400,11 @@ def test_적재가_터지면_전부_되돌린다() -> None:
     logistics = 가짜하루열기(
         "logistics", {AS_OF - timedelta(days=3)}, raises=RuntimeError("전날 행이 없다")
     )
-    day_open.register_day_opening("finance", finance)
-    day_open.register_day_opening("logistics", logistics)
+    registry_day_open.register_day_opening("finance", finance)
+    registry_day_open.register_day_opening("logistics", logistics)
     conn = 가짜커넥션()
 
-    out = day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
 
     assert out.status == "NOT_OPENED"
     assert "전날 행이 없다" in out.reason, "사유를 안 남기면 무엇이 터졌는지 모른다"
@@ -425,12 +426,12 @@ def test_적재가_터지면_전부_되돌린다() -> None:
 def test_적재_실패가_예외로_올라가지_않는다() -> None:
     """★ 500 이 되면 사람이 보기에 다음 날로 못 가는 것이 된다 — 실제로는 어제 그대로다."""
     _both({AS_OF - timedelta(days=1)})
-    day_open.register_day_opening(
+    registry_day_open.register_day_opening(
         "logistics",
         가짜하루열기("logistics", {AS_OF - timedelta(days=1)}, raises=OSError("끊겼다")),
     )
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), sim_run_id=축)
 
     assert out.status == "NOT_OPENED"
 
@@ -441,7 +442,7 @@ def test_with_conn_을_쓰지_않는다() -> None:
     그러면 "커밋은 마스터가 한 번만 한다"는 규율이 문법에 숨고, 커밋 줄을 지우는 변이
     검사도 안 걸린다 (`transition.py` 가 같은 이유로 같은 것을 금한다).
     """
-    source = Path(day_open.__file__).read_text(encoding="utf-8")
+    source = Path(service_day_open.__file__).read_text(encoding="utf-8")
 
     assert "with conn" not in source.replace("`with conn:`", "")
 
@@ -455,7 +456,7 @@ def test_하루넘김_모듈에_SQL_이_없다() -> None:
     ★ 무엇을 물려받을지는 파트가 안다. 마스터는 **언제 · 어느 날까지 · 한 트랜잭션**만
       정한다 — `test_transition_boundary.py` 의 같은 검사와 짝이다.
     """
-    source = Path(day_open.__file__).read_text(encoding="utf-8")
+    source = Path(service_day_open.__file__).read_text(encoding="utf-8")
 
     for 금지 in ("INSERT INTO", "UPDATE ", "DELETE ", "SELECT "):
         assert 금지 not in source, f"마스터 하루 넘김 경계에 SQL 이 있다: {금지}"
@@ -470,9 +471,12 @@ def test_매입_실행이_하루를_열지_않는다() -> None:
     조회하려고 돌린 실행이 상태를 만들면 *"같은 as_of 로 백번 돌려도 같은 답"* 이
     성립하지 않는다. 하루가 넘어가는 것은 사건이지 부작용이 아니다.
     """
-    from app.master import flow, service
 
-    for 모듈 in (service, flow):
+    # ★ 2026-09-30 재구성 BL-018: 실행 경로는 service/procurement · sales 와 service/flow 다.
+    from app.master.service import flow as service_flow
+    from app.master.service import procurement, sales
+
+    for 모듈 in (procurement, sales, service_flow):
         source = Path(모듈.__file__).read_text(encoding="utf-8")
         assert "day_open" not in source, (
             f"{모듈.__name__} 이 하루 넘김을 부른다 — 실행이 상태를 만들면 안 된다"
@@ -505,14 +509,14 @@ def test_강제_개장이_31일_상한을_푼다() -> None:
       관리자가 눌렀는데 안 열리면 화면이 왜인지 못 말한다.
     """
     먼날 = AS_OF - timedelta(days=40)
-    day_open.register_day_opening("finance", 가짜하루열기("finance", {먼날}))
-    day_open.register_day_opening("logistics", 가짜하루열기("logistics", {먼날}))
+    registry_day_open.register_day_opening("finance", 가짜하루열기("finance", {먼날}))
+    registry_day_open.register_day_opening("logistics", 가짜하루열기("logistics", {먼날}))
     conn = 가짜커넥션()
 
-    막힘 = day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+    막힘 = service_day_open.open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
     assert 막힘.status == "REJECTED_GAP", "평소에는 막혀야 이 검사가 의미 있다"
 
-    열림 = day_open.open_day(AS_OF, borrow=lambda: conn, force=True, sim_run_id=축)
+    열림 = service_day_open.open_day(AS_OF, borrow=lambda: conn, force=True, sim_run_id=축)
 
     assert 열림.status == "OPENED"
     assert len(열림.parts[0].opened) == 40, "먼날 다음 날부터 as_of 까지 다 만든다"
@@ -525,10 +529,10 @@ def test_강제_개장도_366일을_넘기면_거절한다() -> None:
       `day_gate` 가 그 경우를 `SPLIT_FORCE_OPEN_REQUIRED` 로 따로 내는 이유다.
     """
     아주먼날 = AS_OF - timedelta(days=400)
-    day_open.register_day_opening("finance", 가짜하루열기("finance", {아주먼날}))
-    day_open.register_day_opening("logistics", 가짜하루열기("logistics", {아주먼날}))
+    registry_day_open.register_day_opening("finance", 가짜하루열기("finance", {아주먼날}))
+    registry_day_open.register_day_opening("logistics", 가짜하루열기("logistics", {아주먼날}))
 
-    out = day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), force=True, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: 가짜커넥션(), force=True, sim_run_id=축)
 
     assert out.status == "REJECTED_GAP"
     assert "강제 개장으로도 못 연다" in out.reason
@@ -548,11 +552,11 @@ def test_강제_개장이_PART_FAILED_를_성공으로_안_만든다() -> None:
         def open_day(self, conn: object, *, as_of: date, carry_from: date) -> None:
             raise RuntimeError("재무가 못 연다")
 
-    day_open.register_day_opening("finance", _터지는파트())
-    day_open.register_day_opening("logistics", _터지는파트())
+    registry_day_open.register_day_opening("finance", _터지는파트())
+    registry_day_open.register_day_opening("logistics", _터지는파트())
 
     conn = 가짜커넥션()
-    out = day_open.open_day(AS_OF, borrow=lambda: conn, force=True, sim_run_id=축)
+    out = service_day_open.open_day(AS_OF, borrow=lambda: conn, force=True, sim_run_id=축)
 
     assert out.status == "NOT_OPENED", "강제로도 실패는 실패다"
     assert [part.status for part in out.parts] == ["PART_FAILED", "PART_FAILED"]
@@ -568,7 +572,7 @@ def test_파트는_강제인지_모른다() -> None:
     """
     import inspect
 
-    받는것 = set(inspect.signature(day_open.DayOpening.open_day).parameters)
+    받는것 = set(inspect.signature(registry_day_open.DayOpening.open_day).parameters)
 
     assert "force" not in 받는것
     assert 받는것 == {"self", "conn", "as_of", "carry_from"}
@@ -580,6 +584,6 @@ def test_강제_상한이_관문의_절대_상한과_같은_수다() -> None:
     관문이 *"관리자 강제 개장이 필요하다"* 라 했는데 눌러도 안 열리면 화면이 왜인지
     못 말한다. 반대로 관문이 *"나눠서 불러라"* 했는데 강제로 열리면 그것도 거짓이다.
     """
-    from app.master.day_gate import SPLIT_THRESHOLD_DAYS
+    from app.master.service.day_gate import SPLIT_THRESHOLD_DAYS
 
-    assert day_open.MAX_FORCE_CARRY_DAYS == SPLIT_THRESHOLD_DAYS
+    assert service_day_open.MAX_FORCE_CARRY_DAYS == SPLIT_THRESHOLD_DAYS

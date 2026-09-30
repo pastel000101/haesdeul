@@ -470,8 +470,9 @@ def _importers(root: Path, predicate) -> list[str]:
 def test_only_the_master_bootstrap_imports_the_adapter() -> None:
     """★ 어댑터(봉투 분기 · 등록소 표면)는 마스터가 등록할 때 한 번 들인다 — 다른 자리가
     들이면 봉투를 거치지 않는 두 번째 입구가 생긴다."""
+    # ★ 2026-09-30 재구성 BL-018: 등록소 조립은 `master/registry/bootstrap.py` 다.
     assert _importers(_APP, lambda name: is_under(name, f"{_PKG}.adapter")) == [
-        "master/bootstrap.py"
+        "master/registry/bootstrap.py"
     ]
 
 

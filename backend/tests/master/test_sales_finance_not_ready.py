@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import pytest
 
-from app.master.decision import SALES_CYCLE, approve_end_codes, decidable_end_codes
-from app.master.sales_flow import SalesEndCode
+from app.master.domain.decision import SALES_CYCLE, approve_end_codes, decidable_end_codes
+from app.master.schemas.sales import SalesEndCode
 from tests.master.test_sales_flow import (
     _meta,
     _reply,

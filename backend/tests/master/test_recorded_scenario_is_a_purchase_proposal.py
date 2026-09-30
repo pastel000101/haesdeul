@@ -32,9 +32,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from app.master.commitment import RecordedLeg
-from app.master.purchase_record import recorded_scenario
-from app.master.revalidation import procurement_validation_payload
+from app.master.domain.commitment import RecordedLeg
+from app.master.domain.purchase_record import recorded_scenario
+from app.master.domain.revalidation import procurement_validation_payload
 from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 기준일 = date(2026, 1, 5)

@@ -25,9 +25,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from app.master.calendar_walk import MAX_WALK_DAYS
-from app.master.execution_calendar import build_execution_calendar
-from app.master.execution_day import CalendarNotCovered
+from app.master.domain.calendar_walk import MAX_WALK_DAYS
+from app.master.domain.execution_calendar import build_execution_calendar
+from app.master.domain.execution_day import CalendarNotCovered
 
 # 2026-01-05 는 월요일이다 (관통에 쓴 날).
 _월요일 = date(2026, 1, 5)

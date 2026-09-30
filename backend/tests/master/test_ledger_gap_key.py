@@ -43,16 +43,22 @@ from uuid import UUID
 import pytest
 
 from app.core.clock import SEOUL
-from app.master import persistence, procurement_boundary, run_repository, scheduler
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.procurement_boundary import read_procurement_boundary
-from app.master.run_repository import (
+from app.master.domain import request_ids
+from app.master.domain import scheduler as domain_scheduler
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.request_ids import (
     LEDGER_GAP_END_CODE,
     LEDGER_GAP_REQUEST_LIKE,
-    count_runs_by_day,
     is_ledger_gap_request_id,
     ledger_gap_request_id,
 )
+from app.master.readmodel import procurement_boundary as readmodel_procurement_boundary
+from app.master.readmodel import runs
+from app.master.readmodel.procurement_boundary import read_procurement_boundary
+from app.master.readmodel.runs import count_runs_by_day
+from app.master.service import persistence as service_persistence
+from app.master.service import scheduler as service_scheduler
+from tests.fake_core_db import patch_sql_helpers
 
 #: 실행일(금요일). 실행일이라야 *"행이 없다"* 와 *"관문이 막았다"* 가 갈린다.
 평일 = date(2026, 1, 23)
@@ -134,7 +140,7 @@ def 표(monkeypatch):
                 and (kwargs.get("sim_run_id") is None or row["sim_run_id"] == kwargs["sim_run_id"])
             ]
 
-        monkeypatch.setattr(procurement_boundary, "list_runs", _fake)
+        monkeypatch.setattr(readmodel_procurement_boundary, "list_runs", _fake)
 
     return _놓기
 
@@ -167,8 +173,11 @@ def test_스케줄러가_저장소의_키를_그대로_쓴다():
     `run_repository → scheduler → persistence → run_repository` 고리가 생긴다.
     이름은 `scheduler` 에 그대로 살아 있고, **같은 함수여야** 두 벌이 아니다.
     """
-    assert scheduler.ledger_gap_request_id is ledger_gap_request_id
-    assert "ledger_gap_request_id" in scheduler.__all__
+    assert request_ids.ledger_gap_request_id is ledger_gap_request_id
+    # ★ 2026-09-30 재구성 BL-018: 스케줄러(`service/scheduler.py`)가 같은 함수를 들여 쓴다.
+    from app.master.service import scheduler as service_scheduler
+
+    assert service_scheduler.ledger_gap_request_id is request_ids.ledger_gap_request_id
 
 
 def test_키를_알아보는_꼬리가_키와_같은_데서_나온다():
@@ -268,9 +277,11 @@ def _적힌_관문행(monkeypatch) -> dict[str, Any]:
     부서 함수와 표 한 줄뿐이다.
     """
     적힌것: dict[str, Any] = {}
-    monkeypatch.setattr(persistence, "history_enabled", lambda: True)
-    monkeypatch.setattr(persistence, "list_runs", lambda **kw: [])
-    monkeypatch.setattr(persistence, "try_save_run", lambda **kw: 적힌것.update(kw) or "RUN-1")
+    monkeypatch.setattr(service_persistence, "history_enabled", lambda: True)
+    monkeypatch.setattr(service_persistence, "list_runs", lambda **kw: [])
+    monkeypatch.setattr(
+        service_persistence, "try_save_run", lambda **kw: 적힌것.update(kw) or "RUN-1"
+    )
 
     준비 = DayForecastReadiness(
         as_of=평일,
@@ -280,14 +291,14 @@ def _적힌_관문행(monkeypatch) -> dict[str, Any]:
             for item in ITEMS
         ),
     )
-    action = scheduler.plan_next_action(
+    action = domain_scheduler.plan_next_action(
         now=datetime(평일.year, 평일.month, 평일.day, 9, 30, tzinfo=SEOUL),
         as_of=평일,
         calendar=_Calendar(),
         ml_batch=_배치가_도는_날(),
         gate_result=준비,
     )
-    scheduler.run_scheduled_day(
+    service_scheduler.run_scheduled_day(
         action,
         open_day_fn=_Spy(_Out("OPENED")),
         receive_fn=_Spy(_Out("BLOCKED")),
@@ -322,7 +333,7 @@ def test_적힌_그_행을_화면이_관문으로_읽는다(monkeypatch):
         end_code=적힌것["end_code"],
         as_of=적힌것["as_of"],
     )
-    monkeypatch.setattr(procurement_boundary, "list_runs", lambda **kw: [행])
+    monkeypatch.setattr(readmodel_procurement_boundary, "list_runs", lambda **kw: [행])
 
     답 = read_procurement_boundary(as_of=평일, sim_run_id=축)
 
@@ -342,7 +353,7 @@ def _asked(monkeypatch) -> tuple[str, tuple]:
         잡힘["params"] = params
         return []
 
-    monkeypatch.setattr(run_repository, "fetch_all", _fake)
+    patch_sql_helpers(monkeypatch, runs, fetch_all=_fake)
     count_runs_by_day(sim_run_id=축, start=평일, end=평일)
     return 잡힘["query"], 잡힘["params"]
 

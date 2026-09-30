@@ -13,7 +13,7 @@
 
 ★ **DB 를 여기서 읽지 않습니다** (2026-09-29 재구성 BL-014). 저장된 실행 · 확정 매입 · 결정 ·
   품목 이름 조회는 마스터 readmodel ``read_purchase_tab``(SQL 은
-  ``master/purchase_tab_repository.py``)이 합니다 — 전에는 이 모듈의 ``_read`` 가 재무 DB 입구
+  ``master/repository/purchase_tab.py``)이 합니다 — 전에는 이 모듈의 ``_read`` 가 재무 DB 입구
   (``app.finance.db``)의 조회 헬퍼로 직접 돌렸습니다. 스키마를 ``.env`` 가 정하는 이유(매입
   에이전트 경로와 다르다)는 그 repository 머리말이 이어 적습니다.
 

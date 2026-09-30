@@ -22,7 +22,9 @@ from typing import Any, Self
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.master import transition
+from app.master.domain import purchase_ids as domain_purchase_ids
+from app.master.registry import transition as registry_transition
+from app.master.service import transition as service_transition
 
 #: 🔴 **금요일이다.** 달력 다음 날은 토요일이고, 실행일 달력이라면 월요일이다.
 #:   이 하나가 두 규칙을 갈라 준다.
@@ -36,11 +38,11 @@ FRIDAY = date(2026, 1, 2)
 @pytest.fixture(autouse=True)
 def 전이_등록소를_비운다() -> Iterator[None]:
     """등록소는 프로세스 전역이다 — **앞뒤로 비운다.**"""
-    transition.reset()
+    registry_transition.reset()
     try:
         yield
     finally:
-        transition.reset()
+        registry_transition.reset()
 
 
 def _commitment(
@@ -199,8 +201,8 @@ class 가짜물류:
 
 def _등록한다() -> tuple[가짜재무, 가짜물류]:
     finance, logistics = 가짜재무(), 가짜물류()
-    transition.register_transition("finance", finance)
-    transition.register_transition("logistics", logistics)
+    registry_transition.register_transition("finance", finance)
+    registry_transition.register_transition("logistics", logistics)
     return finance, logistics
 
 
@@ -211,7 +213,9 @@ def test_재무_build_는_두_값을_키워드로_받는다() -> None:
     """★ `target_state_date` 와 `purchase_ids` 둘 다 **키워드**다."""
     finance, _ = _등록한다()
 
-    out = transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
+    out = service_transition.apply_approval(
+        _commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축
+    )
 
     assert out.status == "APPLIED"
     assert len(finance.calls) == 1
@@ -225,7 +229,7 @@ def test_물류_build_는_날짜를_키워드로_받는다() -> None:
     받았고, 그 자리에서 규약이 실제와 갈렸다."""
     _, logistics = _등록한다()
 
-    transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
 
     assert len(logistics.calls) == 1
     assert isinstance(logistics.calls[0][0], date)
@@ -240,8 +244,8 @@ def test_두_Protocol_이_같은_인자를_요구한다() -> None:
     """
     import inspect
 
-    재무 = inspect.signature(transition.FinanceTransition.build).parameters
-    물류 = inspect.signature(transition.LogisticsTransition.build).parameters
+    재무 = inspect.signature(registry_transition.FinanceTransition.build).parameters
+    물류 = inspect.signature(registry_transition.LogisticsTransition.build).parameters
 
     assert set(재무) == set(물류), (
         f"두 Protocol 의 인자가 갈렸다 — 재무 {set(재무)} · 물류 {set(물류)}"
@@ -262,7 +266,7 @@ def test_두_파트가_같은_purchase_ids_를_받는다() -> None:
     """
     finance, logistics = _등록한다()
 
-    transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
 
     assert logistics.calls[0][1], "물류가 빈 매핑을 받았다 — 참조가 안 실렸다"
     assert finance.calls[0][1] == logistics.calls[0][1], (
@@ -276,11 +280,11 @@ def test_물류가_받는_purchase_id_가_원장_키와_같다() -> None:
     commitment = _commitment()
     _, logistics = _등록한다()
 
-    transition.apply_approval(commitment, borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
+    service_transition.apply_approval(commitment, borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
 
     받은것 = logistics.calls[0][1]
     기대 = {
-        leg.seq: transition.purchase_id_for(commitment, leg.seq)
+        leg.seq: domain_purchase_ids.purchase_id_for(commitment, leg.seq)
         for leg in commitment.arrival_schedule
     }
     assert 받은것 == 기대
@@ -291,7 +295,7 @@ def test_회차가_없으면_물류도_빈_매핑이다() -> None:
     **없다**는 것은 정상 상태다."""
     _, logistics = _등록한다()
 
-    out = transition.apply_approval(
+    out = service_transition.apply_approval(
         _commitment(legs=()), borrow=lambda: 가짜커넥션(), sim_run_id=실행축
     )
 
@@ -303,7 +307,7 @@ def test_두_파트가_같은_날짜를_받는다() -> None:
     """★ 같은 승인분인데 재무와 물류가 다른 날을 딛으면 두 장부가 갈린다."""
     finance, logistics = _등록한다()
 
-    transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=lambda: 가짜커넥션(), sim_run_id=실행축)
 
     assert finance.calls[0][0] == logistics.calls[0][0]
 
@@ -320,7 +324,7 @@ def test_상태가_설_날은_승인_다음_달력일이다() -> None:
     finance, logistics = _등록한다()
     assert FRIDAY.weekday() == 4, "고정값이 금요일이 아니면 이 검사가 아무것도 안 잰다"
 
-    transition.apply_approval(
+    service_transition.apply_approval(
         _commitment(as_of=FRIDAY), borrow=lambda: 가짜커넥션(), sim_run_id=실행축
     )
 
@@ -335,7 +339,7 @@ def test_평일_승인도_그냥_다음_날이다() -> None:
     finance, _ = _등록한다()
     수요일 = date(2025, 12, 31)
 
-    transition.apply_approval(
+    service_transition.apply_approval(
         _commitment(as_of=수요일), borrow=lambda: 가짜커넥션(), sim_run_id=실행축
     )
 
@@ -348,7 +352,7 @@ def test_전이_모듈이_실행일_달력을_부르지_않는다() -> None:
 
     ★ import 로는 안 잡힌다. 부르는 자리가 한 줄 들어와도 다른 검사는 조용하다.
     """
-    source = Path(transition.__file__).read_text(encoding="utf-8")
+    source = Path(service_transition.__file__).read_text(encoding="utf-8")
 
     assert "next_execution_day" not in source, (
         "마스터 전이가 실행일 달력을 쓰고 있다 — 상태가 설 날은 달력 다음 날이다"
@@ -364,8 +368,8 @@ def test_purchase_id_형식() -> None:
     ```"""
     commitment = _commitment(approval_id="H1-REQ-7-2", request_id="REQ-7")
 
-    assert transition.purchase_id_for(commitment, 1) == "PUR-REQ-7-D2-S1"
-    assert transition.purchase_id_for(commitment, 3) == "PUR-REQ-7-D2-S3"
+    assert domain_purchase_ids.purchase_id_for(commitment, 1) == "PUR-REQ-7-D2-S1"
+    assert domain_purchase_ids.purchase_id_for(commitment, 3) == "PUR-REQ-7-D2-S3"
 
 
 def test_같은_약정이면_두_번_불러도_같은_id_다() -> None:
@@ -373,8 +377,8 @@ def test_같은_약정이면_두_번_불러도_같은_id_다() -> None:
     겹쳐 쓰이지 않고 **행을 하나 더 만든다.** 물류 `inbound_id` 가
     `INB-{approval_id}-{seq}` 인 것이 같은 이유다.
     """
-    첫번 = [transition.purchase_id_for(_commitment(), seq) for seq in (1, 2)]
-    두번 = [transition.purchase_id_for(_commitment(), seq) for seq in (1, 2)]
+    첫번 = [domain_purchase_ids.purchase_id_for(_commitment(), seq) for seq in (1, 2)]
+    두번 = [domain_purchase_ids.purchase_id_for(_commitment(), seq) for seq in (1, 2)]
 
     assert 첫번 == 두번
     assert len(set(첫번)) == 2, "회차가 다르면 id 도 달라야 한다"
@@ -387,7 +391,7 @@ def test_approval_id_형식이_어긋나면_예외다() -> None:
     깨진 = _commitment(approval_id="REQ-7-2", request_id="REQ-7")  # H1- 접두사 없음
 
     with pytest.raises(ValueError, match="approval_id"):
-        transition.purchase_id_for(깨진, 1)
+        domain_purchase_ids.purchase_id_for(깨진, 1)
 
 
 def test_회차가_숫자가_아니면_예외다() -> None:
@@ -395,14 +399,14 @@ def test_회차가_숫자가_아니면_예외다() -> None:
     깨진 = _commitment(approval_id="H1-REQ-7-final", request_id="REQ-7")
 
     with pytest.raises(ValueError, match="approval_id"):
-        transition.purchase_id_for(깨진, 1)
+        domain_purchase_ids.purchase_id_for(깨진, 1)
 
 
 def test_purchase_item_id_형식() -> None:
     """★ `PUR-` 를 떼고 `PITEM-` 을 붙인다 — 접두사가 겹치지 않는다."""
-    purchase_id = transition.purchase_id_for(_commitment(), 1)
+    purchase_id = domain_purchase_ids.purchase_id_for(_commitment(), 1)
 
-    item_id = transition.purchase_item_id_for(purchase_id, "배추")
+    item_id = domain_purchase_ids.purchase_item_id_for(purchase_id, "배추")
 
     assert item_id == "PITEM-REQ-7-D2-S1-배추"
     assert item_id.startswith("PITEM-")
@@ -423,7 +427,7 @@ def test_회차가_둘이면_purchase_id_도_둘이다() -> None:
     commitment = _두회차()
 
     purchase_ids = {
-        leg.seq: transition.purchase_id_for(commitment, leg.seq)
+        leg.seq: domain_purchase_ids.purchase_id_for(commitment, leg.seq)
         for leg in commitment.arrival_schedule
     }
 
@@ -438,7 +442,7 @@ def test_회차가_없으면_빈_매핑이고_예외가_아니다() -> None:
     """
     finance, _ = _등록한다()
 
-    out = transition.apply_approval(
+    out = service_transition.apply_approval(
         _commitment(legs=()), borrow=lambda: 가짜커넥션(), sim_run_id=실행축
     )
 
@@ -457,7 +461,7 @@ def test_미등록이면_여전히_NOT_APPLIED_이고_커넥션을_안_연다() 
         calls.append(1)
         return 가짜커넥션()
 
-    out = transition.apply_approval(_commitment(), borrow=_connect, sim_run_id=실행축)
+    out = service_transition.apply_approval(_commitment(), borrow=_connect, sim_run_id=실행축)
 
     assert out.status == "NOT_APPLIED"
     assert out.missing == ["finance", "logistics"]

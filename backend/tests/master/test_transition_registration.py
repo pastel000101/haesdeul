@@ -26,9 +26,11 @@ from app.finance import adapter as finance_adapter
 from app.finance.adapter import FinanceDayOpening
 from app.finance.service import transition as finance_transition
 from app.logistics.adapter import LogisticsDayOpening, LogisticsTransitionAdapter
-from app.master import day_open, transition
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.sim_run_binding import bind_sim_run
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
+from app.master.registry import day_open as registry_day_open
+from app.master.registry import transition as registry_transition
+from app.master.registry.sim_run_binding import bind_sim_run
+from app.master.service import transition as service_transition
 
 AS_OF = date(2025, 12, 31)
 
@@ -192,7 +194,7 @@ def 재무_읽기를_대역으로(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_두_전이가_다_등록되어_있다() -> None:
     """⑥ 🔴 `missing()` 이 **빈 튜플**이다 — 하나라도 비면 승인이 장부를 못 바꾼다."""
-    assert transition.missing() == (), (
+    assert registry_transition.missing() == (), (
         "전이가 미등록이다 — app/main.py 의 register_transition 두 줄을 확인하라"
     )
 
@@ -204,7 +206,7 @@ def test_두_하루넘김이_다_등록되어_있다() -> None:
        먼저 서야 한다. `#285` 의 `ON CONFLICT (sim_run_id, financing_mode, state_date)`
        가 그 UNIQUE 를 가리키고, 없으면 승인 전이가 거기서 터진다 (2026-09-05 실측).
     """
-    assert day_open.missing() == (), (
+    assert registry_day_open.missing() == (), (
         "하루 넘김이 미등록이다 — app/main.py 의 register_day_opening 두 줄을 확인하라"
     )
 
@@ -219,7 +221,7 @@ def test_하루넘김_자리에_각_파트_구현이_앉아_있다() -> None:
       *"지금 축이 하나뿐인가"* 를 물어 스스로 골랐는데, 실행이 둘이 되는 순간 그
       질문은 늘 *"둘"* 이라고 답해 새 걷기의 첫 개장이 막혔다.
     """
-    registered = day_open.registered()
+    registered = registry_day_open.registered()
 
     assert isinstance(bind_sim_run(registered["logistics"], 실행축), LogisticsDayOpening)
     assert isinstance(bind_sim_run(registered["finance"], 실행축), FinanceDayOpening)
@@ -227,7 +229,7 @@ def test_하루넘김_자리에_각_파트_구현이_앉아_있다() -> None:
 
 def test_물류_자리에_물류_어댑터가_앉아_있다() -> None:
     """★ 이름만 채운 것이 아니라 **물류가 소유한 구현**이 앉아야 한다."""
-    registered = transition.registered()
+    registered = registry_transition.registered()
 
     assert isinstance(bind_sim_run(registered["logistics"], 실행축), LogisticsTransitionAdapter)
     assert isinstance(
@@ -255,16 +257,17 @@ def test_물류_어댑터가_승인이_준_축을_받는다() -> None:
     🔴 **원장과 같은 축이어야 한다.** 물류 장부만 번인에 남으면 매입 원장과 갈리는데
        **아무 오류도 안 난다** — `ledger.py` 가 경고한 그 모양이다.
     """
-    from app.master import ledger
+    from app.master.domain import ledger as domain_ledger
+    from app.master.registry import transition as registry_transition
 
-    adapter = bind_sim_run(transition.registered()["logistics"], 실행축)
+    adapter = bind_sim_run(registry_transition.registered()["logistics"], 실행축)
 
     assert adapter._sim_run_id == 실행축
     assert adapter._sim_run_id != BURN_IN_SIM_RUN_ID
     # 🔴 원장은 **받은 축**을 돌려준다 — 등록소가 든 상수를 되읽지 않는다.
-    assert ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) == 실행축
+    assert domain_ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) == 실행축
     # ★★ **둘이 같은 축이다.** 이 한 줄이 「조용한 갈림」을 잰다.
-    assert adapter._sim_run_id == ledger.sim_run_id_for(_commitment(), sim_run_id=실행축)
+    assert adapter._sim_run_id == domain_ledger.sim_run_id_for(_commitment(), sim_run_id=실행축)
 
 
 # ── ⑦ 등록된 실제 구현으로 승인 한 건이 통과한다 ────────────────────────
@@ -277,7 +280,7 @@ def test_승인이_두_파트를_다_거쳐_한_번_커밋한다(재무_읽기�
     """
     conn = 가짜커넥션()
 
-    out = transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
+    out = service_transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     assert out.status == "APPLIED", out.reason
     assert out.parts == ["finance", "logistics"]
@@ -294,7 +297,7 @@ def test_세_장부가_한_커넥션으로_다_쓰인다(재무_읽기를_대역
     """★ 매입 원장 · 재무 채무 · 물류 입고 예정 셋이 다 나가야 한다."""
     conn = 가짜커넥션()
 
-    transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     문장 = [text for text, _ in conn.executed]
     assert any("INSERT INTO" in t and "purchases" in t for t in 문장), "매입 원장이 안 나갔다"
@@ -316,7 +319,7 @@ def test_물류_write_가_상태가_설_날의_행을_고른다(재무_읽기를
     """
     conn = 가짜커넥션()
 
-    transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
+    service_transition.apply_approval(_commitment(), borrow=lambda: conn, sim_run_id=실행축)
 
     물류 = [params for text, params in conn.executed if "logistics_runtime_fixture" in text]
     # ★ 읽기 하나 · 쓰기 하나다 — 물류가 그 행을 **잠그고**(FOR UPDATE) 고친다.

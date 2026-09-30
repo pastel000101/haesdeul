@@ -40,11 +40,13 @@ from pathlib import Path
 
 from app.contracts import envelope
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.master import backtest_runner
-from app.master.backtest_runner import WalkResult, format_summary
-from app.master.plan import ExecutionPlan
-from app.master.scheduler import DayRunOutcome, ItemRunOutcome, _observed_ats
-from app.master.service import _steps
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.domain.plan import ExecutionPlan
+from app.master.domain.run_response import steps as _steps
+from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome
+from app.master.report import walk_summary
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.service.scheduler import _observed_ats
 
 AS_OF = date(2026, 9, 12)
 
@@ -404,7 +406,9 @@ def test_세_번째_칸을_지금_만들지_않는다() -> None:
 # ---------------------------------------------------------------------------
 
 
-_요약파일 = Path(backtest_runner.__file__)
+#: ★ 2026-09-30 재구성 BL-018: 옛 `backtest_runner.py` 가 걷기(`cli/backtest_runner.py`)와 요약 짓기
+#:   (`report/walk_summary.py`) 둘로 갈렸다 — **둘을 함께** 잰다.
+_요약파일들 = (Path(walk_summary.__file__), Path(cli_backtest_runner.__file__))
 
 
 def _문자열들(source: str) -> list[str]:
@@ -425,14 +429,16 @@ def test_두_칸의_이름을_요약이_두_번_적지_않는다() -> None:
     ★ **자기 생존 검사를 같이 둔다.** 스캐너가 문자열을 실제로 찾는지부터 본다 —
       안 그러면 0건을 세는 날 공짜 초록이 난다.
     """
-    문자열 = [_NFC(one) for one in _문자열들(_요약파일.read_text(encoding="utf-8"))]
+    문자열 = [
+        _NFC(one) for 파일 in _요약파일들 for one in _문자열들(파일.read_text(encoding="utf-8"))
+    ]
 
     assert 문자열, "스캐너가 문자열을 한 개도 못 찾았다 — 아래 단언은 공짜 초록이다"
     assert any(_NFC("관측시점") in one for one in 문자열), (
         "스캐너가 요약의 관측시점 줄을 못 찾았다 — 스캐너가 망가졌거나 줄이 사라졌다"
     )
 
-    for 이름 in backtest_runner._OBSERVED_AT_LABELS:
+    for 이름 in walk_summary._OBSERVED_AT_LABELS:
         적힌수 = sum(1 for one in 문자열 if one.strip() == _NFC(이름))
         assert 적힌수 == 1, (
             f"요약 모듈이 '{이름}' 를 {적힌수} 번 적는다 — 주인은 _OBSERVED_AT_LABELS 하나다"
@@ -441,4 +447,4 @@ def test_두_칸의_이름을_요약이_두_번_적지_않는다() -> None:
 
 def test_두_칸뿐이다() -> None:
     """🔴 세 번째 칸을 늘리려면 이 줄부터 고쳐야 한다 — 조용히 안 는다."""
-    assert backtest_runner._OBSERVED_AT_LABELS == ("실었다", "안쟀다")
+    assert walk_summary._OBSERVED_AT_LABELS == ("실었다", "안쟀다")

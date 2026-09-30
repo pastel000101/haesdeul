@@ -1421,7 +1421,7 @@ def test_마스터가_실제로_합성한_check_와_키가_맞는다(wired):
     Critic 은 `inputs_used.get(chk.check_id, ())` 로 대조하므로, 여기서 어긋나면
     검사가 돌면서 빈 튜플을 보고 **조용히 통과**한다 (`critic_v0_4.py:643`).
     """
-    from app.master.critic_bridge import _replies_in
+    from app.master.adapters.critic_bridge import _replies_in
 
     reply, meta = adapter.logistics_port(req())
     synthesized = _replies_in({"inventory": reply.payload}, {"inventory": reply.evidences})
@@ -1520,7 +1520,7 @@ def test_빈_inputs_used_가_경계_관측을_덮지_않는다(wired, stocked):
     """마스터가 두 mode 의 관측을 **합쳐서** 나른다 (`critic_bridge._dept_meta_in`).
     시나리오 관측의 빈 `inputs_used` 가 마지막이라 경계 것을 덮으면, 검사가 돌면서
     아무것도 안 보게 된다."""
-    from app.master.critic_bridge import _dept_meta_in
+    from app.master.adapters.critic_bridge import _dept_meta_in
 
     _, pre_meta = adapter.logistics_port(req())
     _, sv_meta = adapter.logistics_port(

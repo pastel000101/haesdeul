@@ -19,19 +19,19 @@ from uuid import UUID, uuid4
 import pytest
 
 from app.core import clock
-from app.master import backfill, decision
-from app.master.backfill import (
+from app.master.domain import decision as domain_decision
+from app.master.domain.backfill import (
     ALWAYS_BASE,
     ALWAYS_FIXED_TYPE,
-    AUTO_BACKFILL,
-    BACKFILL_BOUNDARY_AS_OF,
     BackfillRule,
     BackfillRuleMissing,
     SalesBackfillRule,
-    backfill_decisions,
     read_rules,
 )
-from app.master.decision import SALES_CYCLE, DecisionIn, DecisionOut, DecisionRejected
+from app.master.domain.decision import AUTO_BACKFILL, SALES_CYCLE
+from app.master.schemas.decision import DecisionIn, DecisionOut, DecisionRejected
+from app.master.service import backfill as service_backfill
+from app.master.service.backfill import BACKFILL_BOUNDARY_AS_OF, backfill_decisions
 
 기본 = "기본"
 공격 = "공격"
@@ -716,7 +716,7 @@ def _코드만(source: str) -> str:
 
 
 def _백필_코드() -> str:
-    return _코드만(Path(backfill.__file__).read_text(encoding="utf-8"))
+    return _코드만(Path(service_backfill.__file__).read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize(
@@ -741,7 +741,7 @@ def test_축을_읽는_함수에도_축_이름이_박혀_있지_않다(축이름
     ★ 그 함수의 주인은 `decision` 이다 — *"응답에서 무엇을 읽는가"* 의 주인을 둘로
       만들지 않으려고 거기 뒀고, 그러면 잠금도 거기까지 따라가야 한다.
     """
-    코드 = _코드만(Path(decision.__file__).read_text(encoding="utf-8"))
+    코드 = _코드만(Path(domain_decision.__file__).read_text(encoding="utf-8"))
 
     assert 축이름 not in 코드, f"decision 코드에 판매 축 이름 '{축이름}' 이 박혀 있다"
 
@@ -764,7 +764,7 @@ def test_승인_문을_우회하지_않는다() -> None:
 
     백필 승인도 사람 승인과 같은 검사 · 같은 재검증 · 같은 이력을 지나야 한다.
     """
-    원문 = Path(backfill.__file__).read_text(encoding="utf-8")
+    원문 = Path(service_backfill.__file__).read_text(encoding="utf-8")
     코드 = _코드만(원문)
 
     for 우회 in ("save_decision", "apply_approval", "confirm_approved_sale", "revalidate_scenario"):

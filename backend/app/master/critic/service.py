@@ -30,7 +30,6 @@ from app.contracts.core import (
     T0Snapshot,
     T2Reply,
 )
-from app.master.band import clip_all, combine_band
 from app.master.critic.critic_v0_4 import (
     CriticVerdictV04,
     DeptMeta,
@@ -47,7 +46,8 @@ from app.master.critic.schemas import (
     FindingOut,
     ScenarioIn,
 )
-from app.master.outbound import clip_allocations, combine_outbound_band
+from app.master.domain.band import clip_all, combine_band
+from app.master.domain.outbound import clip_allocations, combine_outbound_band
 
 
 def _snapshot(req: CriticProcurementRequest) -> T0Snapshot:

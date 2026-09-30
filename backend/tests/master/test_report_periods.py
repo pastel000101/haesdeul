@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.master.ask_service import _period
+from app.master.domain.ask_parsers import period_of as _period
 from app.master.llm.schemas import DomainSlots, Intent
 
 

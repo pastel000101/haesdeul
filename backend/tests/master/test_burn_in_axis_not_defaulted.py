@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID
 
 BACKEND = Path(__file__).resolve().parents[2]
 
@@ -41,9 +41,13 @@ _NAME = "BURN_IN_SIM_RUN_ID"
 #: 🔴 **명시적으로 남기기로 한 자리.** `(파일, 모양, 이름)` → 남기는 이유.
 #:   여기 있는 것은 *"번인으로 떨어지는 것을 안다"* 이지 *"괜찮다"* 가 아니다.
 ALLOWED: dict[tuple[str, str, str], str] = {
-    ("ledger_repository.py", "default", "get_burn_in"): (
+    # ★ 2026-09-30 재구성 BL-018: `ledger_repository.py` 의 이 함수는 `readmodel/ledger.py` 로
+    #   옮겼다(SELECT 는
+    #   `repository/ledger.py`). 파일은 `app/master/` 아래 상대 경로로 적는다 — 같은 이름
+    # `ledger.py` 가 셋이다.
+    ("readmodel/ledger.py", "default", "get_burn_in"): (
         "이름부터 번인 전용 읽기다. `sim_runs` · `daily_closings` SELECT 둘뿐이고 쓰지 않는다."
-        " 기본값을 쓰는 호출자는 번인 화면(`service.get_burn_in_history`) 하나다"
+        " 기본값을 쓰는 호출자는 번인 화면(`readmodel/history.get_burn_in_history`) 하나다"
     ),
 }
 
@@ -75,12 +79,21 @@ def _scan() -> tuple[int, list[tuple[str, str, str, int]]]:
                 name = getattr(node, "name", "<lambda>")
                 defaults = [*node.args.defaults, *node.args.kw_defaults]
                 if any(_is_burn_in(d) for d in defaults):
-                    found.append((path.name, "default", name, node.lineno))
+                    found.append(
+                        (path.relative_to(SCAN_ROOT).as_posix(), "default", name, node.lineno)
+                    )
             elif isinstance(node, ast.Call):
                 if any(_is_burn_in(kw.value) for kw in node.keywords) or any(
                     _is_burn_in(arg) for arg in node.args
                 ):
-                    found.append((path.name, "call", _call_name(node), node.lineno))
+                    found.append(
+                        (
+                            path.relative_to(SCAN_ROOT).as_posix(),
+                            "call",
+                            _call_name(node),
+                            node.lineno,
+                        )
+                    )
     return len(files), found
 
 

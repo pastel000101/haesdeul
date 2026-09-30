@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self
@@ -25,13 +26,18 @@ from uuid import uuid4
 import pytest
 
 from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
-from app.master import decision_service as svc
-from app.master import ledger, transition
-from app.master.backtest_runner import walk
-from app.master.decision import AUTO_BACKFILL, DecisionIn, DecisionOut
-from app.master.ledger_repository import BURN_IN_SIM_RUN_ID
-from app.master.scheduler import DayRunOutcome, ScheduledAction
-from app.master.sim_run import build_sim_run_id, create_sim_run
+from app.master.cli.backtest_runner import walk
+from app.master.domain import ledger as domain_ledger
+from app.master.domain import purchase_ids as domain_purchase_ids
+from app.master.domain.decision import AUTO_BACKFILL
+from app.master.domain.scheduler import DayRunOutcome, ScheduledAction
+from app.master.domain.sim_run import BURN_IN_SIM_RUN_ID, build_sim_run_id
+from app.master.readmodel import approvals
+from app.master.registry import transition as registry_transition
+from app.master.repository.sim_runs import create_sim_run
+from app.master.schemas.decision import DecisionIn, DecisionOut
+from app.master.service import decision
+from app.master.service import transition as service_transition
 
 AS_OF = date(2025, 12, 31)
 
@@ -72,7 +78,7 @@ class _달력:
 
 
 def _게이트(as_of: date) -> Any:
-    from app.master.forecast_gate import DayForecastReadiness
+    from app.master.domain.forecast_gate import DayForecastReadiness
 
     return DayForecastReadiness(as_of=as_of, readiness="ALL_READY", items=())
 
@@ -149,7 +155,7 @@ def test_걷기가_받은_축을_하루_실행까지_그대로_나른다() -> No
 
 def test_걷기_원문이_번인_상수를_안_든다() -> None:
     """★ **자기 생존.** 위 검사가 통과해도, 상수를 몰래 섞어 쓰는 갈래가 있으면 안 된다."""
-    원문 = _벗긴_원문(_MASTER / "backtest_runner.py")
+    원문 = _벗긴_원문(_MASTER / "cli" / "backtest_runner.py")
 
     assert "BURN_IN_SIM_RUN_ID" not in 원문, "걷기가 실행 축 상수를 스스로 든다"
 
@@ -182,8 +188,8 @@ def _commitment(*, payment_due_date: date | None = AS_OF) -> ApprovedCommitment:
 
 def test_원장이_받은_축을_돌려준다() -> None:
     """🔴 **상수를 안 읽는다.** 읽으면 부르는 쪽이 무엇을 지정하든 소용이 없다."""
-    assert ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) == 실행축
-    assert ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) != BURN_IN_SIM_RUN_ID
+    assert domain_ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) == 실행축
+    assert domain_ledger.sim_run_id_for(_commitment(), sim_run_id=실행축) != BURN_IN_SIM_RUN_ID
 
 
 @pytest.mark.parametrize("없는_축", [None, "", "   "])
@@ -194,20 +200,26 @@ def test_축을_못_받으면_원장이_터진다(없는_축: str | None) -> Non
       **아무 오류도 안 낸다** — 여기서 막지 않으면 아무 데서도 안 막힌다.
     """
     with pytest.raises(ValueError, match="sim_run_id"):
-        ledger.sim_run_id_for(_commitment(), sim_run_id=없는_축)
+        domain_ledger.sim_run_id_for(_commitment(), sim_run_id=없는_축)
 
 
 def test_원장_원문이_번인_상수를_안_든다() -> None:
     """★ **자기 생존.** `sim_run_id_for` 가 상수를 다시 읽으면 여기서 걸린다."""
-    원문 = _벗긴_원문(_MASTER / "ledger.py")
+    # ★ 2026-09-30 재구성 BL-018: 원장 쓰기가 행 짓기(domain)와 적재(repository) 둘로 갈렸다 — 함께
+    #   잰다.
+    원문 = _벗긴_원문(_MASTER / "domain" / "ledger.py") + _벗긴_원문(
+        _MASTER / "repository" / "ledger.py"
+    )
 
     assert "BURN_IN_SIM_RUN_ID" not in 원문, "매입 원장이 실행 축 상수를 스스로 든다"
 
 
 def test_원장_행이_받은_축을_싣는다() -> None:
     """★ 함수가 값을 돌려주는 것과 **행에 실리는 것**은 다른 사실이다."""
-    purchase_ids = {1: transition.purchase_id_for(_commitment(), 1)}
-    행들 = ledger.build_purchase_rows(_commitment(), purchase_ids=purchase_ids, sim_run_id=실행축)
+    purchase_ids = {1: domain_purchase_ids.purchase_id_for(_commitment(), 1)}
+    행들 = domain_ledger.build_purchase_rows(
+        _commitment(), purchase_ids=purchase_ids, sim_run_id=실행축
+    )
 
     assert [row.sim_run_id for row in 행들] == [실행축]
 
@@ -293,9 +305,9 @@ def _응답() -> dict[str, Any]:
 def _승인한다(monkeypatch: pytest.MonkeyPatch, *, 실행행_축: str | None) -> tuple[Any, _가짜커넥션]:
     """결정 경로를 대역으로 태우고 **실행 행이 실은 축**만 갈아 끼운다."""
     conn = _가짜커넥션()
-    transition.reset()
-    transition.register_transition("finance", _가짜전이("finance"))
-    transition.register_transition("logistics", _가짜전이("logistics"))
+    registry_transition.reset()
+    registry_transition.register_transition("finance", _가짜전이("finance"))
+    registry_transition.register_transition("logistics", _가짜전이("logistics"))
 
     def _run_for(request_id: str, history_run_id: str | None) -> dict[str, Any]:
         return {
@@ -313,12 +325,14 @@ def _승인한다(monkeypatch: pytest.MonkeyPatch, *, 실행행_축: str | None)
             **kw,
         )
 
-    real_apply = transition.apply_approval
-    monkeypatch.setattr(svc, "_run_for", _run_for)
-    monkeypatch.setattr(svc, "list_decisions", lambda request_id: [])
-    monkeypatch.setattr(svc, "save_decision", _save)
+    real_apply = service_transition.apply_approval
+    monkeypatch.setattr(approvals, "run_for", _run_for)
+    monkeypatch.setattr(decision, "run_for", _run_for)
+    monkeypatch.setattr(approvals, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "list_decisions", lambda request_id: [])
+    monkeypatch.setattr(decision, "save_decision", _save)
     monkeypatch.setattr(
-        svc,
+        decision,
         "apply_approval",
         lambda commitment, *, sim_run_id, **_: real_apply(
             commitment, sim_run_id=sim_run_id, borrow=lambda: conn
@@ -328,11 +342,11 @@ def _승인한다(monkeypatch: pytest.MonkeyPatch, *, 실행행_축: str | None)
     #   전이를 부르지 않고 실매입 기록을 기다린다 — 승인 즉시 원장까지 가는 경로는
     #   자동 승인이고, 이 판이 재는 것은 그 경로의 축이다. 기록 경로의 축은
     #   `test_purchase_record.py` 가 잰다.
-    out = svc.record_decision(
+    out = decision.record_decision(
         "REQ-1",
         DecisionIn(decision="APPROVE", scenario_label="보수", decided_by=AUTO_BACKFILL),
     )
-    transition.reset()
+    registry_transition.reset()
     return out, conn
 
 
@@ -430,9 +444,12 @@ def test_실행_모듈이_이름을_파싱하지_않는다() -> None:
     ⚠️ 구분자가 붙은 이름(`SIM-WALK-202601-재시도`) 하나로 판정이 갈리고, 그때는
       이름을 못 바꾼다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_runs.py")
 
-    for 금지 in (".split(", ".rsplit(", ".partition(", ".startswith(", ".endswith(", "re."):
+    # ★ 2026-09-30 재구성 BL-018: `re` 모듈 사용은 단어 경계로 잰다 — 글자 `re.` 는
+    #   `app.core.settings` 의 «co`re.`» 에도 걸린다.
+    assert not re.search(r"\bre\.", 원문), "이름을 정규식으로 되읽는다"
+    for 금지 in (".split(", ".rsplit(", ".partition(", ".startswith(", ".endswith("):
         assert 금지 not in 원문, f"실행 이름을 되읽는다: {금지}"
 
 
@@ -455,19 +472,25 @@ def test_실행을_만드는_자리가_커넥션을_스스로_안_연다() -> No
     """🔴 **커넥션은 인자다.** 안에서 열면 이 검사들이 실 DB 로 나가고, 이 판이
     *"DB 에 한 행도 안 쓴다"* 를 못 지킨다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_runs.py")
 
     assert "get_connection" not in 원문, "실행을 만드는 자리가 커넥션을 스스로 연다"
     # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문은 공통 풀(`app.core.db`)이다 — 그것도 없다.
+    # ★ 2026-09-30 재구성 BL-018: 스키마 이름은 설정 원천(`app.core.settings`)에서 받는다 — 막는
+    #   것은
+    #   연결 대여다(`app.core.db` · `core_db` · `from app.core import db`).
     assert "core_db" not in 원문, "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
-    assert "app.core" not in 원문, "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
+    assert "app.core.db" not in 원문, "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
+    assert "from app.core import db" not in 원문, (
+        "실행을 만드는 자리가 풀에서 커넥션을 스스로 빌린다"
+    )
 
 
 def test_실행_시각을_모듈이_안_읽는다() -> None:
     """★ `started_at` · `finished_at` 도 인자다 — 여기서 시계를 읽으면 같은 실행을
     두 번 만들 때 값이 갈리고, 그 사실이 어디에도 안 남는다.
     """
-    원문 = _벗긴_원문(_MASTER / "sim_run.py")
+    원문 = _벗긴_원문(_MASTER / "repository" / "sim_runs.py")
 
     for 금지 in ("now(", "utcnow(", "today(", "seoul_now"):
         assert 금지 not in 원문, f"실행을 만드는 자리가 시계를 읽는다: {금지}"

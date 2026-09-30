@@ -61,9 +61,9 @@ from decimal import Decimal
 from typing import Any
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
-from app.master import wiring
-from app.master.schemas import SalesRunRequest
-from app.master.service import _sales_user_request, run_sales
+from app.master.registry import wiring as registry_wiring
+from app.master.schemas.sales import SalesRunRequest
+from app.master.service.sales import _sales_user_request, run_sales
 from app.sales.schemas.proposal import SalesUserRequest
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
@@ -107,10 +107,10 @@ def _나르는_칸() -> set[str]:
       진입점이 그 함수를 안 부르게 되는 날에도 이 검사가 초록이다.
     """
     잡은_것: list[tuple[str, dict[str, Any]]] = []
-    wiring.reset()
-    wiring.register("inventory", _port(PRE_SALES_PAYLOAD, 잡은_것))
-    wiring.register("sales", _port({"scenarios": []}, 잡은_것))
-    wiring.register("finance", _port({"verdict": "ok"}, 잡은_것))
+    registry_wiring.reset()
+    registry_wiring.register("inventory", _port(PRE_SALES_PAYLOAD, 잡은_것))
+    registry_wiring.register("sales", _port({"scenarios": []}, 잡은_것))
+    registry_wiring.register("finance", _port({"verdict": "ok"}, 잡은_것))
 
     run_sales(
         SalesRunRequest(

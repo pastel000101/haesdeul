@@ -32,17 +32,22 @@ from typing import Any, Self
 
 import pytest
 
-from app.master import backtest_runner, scheduler, sim_run_runner, walk_provenance
-from app.master.backtest_runner import WalkResult, format_summary, walk
-from app.master.forecast_gate import DayForecastReadiness, ItemForecastGate
-from app.master.scheduler import DayRunOutcome, ItemRunOutcome, plan_next_action
-from app.master.sim_run_runner import PROVENANCE_CONFIG_KEY
-from app.master.walk_provenance import (
+from app import core
+from app.master.cli import backtest_runner as cli_backtest_runner
+from app.master.cli import sim_run_runner as cli_sim_run_runner
+from app.master.cli.backtest_runner import walk
+from app.master.domain import scheduler as domain_scheduler
+from app.master.domain.forecast_gate import DayForecastReadiness, ItemForecastGate
+from app.master.domain.scheduler import DayRunOutcome, ItemRunOutcome, plan_next_action
+from app.master.domain.sim_run import PROVENANCE_CONFIG_KEY
+from app.master.report import walk_summary
+from app.master.report.walk_summary import WalkResult, format_summary
+from app.master.repository.walk_provenance import (
     WALKED_NOW_KEY,
     WalkedNowConflict,
-    record_walked_now,
     stamp_walked_now,
 )
+from app.master.service.walk_provenance import record_walked_now
 
 _MASTER = Path(__file__).resolve().parents[2] / "app" / "master"
 
@@ -156,10 +161,10 @@ def test_마감_시각은_scheduler_에서_읽는다(monkeypatch: pytest.MonkeyP
 
     ★ 원문을 안 읽는다 — **주인의 값을 바꿨을 때 요약이 따라오는지**를 잰다.
     """
-    monkeypatch.setattr(scheduler, "SCHEDULE_DEADLINE", time(8, 0))
+    monkeypatch.setattr(domain_scheduler, "SCHEDULE_DEADLINE", time(8, 0))
     뒤로바뀜 = _기준시각줄(_요약(마감전))
 
-    monkeypatch.setattr(scheduler, "SCHEDULE_DEADLINE", time(17, 0))
+    monkeypatch.setattr(domain_scheduler, "SCHEDULE_DEADLINE", time(17, 0))
     전으로바뀜 = _기준시각줄(_요약(마감뒤))
 
     assert 뒤로바뀜.endswith(_NFC("마감 08:00 뒤")), 뒤로바뀜
@@ -199,7 +204,7 @@ def test_요약의_전_뒤가_걷기가_실제로_기다린_것과_같다(받은
     """
     하루 = date(2026, 2, 9)
     판단 = plan_next_action(
-        now=backtest_runner._moment_on(하루, datetime.fromisoformat(받은)),
+        now=walk_summary.moment_on(하루, datetime.fromisoformat(받은)),
         as_of=하루,
         calendar=_늘_서는_시장(),
         ml_batch=_배치가_도는_날(),
@@ -371,10 +376,10 @@ def test_진입점이_받은_문자열을_그대로_넘긴다(monkeypatch: pytes
         받음.update(kwargs)
         return WalkResult(start=kwargs["start"], end=kwargs["end"], walked_now=kwargs["walked_now"])
 
-    monkeypatch.setattr(backtest_runner, "walk", _대역)
-    monkeypatch.setattr(backtest_runner, "wire_registries", lambda: None)
+    monkeypatch.setattr(cli_backtest_runner, "walk", _대역)
+    monkeypatch.setattr(cli_backtest_runner, "wire_registries", lambda: None)
 
-    backtest_runner.main(
+    cli_backtest_runner.main(
         ["--sim-run-id", 실행축, "--start", "2026-01-05", "--end", "2026-01-09", "--now", 마감전]
     )
 
@@ -538,7 +543,7 @@ def test_재고_쓰는_자리는_커밋하지_않는다() -> None:
 
 def test_기본_기록은_한_번_커밋하고_닫는다(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _대역커넥션(_연_설정())
-    monkeypatch.setattr(walk_provenance.core_db, "connection", lambda: conn)
+    monkeypatch.setattr(core.db, "connection", lambda: conn)
 
     답 = record_walked_now(sim_run_id=실행축, walked_now=마감뒤)
 
@@ -548,7 +553,7 @@ def test_기본_기록은_한_번_커밋하고_닫는다(monkeypatch: pytest.Mon
 
 def test_기본_기록이_막히면_되돌리고_닫는다(monkeypatch: pytest.MonkeyPatch) -> None:
     conn = _대역커넥션(_연_설정(walked_now=마감뒤))
-    monkeypatch.setattr(walk_provenance.core_db, "connection", lambda: conn)
+    monkeypatch.setattr(core.db, "connection", lambda: conn)
 
     with pytest.raises(WalkedNowConflict):
         record_walked_now(sim_run_id=실행축, walked_now=마감전)
@@ -561,12 +566,18 @@ def test_기본_기록이_막히면_되돌리고_닫는다(monkeypatch: pytest.M
 
 def test_문이_기준_시각을_안_받는다() -> None:
     """🔴 **걷기가 쓴다 — 문이 안 받는다.** 여는 자리에서 받으면 실제로 건 값과 갈린다."""
-    문 = _벗긴_원문(_MASTER / "sim_run_runner.py")
-    쓰는자리 = _벗긴_원문(_MASTER / "walk_provenance.py")
+    # ★ 2026-09-30 재구성 BL-018: 문은 CLI + 여는 service, 쓰는 자리는 service + repository 로
+    #   갈렸다.
+    문 = _벗긴_원문(_MASTER / "cli" / "sim_run_runner.py") + _벗긴_원문(
+        _MASTER / "service" / "sim_run.py"
+    )
+    쓰는자리 = _벗긴_원문(_MASTER / "service" / "walk_provenance.py") + _벗긴_원문(
+        _MASTER / "repository" / "walk_provenance.py"
+    )
 
     assert "WALKED_NOW_KEY" in 쓰는자리, "쓰는 자리에서도 못 찾는다 — 이 검사가 아무것도 안 쟀다"
     assert WALKED_NOW_KEY not in 문 and "WALKED_NOW_KEY" not in 문, "문이 기준 시각을 안다"
 
-    받는칸 = {action.dest for action in sim_run_runner._parser()._actions}
+    받는칸 = {action.dest for action in cli_sim_run_runner._parser()._actions}
     assert "sim_run_id" in 받는칸, "문의 인자를 못 읽었다 — 이 검사가 아무것도 안 쟀다"
     assert not {"now", "walked_now"} & 받는칸, f"문이 기준 시각을 인자로 받는다: {받는칸}"

@@ -51,11 +51,11 @@ from fastapi.testclient import TestClient
 import app.main  # import 시점에 판매 어댑터를 등록한다. §5 의 전제다
 from app.contracts.core import SuggestedAdjustment
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionContext, ExecutionMetadata
-from app.master import wiring
-from app.master.budget import CallBudget
-from app.master.ports import AgentRegistry
-from app.master.runner import MasterRunner
-from app.master.sales_flow import MAX_FEEDBACK_ATTEMPTS, SalesFlow
+from app.master.registry import wiring as registry_wiring
+from app.master.registry.ports import AgentRegistry
+from app.master.service.budget import CallBudget
+from app.master.service.runner import MasterRunner
+from app.master.service.sales_flow import MAX_FEEDBACK_ATTEMPTS, SalesFlow
 from app.sales.schemas.proposal import SalesFeedback, SalesProposalInput, SalesProposalReply
 from tests.master.logistics_pre_sales import PRE_SALES_PAYLOAD
 
@@ -437,8 +437,8 @@ def 판매가_받은_것(
 
     monkeypatch.setattr(proposal_generation, "run_proposal", 감시)
     monkeypatch.setattr(proposal_generation, "_record_run", lambda *a, **kw: None)
-    wiring.register("inventory", _대역(PRE_SALES_PAYLOAD))
-    wiring.register(
+    registry_wiring.register("inventory", _대역(PRE_SALES_PAYLOAD))
+    registry_wiring.register(
         "finance",
         _대역(
             {"finance_verdict": "FAIL"},

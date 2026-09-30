@@ -21,9 +21,9 @@ from __future__ import annotations
 
 from datetime import date
 
-from app.master.answer import facts_from_procurement
-from app.master.report import render_report
-from app.master.verifier import MasterVerifier
+from app.master.domain import verifier as domain_verifier
+from app.master.domain.answer import facts_from_procurement
+from app.master.report.purchase_report import render_report
 
 
 class _Response:
@@ -113,7 +113,7 @@ def test_검증이_판정_못_받은_사실에_운다():
     """`plan.called()` 는 '불렀나' 만 본다 — 답을 못 받은 것은 따로 봐야 한다."""
     concerns: list[str] = []
 
-    MasterVerifier()._check_advisor_answered({"inventory": _AS_OF_MISMATCH}, concerns)
+    domain_verifier._check_advisor_answered({"inventory": _AS_OF_MISMATCH}, concerns)
 
     assert len(concerns) == 1
     assert "ADVISOR-NO-VERDICT" in concerns[0]
@@ -124,7 +124,7 @@ def test_검증은_모르는_라벨을_다르게_적는다():
     """고칠 곳이 다르다 — 앞은 그 부서, 뒤는 **마스터의 어휘가 낡은 것**이다."""
     concerns: list[str] = []
 
-    MasterVerifier()._check_advisor_answered(
+    domain_verifier._check_advisor_answered(
         {"finance": {"business_status": "???", "runtime_status": "READY"}}, concerns
     )
 
@@ -135,7 +135,7 @@ def test_검증은_모르는_라벨을_다르게_적는다():
 def test_정상_판정에는_울지_않는다():
     concerns: list[str] = []
 
-    MasterVerifier()._check_advisor_answered(
+    domain_verifier._check_advisor_answered(
         {
             "finance": {"business_status": "ok", "runtime_status": "READY"},
             "inventory": {"business_status": "conditional", "runtime_status": "READY"},

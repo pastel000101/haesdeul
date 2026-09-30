@@ -276,7 +276,7 @@ def test_current_n5_zero_makes_due_date_equal_purchase_date():
 
 def test_master_purchase_due_date_and_finance_payable_due_date_match():
     """같은 회차의 Master 구매원장 날짜와 Finance 채무 날짜는 같은 N5 식이다."""
-    from app.master.commitment import build_commitment
+    from app.master.domain.commitment import build_commitment
 
     purchase_date = date(2026, 1, 2)
     n5 = 2
@@ -727,7 +727,7 @@ def test_adapter_matches_the_merged_master_protocol_call_shape():
     ★ 마스터 내부(`purchase_id_for` 등)를 여기서 다시 시험하지 않는다 — 그건 마스터
       몫이다. 여기서 보는 것은 **호출 모양이 어긋나지 않는가** 하나뿐이다.
     """
-    from app.master.transition import FinanceTransition as MasterFinanceProtocol
+    from app.master.registry.transition import FinanceTransition as MasterFinanceProtocol
 
     # `isinstance` 는 쓰지 않는다 — 마스터 Protocol 은 `@runtime_checkable` 이 아니고,
     # 그걸 붙이자고 마스터 파일을 고칠 일은 아니다. 계약은 **호출 모양**이다.

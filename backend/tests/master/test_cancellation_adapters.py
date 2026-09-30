@@ -29,7 +29,7 @@ from app.contracts.commitment import ApprovedCommitment, ArrivalLeg
 from app.logistics.adapter import LogisticsCancellationAdapter
 from app.logistics.domain.transition import inbound_ids_of
 from app.logistics.service.cancellation import withdraw_inventory
-from app.master.finance_cancellation import FinanceCancellationAdapter
+from app.master.adapters.finance_parts import FinanceCancellationAdapter
 
 APPROVED_ON = date(2026, 1, 5)
 CANCELLED_ON = date(2026, 1, 7)
@@ -375,7 +375,7 @@ def test_재무에_취소일을_as_of_로_넘긴다(monkeypatch: pytest.MonkeyPa
     def 가짜(conn: Any, **kw: Any) -> None:
         받은것.update(kw)
 
-    monkeypatch.setattr("app.master.finance_cancellation.cancel_finance_payables", 가짜)
+    monkeypatch.setattr("app.master.adapters.finance_parts.cancel_finance_payables", 가짜)
 
     FinanceCancellationAdapter().cancel(
         object(),
@@ -395,7 +395,7 @@ def test_재무에_회차_순서대로_id_를_넘긴다(monkeypatch: pytest.Monk
     """★ 재무는 `Sequence[str]` 를 받고 `seq` 를 안 본다 — **순서가 유일한 단서**다."""
     받은것: dict[str, Any] = {}
     monkeypatch.setattr(
-        "app.master.finance_cancellation.cancel_finance_payables",
+        "app.master.adapters.finance_parts.cancel_finance_payables",
         lambda conn, **kw: 받은것.update(kw),
     )
 
@@ -415,7 +415,7 @@ def test_회차가_없으면_재무를_안_부른다(monkeypatch: pytest.MonkeyP
     """★ 빈 목록을 넘기면 재무가 *"요청 집합이 비었다"* 를 판단할 자리를 만들게 된다."""
     불렸나 = []
     monkeypatch.setattr(
-        "app.master.finance_cancellation.cancel_finance_payables",
+        "app.master.adapters.finance_parts.cancel_finance_payables",
         lambda conn, **kw: 불렸나.append(kw),
     )
 
@@ -446,9 +446,9 @@ def test_main_이_두_파트를_다_등록한다():
     """
     import pathlib
 
-    from app.master import bootstrap
+    from app.master.registry import bootstrap as registry_bootstrap
 
-    원문 = pathlib.Path(bootstrap.__file__).read_text(encoding="utf-8")
+    원문 = pathlib.Path(registry_bootstrap.__file__).read_text(encoding="utf-8")
 
     assert 'register_cancellation("finance"' in 원문
     assert '"logistics",\n        SimRunBound(lambda axis: LogisticsCancellationAdapter' in 원문, (
@@ -478,7 +478,7 @@ def test_재무_어댑터가_financing_mode_를_받는다(monkeypatch: pytest.Mo
     """Master가 읽은 권위 축을 Finance core에 한 글자도 바꾸지 않고 넘긴다."""
     받은것: dict[str, Any] = {}
     monkeypatch.setattr(
-        "app.master.finance_cancellation.cancel_finance_payables",
+        "app.master.adapters.finance_parts.cancel_finance_payables",
         lambda conn, **kw: 받은것.update(kw),
     )
 
