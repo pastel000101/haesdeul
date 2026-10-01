@@ -802,7 +802,7 @@ class ProcurementFlow:
                                   고쳐질 수 있는 것을 안 고치고 끝낸다
 
           재무 `INPUT_INCOMPLETE` 가 바로 ③이다 — *"제안에 사실이 빠진 것은 재무
-          고장이 아니다"* (`finance/application/orchestration.py:153`). 제안이 바뀌면
+          고장이 아니다"* (`finance/service/agent.py`). 제안이 바뀌면
           채워질 수 있으므로 **기존 재호출 경로에 그대로 둔다.**
 
         ★ 여기 걸리면 매입을 다시 불러도 같은 답이 온다. 재호출은 호출 예산과 LLM 만

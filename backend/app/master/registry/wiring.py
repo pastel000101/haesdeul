@@ -45,6 +45,9 @@ finance    FINANCIAL_VALIDATION 이 최종 재검증 필수 capability 다
 🔴 **`purchase` 도 넣지 않는다.** 부족량이 있는 후보에만 필요한 **조건부**이고,
   지금은 `CAPABILITY_ROUTING["ADDITIONAL_SUPPLY_CONTEXT"]` 가 `None` 이라 아예 안
   불린다. 조건부 대상을 문 앞 필수로 올리면 안 부르는 날에도 판매가 선다.
+  (2026-10-01 정정: «`None` 이라 안 불린다» 는 지금 사실이 아니다 — 라우팅은
+  `contracts/envelope.py` 의 `CAPABILITY_ROUTING` 에서 매입 `SUPPLY_CAPACITY_QUERY` 로 열려 있다.
+  조건부라 문 앞 필수로 올리지 않는다는 판단은 그대로다.)
 
 ⚠️ `REQUIRED_FOR_PROCUREMENT` 와 **겹치지만 같은 목록이 아니다.** 매입은 조언자
   둘 + 제안자이고 판매는 제안자 + 검증자다 — 한쪽을 다른 쪽으로 대신 쓰면 판매가

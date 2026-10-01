@@ -67,7 +67,7 @@ def _commitment() -> ApprovedCommitment:
 #
 # 🔴 **여기서 매입 줄을 지어내는 것이 아니다.** 같은 트랜잭션 안에서
 #    `persist_purchases` 가 이미 `purchase_items` 를 썼고, 물류는 그것을
-#    `purchase_id` 로 되읽는다 (`app/master/transition.py` 의 호출 순서 주석).
+#    `purchase_id` 로 되읽는다 (`app/master/service/transition.py` 의 호출 순서 주석).
 #    가짜 커넥션은 방금 쓴 것을 기억하지 않으므로, 그 한 줄을 여기서 답한다.
 매입줄 = {
     "purchase_item_id": "PI-BURNIN-1",

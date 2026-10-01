@@ -1,7 +1,7 @@
 # mainproject
 
 FastAPI 앱과 Next.js 앱을 컨테이너로 빌드해, 사내/집 Windows PC에 self-hosted
-러너로 배포합니다. Nginx가 외부 요청을 Frontend와 Backend로 전달합니다.
+러너로 배포합니다. Frontend 컨테이너 안의 Nginx가 외부 요청을 Frontend와 Backend로 전달합니다.
 
 ## 구조
 
@@ -10,13 +10,15 @@ FastAPI 앱과 Next.js 앱을 컨테이너로 빌드해, 사내/집 Windows PC�
 | `.github/workflows/ci-cd.yml` | CI → 이미지 빌드 → 배포 파이프라인 |
 | `backend/Dockerfile` | 앱 이미지 정의 (python:3.12-slim + uvicorn) |
 | `backend/app/main.py` | FastAPI 앱. `/health`는 배포 판정 기준이므로 유지하세요 |
+| `backend/app/` | 부서 폴더(`finance` · `logistics` · `sales` · `purchase_agent` · `ml` · `master`)마다 `schemas` · `domain` · `repository` · `readmodel` · `service` 계층, HTTP 입구는 전부 `api/`, 공용 기반은 `core/` · 부서 간 계약은 `contracts/` |
+| `backend/scripts/` | 운영 · 구축 스크립트 (새 DB 구축 `apply_sql.py --new-database` 등) |
 | `backend/pyproject.toml` | 백엔드 프로젝트 및 의존성, Ruff, pytest 설정 |
 | `backend/uv.lock` | CI와 Docker에서 사용하는 고정 의존성 lockfile |
 | `frontend/` | Next.js, TypeScript, Tailwind CSS 기반 Frontend |
-| `database/` | 데이터베이스 프로젝트 시작 위치. 현재 기능 미구현 |
+| `database/` | PostgreSQL 정의 — `schema/`(부서 폴더 · 객체별 파일, 새 DB 의 최종 정의) · `migrations/`(기존 DB 갱신용) · `seed/`. 새 DB 순서는 `new_database_order.txt`, 안내는 `database/README.md` |
 | `deploy/deploy.ps1` | 대상 PC에서 Compose 서비스를 교체하고 롤백하는 스크립트 |
-| `deploy/nginx/default.conf` | Frontend와 Backend의 Nginx reverse proxy 설정 |
-| `compose.yml` | Backend, Frontend, Nginx 컨테이너 실행 설정 |
+| `frontend/nginx/default.conf` | Frontend와 Backend의 Nginx reverse proxy 설정 (Frontend 이미지에 들어감) |
+| `compose.yml` | Backend, Frontend(Nginx 포함) 두 컨테이너 실행 설정 |
 
 ## 배포 흐름
 
@@ -237,7 +239,7 @@ npm run build
 npm run dev
 ```
 
-세 컨테이너를 로컬에서 함께 실행하려면 저장소 루트에서 실행합니다.
+두 컨테이너를 로컬에서 함께 실행하려면 저장소 루트에서 실행합니다.
 
 ```bash
 docker compose up --build

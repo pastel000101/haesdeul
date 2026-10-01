@@ -211,7 +211,7 @@ _FINANCIAL_VALIDATION: Capability = "FINANCIAL_VALIDATION"
 #: ★★ **왜 이 길이 유일한가** (실측 2026-09-11).
 #:
 #:   ```text
-#:   app/sales/persistence.py:380  _line_profit
+#:   app/sales/domain/sale_ledger.py  _line_profit
 #:     ① line.contribution_profit_krw      ← 마스터가 넘긴다   ← 🟢 이 길
 #:     ② scenario.contribution_margin_krw  ← **비어 있다**
 #:     ③ 없으면 SalesPersistenceConflict("missing contribution profit")

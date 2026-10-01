@@ -1,7 +1,7 @@
 -- 거래처 여신한도 정본 (Finance / Sales Validation).
 --
 -- 🔴 **왜 새 표가 필요한가.** `partners` 에도 `agent_policy_config` 에도 여신한도
---    컬럼이 없다 (`app/finance/rules.py` 가 그 사실을 적어 두었다). 그래서
+--    컬럼이 없다 (`app/finance/domain/rules.py` 가 그 사실을 적어 두었다). 그래서
 --    `FIN-SALES-CREDIT` · `FIN-SALES-AR-CAPACITY` 두 규칙이 항상 닫혀 있었고,
 --    판매 재무검증이 `partner_credit_limit_krw` 미비로 RUNTIME_NOT_READY 가 됐다.
 --

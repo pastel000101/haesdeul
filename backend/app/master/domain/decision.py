@@ -591,7 +591,7 @@ def payment_days_of(response_payload: Mapping[str, Any]) -> Any:
 
     ★ `lead_days_of`(N4)와 **같은 모양이다.** 부서가 봉투로 값을 주고 마스터는
       옮기기만 한다 — 마스터가 재무 정책 표를 다시 읽으면 같은 사실의 주인이 둘이 된다
-      (`finance/capabilities/procurement.py` 가 `purchase_payment_days` 를 싣는다).
+      (`finance/service/capabilities/procurement.py` 가 `purchase_payment_days` 를 싣는다).
     """
     finance = (response_payload.get("constraints") or {}).get("finance") or {}
     return finance.get("purchase_payment_days")

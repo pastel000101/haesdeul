@@ -73,7 +73,7 @@ const nextConfig: NextConfig = isDev
           // 먼저 걸리는 규칙이 이긴다.
           { source: "/api/screen/:path*", destination: `${backendOrigin}/api/:path*` },
           //  ML 운영 콘솔 — 이 서버가 다시 ML 백엔드로 넘긴다
-          //  (`app/ml/console_proxy.py`). 브라우저가 직접 부르면 출처가 달라
+          //  (`app/api/ml/console.py` → `app/ml/ml_backend.py`). 브라우저가 직접 부르면 출처가 달라
           //  CORS 를 만나고 주소가 화면 코드에 박힌다.
           { source: "/api/ml/:path*", destination: `${backendOrigin}/ml/console/:path*` },
           // 운영 콘솔 read API. 백엔드 route 자체가 `/api/console/...` 이므로

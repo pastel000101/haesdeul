@@ -103,7 +103,7 @@ class InTransitItem(BaseModel):
     #: **그때의 권위값**으로 가져오려는 자리다.
     #:
     #: 🟡 **받을 자리는 뚫려 있지만 아직 안 켜졌다 (2026-09-05).** `purchase_id` 를
-    #:    만드는 곳은 마스터(`app/master/transition.py` 의 `purchase_id_for`)이고,
+    #:    만드는 곳은 마스터(`app/master/domain/purchase_ids.py` 의 `purchase_id_for`)이고,
     #:    그 값이 물류로 넘어오려면 **마스터 전이 규약
     #:    (`LogisticsTransition.build`)이 바뀌어야 한다.** 그것은 마스터 소유
     #:    파일이라 물류가 고칠 자리가 아니다 — **후속 협의 안건**이다.

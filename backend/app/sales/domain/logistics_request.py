@@ -27,7 +27,7 @@ def outbound_reservation_for_sale(
     🔴 **`as_of` = 가용량 판정 기준일 = 납품일. 확정일이 아니다**
        (D/D+1 신선도 절벽 · 2026-09-15).
        예약이 서는 시점은 확정일 D 이고, 재고를 세는 날은 할당과 같은 납품일이다 —
-       부르는 쪽(`master/sales_approval.py`)이 `sale_date` 를 넘긴다.
+       부르는 쪽(`master/service/sales_approval.py`)이 `sale_date` 를 넘긴다.
     """
 
     if not isinstance(sim_run_id, str) or not sim_run_id.strip():

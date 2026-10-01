@@ -1,5 +1,5 @@
 """
-adapters/finance.py — 재무 에이전트 접점 (마스터 ↔ 재무)
+finance/adapter.py — 재무 에이전트 접점 (마스터 ↔ 재무)
 
     AgentPort = (AgentRequest) -> (AgentReply, ExecutionMetadata)
 

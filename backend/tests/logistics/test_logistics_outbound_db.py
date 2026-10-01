@@ -1680,7 +1680,7 @@ def test_S32_내릴_것이_없으면_0_이다(conn: psycopg.Connection) -> None:
 #    decided_at        호출자가 준다           **시간축은 마스터 것이다**
 #
 # ⚠️ `09:34 KST` 같은 값을 여기서 정본으로 박지 않는다. 그 시각의 주인은
-#    `app/master/sim_time.py` 이고, 물류는 **받은 값을 그대로 적는** 데까지만 책임진다.
+#    `app/master/domain/sim_time.py` 이고, 물류는 **받은 값을 그대로 적는** 데까지만 책임진다.
 
 
 def test_S33_자동_FEFO_는_decided_at_을_필수로_받는다() -> None:

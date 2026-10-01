@@ -143,7 +143,7 @@ _EXCEPTION_LABEL = {
 #     ★ 회전에서 나온 **업무 신호**는 남는다 — 「우선 출고 대상」 · 「폐기 검토 대상」
 #       (`_lot_action`)은 Backend 가 이미 낸 판정이고, 화면이 새로 만든 것이 아니다.
 
-#: 예약 상태. 정본 `app/logistics/outbound.py::ReservationStatus`.
+#: 예약 상태. 정본 `app/logistics/schemas/outbound.py::ReservationStatus`.
 #:
 #: 🔴 **«할당» 이 무엇의 할당인지 적는다** (#812). 종전 「예약」·「일부 할당」은 실패나
 #:    보류처럼 읽혔다 — `RESERVED` 는 *"수량은 확보됐고 어느 Lot 에서 낼지만 아직"* 이라
@@ -162,7 +162,7 @@ _RESERVATION_LABEL = {
     "CANCELLED": "취소",
 }
 
-#: 도착 건 진행 상태. 정본 `app/logistics/receipts.py::ReceiptStatus`.
+#: 도착 건 진행 상태. 정본 `app/logistics/schemas/receipts.py::ReceiptStatus`.
 #: ★ 사용자가 볼 흐름은 **입고 예정 → 창고 도착 → 검수 → 재고 반영** 넷이다.
 _RECEIPT_LABEL = {
     "ARRIVED": "창고 도착",
@@ -172,7 +172,7 @@ _RECEIPT_LABEL = {
     "CLOSED": "종료",
 }
 
-#: 검수 판정. 정본 `app/logistics/inspections.py::InspectionVerdict`.
+#: 검수 판정. 정본 `app/logistics/schemas/inspections.py::InspectionVerdict`.
 _VERDICT_LABEL = {"PASS": "합격", "HOLD": "보류", "REJECT": "거절"}
 
 

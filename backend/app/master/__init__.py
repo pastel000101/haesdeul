@@ -15,8 +15,8 @@ import 하지 않게 옮긴 것이라, 이 패키지는 봉투 이름을 다시 
     service/     부서 호출 순서(Flow · runner · budget), 업무 실행, 연결 대여 · commit · rollback
     repository/  받은 연결로 SQL
     readmodel/   조회 연결 대여 + 조회 결과 조립
-    registry/    포트 등록소(ports · wiring) · 하루 단계 파트 등록소 · 실행 축 묶기 · 조립
-    뿌리(bootstrap)
+    registry/    포트 등록소(ports · wiring) · 하루 단계 파트 등록소 · 실행 축 묶기 ·
+                 조립 뿌리(bootstrap)
     adapters/    등록소 Protocol 을 구현하는 재무 파트 표면 · Critic 계약 번역
     report/      매입안 Markdown · 채팅 보고서 · 걷기 성적표 · 걷기 요약
     cli/         하루 시뮬레이션 · 자동 승인 채우기 · 실행 열기의 인자 · 출력

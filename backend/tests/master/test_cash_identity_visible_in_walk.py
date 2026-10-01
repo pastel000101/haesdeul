@@ -551,7 +551,7 @@ def test_읽는_칸_목록이_여섯을_다_든다() -> None:
 # ⑦ 🔴 **「안 셌다」와 「0원이다」를 가른다** — 2026-09-16
 #
 # 운영비 유출은 나중에 생긴 축이다. 재무 코드는 이미 `None` 을 「기록 없음」으로
-# 읽는데(`finance/schemas.py` · `api/finance/query.py`), DB 칸은 아직
+# 읽는데(`finance/schemas/dashboard.py` · `api/finance/presenter.py`), DB 칸은 아직
 # `NOT NULL DEFAULT 0` 이라 그 갈래가 안 탄다.
 #
 # ⚠️ **칸의 주인은 재무다.** 언제 nullable 로 바로잡을지 마스터가 안 정한다.

@@ -114,7 +114,7 @@ def apply_approval(
     ★ **매입 원장이 재무보다 먼저인 이유는 FK 다.** `payables.purchase_id` 가
       `purchases` 를 참조한다 — 부모 행이 없으면 재무 write 가 FK 에서 터진다.
 
-    🔴 **여기에 SQL 은 없다.** 무슨 값을 어느 칸에 쓸지는 `master/ledger.py` 가 알고,
+    🔴 **여기에 SQL 은 없다.** 무슨 값을 어느 칸에 쓸지는 `master/domain/ledger.py` 가 알고,
        이 함수는 **언제 부를지**만 정한다 (`test_전이_모듈에_SQL_이_없다`).
 
     🔴 **예외를 밖으로 던지지 않는다.** 이 함수가 불릴 때 결정은 **이미 적재됐다.**

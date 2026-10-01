@@ -32,7 +32,8 @@ __all__ = ["APPROVED", "CANDIDATE", "PLAN_STATES", "RECORDED", "REJECTED", "stat
 #:     반려                  반려
 #:
 #: 🔴 **상태 코드를 화면에 쓰지 않는다.** `APPROVED` · `AWAITING_PURCHASE_RECORD` 같은
-#:    것은 API 안쪽 어휘다 (`master/decision.py`). 사람이 읽는 자리에는 사람 말만 쓴다.
+#:    것은 API 안쪽 어휘다 (`master/schemas/` 의 결정 · 전이 어휘). 사람이 읽는 자리에는
+#:    사람 말만 쓴다.
 #: 🔴 **낱말을 늘리지 않는다.** 늘리는 순간 같은 사실을 화면마다 다른 이름으로 부른다.
 CANDIDATE = "후보"
 APPROVED = "승인됨"

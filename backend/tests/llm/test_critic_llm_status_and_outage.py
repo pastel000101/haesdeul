@@ -96,7 +96,7 @@ def _procurement_response() -> ProcurementResponse:
     )
 
 
-# --- 사이클 응답 봉투 (app/master/cycle_schemas.py) ----------------------------
+# --- 사이클 응답 봉투 (app/master/schemas/cycle.py) ----------------------------
 def test_response_carries_llm_fields():
     assert _LLM_FIELDS <= set(ProcurementResponse.model_fields)
 
@@ -203,7 +203,7 @@ def _force_unreachable_ollama(monkeypatch) -> None:
     🔴 `LLM_BASE_URL` 만 죽은 포트로 두면 안 막힌다 (매입 실측 2026-09-03).
       `.env` 에 `CRITIC_LLM_PROVIDER=gemini` 가 있고 Critic 런타임이 그것을 읽는데
       **Gemini 는 자체 엔드포인트를 써서 `LLM_BASE_URL` 을 무시**한다
-      (`critic/llm/runtime.py:53` 이 그 사정을 이미 적어 뒀다).
+      (`master/critic/llm/runtime.py` 이 그 사정을 이미 적어 뒀다).
 
       그래서 *"LLM 이 없음"* 을 시험하려는 검사가 **실제 구글 API 를 불렀다.**
       빠르게 성공하면 `SUCCESS` 라 빨간불, 느리거나 429 면 `FALLBACK` 이라 초록불 —

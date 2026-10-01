@@ -11,7 +11,8 @@
 ```
 
 🔴 **커밋도 롤백도 안 한다.** 트랜잭션의 주인은 부르는 쪽이다
-   (`master/inspection.py` — `service/maintenance` ↔ `master/maintenance.py` 와 같은 나눔).
+   (`master/service/inspection.py` — `service/maintenance` ↔ `master/service/maintenance.py`
+   와 같은 나눔).
 
 🔴 **상태를 여기서 정하지 않는다.** 무엇을 열고 무엇을 닫을지는 `detect.py` 가 정하고,
    이 파일은 그 결정을 표에 옮기기만 한다.

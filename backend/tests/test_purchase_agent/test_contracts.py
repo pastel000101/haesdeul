@@ -662,7 +662,7 @@ def test_feedback_attempt_max_is_declared_but_not_yet_consumed_here() -> None:
       적혀 있었는데 **아무것도 읽지 않았다.** 값 비교(`== 2`)는 선언이 있다는 것만
       보여줄 뿐, 코드가 그걸 쓴다는 증명이 아니다 (규칙 8).
 
-    실제 집행은 ``app/master/flow.py`` 의 ``max_purchase_attempts`` (기본 2) 다.
+    실제 집행은 ``app/master/service/flow.py`` 의 ``max_purchase_attempts`` (기본 2) 다.
     우리가 재시도 루프를 갖게 되면 이 검사는 "설정을 바꿔보고 상한이 따라 바뀌는지"로
     교체해야 한다 — 그때까지는 **읽는 곳이 없다는 사실 자체**를 잠근다.
     """

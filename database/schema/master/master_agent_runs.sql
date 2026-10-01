@@ -16,7 +16,7 @@
 --   `master_decisions` 가 이미 마스터 소유 표이므로 짝이 맞는다.
 --
 -- ★ 옛 표는 지우지 않는다.
---   Critic 이 `agent='critic'` 으로 쓰고 읽는다 (`app/critic/router.py`).
+--   Critic 이 `agent='critic'` 으로 쓰고 읽는다 (`app/api/critic/verdicts.py` · `runs.py`).
 --   마스터 행만 이 표로 옮기고 `orchestrator_agent_runs` 는 그대로 둔다.
 --   기존 DB 이관은 `master_agent_runs_migration.sql` 이 한다 — 이 파일은 신규 구축용이다.
 --
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS haetdeul.master_agent_runs (
     --   4품목을 한 사이클에 돌리면 실행이 품목마다 1건이라, 업무 키만으로는
     --   어느 행이 배추인지 알 수 없다 (M-26 미결의 전제이기도 하다).
     --
-    --   품목 어휘를 CHECK 로 닫지 않는다 — 어휘의 소유는 `master/commitment.py`
+    --   품목 어휘를 CHECK 로 닫지 않는다 — 어휘의 소유는 `contracts/commitment.py`
     --   의 ITEM_CODES 이고, 같은 규칙을 두 곳에 두면 조용히 갈린다.
     item TEXT NULL,
 
@@ -140,7 +140,7 @@ COMMENT ON COLUMN haetdeul.master_agent_runs.request_id IS
 COMMENT ON COLUMN haetdeul.master_agent_runs.cycle IS
     'PROCUREMENT | SALES | STATUS | DAY. STATUS 는 조회 — 옛 표에 없어 이력에 못 남기던 것이다.';
 COMMENT ON COLUMN haetdeul.master_agent_runs.item IS
-    '이번 실행이 다룬 품목. 매입은 품목 하나씩 돈다. 어휘의 소유는 master/commitment.py 의 ITEM_CODES.';
+    '이번 실행이 다룬 품목. 매입은 품목 하나씩 돈다. 어휘의 소유는 contracts/commitment.py 의 ITEM_CODES.';
 COMMENT ON COLUMN haetdeul.master_agent_runs.end_code IS
     '이 실행이 어떻게 끝났나. 매입 E1~E5 · 조회 S1~S3. payload 안에도 있지만 추이 조회를 위해 컬럼으로 뺐다.';
 COMMENT ON COLUMN haetdeul.master_agent_runs.plan IS

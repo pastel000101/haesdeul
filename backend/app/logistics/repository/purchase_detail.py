@@ -30,7 +30,7 @@ DueInbound.purchase_id  →  purchase_items 한 줄  →  purchase_item_id · it
    무엇으로 바꾸면 그 추측이 로트의 등급으로 굳는다.
 
 🔴 **`purchase_id` 를 짓거나 뜯지 않는다.** 그 ID 의 주인은 마스터다
-   (`app/master/transition.py` 의 `purchase_id_for`). `inbound_id` · `approval_id`
+   (`app/master/domain/purchase_ids.py` 의 `purchase_id_for`). `inbound_id` · `approval_id`
    를 들여다보고 `PUR-…` 를 조립하지 않는다 — 받은 값으로 묻기만 한다.
 
 ★ **읽기만 한다.** INSERT · UPDATE · DELETE · DDL · advisory lock · `FOR UPDATE` 가

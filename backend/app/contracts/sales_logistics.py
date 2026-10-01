@@ -3,7 +3,7 @@
 #   🔴 **소유는 마스터다** (`app/contracts/`). 칸을 내고 이름을 정하는 것이 마스터 몫이다.
 #
 #   누가 쓰나
-#     판매   `app/sales/outbound.py`      확정 판매를 봉투로 만든다 (보내는 쪽)
+#     판매   `app/sales/domain/logistics_request.py`  확정 판매를 봉투로 만든다 (보내는 쪽)
 #     물류   `app/logistics/service/outbound.py`  봉투를 받아 예약 코어를 부른다 (받는 쪽)
 #
 #   🔴 **납품일 칸을 두지 않는다** (2026-09-08 · 물류·판매 합의).
@@ -20,7 +20,7 @@
 #   🔴 **`as_of` = 가용량 판정 기준일 = 납품일. 확정일이 아니다**
 #      (D/D+1 신선도 절벽 · 2026-09-15 · 물류 문서 24).
 #
-#      예약이 **서는** 시점은 여전히 확정일 D 다 (`master/sales_approval.py`).
+#      예약이 **서는** 시점은 여전히 확정일 D 다 (`master/service/sales_approval.py`).
 #      이 칸은 *"어느 날의 신선도로 팔 수 있는 재고를 세나"* 이고, 할당이 납품일에
 #      Lot 을 보므로 같은 날이어야 한다 — 확정일이면 D 에 잔여 1일인 Lot 을 예약이
 #      세고 D+1 할당이 못 써서 `OutboundIntegrityError` 로 터진다.

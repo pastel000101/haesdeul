@@ -33,8 +33,8 @@ BEGIN;
 --
 --     ⚠️ **기존 `logistics_agent_runs` 를 늘려 쓰지 않았다.** 저 표는 Logistics API 의
 --        Request/Response 실행이력이다 — `cycle ∈ PROCUREMENT·SALES` ·
---        `request_payload`/`response_payload` · 쓰는 자리는 `app/logistics/service.py`
---        하나. 조사는 «Exception 하나 → Tool 조사 → 후보 action» 이라 축이 다르고,
+--        `request_payload`/`response_payload` · 쓰는 자리는 `app/logistics/service/run_history.py`
+--        하나(부르는 곳은 `service/cycle.py`). 조사는 «Exception 하나 → Tool 조사 → 후보 action» 이라 축이 다르고,
 --        `cycle` 에 `INVESTIGATION` 을 끼워 넣으면 그 표의 뜻이 깨진다.
 --
 --     ⚠️ **범용 `agent_runs` 도 못 쓴다.** ① `exception_id` 칸이 없어 §4 가 요구하는
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS haetdeul.logistics_investigations (
     --    시작하면 같은 이름을 낸다. 조사는 사람이 부를 때마다 서므로 채번이 경합한다.
     investigation_id      TEXT NOT NULL,
     -- 🔴 리셋 축. 이 칸이 있어서 `reset_sim_run_ledger` 가 표를 **자동으로 발견**해
-    --    `--reset` 때 지운다 (`master/sim_run_open.py` `_axis_tables`).
+    --    `--reset` 때 지운다 (`master/repository/sim_run_open.py` `_axis_tables`).
     sim_run_id            TEXT NOT NULL,
     exception_id          TEXT NOT NULL,
     -- 시뮬레이션 영업일. 🔴 `created_at`(벽시계)과 다른 축이고, 조사 Runtime 이 받은

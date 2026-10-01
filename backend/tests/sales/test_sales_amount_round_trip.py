@@ -3,7 +3,7 @@
 `#575` 가 나가는 이름을 재무가 읽는 이름으로 바꿨다. **그런데 나가는 쪽만 고쳤다.**
 
 ```text
-① app/sales/schemas.py    sales_amount_krw 에 serialization_alias
+① app/sales/schemas/proposal.py    sales_amount_krw 에 serialization_alias
 ② adapter._proposal_payload 가 model_dump(by_alias=True)
    ★ 그 전선은 재무만이 아니라 **판매 → 마스터** 이기도 했다
 ③ 마스터가 그 별칭 형태 **그대로** 실행 이력에 적는다

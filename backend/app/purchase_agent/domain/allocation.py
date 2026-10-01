@@ -113,7 +113,7 @@ def round_offsets(
 
     ``split_offsets`` 가 낸 자리가 휴장일이면 다음 개장일로 민다. 경계는 마스터가 봉투로
     싣는 ``execution_calendar`` 하나이고, 여기서 요일도 공휴일도 다시 판정하지 않는다 —
-    **값은 아는 쪽이 공급하고 계산은 쓰는 쪽이 한다** (`master/execution_calendar.py`).
+    **값은 아는 쪽이 공급하고 계산은 쓰는 쪽이 한다** (`master/domain/execution_calendar.py`).
 
     ★★ **소관이 우리다.** 마스터 모듈이 경계를 그렇게 적었다::
 

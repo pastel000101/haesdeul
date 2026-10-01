@@ -376,7 +376,7 @@ def test_부서_이름표는_한_곳에서만_센다():
 
 # ── 물류 질문형 STATUS_QUERY — 완결된 답을 다시 펴지 않는다 ─────────────────
 
-#: 실제 질문형 payload 모양 (`logistics/query/status_query.py::_final_answer`).
+#: 실제 질문형 payload 모양 (`logistics/service/status_question.py::_final_answer`).
 _Q_ANSWER = "현재 창고에 남아 있는 배추 재고는 총 3,197kg입니다. 재고가 남아 있는 Lot은 5개입니다."
 _QUESTION_PAYLOAD = {
     "status_query": {

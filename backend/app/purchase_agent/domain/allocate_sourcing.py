@@ -145,7 +145,7 @@ def is_spread_widened(spread: float | None, baseline: float | None, widening_rat
 #: 🔴 **이 필터는 실제로 하는 일이 있다. 지우려다 되돌렸다.**
 #:
 #:   물류가 ``item_storage_policies`` 를 **필터 없이 전부** 보낸다
-#:   (``logistics/repository.py`` ``get_item_storage_policies`` · 실측 5행)::
+#:   (``logistics/repository/current.py`` ``get_item_storage_policies`` · 실측 5행)::
 #:
 #:       무 14 · 배추 10 · 양파 30 · 건고추 90 · 피마늘 30
 #:
@@ -182,7 +182,7 @@ def item_storage_policy(inventory: dict, item: str) -> dict | None:
     배추를 돌리며 ``policies[0]`` 을 읽으면 무의 보관한계로 중품 소진 창을 계산한다 —
     에러가 나지 않아 아무도 모른다. 실제로 이 함정을 밟은 사례가 보고됐다(#79).
 
-    ★ **이 순서는 ``logistics/repository.py`` ``get_item_storage_policies`` 의
+    ★ **이 순서는 ``logistics/repository/current.py`` ``get_item_storage_policies`` 의
       ``ORDER BY i.item_name`` 결과다.**
       첫 항목이 무인 것이 우연이 아니다 — ``policies[0]`` 을 쓰면 품목과 무관하게
       **무가 나온다** (``#79`` 의 뿌리).
@@ -260,7 +260,7 @@ def top_grade_operational_days(inventory: dict, top_grade: str, item: str) -> in
     *"이 품목의 보관한계"* 가 아니라 *"기준등급 물건의 한계일"* 이다. 로트 ``grade`` 가
     전부 ``None`` 이면(#69 등급 어휘 미확정) 어느 등급의 한계일인지 말할 수 없다 —
     품목 정책값을 그 자리에 끼워 넣으면 **근거 없는 결론**이 된다 (규칙 3).
-    마스터도 이 상태를 예상하고 있다 (``master/verifier.py`` — "값을 쓰면서도 결론이
+    마스터도 이 상태를 예상하고 있다 (``master/domain/verifier.py`` — "값을 쓰면서도 결론이
     안 난다"는 원인 ③).
 
     ⚠️ ``operational_limit_days`` 는 상세설계 §7 임계표의 **"보관한계(품목별) 배추 135일"
@@ -337,7 +337,7 @@ _SHELF_DAYS_MISSING_KEY = (
 #:
 #: 🔴 **봉투 최상위 키 이름을 쓰고, 미결 어휘를 그 뒤 12자 안에 둔다.**
 #:   마스터의 SUPPLIED-BUT-UNRESOLVED 검사는 두 관문을 통과해야 울린다
-#:   (``master/verifier.py._check_supplied_but_unused``).
+#:   (``master/domain/verifier.py._check_supplied_but_unused``).
 #:
 #:   1. 키가 ``supplied`` 에 있어야 한다 — 그 집합은 **봉투 payload 의 최상위 키**로만
 #:      만들어진다. ``operational_limit_days`` 는 ``item_storage_policies[]`` **안에**

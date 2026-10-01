@@ -39,7 +39,7 @@ class EvidenceOut(BaseModel):
     source: str
     #: 🔴 **`float | str` 이다.** 계약(`contracts_core.Evidence.value`)은 `float` 인데
     #: 실제로는 문자열이 오는 근거가 있다 - 재무 `policy_version_used` 가
-    #: `"v1.3-PROVISIONAL"` 을 싣는다 (`finance/capabilities/procurement.py:175`).
+    #: `"v1.3-PROVISIONAL"` 을 싣는다 (`finance/service/capabilities/procurement.py`).
     #: `Evidence` 가 dataclass 라 런타임 검증이 없어 지금까지 아무도 몰랐고,
     #: 근거를 화면으로 내보내려다 처음 드러났다 (2026-09-02).
     #:

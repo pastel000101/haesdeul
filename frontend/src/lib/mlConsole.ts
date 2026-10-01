@@ -3,7 +3,7 @@
  *
  * ★ **이 셋은 ML 저장소가 있는 곳에서만 돕니다.** 학습 꾸러미와 모델 번들,
  *   에이전트 기록이 거기 있습니다. 그래서 이 서버가 대신 물어봅니다
- *   (`app/ml/console_proxy.py`).
+ *   (`app/api/ml/console.py` → `app/ml/ml_backend.py`).
  *
  *       화면 ──/api/ml/…──▶ 이 서버 ──▶ ML 백엔드(8102)
  *

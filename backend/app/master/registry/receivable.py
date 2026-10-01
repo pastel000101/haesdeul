@@ -43,7 +43,7 @@ class ReceivableSource(Protocol):
 
       ⚠️ **이 Protocol 이 그 둘을 안 받는다.** *"어느 실행의 장부인가"* 는 실행
         정체성이라 **어댑터 생성 인자**로 온다 — `FinanceCollectionAdapter` ·
-        `LogisticsInboundExecution` 과 같은 자리이고, 배선(`app/master/bootstrap.py`)
+        `LogisticsInboundExecution` 과 같은 자리이고, 배선(`app/master/registry/bootstrap.py`)
         에서 눈에 보이게 주입한다.
 
     :param as_of: 판매 확정일. **`sales.sale_date` 와 맞춘다** — 달력일이다.

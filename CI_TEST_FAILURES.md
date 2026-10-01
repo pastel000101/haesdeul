@@ -1,4 +1,10 @@
-# 현재 backend pytest 실패 분석
+# backend pytest 실패 분석 (PR #703 시점 기록)
+
+> **지금 상태 (2026-10-01 · 브랜치 `codex/layered-backend`).** 이 목록의 실패는 재구성 BL-022
+> (커밋 `8dcb921e`)에서 모두 통과로 바뀌었다 — 기본 실행 `uv run pytest -q` 0 failed. 원인은
+> 검사가 대역을 주지 않아 실 DB 조회로 나간 것이었고(재무 SALES_VALIDATION 20건도 Controller ·
+> harness 계약이 아니라 여신한도 조회 대역 누락), 앱 코드는 바꾸지 않았다. 아래 «다음 조치» 의
+> 원인 추정은 당시 분석이다. GitHub Actions 에서 이 상태를 다시 돌려 확인하지는 않았다.
 
 기준: GitHub Actions run `94631858172` (`dev → main` PR #703).
 

@@ -23,7 +23,7 @@ import {
  * 재고·물류 운영 보고서 — **창고 운영자가 그대로 읽는 문서.**
  *
  * ★ **화면이 업무 숫자를 만들지 않는다.** 합계·창고 사용량·신선도·회전·예약 상태는 전부
- *   `backend/app/master/report.py::render_logistics_chat_report` 가 기존 재고·물류
+ *   `backend/app/master/report/chat_reports.py::render_logistics_chat_report` 가 기존 재고·물류
  *   read model 에서 낸 값이다. 여기서 다시 세거나 다시 판정하면 화면과 문서가 **다른
  *   숫자**를 말하게 된다 (Finance/Sales 보고서와 같은 규율).
  *

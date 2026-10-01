@@ -16,6 +16,11 @@ main.py:56 → router.py → service.py → critic_v0_4.py → critic.py
   판단 경로도 같은 자리로 들어온다 —
   `master/service.py:103` `MasterVerifier()` → `verifier.py:280` → `service.run_critic_procurement`.
 
+  (2026-10-01 지금: HTTP 라우터는 `app/api/critic/{runs,verdicts}.py` 로 옮겨 이 패키지는
+  일곱 파일이다 — `api/critic/verdicts.py` → `service.py` → `critic_v0_4.py` → `critic.py`,
+  판단 경로는 `service/procurement.py` `MasterVerifier()` → `service/verifier.py` →
+  `service.run_critic_procurement`.)
+
 ② **큰 둘은 «감싸는» 구조다.** 합치면 **1,575줄 한 파일**이 된다
   (`critic.py` 400 + `critic_v0_4.py` 1,175). 그 결정은 두 파일 머리말에 적혀 있고
   거기가 주인이다 — 여기서 되풀이하지 않는다.

@@ -318,7 +318,7 @@ def arrival_capacity(scenario: dict, state: PurchaseAgentState) -> ArrivalCapaci
       도착일을 갖고 있다** — 그래서 같은 코드로 검사할 수 있다.
 
     ★ **누적으로 본다.** ``cap_by_date[d]`` 는 그날의 *여유 공간*이고, 물류는 **기존
-      일정만** 재생해 그 값을 낸다 (``logistics/tools.py`` ``calculate_cap_by_date``:
+      일정만** 재생해 그 값을 낸다 (``logistics/domain/tools.py`` ``calculate_cap_by_date``:
       guaranteed − projected_occupancy). **우리가 새로 넣을 회차는 거기 없다.**
       날짜마다 독립으로 비교하면 1회차가 아직 창고에 있는데도 2회차가 그날 상한을
       통째로 쓰는 계획이 통과한다. ⑥ ``cap_constrained_quantities`` 와 같은 셈이다.

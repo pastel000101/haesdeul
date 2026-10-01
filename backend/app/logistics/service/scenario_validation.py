@@ -57,7 +57,7 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     """★ 재무와 달리 **스키마 추측이 필요 없다.**
 
     물류는 `PurchaseAgentOutput = PurchaseProposal` 로 **매입의 실물 스키마를 그대로
-    임포트**한다(`app/logistics/schemas.py`). 마스터는 받은 제안을 그 모델로 되살려
+    임포트**한다(`app/logistics/schemas/agent.py`). 마스터는 받은 제안을 그 모델로 되살려
     넘기기만 하면 된다 — 이름을 손으로 맞추는 자리가 없으므로 조용히 틀릴 자리도 없다.
     """
     as_of = request.context.as_of
@@ -200,7 +200,7 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     #   `logistics_rule/LOG-H02` · `rental_cap_kg@policy_source_ref` 처럼 네임스페이스가
     #   붙은 필드명이다. 맨 경고 코드를 섞으면 어휘가 갈라지고, NOT_READY 로 떨어지는
     #   날 *"CAPACITY_TIGHT_POLICY_UNRESOLVED 가 없어 답하지 못했습니다"* 라는
-    #   이중부정 문장이 나간다 (`master/answer.py` 의 gaps 문구).
+    #   이중부정 문장이 나간다 (`master/domain/answer.py` 의 gaps 문구).
     #
     #   사실이 사라지는 것은 아니다 — `soft_warnings` 가 같은 코드를 그대로 나른다.
 

@@ -230,7 +230,7 @@ def _check_purchase_dates(
       승인한 D 매입(D+0 지급)은 현금이 D+1 마감에서 한 번 잡힌다. 🔴 그 밖의 동일일
       (과거 승인 · N5 가 있어 지급기일이 마침 마감일인 경우)은 거부한다.
 
-    ★ **D 마감 숫자는 흔들리지 않는다.** 전이(`finance/transition.py`)는 as_of 날 상태를
+    ★ **D 마감 숫자는 흔들리지 않는다.** 전이(`finance/service/transition.py`)는 as_of 날 상태를
       읽기만 하고 `as_of + 1` 상태에 쓴다 (`master/transition._target_state_date`).
 
     ★ **지급기일의 주인은 덮은 약정이다** (`ArrivalLeg.payment_due_date`). 여기서 N5 를

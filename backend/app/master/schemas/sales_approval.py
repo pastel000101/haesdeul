@@ -56,7 +56,7 @@ class SaleConfirmationOut(BaseModel):
     #                안 올라 **같은 재고가 다음 날 또 팔렸다**
     #   ```
     #
-    #   물류가 이 위험을 이미 적어 뒀다 (`app/logistics/outbound.py` 의
+    #   물류가 이 위험을 이미 적어 뒀다 (`app/logistics/service/outbound.py` 의
     #   `item_free_stock_qty`): *"아직 Lot 을 안 고른 예약은 … Lot 가용량에서 안
     #   빠진다 — 그것만 보면 같은 재고를 두 번 예약하게 된다."*
 

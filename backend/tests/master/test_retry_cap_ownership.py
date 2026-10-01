@@ -3,7 +3,7 @@
 🔴 **실측 2026-09-01 — 같은 수가 두 곳에 있고 잇는 검사가 없었다.**
 
 ```text
-마스터   app/master/flow.py                    MAX_PURCHASE_ATTEMPTS = 2   원본
+마스터   app/master/service/flow.py            MAX_PURCHASE_ATTEMPTS = 2   원본
 매입     app/purchase_agent/constraints.yaml   feedback.attempt_max = 2    인용
 ```
 

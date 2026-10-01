@@ -51,7 +51,7 @@ JUDGE     09:33    ALLOCATE  09:34    SHIP     09:35
    나오게 하려는 것이다.
 
 ★ **업무 시각을 지어내면 그 시각이 곧 업무 규칙이 된다 — 아무도 그것을 정한 적이
-  없다.** `logistics/inbound_execution.py` 가 `inspected_at = datetime.now()` 와
+  없다.** `logistics/service/inbound_execution.py` 가 `inspected_at = datetime.now()` 와
   기본 provider 를 두고 같은 규율을 적어 뒀다.
 
 ## 어휘 — 여섯 단계는 **진입점 이름 그대로다**

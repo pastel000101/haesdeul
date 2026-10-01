@@ -2,6 +2,19 @@
 
 **2026-09-15 · ML 파트**
 
+> **지금 상태 (2026-10-01 · 재구성 BL-024 확인).** 이 문서는 2026-09-15 에 마스터 쪽에 보낸
+> 요청이고, 아래 본문은 그때 글 그대로입니다. 요청은 모두 반영돼 있고 자리는 이렇습니다.
+>
+> | 요청 | 지금 자리 |
+> |---|---|
+> | ① 이름 `ml` · ② 받을 모드 `STATUS_QUERY` | `app/contracts/envelope.py` 의 `AgentName` · `_AGENT_MODES`(2026-09-29 봉투가 계약 패키지로 옮김) |
+> | ③ 등록 | `app/ml/wiring.py::register_ml_agent` 는 없어졌고, 마스터 조립 뿌리 `app/master/registry/bootstrap.py` 가 `app.ml.adapter.ml_port` 를 직접 등록한다 |
+> | §3 `answer_markdown` 그대로 쓰기 | `app/master/domain/answer.py` 의 `_MARKDOWN_AGENTS` · 화면 `MasterConsole.tsx` 가 `Markdownish` 로 그린다 |
+> | §4 질문 문장 넘기기 | `app/master/service/status_flow.py` 가 `{"question": 원문, "item": 품목}` 을 싣는다 |
+>
+> 본문의 `app/master/envelope.py` · `bootstrap.py` · `answer.py` · `status_flow.py` 는 그때의 파일
+> 이름입니다(2026-09-30 재구성으로 위 자리로 옮김).
+
 우리 쪽 구현은 끝났습니다. **마스터가 「ml」이라는 이름을 알기만 하면 바로 돕니다.**
 아래 세 자리가 저희가 손댈 수 없는 곳입니다 (저희는 `app/ml/` 만 고칩니다).
 

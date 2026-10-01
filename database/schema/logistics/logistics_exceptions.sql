@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS haetdeul.logistics_exceptions (
     -- EX-{sim_run_id}-{code}-{subject_id}-{opened_as_of:YYYYMMDD}. 업무 키다.
     exception_id          TEXT NOT NULL,
     -- 🔴 리셋 축. 이 칸이 있어서 `reset_sim_run_ledger` 가 표를 **자동으로 발견**해
-    --    `--reset` 때 지운다 (`master/sim_run_open.py` `_axis_tables`).
+    --    `--reset` 때 지운다 (`master/repository/sim_run_open.py` `_axis_tables`).
     sim_run_id            TEXT NOT NULL,
     -- 탐지기 어휘. Core 는 둘을 만들고 `FRESHNESS_EXPIRED` 는 **예약**이다
     -- (상세설계 §6.2) — 자동 유지보수가 켜진 실행에서는 개장 때 폐기되어 열릴 틈이 없다.

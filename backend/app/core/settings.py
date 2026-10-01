@@ -206,7 +206,7 @@ def ml_source_database_settings() -> DatabaseSettings:
 # ── 화면이 읽는 실행과 기준일 — **발표용 임시 설정이다** ─────────────────────────
 #
 # 🟢 **자리 (2026-09-29 · 재구성 BL-012).** 전에는 `app/api/shown_run.py` 한 파일이었다.
-#    화면 API 와 마스터(`app/master/ask_service.py`)가 함께 읽는 값이라, 마스터가 화면
+#    화면 API 와 마스터(지금 `app/master/service/ask.py`)가 함께 읽는 값이라, 마스터가 화면
 #    모듈을 import 하지 않도록 공용 설정 자리로 옮겼다. **값 · 뜻 · 쓰는 곳은 그대로다.**
 #    발표용 고정을 없앨지(주소 파라미터 방식)는 옮긴 것과 별개로 아직 정하지 않았다.
 #

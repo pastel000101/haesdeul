@@ -323,8 +323,8 @@ def wire_registries() -> None:
     #
     #    ⚠️ 실측으로 `finance_states` 에 `LOAN_BASELINE` 252행과 `BASE_NO_LOAN` 2행이
     #      **공존한다.** 여기에 하나를 상수로 박으면 *"무차입 상태가 대출 baseline 자리에
-    #      조용히 들어온다"* — `app/finance/db.py` 의 `get_finance_runtime_axis` 가 그
-    #      문장을 이미 적어 뒀다.
+    #      조용히 들어온다"* — `app/finance/readmodel/finance_state.py` 의
+    #      `get_finance_runtime_axis` 가 그 문장을 이미 적어 뒀다.
     #
     #    ★ **그래서 어댑터가 `collect()` 안에서 재무에게 축을 물어본다.** 임포트 시점에
     #      DB 를 읽지 않는 것은 위 네 등록소와 같다. 재무 축의 `sim_run_id` 가 마스터가

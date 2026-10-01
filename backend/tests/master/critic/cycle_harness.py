@@ -11,7 +11,7 @@
 ```
 
 🔴 **여기 있는 것을 프로덕션에서 부르지 않는다.** 마스터의 산 경로는
-  `app/master/flow.py` 이고, H1 승인 약정의 주인은 `app/master/commitment.py` 다.
+  `app/master/service/flow.py` 이고, H1 승인 약정의 주인은 `app/master/domain/commitment.py` 다.
   이 파일의 `build_cycle_commitment` 는 **다른 타입**(`ApprovedPurchaseCommitment`)을 만드는
   옛 사이클 것이며, Critic 에게 먹일 시나리오를 짓는 데만 쓴다.
 

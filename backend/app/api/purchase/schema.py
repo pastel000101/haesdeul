@@ -93,7 +93,7 @@ class Plan(BaseModel):
     )
     #  ⚠️ 업무 키 하나에 실행이 여러 행이다 (실측 75행). 그 사이 재실행이 있으면
     #     업무 키만으로는 **본 것과 다른 안**이 승인된 것으로 남는다 — 그래서 행 id 를
-    #     짝으로 싣는다 (`master/decision.py` 의 `history_run_id` 와 같은 값).
+    #     짝으로 싣는다 (`master/service/decision.py` 의 `history_run_id` 와 같은 값).
     history_run_id: str | None = Field(
         default=None,
         description="이 안을 낸 실행 이력 행 id(master_agent_runs.run_id). 못 읽으면 None",

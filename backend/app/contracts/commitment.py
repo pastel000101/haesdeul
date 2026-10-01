@@ -8,7 +8,8 @@ commitment.py — 승인 매입의 **확정 입고 약정** 계약 (H1)
   `app/master/commitment.py` 한 파일에 타입과 조립 함수가 같이 있었다). 물류가 약정을
   받으려고 마스터를 import 하던 역방향 의존을 끊으려고 **타입만** 여기로 옮겼다.
   약정을 **만드는** 함수(`build_commitment` · `with_purchase_record`)와 사람이 적은
-  실매입 회차(`RecordedLeg`)는 마스터의 변환이라 `app/master/commitment.py` 에 남는다.
+  실매입 회차(`RecordedLeg`)는 마스터의 변환이라 마스터(지금
+  `app/master/domain/commitment.py`)에 남는다.
 
 ★ `__post_init__` 의 검사(계약 품목 · 회차 합 = 총량 · 회차 품목 · 회차 금액 합 = 총액)는
   **계약의 일부**라 타입과 함께 왔다 — 누가 만들든 성립하지 않는 약정은 서지 않는다.
@@ -110,7 +111,7 @@ class ArrivalLeg:
     🔴 **N5 가 없으면 `None` 이다 — 0 으로 대체하지 않는다.** N4 를 0 으로 못 쓰게 한
        것과 같은 이유다. 0 이면 *"오늘 승인분이 오늘 지급"* 이 되어 지급일이라는
        사실 자체가 사라진다. 없으면 없는 채로 두고, `purchases.payment_due_date` 가
-       NOT NULL 이므로 **원장 쓰기가 그때 멈춘다** (`master/transition.py`).
+       NOT NULL 이므로 **원장 쓰기가 그때 멈춘다** (`master/service/transition.py`).
     """
 
 

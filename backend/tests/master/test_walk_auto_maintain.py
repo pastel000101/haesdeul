@@ -794,7 +794,7 @@ def test_기본_유지보수_자리가_run_auto_maintenance_자체다() -> None:
 
 @pytest.mark.parametrize("어휘", [이름 for 이름 in 넷 if 이름 != "FAILED"])
 def test_걷기_코드가_유지보수_어휘를_제_손으로_안_짓는다(어휘: str) -> None:
-    """🔴 **넷의 주인은 `logistics/auto_maintenance.py` 하나다.** 세기만 한다.
+    """🔴 **넷의 주인은 `logistics/schemas/maintenance.py` 하나다.** 세기만 한다.
 
     ⚠️ **`FAILED` 는 뺀다.** 그 한 낱말은 스케줄러가 단계마다 이미 쓰는 말이라
       원문 잠금이 유지보수와 무관한 자리를 잡는다.

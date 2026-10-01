@@ -555,6 +555,8 @@ def _supply_capacity_query(
       마스터가 실어 줄 남의 값인데(`master/procurement_boundary.py`), 그쪽이
       *"라우팅이 열리는 날 같이 한다"* 로 미뤘다. 그동안은 못 읽었다고 답한다 —
       `0` 으로 채우지 않는다 (규칙 3).
+      (2026-10-01 정정: 라우팅은 열려 있고 마스터가 `app/master/readmodel/procurement_boundary.py`
+      로 두 값을 읽어 싣는다. 값이 비는 날 «못 읽었다» 로 답하는 규칙은 그대로다.)
 
     ★ 시세를 읽고 경계를 잡는 것은 ``service/supply_capacity.py`` 다 (2026-09-29 BL-016).
       여기서는 어느 품목을 묻는지 가리고, 결과를 회신으로 옮긴다.
@@ -598,7 +600,7 @@ def _supply_capacity_query(
     #      낼 때    requested_quantity_kg             회신 어휘 — "그 물음에 답한다"
     #
     #  ⚠️ 그 둘을 맞추려 하지 마라. 판매가 부족량을 그 이름으로 쥐고 있고
-    #  (`sales/schemas.py` 의 `required_additional_quantity_kg`), 회신 계약은
+    #  (`sales/schemas/proposal.py` 의 `required_additional_quantity_kg`), 회신 계약은
     #  `requested_quantity_kg` 로 정해져 있다.
     #
     #  🔴 **틀리면 조용히 사라진다.** `_read_optional_number` 는 없는 키에 `None` 을

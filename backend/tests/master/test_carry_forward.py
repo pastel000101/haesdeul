@@ -30,7 +30,7 @@
                  →  그 승인이 FAILED 로 선다 (물류 실측 2026-09-09)
 ```
 
-⚠️ **`app/master/transition.py` 의 로직은 안 되돌린다.** 이 파일은 **검사**다.
+⚠️ **`app/master/service/transition.py` 의 로직은 안 되돌린다.** 이 파일은 **검사**다.
 
 ---
 

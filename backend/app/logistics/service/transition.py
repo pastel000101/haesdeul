@@ -1,6 +1,6 @@
 """transition.py — 승인 약정을 **물류 재고 상태로 옮기는** build·persist (C 형태 ⑦).
 
-마스터가 `app/master/transition.py` 에서 트랜잭션 경계를 쥐고, **무슨 값을 어느 칸에
+마스터가 `app/master/service/transition.py` 에서 트랜잭션 경계를 쥐고, **무슨 값을 어느 칸에
 어떤 SQL 로 쓸지는 물류가 소유한다.** 이 파일이 그 물류 몫이다.
 
 ```text
@@ -31,7 +31,7 @@
 🟡 **매입 참조(`purchase_id`)를 받을 자리는 뚫려 있고, 마스터는 그것을 넘기지 않는다.**
    운송 중인 물건이 도착하면 물류는 그 매입 줄에서 `purchase_item_id` · `item_id` ·
    `grade` · `unit_price_krw_per_kg` 를 읽는다. 그 참조를 **물류가 지어내면 안 되고**,
-   만드는 곳은 마스터다 (`app/master/transition.py` 의 `purchase_id_for`).
+   만드는 곳은 마스터다 (`app/master/domain/purchase_ids.py` 의 `purchase_id_for`).
 
    ```text
    마스터 경로   logistics.build(commitment, target_state_date=…)
@@ -252,7 +252,7 @@ def _record_schedules(
 
     ★ **부모 행은 같은 트랜잭션 안에 이미 서 있다.** 마스터 `apply_approval` 이
       `persist_purchases` → `finance.persist` → `logistics.persist` 순으로 부르므로
-      (`app/master/transition.py` 주석), 여기서 `purchase_items` 를 읽을 수 있다.
+      (`app/master/service/transition.py` 주석), 여기서 `purchase_items` 를 읽을 수 있다.
 
     🔴 **`purchase_id` 가 없으면 멈춘다. 비워 두고 넘어가지 않는다.**
        이 표는 W3-2 에서 정본이 되고, 그때 빠진 행은 *"승인은 났는데 도착 조회에

@@ -244,7 +244,7 @@ def test_밴드_축_어휘를_흡수하지_않는다():
 
     ★ **합치면 Critic 이 잃는다** — `cap_total_kg` 과 `cap_by_date.2026-01-05` 가
       같은 `WAREHOUSE` 가 되면 LLM 이 인과를 대조할 재료가 줄어든다
-      (`critic/llm/runtime.py:74` 가 그것으로 판정한다).
+      (`master/critic/llm/runtime.py` 가 그것으로 판정한다).
     """
     band_axes = _band_binding_axes()
 

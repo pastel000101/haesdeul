@@ -9,9 +9,9 @@
 여기서 재는 것은 **그 함수까지 값이 닿는가** 다. 통로가 셋이다.
 
 ```text
-① master/cycle_schemas.py   SplitLegIn.amount_krw
-② master/critic_bridge.py   스칼라에 실행 품목 이름표를 붙여 나른다
-③ critic/service.py         _to_scenario 가 SplitLeg 에 넘긴다
+① master/schemas/cycle.py   SplitLegIn.amount_krw
+② master/adapters/critic_bridge.py   스칼라에 실행 품목 이름표를 붙여 나른다
+③ master/critic/service.py  _to_scenario 가 SplitLeg 에 넘긴다
 ```
 
 ★ **`지적 0건` 으로는 통로를 증명할 수 없다.** 통과인지 안 돈 것인지 구분이 안 되고,

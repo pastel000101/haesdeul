@@ -39,7 +39,7 @@ const TABS = [
 /**
  * 기준일 선택기. 기능이라 남기고, 화면에는 「기준일」 라벨만 싣는다 (2026-09-15 결정).
  *
- * 운영에서 기준일은 스케줄러가 정한다 (`app/master/clock.py` · `#422`).
+ * 운영에서 기준일은 스케줄러가 정한다 (`app/core/clock.py` · `#422`).
  */
 function DemoAsOfPicker() {
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);

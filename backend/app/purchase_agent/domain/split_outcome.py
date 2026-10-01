@@ -97,7 +97,7 @@ def cap_constrained_quantities(
         # (``warehouse_cap_kg``와 같은 이유).
         cap = int(cap_by_date[day])
         # ★ **앞 회차가 아직 창고에 있다.** ``cap_by_date[d]``는 그날의 여유 공간인데,
-        #   물류는 **기존 일정만** 재생해 그 값을 낸다 (`logistics/tools.py`
+        #   물류는 **기존 일정만** 재생해 그 값을 낸다 (`logistics/domain/tools.py`
         #   ``calculate_cap_by_date``: guaranteed − projected_occupancy). 우리가 새로
         #   넣을 회차는 거기 없다. 날짜마다 독립으로 비교하면 1회차 30kg이 남아 있는데도
         #   2회차가 그날 상한을 통째로 쓰는 계획이 나온다 — 총합은 맞고 하드 제약은 깨진다.

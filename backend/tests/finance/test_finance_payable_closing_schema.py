@@ -77,7 +77,7 @@ def test_the_table_carries_the_run_axis_so_reset_finds_it():
     """★ sim-run reset 은 표 목록을 손으로 안 적는다.
 
     `information_schema` 에서 **축 칸을 가진 표**를 읽어 지운다
-    (`app/master/sim_run_open.py` `_axis_tables`). 그래서 이 칸이 있으면 새 표도
+    (`app/master/repository/sim_run_open.py` `_axis_tables`). 그래서 이 칸이 있으면 새 표도
     자동으로 비워지고, 없으면 이전 실행의 귀속이 남아 다음 실행을 오염시킨다.
     """
     assert AXIS_COLUMN == "sim_run_id"

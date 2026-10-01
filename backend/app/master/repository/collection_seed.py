@@ -42,7 +42,7 @@ def _note(*, due_date: Any, collection_date: Any, original: Any, received: Any) 
     """*"이 사건을 왜 사실로 두었나"* 를 적는다. **파생식과 성격이 둘 다 들어간다.**
 
     🔴 **숫자를 넣는다.** 값만 넘기면 사람도 매입 판단도 확정으로 읽는다
-      (`app/master/inputs.py` 가 파생분에 파생식을 실어 내보내는 것과 같은 규율).
+      (`app/master/domain/inputs.py` 가 파생분에 파생식을 실어 내보내는 것과 같은 규율).
 
     🔴 **「당일」은 `collection_date == due_date` 인 날에만 참이다.** 기일 뒤에 집은
       건에까지 「당일」이라 적으면 메모가 **거짓**이 된다 — 그래서 갈라 적는다.

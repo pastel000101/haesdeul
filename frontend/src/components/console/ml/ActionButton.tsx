@@ -4,7 +4,7 @@
  * 답변 글 안에 실려 온 **버튼**.
  *
  * ★ **왜 글 안에 싣나.** 채팅까지 살아서 가는 것은 `answer_markdown` 한 덩어리
- *   뿐입니다 (`backend/app/master/answer.py` 의 `_MARKDOWN_AGENTS`). payload 의
+ *   뿐입니다 (`backend/app/master/domain/answer.py` 의 `_MARKDOWN_AGENTS`). payload 의
  *   나머지 칸은 마스터가 *사실 줄*로 펴 버려서, 「여기에 버튼을 놓아라」 같은
  *   **구조**가 거품 안까지 못 들어옵니다. 그래서 글 안에 특별한 링크로 싣고
  *   (`[모델 업데이트 — 소매가](action:retrain-apply?kind=rtl)`) 화면이 그것만

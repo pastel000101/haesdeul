@@ -16,7 +16,7 @@ def status_facts(
     """판매 진행 상황을 **사람이 읽는 사실**로 만든다.
 
     🔴 **키가 곧 화면 글자다.** 마스터는 부서가 낸 키를 이름 그대로 사실 줄로 편다
-       (`master/answer.py` · `_LABEL.get(key, key)`). 그래서 `request_id` ·
+       (`master/domain/answer.py` · `_LABEL.get(key, key)`). 그래서 `request_id` ·
        `SCENARIOS_GENERATED` · `FINANCIAL_VALIDATION` 같은 기계용 키와 값을 여기 실으면
        그대로 사용자 말풍선에 나간다 — 실측으로 그렇게 나왔다.
 
