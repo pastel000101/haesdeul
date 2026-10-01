@@ -166,6 +166,120 @@ def pool_settings(*, load: Load = load_env_file) -> PoolSettings:
     return PoolSettings(min_size=min_size, max_size=max_size, timeout_seconds=timeout)
 
 
+@dataclass(frozen=True)
+class ConnectionHealthSettings:
+    """끊긴 · 응답 없는 연결을 알아채는 시간. 서비스 풀과 ML 원본 풀이 같은 값을 쓴다.
+
+    ★ 2026-10-01 재구성 BL-010(사용자 결정): 풀 적용 뒤 장애 검증에서 «DB 가 뜬 뒤에도 재접속이
+      늦다» 와 «응답 없는 DB 앞에서 빌려 주기 전 확인이 끝나지 않는다» 가 나와 설정으로 두었다.
+
+    ```text
+    connect_timeout (core/db.py)   새 연결 하나를 만드는 시간 — 5초(종전 그대로)
+    풀 timeout_seconds             빌릴 연결을 기다리는 시간 — 5초(PoolSettings)
+    reconnect_timeout_seconds      DB 에 못 닿을 때 풀이 새 연결을 다시 시도하는 한 번의 기간
+    check_timeout_seconds          빌려 주기 전 연결 확인(빈 질의 한 왕복)을 기다리는 시간
+    keepalive · tcp_user_timeout   OS 가 망 단절을 알아채는 시간(아래)
+    ```
+
+    🔴 **어느 것도 SQL · 요청의 시간 상한이 아니다.** 빌린 연결로 실행하는 질의에는 클라이언트 쪽
+       시간 제한이 없다(재구성 전과 같음). TCP 설정은 OS 가 패킷에 응답하는 한 — 예: DB 프로세스만
+       멈춘 경우 — 아무것도 알아채지 못한다.
+    """
+
+    #: 풀이 새 연결을 다시 시도하는 한 번의 기간(초) — psycopg_pool `reconnect_timeout`. 시도
+    #: 간격은 1 · 2 · 4 · 8초로 늘다가 이 시간이 지나면 그 시도를 접고, 다음 대여가 새 시도를
+    #: 시작한다. «이 간격마다 접속한다» 는 뜻이 아니다. 라이브러리 기본 300초에서는 DB 가 뜬 뒤에도
+    #: 다음 예정 시도까지 대여가 실패했다(2026-10-01 실측 — 101.7초 중단 뒤 57초).
+    reconnect_timeout_seconds: float
+    #: 빌려 주기 전 연결 확인의 시간 제한(초). 넘기면 그 연결을 닫고 버린다(`app.core.db`).
+    check_timeout_seconds: float
+    #: libpq `keepalives` — TCP keepalive 를 켠다(참) · 끈다(거짓).
+    keepalives: bool
+    #: libpq `keepalives_idle` — 아무것도 오가지 않은 뒤 첫 확인 패킷까지(초).
+    keepalives_idle_seconds: int
+    #: libpq `keepalives_interval` — 답이 없을 때 확인 패킷 간격(초).
+    keepalives_interval_seconds: int
+    #: libpq `keepalives_count` — 답 없는 확인 패킷 몇 번이면 끊긴 것으로 보나. **Windows 에서는
+    #: 효과가 없다**(libpq 문서 — `TCP_KEEPCNT` 가 있는 시스템만).
+    keepalives_count: int
+    #: libpq `tcp_user_timeout` — 보낸 데이터가 이 시간(**밀리초**) 동안 확인 응답을 못 받으면
+    #: 연결을 끊는다. 0 이면 OS 기본값. **Linux 에서만 효과가 있다**(`TCP_USER_TIMEOUT`).
+    tcp_user_timeout_ms: int
+
+
+DB_CONNECTION_HEALTH_ENV_KEYS = (
+    "DB_POOL_RECONNECT_TIMEOUT_SECONDS",
+    "DB_POOL_CHECK_TIMEOUT_SECONDS",
+    "DB_TCP_KEEPALIVES",
+    "DB_TCP_KEEPALIVES_IDLE_SECONDS",
+    "DB_TCP_KEEPALIVES_INTERVAL_SECONDS",
+    "DB_TCP_KEEPALIVES_COUNT",
+    "DB_TCP_USER_TIMEOUT_MS",
+)
+
+#: 기본값과 이유.
+#:
+#: - 재접속 15초: 시도 간격이 8초를 넘지 않는다(1 · 2 · 4 · 8). 2026-10-01 시험 한 번에서 약 100초
+#:   중단 뒤 1.61초에 복구됐다.
+#: - 확인 5초: 빌릴 연결 대기 · 접속 시간과 같은 값. 프론트 읽기 20초보다 짧다.
+#: - keepalive 30 · 10 · 3: 쉬는 연결이 망에서 끊겼으면 약 60초 안에 OS 가 알아챈다(Linux).
+#: - user timeout 30,000ms: 보낸 데이터가 30초 동안 확인 응답을 못 받으면 끊는다(Linux). 오래 도는
+#:   질의는 서버 OS 가 패킷에 응답하므로 이 값에 걸리지 않는다.
+DEFAULT_CONNECTION_HEALTH_SETTINGS = ConnectionHealthSettings(
+    reconnect_timeout_seconds=15.0,
+    check_timeout_seconds=5.0,
+    keepalives=True,
+    keepalives_idle_seconds=30,
+    keepalives_interval_seconds=10,
+    keepalives_count=3,
+    tcp_user_timeout_ms=30_000,
+)
+
+
+def connection_health_settings(*, load: Load = load_env_file) -> ConnectionHealthSettings:
+    """재접속 · 연결 확인 시간과 TCP 상태 확인 옵션(`DB_CONNECTION_HEALTH_ENV_KEYS`).
+
+    빈 값은 기본값이다. 숫자가 아니거나 범위가 틀리면 `ValueError` — 풀을 열기 전에 멈춘다.
+    """
+    load()
+    raw = {key: os.getenv(key, "").strip() for key in DB_CONNECTION_HEALTH_ENV_KEYS}
+    default = DEFAULT_CONNECTION_HEALTH_SETTINGS
+    try:
+        values = ConnectionHealthSettings(
+            reconnect_timeout_seconds=float(
+                raw["DB_POOL_RECONNECT_TIMEOUT_SECONDS"] or default.reconnect_timeout_seconds
+            ),
+            check_timeout_seconds=float(
+                raw["DB_POOL_CHECK_TIMEOUT_SECONDS"] or default.check_timeout_seconds
+            ),
+            keepalives=(raw["DB_TCP_KEEPALIVES"] or str(int(default.keepalives))) == "1",
+            keepalives_idle_seconds=int(
+                raw["DB_TCP_KEEPALIVES_IDLE_SECONDS"] or default.keepalives_idle_seconds
+            ),
+            keepalives_interval_seconds=int(
+                raw["DB_TCP_KEEPALIVES_INTERVAL_SECONDS"] or default.keepalives_interval_seconds
+            ),
+            keepalives_count=int(raw["DB_TCP_KEEPALIVES_COUNT"] or default.keepalives_count),
+            tcp_user_timeout_ms=int(raw["DB_TCP_USER_TIMEOUT_MS"] or default.tcp_user_timeout_ms),
+        )
+    except ValueError as exc:
+        raise ValueError(f"DB 연결 상태 확인 값이 숫자가 아니다: {raw}") from exc
+    if (
+        not values.reconnect_timeout_seconds > 0
+        or not values.check_timeout_seconds > 0
+        or raw["DB_TCP_KEEPALIVES"] not in ("", "0", "1")
+        or values.keepalives_idle_seconds < 1
+        or values.keepalives_interval_seconds < 1
+        or values.keepalives_count < 1
+        or values.tcp_user_timeout_ms < 0
+    ):
+        raise ValueError(
+            "DB 연결 상태 확인 값의 범위가 틀렸다 — RECONNECT · CHECK 초 > 0, KEEPALIVES 0|1, "
+            f"IDLE · INTERVAL · COUNT >= 1, USER_TIMEOUT_MS >= 0: {values}"
+        )
+    return values
+
+
 def get_db_schema(*, load: Load = load_env_file) -> str:
     """SQL 이 쓸 PostgreSQL 스키마 이름(`DB_SCHEMA`). 연결이 아니라 SQL 문에 들어간다."""
     return required_database_environment(("DB_SCHEMA",), load=load)["DB_SCHEMA"]
