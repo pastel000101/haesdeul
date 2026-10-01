@@ -246,9 +246,8 @@ def test_공용_계약을_쓰는_파일이_늘지_않는다():
     # ★ 2026-09-30 재구성 BL-018: 자리만 바뀌었다 — 열두 파일이 계층 폴더로 가며 셋이 둘로 갈려
     #   열다섯 자리가 됐다.
     #   `flow.py` · `sales_flow.py` 는 판정(domain) · 순서(service) 둘, `schemas.py` 는 매입 · 판매
-    # 둘로
-    #   갈렸고, `report.py` 에서 품목 범위를 읽던 채팅 보고서는 `report/chat_reports.py` 다. 계약을
-    #   새로 부르기 시작한 파일은 없다(갈린 조각이 옛 파일에서 쓰던 이름을 그대로 읽는다).
+    #   둘로 갈렸고, `report.py` 에서 품목 범위를 읽던 채팅 보고서는 `report/chat_reports.py` 다.
+    #   계약을 새로 부르기 시작한 파일은 없다(갈린 조각이 옛 파일에서 쓰던 이름을 그대로 읽는다).
     #   2026-09-30 재구성 BL-019: `router.py`(계약 위반 → 422)는 `app/api/master/flows.py` 로 옮겨
     #   마스터 밖이 됐다 — 이 목록에서 빠졌다. `readmodel/purchase_tab.py` 가 늘었다 — 매입 탭
     #   화면이 실행을 고르며 계약 품목(`ITEMS`)으로 거르던 규칙(`pick_runs`)을 마스터 readmodel 로

@@ -1,6 +1,6 @@
 """day_open.py — 하루가 넘어갈 때 **물류 runtime fixture 의 그날 행을 세운다.**
 
-마스터가 `app/master/day_open.py` 에서 달력과 트랜잭션 경계를 쥐고, **무엇을
+마스터가 `app/master/service/day_open.py` 에서 달력과 트랜잭션 경계를 쥐고, **무엇을
 물려받고 무엇을 새로 둘지는 물류가 소유한다.** 이 파일이 그 물류 몫이다.
 
 ```text

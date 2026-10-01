@@ -18,6 +18,10 @@
   마스터가 그 둘을 실어 준다 (`app/master/procurement_boundary.py`). ⚠️ **아직
   안 온다** — 마스터가 봉투 배선을 *"라우팅이 열리는 날"* 로 미뤘다. 그래서 이
   모듈은 **재료가 없는 경우를 정상 경로로 다룬다** (아래).
+  (2026-10-01 정정: 라우팅은 `contracts/envelope.py` 의 `CAPABILITY_ROUTING` 에서 매입
+  `SUPPLY_CAPACITY_QUERY` 로 열려 있고, 마스터가 `app/master/readmodel/procurement_boundary.py` 로
+  두 값을 읽어 판매 Flow 에 싣는다(`service/sales.py`). 재료가 비는 날을 정상 경로로 다루는
+  규칙은 그대로다.)
 
 🔴 **`0` 으로 채우지 않는다** (규칙 3). 판매 계약이 셋을 가른다::
 

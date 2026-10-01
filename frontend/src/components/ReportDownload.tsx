@@ -19,7 +19,7 @@ import { filename, type ReportFacts } from "@/components/reports/reportFormat";
  * ★ **문서는 실제 서비스 사용자가 읽는 매입 제안이다** (2026-09-15 결정).
  *   안별 매입량·금액·등급·이유와 부서 검토만 사람 말로 싣고, 검증 기록·종료 코드·
  *   입력 출처·참조 번호 같은 개발용 정보는 넣지 않는다. 그 기록은 실행 이력에 남는다.
- *   무엇을 싣는지는 서버 `backend/app/master/report.py` 가 정한다.
+ *   무엇을 싣는지는 서버 `backend/app/master/report/purchase_report.py` 가 정한다.
  */
 export function ReportDownload({ requestId }: { requestId: string }) {
   const [busy, setBusy] = useState(false);

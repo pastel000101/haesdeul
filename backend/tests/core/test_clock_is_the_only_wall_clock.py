@@ -100,8 +100,8 @@ _CLOCK_READERS = frozenset({"seoul_now", "today_in_seoul"})
 #: 그 둘을 가져가도 되는 파일 — **실제 오늘이 곧 입력인 자리뿐이다** (`app/` 기준 경로).
 #:
 #: ```text
-#: master/scheduler.py   아무도 as_of 를 안 넘겨 준다. 09:30 에 깨어나는 것이 유일한 입력
-#: master/backfill.py    자동 승인의 실제 오늘 가드 — 걷기가 넘기는 날짜로 재면 풀린다
+#: master/service/scheduler.py   아무도 as_of 를 안 넘겨 준다. 09:30 에 깨어나는 것이 유일한 입력
+#: master/service/backfill.py    자동 승인의 실제 오늘 가드 — 걷기가 넘기는 날짜로 재면 풀린다
 #: ml/service/qa_graph.py  ML 질의응답이 기준일(as_of) 없이 왔을 때 「오늘」로 대체한다
 #: ```
 #:

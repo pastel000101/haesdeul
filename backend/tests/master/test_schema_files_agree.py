@@ -113,7 +113,7 @@ def test_이관판이_CREATE_OR_REPLACE_다():
 # 🔴 뷰만 보던 사이에 표가 갈렸다. `master_decisions_decision_check` 가 본 DDL 에서는
 #   3종인데 이관 판(`migrations/master/master_decision_cancel.sql`)은 CANCEL 을 더해 4종이었다.
 #   운영 DB 는 CANCEL 을 받고 **새 DB 는 CANCEL 결정 저장이 전부 CHECK 로 막힌다.**
-#   코드의 `Decision` 은 4종이다 (`app/master/decision.py`).
+#   코드의 `Decision` 은 4종이다 (`app/master/schemas/decision.py`).
 
 #: (제약 이름, 본 DDL 파일, 이관 판 파일)
 #:

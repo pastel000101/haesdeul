@@ -221,7 +221,7 @@ def compute_max_price(forecast: dict, coverage_days: int) -> int:
     **마진 방어선과 무관하다** (규칙 5). 혼동하기 쉬운 두 값을 구분해둔다:
 
     - ``max_price`` 는 **재무 STRESS 로 나간다** — ``amount_max_krw = qty × 이것`` 을
-      재무·마스터가 검사한다 (``finance/capabilities/scenario.py`` 의 등식 ·
+      재무·마스터가 검사한다 (``finance/domain/scenario.py`` 의 등식 ·
       ``master/verifier.py`` 의 ``L-PAYSCHED-MAX``). 🔴 **컷이 아니다** (`#394`).
     - 컷은 ``cut_unit_price`` 가 한다 — ``self_check.check_max_price`` 가 그 값을 읽고,
       ``grade_unit_price`` 가 넘는 안을 죽인다. ⚠️ 지금은 두 값이 같다. 갈라만 두었다
@@ -242,8 +242,8 @@ def compute_cut_unit_price(forecast: dict, coverage_days: int) -> int:
 
         max_price       재무 STRESS 로 나간다 (amount_max_krw = qty × 이것)
                         🔴 재무·마스터가 그 등식을 검사한다
-                           finance/capabilities/scenario.py  amount_max_krw 등식
-                           master/verifier.py                검사 이름 L-PAYSCHED-MAX
+                           finance/domain/scenario.py        amount_max_krw 등식
+                           master/domain/verifier.py         검사 이름 L-PAYSCHED-MAX
         cut_unit_price  우리 컷 기준 (self_check.check_max_price)
 
     🔴 **왜 갈랐나** — 하나였을 때 밴드가 좁아지면 컷이 엄격해지고 재무 STRESS 는
@@ -394,7 +394,7 @@ def _quote_provenance(market_quotes: list[dict], as_of: str) -> dict[str, str]:
       (Codex 교차검증 2026-08-31).
 
     등급이 ``MEASURED`` 가 아닌 이유: 그건 **마스터의 입력 등급 어휘**다
-    (``app/master/inputs.py`` — MEASURED · DERIVED · MOCK · MISSING). 우리 rationale 의
+    (``app/master/schemas/inputs.py`` — MEASURED · DERIVED · MOCK · MISSING). 우리 rationale 의
     사다리는 ``OFFICIAL > VENDOR > SIM_FIXED > ASSUMED`` 네 단계뿐이고(§7.3), 가락 경락
     실적은 **공영도매시장의 공식 거래 기록**이라 그 사다리에서 ``OFFICIAL`` 이 맞는 자리다.
     등급이 실제로 중요한 이유도 있다 — ``grade_unit_price`` 는 ``check_max_price`` 와 사중
@@ -850,7 +850,8 @@ def forecast_risks(forecast: dict, coverage_days: int, constraints: dict) -> lis
       컷하지 않고 사람이 감안하도록 문장만 남긴다.
 
     🔴 **화면 문구에 «휴장»·«장이 안 섰다» 를 쓰지 않는다.** 우리가 2026-09-09 에 마스터에게
-      짚어 준 규율이다 (``master/service.py`` 의 같은 주석이 *"매입이 짚었다"* 로 적어 뒀다).
+      짚어 준 규율이다 (``master/service/procurement.py`` 의 같은 주석이 *"매입이 짚었다"* 로
+      적어 뒀다).
       그때 남의 문면은 고쳐졌고 **우리 것이 남아 있었다.**
 
     ⚠️ mock 예측에는 이 칸이 아예 없어 **4앵커에 아무 줄도 안 붙는다** (규칙 3 —

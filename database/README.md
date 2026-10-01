@@ -326,9 +326,11 @@ agent=critic          7건
 실행 공용 로그"** 입니다. 이름을 바꾸면 145행·모듈 4개·이 파일들이 전부 따라오고,
 얻는 것은 이름뿐입니다. 대신 표 COMMENT 로 무엇인지 밝혀 두는 쪽이 쌉니다.
 
-**남는 것은 코드 위치 하나입니다** — `app/master/persistence.py` 가
-`app/orchestrator/run_repository.py` 를 임포트합니다. 이건 **표 문제가 아니라
-모듈 배치 문제**라, 옮기고 싶으면 DB 를 건드리지 않고 옮길 수 있습니다.
+**이 표를 쓰고 읽는 코드**는 지금 `app/master/repository/cycle_runs.py`(SQL) ·
+`app/master/service/cycle_persistence.py`(저장) · `app/master/readmodel/cycle_runs.py`(조회)
+입니다(2026-09-30 재구성). 이 절을 쓸 때는 `app/master/persistence.py` 가
+`app/orchestrator/run_repository.py` 를 임포트했고 그것을 «모듈 배치 문제» 로 남겨 두었는데,
+`app/orchestrator/` 는 2026-09-07 에 없어졌고 코드 자리는 위와 같이 정리됐습니다 — 표는 그대로입니다.
 
 ---
 

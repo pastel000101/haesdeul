@@ -430,7 +430,7 @@ UPDATE_UNREADABLE = "업데이트 후보 확인 불가 (ML 콘솔 연결 안 됨
 #: 버튼을 마크다운에 싣는 방법. **평범한 링크가 아니라 `action:` 스킴**이다.
 #:
 #: ★ 채팅으로 가는 길에 살아남는 것은 `answer_markdown` **한 덩어리뿐**이다
-#:   (`master/answer.py::_MARKDOWN_AGENTS`). 나머지 payload 칸은 마스터가 사실
+#:   (`master/domain/answer.py::_MARKDOWN_AGENTS`). 나머지 payload 칸은 마스터가 사실
 #:   줄로 펴 버려 화면 거품 안으로 «구조» 가 못 들어온다. 그래서 버튼을 글 안에
 #:   싣는다 — 화면(`ml/Markdownish.tsx`)이 이 스킴만 버튼으로 그린다.
 #:

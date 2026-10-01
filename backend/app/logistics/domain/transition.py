@@ -82,7 +82,7 @@ def build_next_inventory(
        ```
 
     🔴 **기본값이 `None` 인 것이 이 판의 핵심이다.** 마스터 전이 규약
-       (`app/master/transition.py` 의 `LogisticsTransition`)은 이 인자를 **받지
+       (`app/master/registry/transition.py` 의 `LogisticsTransition`)은 이 인자를 **받지
        않기로 확정했고**, **그 파일은 마스터 소유라 물류가 고칠 자리가 아니다.**
        필수로 만들면 마스터의 `apply_approval` 이 `TypeError` 로 터진다 — 물류 혼자
        도메인 경계를 넘어 남의 규약을 강제하는 셈이다.

@@ -392,7 +392,7 @@ CAPABILITY_ROUTING: dict[Capability, tuple[AgentName, Mode] | None] = {
     #   품목이고, 같은 품목 후보가 여럿이면 같은 답이 여러 번 온다.
     #
     # ★ **경계 재료는 호출 0회다.** 매입이 낼 「가능량」의 재료가 물류·재무 봉투이고,
-    #   그 값은 이미 실행 이력에 있다 — `app/master/procurement_boundary.py` 가
+    #   그 값은 이미 실행 이력에 있다 — `app/master/readmodel/procurement_boundary.py` 가
     #   그것을 읽는다.
     "ADDITIONAL_SUPPLY_CONTEXT": ("purchase", "SUPPLY_CAPACITY_QUERY"),
 }

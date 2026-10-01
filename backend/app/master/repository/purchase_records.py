@@ -178,7 +178,7 @@ def select_recorded_sums_by_plan(
 def select_last_closed_date(conn: Any, *, sim_run_id: str, schema: str) -> date | None:
     """그 실행 축의 **마지막 재무 일마감일**. 마감이 없으면 `None`.
 
-    ★ **읽기만 한다.** `daily_closings` 의 주인은 재무다 (`finance/closing.py` 가 적는다).
+    ★ **읽기만 한다.** `daily_closings` 의 주인은 재무다 (`finance/service/closing.py` 가 적는다).
       실매입 매입일이 이미 마감된 날로 들어가지 못하게 막는 데만 쓴다
       (설계 260915 안 A §4-6 ②).
     """

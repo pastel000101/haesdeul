@@ -447,6 +447,9 @@ def _missing_for(routes: Mapping[str, tuple[AgentName, Mode] | None]) -> tuple[s
     🔴 **조건부는 여기서 안 막는다.** `ADDITIONAL_SUPPLY_CONTEXT` 는 라우팅이 아직
       `None` 이라 필수로 세면 **모든 재검증이 `ERROR`** 가 된다 (설계 §5: 조건부는
       *"안 왔다"* 로 둔다).
+      (2026-10-01 정정: «라우팅이 아직 `None`» 은 지금 사실이 아니다 — 라우팅은
+      `contracts/envelope.py` 의 `CAPABILITY_ROUTING` 에서 매입 `SUPPLY_CAPACITY_QUERY` 로
+      열려 있다. 조건부라 재검증 필수에 넣지 않는 것(`_NOT_REVALIDATED`)은 그대로다.)
     """
     out: list[str] = []
     for capability in REQUIRED_CAPABILITIES:

@@ -9,8 +9,9 @@ app/finance/collection.py :196   apply_explicit_collection(conn, CollectionEvent
 ```
 
 ★★ **재무 경계는 이미 서 있다.** 누적 target 을 delta 로 접는 전이도, 역행·초과를
-  막는 불변식도, 멱등도 `app/finance/collection.py` 안에 다 있다. **없는 것은 그것을
-  날마다 부르는 자리**이고, 이 등록소가 그 자리를 만든다.
+  막는 불변식도, 멱등도 재무(지금 `app/finance/service/collections.py` ·
+  `domain/collections.py`) 안에 다 있다. **없는 것은 그것을 날마다 부르는 자리**이고, 이
+  등록소가 그 자리를 만든다.
 
 ⚠️ `register_inbound` 호출이 0건이던 것(`#337`)과 **같은 모양**이다 — 구현이 다 섰는데
   배선이 없어 매일 조용히 아무 일도 안 일어났다.
@@ -81,7 +82,7 @@ Sales     계약 결제조건·채권 발생의 상업적 원천 — "오늘 얼
   ```
 
     Protocol 은 `as_of` 만 나르는데 재무 구현체는 **생성 인자로 축 둘**을 받는다
-    (`app/master/collection.py` 의 `CollectionSource` 가 그렇게 적어 뒀다 — *"어느
+    (`app/master/registry/collection.py` 의 `CollectionSource` 가 그렇게 적어 뒀다 — *"어느
     실행의 장부인가는 실행 정체성이라 어댑터 생성 인자로 온다"*). 그 둘을 어디서
     가져오는가가 이 파일의 전부다.
 
@@ -120,7 +121,7 @@ Sales     계약 결제조건·채권 발생의 상업적 원천 — "오늘 얼
 
   ★ **`BLOCKED` 다.** `NOTHING_DUE` 로 접으면 *"오늘은 들어올 게 없었다"* 로 읽히고,
     들어왔어야 할 현금이 장부에 없는 채로 매입 판단이 돈다
-    (`app/master/collection.py` 의 다섯 갈래 표에서 축 불일치가 `BLOCKED` 다).
+    (`app/master/registry/collection.py` 의 다섯 갈래 표에서 축 불일치가 `BLOCKED` 다).
 
   ---
 

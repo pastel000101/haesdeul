@@ -4,18 +4,18 @@ clock.py — **벽시계를 읽는 단 하나의 자리.**
 2026-09-29 `app/master/clock.py` 에서 옮겼다. 시간대와 벽시계는 부서가 다 같이 쓰는 기반이라
 `core` 에 둔다 — 마스터 안에 있을 때는 부서가 마스터를 import 할 수 없어 물류가
 `ZoneInfo("Asia/Seoul")` 를 따로 만들어 들고 있었다. 하루 시각 상수(09:30 시작 · 5분 간격 ·
-10:30 마감)는 스케줄러의 업무 값이라 옮기지 않았다 (`app/master/schedule_times.py`).
+10:30 마감)는 스케줄러의 업무 값이라 옮기지 않았다 (지금 `app/master/domain/schedule_times.py`).
 
 ```text
 여기           지금이 몇 시인가 — 시스템 시각을 서울 시간대로 읽는다    진입점이 한 번
 as_of          업무 날짜 — 진입점이 정해서 인자로만 흘린다             아래는 전부 이것
-sim_time       as_of 에서 단계 시각을 만든다 — 시계를 안 읽는다        app/master/sim_time.py
+sim_time       as_of 에서 단계 시각을 만든다 — 시계를 안 읽는다        app/master/domain/sim_time.py
 ```
 
 🔴 **이 저장소는 앱 전체에서 벽시계를 금지한다.** 여러 파일이 명시적으로 적어 뒀다.
 
 ```text
-logistics/simulated_inspection.py:41   "시계를 읽지 않는다"
+logistics/domain/simulated_inspection.py:41   "시계를 읽지 않는다"
 purchase_agent/mocks/README.md:64      "date.today() 가 없다 (규칙 1)"
 master/revalidation.py                 "서버 타임존에 답이 끌려가면 안 된다"
 ```
@@ -30,8 +30,8 @@ master/revalidation.py                 "서버 타임존에 답이 끌려가면 
     **다른 것은 `as_of` 하나뿐이다.** 아래 어딘가가 시계를 한 번 더 읽으면 그
     지점부터 백테스트가 오늘 날짜로 답하기 시작하고, 성적이 조용히 무효가 된다.
 
-  (시계 함수를 가져가는 자리는 셋이다 — 스케줄러 깨어남(`master/scheduler.py`), 자동
-  승인의 실제 오늘 가드(`master/backfill.py`), ML 질의응답이 기준일을 못 받았을 때의
+  (시계 함수를 가져가는 자리는 셋이다 — 스케줄러 깨어남(`master/service/scheduler.py`), 자동
+  승인의 실제 오늘 가드(`master/service/backfill.py`), ML 질의응답이 기준일을 못 받았을 때의
   대체(`ml/service/qa_graph.py`). 목록과 이유는 `tests/core/test_clock_is_the_only_wall_clock.py`
   가 들고 지킨다.)
 

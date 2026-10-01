@@ -1717,7 +1717,7 @@ def test_llm_status_separates_switched_off_from_not_called_this_run(
     **앞은 설정 문제라 고칠 수 있고 뒤는 그날의 사실이라 고칠 것이 없다.** 한 값으로
     내면 사람이 없는 문제를 찾는다.
 
-    봉투가 뜻을 규정한다 (``master/envelope.py`` ``LLMStatus``) — 새로 정한 규칙이 아니라
+    봉투가 뜻을 규정한다 (``contracts/envelope.py`` ``LLMStatus``) — 새로 정한 규칙이 아니라
     마스터 ``IntentService``·Critic ``JudgeService`` 가 이미 쓰는 서열이다.
     """
     from app.purchase_agent.adapter import _uncalled_status
@@ -1735,7 +1735,7 @@ def test_a_status_query_says_skipped_not_disabled_when_the_llm_is_on(
     """판단 단계가 **애초에 없는** 실행도 ``SKIPPED_TEMPLATE`` 이다.
 
     Critic 이 *"이 Flow 에는 그 문장을 쓰는 단계가 없다"* 를 같은 값으로 적는 것과 같다
-    (``critic/critic_v0_4.py``).
+    (``master/critic/critic_v0_4.py``).
     """
     monkeypatch.setenv("PURCHASE_LLM_ENABLED", "true")
     _, metadata = purchase_port(_request("배추", SPREAD_WIDE, mode="STATUS_QUERY"))

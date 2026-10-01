@@ -40,7 +40,7 @@ haetdeul.receivables   15행
   ⚠️ **조회 실패를 `()` 로 접지 않는다.** 접으면 표가 안 서 있거나 DB 가 끊긴 날이
     *"오늘은 들어올 게 없었다"* 로 읽히고, **들어왔어야 할 현금이 장부에 없는 채로**
     매입 판단이 돈다. 접는 자리는 여기가 아니라 부르는 쪽이고, 거기서 `BLOCKED` 가
-    된다 (`app/master/finance_collection.py`).
+    된다 (`app/master/service/collection.py`).
 
 ★ 그래서 이 모듈은 **예외를 그대로 올린다.** 로그로 삼키지도 않는다.
 

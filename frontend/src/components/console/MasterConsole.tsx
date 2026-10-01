@@ -248,7 +248,7 @@ function traceOf(res: AskResponse): LlmTraceData {
  *
  * 🔴 **맨 앞 하나만 가른다.** 안 이름에 같은 구분자가 들어와도 품목은 앞 한 칸이다.
  * ⚠️ 이 규칙이 바뀌면 여기가 조용히 빗나간다. 매입 스키마에 품목 칸이 서는 날
- *   이 둘을 그 칸 읽기로 바꾼다 — 서버 쪽 `app/api/plan_state.py` 가 같은 대기 중이다.
+ *   이 둘을 그 칸 읽기로 바꾼다 — 서버 쪽 `app/master/domain/plan_state.py` 가 같은 대기 중이다.
  */
 const PLAN_KEY_SEP = " · ";
 

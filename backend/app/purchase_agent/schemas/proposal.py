@@ -240,10 +240,10 @@ class SplitPlanItem(BaseModel):
     #: 확정된 값이라, 미결을 0으로 적으면 "오늘 승인분이 오늘 도착"이 사실이 된다 (규칙 3).
     #:
     #: ⚠️ ``payment_schedule`` 처럼 **키를 빼지 않는다.** 마스터 약정
-    #: (``master/commitment.py``)이 ``null`` 을 *"N4 미결로 매입도 못 냈다"* 로 읽고
+    #: (``master/domain/commitment.py``)이 ``null`` 을 *"N4 미결로 매입도 못 냈다"* 로 읽고
     #: **자기도 계산하지 않는다**. 키가 없으면 그 구분이 사라진다. Critic 도 같은 이름의
     #: 필드에서 ``None`` 을 세어 ``E-ARRIVAL-COLLAPSE`` 를 판정한다
-    #: (``critic/critic_v0_4.py``).
+    #: (``master/critic/critic_v0_4.py``).
     #:
     #: **마스터가 이 값을 받으면 자기 계산을 건너뛴다** (2026-09-01 합의 · PR #138).
     #: 같은 사실을 두 곳에서 각자 계산하면 어긋나는 날이 온다.
@@ -474,9 +474,9 @@ class Scenario(BaseModel):
     #: 예측 상단 기반 상한(경락가). **마진 방어선과 무관** — 마진 쪽 표시는 margin_warning.
     #:
     #: 🔴 **재무 STRESS 전용이다** (2026-09-08 · `#394` 기준). ``amount_max_krw = qty ×
-    #: max_price`` 를 **재무와 마스터가 검사한다** (``finance/capabilities/scenario.py`` 의
-    #: ``amount_max_krw`` 등식 · ``master/verifier.py`` 의 ``L-PAYSCHED-MAX``). 컷은 이 값이 아니라
-    #: ``cut_unit_price`` 가 한다.
+    #: max_price`` 를 **재무와 마스터가 검사한다** (``finance/domain/scenario.py`` 의
+    #: ``amount_max_krw`` 등식 · ``master/domain/verifier.py`` 의 ``L-PAYSCHED-MAX``).
+    #: 컷은 이 값이 아니라 ``cut_unit_price`` 가 한다.
     max_price: int = Field(ge=0)
     #: 매입 **컷 기준**. ``sourcing_plan`` 단가가 이걸 넘으면 ⑦이 컷한다.
     #:

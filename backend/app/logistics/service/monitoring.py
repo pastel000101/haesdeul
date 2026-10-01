@@ -4,7 +4,7 @@
   반영 도우미를 옮겼다.
   탐지기는 `domain/monitoring.py`, 관측은 `readmodel/observation.py`, SQL 은
   `repository/exceptions.py`.
-  commit 은 마스터(`master/inspection.py`)다.
+  commit 은 마스터(`master/service/inspection.py`)다.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def detect_logistics_exceptions(
       다 끝난 뒤에 닫아야 *"N일째"* 가 정확하다. 입고 직후에 닫으면 그날 나갈 재고를
       보기도 전에 «해결됐다» 고 적게 된다.
 
-    :raises Exception: 그대로 올린다. 하루를 계속 살리는 것은 `master/inspection.py`
+    :raises Exception: 그대로 올린다. 하루를 계속 살리는 것은 `master/service/inspection.py`
         의 일이고, 여기서 삼키면 **반쯤 쓴 트랜잭션이 커밋된다.**
     """
     observation = observe_fn(conn, sim_run_id=sim_run_id, as_of=as_of)

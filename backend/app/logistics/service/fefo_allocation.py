@@ -18,7 +18,7 @@ reservation_id + as_of
   ```
 
   ⚠️ **물류가 시각을 만들지 않는다.** 시뮬레이션의 하루가 몇 시에 어느 단계를 지나는지는
-     마스터가 정한 축이고 (`app/master/sim_time.py` 의 `phase_instant(as_of, "ALLOCATE")`),
+     마스터가 정한 축이고 (`app/master/domain/sim_time.py` 의 `phase_instant(as_of, "ALLOCATE")`),
      물류가 자기 규칙으로 또 만들면 **같은 실행에 두 시간축이 생긴다.**
 
   🔴 **그 함수를 여기서 임포트하지도 않는다.** 의존 방향은 `Master → Logistics` 다.

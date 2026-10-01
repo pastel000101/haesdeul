@@ -635,7 +635,7 @@ def _evidence_contract_concerns(outcome: ProcurementOutcome) -> list[str]:
     `contracts_core.Evidence.value` 는 `float` 인데 `Evidence` 가 dataclass 라
     런타임 검증이 없다. 그래서 문자열을 넣어도 아무 데서도 안 걸리고, 실제로
     재무 `policy_version_used` 가 `"v1.3-PROVISIONAL"` 을 싣고 있다
-    (`finance/capabilities/procurement.py:175`).
+    (`finance/service/capabilities/procurement.py`).
 
     ★ **값을 고치거나 버리지 않는다.** 고치면 남의 값을 덮어쓰는 것이고(§3.2.2),
       버리면 근거를 고르는 것이다. 원본은 그대로 나가고 여기서 **사실만 적는다.**

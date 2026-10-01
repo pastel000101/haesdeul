@@ -38,7 +38,7 @@ in_transit 목록 + as_of  →  select_due_inbound  →  due · blocked · unres
 
 🔴 **`purchase_id` 를 지어내지 않는다.** `approval_id` · `inbound_id` 를 뜯어
    `PUR-…` 를 조립하지 않는다. 그 ID 의 주인은 마스터이고
-   (`app/master/transition.py` 의 `purchase_id_for`), 물류는 **받아서 쓸 뿐**이다.
+   (`app/master/domain/purchase_ids.py` 의 `purchase_id_for`), 물류는 **받아서 쓸 뿐**이다.
    같은 규칙이 두 곳에 있으면 마스터가 형식을 바꾸는 날 조용히 어긋난다.
 
 ⚠️ **참조가 아직 안 넘어온다 — 그래서 지금 실데이터는 `blocked` 로 나온다.**

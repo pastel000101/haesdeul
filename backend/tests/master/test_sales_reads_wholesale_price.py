@@ -28,7 +28,8 @@
 ⚠️ **`RTL`(소매)은 안 쓴다.** 단위가 `원/단위` 이고 `unit_weight_kg` 가 전부 비어
   있어 kg 로 못 바꾼다. 사람이 그 사실을 보고 중도매로 정했다.
 
-★ 어휘 자체(`AUC` · `WHSL` · `RTL`)는 **ML 것**이다 (`app/ml/schemas.py TargetKind`).
+★ 어휘 자체(`AUC` · `WHSL` · `RTL`)는 **ML 것**이다
+  (`app/contracts/forecast.py TargetKind` — ML 이 정한 계약).
   우리는 고르기만 하고 새로 만들지 않는다.
 
 이 파일이 잠그는 넷:

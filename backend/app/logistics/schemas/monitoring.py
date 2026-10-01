@@ -454,8 +454,8 @@ class ExceptionRow:
 class DetectOut:
     """탐지 한 번의 결과. 🔴 **예외를 값으로 옮긴 것이 아니다** — 터지면 올린다.
 
-    ★ 트랜잭션 주인(`master/inspection.py`)이 `FAILED` 를 든다. `service/maintenance` ↔
-      `master/maintenance.py` 와 **같은 나눔**이다: 여기는 업무 판단만, 저기는
+    ★ 트랜잭션 주인(`master/service/inspection.py`)이 `FAILED` 를 든다. `service/maintenance` ↔
+      `master/service/maintenance.py` 와 **같은 나눔**이다: 여기는 업무 판단만, 저기는
       커넥션·커밋·예외 어휘.
 
     ```text
@@ -542,6 +542,6 @@ class ObservationNotReady(RuntimeError):
     """관측을 세울 수 없다. 🔴 **여기서 삼키지 않는다** — 트랜잭션 주인이 값으로 옮긴다.
 
     ★ 부재(그날 fixture 가 없다)는 `repository` 가 이미 `LookupError` 로 내고, 이
-      예외는 **받은 것이 요청과 다를 때**다. 둘 다 `master/inspection.py` 에서
+      예외는 **받은 것이 요청과 다를 때**다. 둘 다 `master/service/inspection.py` 에서
       `FAILED` 한 줄이 된다 — 하루는 계속 간다.
     """

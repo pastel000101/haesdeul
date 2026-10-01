@@ -236,7 +236,7 @@ close_day(as_of, …)       closing.py     ← 🔴 하루의 맨 끝이다
     들어갈 자리가 생긴다. 뒤로 가면 비운 자리를 그날이 못 쓰고 하루씩 밀린다.
 
   ★ **왜 전이 재시도 앞인가 — 재서 정했다** (2026-09-11). 두 단계는 같은 날
-    안에서 서로의 결과를 안 본다: 전이(`logistics/transition.py`)는
+    안에서 서로의 결과를 안 본다: 전이(`logistics/service/transition.py`)는
     `logistics_runtime_fixture` 한 행만 UPDATE 하고 `pallets` 도 `inventory_lots`
     도 안 건드리며, 유지보수(`turnover.load_lot_turnover`)는 그 fixture 를 안
     읽는다. 앞뒤로 갈리는 사실이 없으므로 **자리를 먼저 비운다** — 재고가

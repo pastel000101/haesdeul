@@ -36,7 +36,7 @@ import {
 } from "@/lib/screen";
 
 /**
- * 상태 낱말 → 색. **낱말은 서버가 정한다** (`app/api/plan_state.py` 의 넷).
+ * 상태 낱말 → 색. **낱말은 서버가 정한다** (`app/master/domain/plan_state.py` 의 넷).
  *
  * ★ 색만 여기서 고른다. 낱말을 화면이 만들면 대시보드와 매입 화면이 같은 안을 다른
  *   이름으로 부르게 된다 — 지금 둘이 같은 자리에서 낱말을 받는다.
@@ -164,7 +164,7 @@ function PlanState({ plan }: { plan: Plan }) {
  * 요청(품목·날) 하나 — 틀 하나에 담을 안 1~3개.
  *
  * `item` 은 안 이름 앞자리다. 🔴 매입 `Plan` 에 품목 칸이 없다 — API 가 `key` 를
- * 「품목 · 안 이름」으로 만들고(`query._plan`), 대시보드 서버(`plan_state.plan_item`)와
+ * 「품목 · 안 이름」으로 만들고(`api/purchase/presenter.py` `_plan`), 대시보드 서버(`presenter.plan_item`)와
  * 말로 한 승인(`MasterConsole.planItem`)도 같은 자리를 쪼개 읽는다.
  */
 type RequestGroup = { key: string; item: string; pending: boolean; plans: Plan[] };
@@ -220,9 +220,9 @@ function groupByRequest(plans: Plan[]): RequestGroup[] {
  *    수로 읽혔다 — 09-11 은 기다리는 요청이 둘(양파 · 무)인데 초록 카드가 다섯이다.
  *
  * 머리 낱말은 둘이다 — 「승인 대기」 · 「승인 완료」. 🔴 **새 낱말이 아니다** — 대시보드
- * 배지(`api/dashboard/query.py` 「승인 대기 N건」 · 「오늘 승인 완료」)와 같은 말 · 같은 색이다.
+ * 배지(`api/dashboard/presenter.py` 「승인 대기 N건」 · 「오늘 승인 완료」)와 같은 말 · 같은 색이다.
  * ★ 「대기 아님」이 곧 「승인」인 근거: 매입 API 는 **안 이름이 붙은 결정**만 결정으로
- *   세고(`query.build` `decided`), DB CHECK `master_decisions_scenario_required` 가 안 이름을
+ *   세고(`api/purchase/presenter.py` `build` `decided`), DB CHECK `master_decisions_scenario_required` 가 안 이름을
  *   `APPROVE` 에만 허락한다. 되돌린 승인(`REQUEST_CHANGE`)은 안 이름이 없어 다시 「승인 대기」다.
  * ⚠️ 카드의 낱말(「후보」 · 「승인됨」 · 「매입 기록됨」)은 **그대로** 둔다 — 안마다 다르다
  *    (한 요청에 승인된 안 하나와 후보 둘). 틀 머리는 요청의 말, 카드 배지는 안의 말이다.

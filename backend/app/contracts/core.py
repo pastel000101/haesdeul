@@ -12,9 +12,10 @@
 #      전에는 공용 계약이 한 파트 폴더에 있어 네 파트가 "오케를 임포트하는" 모양이었다.
 #      다섯 파트 동의: 매입·물류·재무 (판매는 참조 0건이라 대상 아님).
 #
-#   ⚠️ **옛 자리는 재수출 shim 으로 남아 있다** — 아직 지우지 말 것.
-#      순서 ① 이동 → ② shim 유지 → ③ 파트별 import 교체 → ④ shim 제거.
-#      지금은 ②다. ④ 전에 각 파트에 통보한다 (마스터 약속).
+#   (2026-09-03 당시) 옛 자리는 재수출 shim 으로 남겨 두고
+#      순서 ① 이동 → ② shim 유지 → ③ 파트별 import 교체 → ④ shim 제거 로 갔다.
+#      🟢 ④까지 끝났다 — 옛 자리 `app/orchestrator/` 는 2026-09-07 에 없어졌고(`app/main.py`
+#      머리말), 지금 이 계약을 다른 경로로 내보내는 shim 은 없다(2026-10-01 확인).
 #
 #   🔴 **④ 는 `app/master/envelope.py` 를 먼저 옮긴 뒤에 친다.** 물류·판매가 봉투를
 #      경유해 이 모듈을 두 번째 경로로 읽는다 — 자기 import 를 다 고쳐도 봉투가
@@ -215,7 +216,7 @@ BindingConstraint = Literal["WAREHOUSE", "FINANCE", "FRESHNESS"]
 #
 # ★ **합치면 Critic 이 잃는다.** `cap_total_kg` 과 `cap_by_date.2026-01-05` 가
 #   같은 `WAREHOUSE` 가 되면 LLM 이 인과를 대조할 재료가 줄어든다
-#   (`critic/llm/runtime.py:74`).
+#   (`master/critic/llm/runtime.py`).
 #
 # ⬜ **다만 대응표는 필요하다.** 안 두면 Critic 결과와 화면이 다른 이름을 말한다.
 #   목표 도착일 칸(②)과 같은 판에서 정한다 — 지금 정하면 두 번 바뀐다.
@@ -447,7 +448,7 @@ class SuggestedAdjustment:
             #
             #   화면(`master/answer.py`)이 둘을 같게 봐서 *"N 회차"* 가 한 번도 안 떴다.
             #   물류가 채운 지금(#214) 강제해도 아무도 안 깨진다 — timing 을 내는 곳은
-            #   `logistics/scenario_engine.py:139` 하나다.
+            #   `logistics/domain/scenario_engine.py` 하나다.
             raise ContractViolation(
                 "timing 조정은 어느 회차인지 밝혀야 한다 — split_date 필수. "
                 "회차 개념이 없는 축은 timing 이 아니다."

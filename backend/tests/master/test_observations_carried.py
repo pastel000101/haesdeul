@@ -9,7 +9,7 @@ LLMStatus.FALLBACK   "불렀는데 실패했다 — 규칙이 대신 답했다"
 
 429 로 Gemini → ollama 는 규칙이 아니라 **다른 모델이 답한 것**이라 `False` 가 맞다.
 재무는 그 사실을 `observations` 에 계약대로 싣고 있었다
-(`finance/application/orchestration.py:696` · `json.dumps` 로 직렬화).
+(`finance/service/agent.py` · `json.dumps` 로 직렬화).
 
 🔴 **끊긴 곳은 마스터였다.**
 

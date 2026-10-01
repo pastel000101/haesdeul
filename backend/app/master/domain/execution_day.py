@@ -64,8 +64,10 @@ execution_day.py — **실행일은 평일만**. 토·일에는 안 돈다.
   받는 구멍(`HolidayCalendar`)까지**다.
 
 ⚠️ **매입에 달력을 어떻게 전달할지는 `#282` 가 정하지 않았다.** 봉투에 실을지는
-  별건이다. 이 모듈이 연 것은 포트뿐이고, 오늘 그 포트에 무언가를 꽂는 곳은
-  `app/master/service.py` 한 곳이다.
+  별건이다. 이 모듈이 연 것은 포트뿐이고, 지금 그 포트에 달력
+  (`readmodel/holiday_calendar.get_calendar()`)을 꽂는 곳은 매입 판단(`service/procurement.py`) ·
+  판매 판단(`service/sales.py`) · 걷기 보고서 라우트(`app/api/master/history.py`)다
+  (2026-10-01 확인 — 재구성 전의 «`app/master/service.py` 한 곳» 이라던 문장은 그때도 맞지 않았다).
 
 ★ 2026-09-30 재구성 BL-018: `master/execution_day.py` 에서 자리만 옮겼다(내용 그대로). 함께 모은 것:
   `master/market_calendar.py` 의 `MarketCalendar`; `master/ml_batch_calendar.py` 의

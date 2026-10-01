@@ -13,7 +13,7 @@
  */
 
 /**
- * 회전 Signal. 정본 `backend/app/logistics/turnover.py::TurnoverStatus`.
+ * 회전 Signal. 정본 `backend/app/logistics/schemas/turnover.py::TurnoverStatus`.
  *
  * ⚠️ **신선도 상태가 아니라 회전 상태다.** 세 값은 Persona 05 §4 어휘 그대로이고
  *    `STORAGE_TARGET_EXCEEDED` 는 회사 내부 회전목표 초과일 뿐 **판매불가가 아니다** —
@@ -26,7 +26,7 @@ export const TURNOVER_STATUS_LABEL: Record<string, string> = {
 };
 
 /**
- * Receipt 진행 상태. 정본 `backend/app/logistics/receipts.py::ReceiptStatus`.
+ * Receipt 진행 상태. 정본 `backend/app/logistics/schemas/receipts.py::ReceiptStatus`.
  *
  * ★ 사용자가 볼 흐름은 **입고 예정 → 창고 도착 → 검수 → 재고 반영** 넷이다. Receipt 가
  *   선 순간부터는 「입고 예정」이 아니라 이 어휘로 말한다.
@@ -39,14 +39,14 @@ export const RECEIPT_STATUS_LABEL: Record<string, string> = {
   CLOSED: "종료",
 };
 
-/** 검수 판정. 정본 `backend/app/logistics/inspections.py::InspectionVerdict`. */
+/** 검수 판정. 정본 `backend/app/logistics/schemas/inspections.py::InspectionVerdict`. */
 export const INSPECTION_VERDICT_LABEL: Record<string, string> = {
   PASS: "합격",
   HOLD: "보류",
   REJECT: "거절",
 };
 
-/** 예약 상태. 정본 `backend/app/logistics/outbound.py::ReservationStatus`. */
+/** 예약 상태. 정본 `backend/app/logistics/schemas/outbound.py::ReservationStatus`. */
 export const RESERVATION_STATUS_LABEL: Record<string, string> = {
   RESERVED: "예약",
   PARTIALLY_ALLOCATED: "일부 할당",
@@ -57,7 +57,7 @@ export const RESERVATION_STATUS_LABEL: Record<string, string> = {
 
 /**
  * 도착 전 입고 예정 목록을 **확인했는가**.
- * 정본 `backend/app/logistics/schemas.py::RuntimeSourceStatus`.
+ * 정본 `backend/app/logistics/schemas/snapshot.py::RuntimeSourceStatus`.
  *
  * ⚠️ 내부 이름은 `in_transit` 이지만 **차량 운송을 추적하는 값이 아니다.** 「입고 일정에
  *    올라 있고 아직 창고에 도착하지 않은 건」이라, 사용자에게는 「입고 예정」으로 말한다.

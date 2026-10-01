@@ -910,7 +910,7 @@ def test_earlier_rounds_still_occupy_the_warehouse_on_later_dates() -> None:
     """🔴 **앞 회차가 아직 창고에 있다.**
 
     ``cap_by_date[d]``는 물류가 **기존 일정만** 재생해 낸 그날의 여유다
-    (`logistics/tools.py` ``calculate_cap_by_date``:
+    (`logistics/domain/tools.py` ``calculate_cap_by_date``:
     ``guaranteed_capacity_kg − projected_occupancy``). 우리가 새로 넣을 회차는
     거기 없으므로, 날짜마다 독립으로 비교하면 1회차가 남아 있는데도 2회차가
     그날 여유를 통째로 쓰는 계획이 나온다 — **총합은 맞고 하드 제약은 깨진다.**
@@ -940,7 +940,7 @@ def test_each_round_carries_its_own_arrival_date() -> None:
     """회차마다 **자기 도착일**이 붙는다 — 총량 단일 도착일로 뭉치지 않는다.
 
     뭉치면 Critic ``E-ARRIVAL-COLLAPSE``가 *"분산 효과가 사라진다"*로 잡는다
-    (`critic/critic_v0_4.py`).
+    (`master/critic/critic_v0_4.py`).
     """
     rounds = materialize_split(AS_OF, 100, [{"ratio": 0.5}, {"ratio": 0.5}], 12, lead_days=2)
 
@@ -952,7 +952,7 @@ def test_arrival_dates_are_absent_when_n4_is_undecided() -> None:
     """🔴 N4가 없으면 **전 회차 ``None``**이다. 0으로 채우지 않는다 (규칙 3).
 
     마스터 약정이 ``null``을 *"N4 미결로 매입도 못 냈다"*로 읽고 **자기도 계산하지
-    않는다**(`master/commitment.py`). 0으로 채우면 "오늘 승인분이 오늘 도착"이 된다.
+    않는다**(`master/domain/commitment.py`). 0으로 채우면 "오늘 승인분이 오늘 도착"이 된다.
     """
     rounds = materialize_split(AS_OF, 100, [{"ratio": 0.5}, {"ratio": 0.5}], 12, lead_days=None)
 
@@ -981,7 +981,7 @@ def test_arrival_dates_are_all_or_nothing() -> None:
     """🔴 **부분 공급이 나올 수 없다.**
 
     마스터는 1회차만 실리고 N4도 없으면 **실린 값까지 버린다**
-    (`master/commitment.py` — `lead is None`이면 일정 자체를 안 만든다).
+    (`master/domain/commitment.py` — `lead is None`이면 일정 자체를 안 만든다).
     우리가 그 입력을 만들 수 있는지가 쟁점인데, ``_rounds``가 ``arrival_dates()``의
     결과를 통째로 쓰거나 통째로 ``None``으로 채우므로 **섞인 목록이 구조적으로 안 나온다.**
     """

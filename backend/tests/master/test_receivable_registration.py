@@ -155,7 +155,7 @@ def test_채권_발행이_등록된다() -> None:
     """★ **미등록과 「확정 판매 없음」은 다른 사실이다.** 이 줄이 없으면 앞으로 나간다."""
     assert registry_receivable.missing() == (), (
         f"채권 발행이 미등록인 파트가 있다: {registry_receivable.missing()}. "
-        "app/master/bootstrap.py 의 register_receivable 을 확인한다"
+        "app/master/registry/bootstrap.py 의 register_receivable 을 확인한다"
     )
     assert "finance" in registry_receivable.registered()
 

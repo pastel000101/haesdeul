@@ -1,8 +1,8 @@
 """🔴 **같은 사실에 두 낱말을 쓰지 않는다** — 수금 두 경로의 어휘를 맞물려 둔다.
 
 ```text
-app/master/collection_seed.py       seed_day        개장할 때 사건을 **만든다**
-app/master/finance_collection.py    collect         그 사건을 **실행한다**
+app/master/service/collection_seed.py       seed_day        개장할 때 사건을 **만든다**
+app/master/adapters/finance_parts.py    collect         그 사건을 **실행한다**
 ```
 
   ★ 둘은 같은 자리에서 같은 것을 막는다 — 재무 축을 못 읽었을 때와 축이 마스터

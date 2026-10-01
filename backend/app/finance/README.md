@@ -63,7 +63,7 @@ Tool 객체와 실제로 실행되는 Tool 객체는 같지만, 그 사이에 Ha
 
 ### capability 소유와 의존
 
-정본은 `application/harness.py` 하나다. 소유는 **1:1** 이다.
+정본은 `schemas/planner.py` 의 `CAPABILITY_OWNER` 하나다(Harness 는 그 표를 읽는다). 소유는 **1:1** 이다.
 
 ```text
 finance_position              → assess_finance_position
@@ -207,9 +207,8 @@ Sales → Master → Finance(SALES_VALIDATION) → Master → Sales Refeed
 종합 Finance verdict   하위 규칙 결과만으로 결정
 ```
 
-계산은 `tools.py`, 판정은 `rules.py`, 조립은 `capabilities/sales.py` 가 소유한다.
-Finance 내부 전용 모델은 `sales_models.py` 에 산다 — `schemas.py` 는 밖에서 읽는
-계약이라 내부 계산 구조를 거기 두지 않는다.
+계산은 `domain/tools.py`, 판정은 `domain/rules.py`, 조립은 `service/capabilities/sales.py` 가
+소유한다. 판매 검증의 입력 · 결과 · 원가 기준 모델은 `schemas/sales_validation.py` 에 있다.
 
 ### BASE 와 SCENARIO
 
@@ -531,65 +530,63 @@ carry하며, 날짜는 Master가 준 값을 그대로 쓴다. 안정적인 취�
 
 ## 패키지 구조
 
-책임이 어디 사는지가 파일 위치로 보이게 정리했다. 전체 디렉터리 이동보다 **책임 분리와
-기존 import 호환**을 우선했으므로, 밖에서 쓰는 모듈은 원래 자리를 지킨다.
+부서 슬라이스 안을 계층 폴더로 나눴다(2026-09-29 재구성 BL-014 · LLM 은 BL-020). 어느 부서를 열어도
+같은 자리에 같은 종류의 코드가 있다. HTTP 입구는 이 폴더에 없다 — `app/api/finance/`
+(`agent.py` · `runs.py` · `credit_limits.py` · `expenses.py` · `collections.py` ·
+`cash_adjustments.py` · 화면 탭 `presenter.py` · 콘솔 `console_routes.py`)에 있다.
 
 ```text
 app/finance/
-├─ adapter.py         Master 경계 번역 (finance_port)      ← main.py 가 import
-├─ router.py          HTTP 진입점 · 실행이력/판매 조회      ← main.py 가 import
-├─ db.py              영속 계층: 연결·조회 헬퍼 · 데이터 경계 계약 · as-of DataPort 구현
-│                                                          ← master · orchestrator 도 import
-├─ schemas.py         요청·응답 계약 전체 (어휘·현금흐름·정책·상태·매입·판매·이력)
-├─ state.py           한 실행 동안 살아 있는 값
-├─ state_identity.py  한 Finance 축·날짜의 결정론 state ID
-├─ day_open.py        Master DayOpening 구조 계약의 Finance 구현
-├─ transition.py      승인 약정 → 다음 재무 상태 · 재무 원장 쓰기 (연결은 부르는 쪽 것)
-├─ cancellation.py    미지급 Payable 취소 · 일별 상태 역분개 (Master 배선 대기)
-├─ tools.py           결정론 재무 계산 (공식의 유일한 주인)
-├─ rules.py           결정론 판정 (verdict 소유)
-├─ execution.py       Evidence · DeptMeta(Critic 사이드카) · 실행이력 저장/조회
-├─ messages.py        사용자에게 보이는 한국어 문장 (정본)  ← 기계 계약은 담지 않는다
-├─ interpretation.py  공개 표면 (legacy/* 재수출)          ← 재무 밖 테스트가 import
-├─ application/       Agent 실행 계층
-│  ├─ harness.py          합법 행동공간: capability 정책 · Tool 선언/디스패치 ·
-│  │                      승인 · 예산 · 중복 차단 · 실행 계약 guard · Trace
-│  └─ orchestration.py    수명주기: 분기 · Planner 루프 · 결과 확정 · 설명 · 회신 · 이력
-├─ capabilities/      결정론 업무 (Harness 가 부르고, 여기서 계산한다)
-│  ├─ procurement.py      컨텍스트 적재 · 위치 조사 · 투영 · Finance Cap · 지급 압박도
-│  └─ scenario.py         지급 일정 재구성 · BASE/STRESS overlay · 판정 · 금액 대안 검증
-├─ llm/               Provider 통합 (업무 로직 없음)
-│  ├─ client.py           설정 · Gemini/Ollama HTTP · 가용성 실패 판별 ·
-│  │                      Gemini 전송 형식 낮추기(const → enum, null union → nullable)
-│  ├─ planner.py          Planner 계약 · 프롬프트 · 사후 검증 · ChatModel ·
-│  │                      LangChain tool-calling Planner · 결정론 Planner · 가용성 대체
-│  ├─ finalizer.py        검증된 Evidence 에서 설명 키 선택
-│  ├─ runtime.py          레거시 해석 계층 (`/finance/sales` 전용) ← 재무 밖 테스트가 import
-│  └─ schemas.py          레거시 해석 계약                      ← 재무 밖 테스트가 import
-└─ legacy/            Agent 이전의 결정론 경로 (입구는 `/finance/sales` 하나)
-   ├─ deterministic_service.py  Finance A/B 실행
-   ├─ scenario_engine.py        결정론 Scenario 실행
-   └─ interpretation.py         응답 해설 보강
+├─ adapter.py      마스터 경계 번역 — finance_port 의 mode 분기 · 시나리오 입력 검증,
+│                  등록소 Protocol 표면(FinanceTransitionAdapter · FinanceDayOpening ·
+│                  FinanceClosingAdapter · FinanceCancellationAdapter)
+│                  ← master/registry/bootstrap.py 와 POST /finance/agent 가 import
+├─ schemas/        요청 · 응답 · 계약 모델, 자원별 파일(agent · sales_validation · planner ·
+│                  data_port · closing · receivables …)
+├─ domain/         연결 없는 계산 · 판정 · 문장 — tools.py(공식의 유일한 주인) ·
+│                  rules.py(verdict) · messages.py(사용자 문장 정본) · scenario · evidence …
+├─ repository/     SQL — 받은 연결로 실행만 한다(commit 하지 않음). 자원별 파일
+├─ readmodel/      조회 — 공개 함수 하나가 조회 연결 하나를 빌려 repository 를 부른다
+├─ service/        업무 순서와 트랜잭션
+│  ├─ agent.py         FinanceAgentController — 준비 · 분기 · Planner 루프 · 결과 확정 ·
+│  │                   설명 · 회신 · 이력의 순서
+│  ├─ harness.py       Finance Harness · FinanceToolRegistry — capability 선행 의존 ·
+│  │                   Tool 선언/디스패치 · 승인 · 예산 · 중복 차단 · 실행 계약 guard · Trace
+│  ├─ capabilities/    결정론 업무 — procurement · scenario · sales
+│  ├─ agent_run.py · agent_replies.py · status_query.py · pre_sales_facts.py
+│  │                   어댑터가 부르는 실행 · 회신 · 상태 조회
+│  └─ transition · day_open · closing · cancellation · collections · receivables ·
+│     settlement · expenses · cash_adjustments · credit_limits · run_history · inventory
+└─ llm/            재무 LLM 설정 · 요청 모양 · 가용성 판별(보내는 줄은 app/core/llm)
+   ├─ client.py        설정 · Gemini/Ollama 에 보낼 재무 요청 모양 · 가용성 실패 판별
+   ├─ planner.py       Planner 프롬프트 · 사후 검증 · LangChain ChatModel 어댑터 ·
+   │                   tool-calling Planner · 결정론 Planner · 가용성 대체
+   └─ finalizer.py     검증된 Evidence 에서 설명 키 선택
 ```
 
+capability → Tool 소유 표(`CAPABILITY_OWNER`)와 Planner 가 고르는 행동 모양은 Controller ·
+Harness · Planner 가 함께 쓰는 계약이라 `schemas/planner.py` 에 있다(2026-09-30 BL-020).
+
 ★ **한 응집 영역 = 한 모듈**이다. 늘 같이 열리는 것들을 한 파일에 둔다 — *"재무
-Agent 는 어떻게 실행되는가"* 는 `application/orchestration.py`, *"이 호출이 합법인가"* 는
-`application/harness.py` 하나면 된다. 파일 경계와 신뢰 경계는 다른 것이고, 후자는
+Agent 는 어떻게 실행되는가"* 는 `service/agent.py`, *"이 호출이 합법인가"* 는
+`service/harness.py` 하나면 된다. 파일 경계와 신뢰 경계는 다른 것이고, 후자는
 클래스·절·이름으로 지킨다.
 
 책임 경계는 다음과 같다.
 
 ```text
-harness.py 무엇을 부를 수 있는지 정하고 강제한다 (숫자를 만들지 않는다)
-Planner    그중 무엇을 부를지 고른다             (숫자를 만들지 않는다)
-capability 허용된 재무 작업을 수행한다
-tools.py   금액·현금흐름을 계산한다              (공식의 유일한 주인)
-rules.py   PASS/FAIL·verdict 를 정한다
-Finalizer  검증된 Evidence 를 설명한다           (고정 문장을 고를 뿐이다)
+Harness    무엇을 부를 수 있는지 정하고 강제한다 (숫자를 만들지 않는다)   service/harness.py
+Planner    그중 무엇을 부를지 고른다             (숫자를 만들지 않는다)   llm/planner.py
+capability 허용된 재무 작업을 수행한다                                   service/capabilities/
+tools      금액·현금흐름을 계산한다              (공식의 유일한 주인)     domain/tools.py
+rules      PASS/FAIL·verdict 를 정한다                                   domain/rules.py
+Finalizer  검증된 Evidence 를 설명한다           (고정 문장을 고를 뿐이다) llm/finalizer.py
 ```
 
-`tool_registry.py` 는 이름을 capability 로 넘기는 일만 한다. 예전에는 이 파일 하나가
-디스패치·컨텍스트 적재·두 mode 업무·지급 일정 재구성·Evidence 조립을 모두 들고 있었다.
+`FinanceToolRegistry`(`service/harness.py`)는 이름을 capability 로 넘기는 일만 한다.
+
+(재구성 전 자리 — `router.py` · `db.py` · `schemas.py` · `application/` · `capabilities/` 등 —
+와 새 자리의 대응은 재구성 설계서의 대응표 `finance/` 절에 있다.)
 
 ## 지원 Provider
 

@@ -1014,7 +1014,7 @@ def test_판정_스킵_사실은_soft_warnings_에만_남는다(wired):
     형식도 `logistics_rule/LOG-H02` · `rental_cap_kg@policy_source_ref` 처럼 네임스페이스
     붙은 필드명이라 맨 경고 코드를 섞으면 어휘가 갈라진다. NOT_READY 로 떨어지는 날에는
     *"CAPACITY_TIGHT_POLICY_UNRESOLVED 가 없어 답하지 못했습니다"* 라는 이중부정 문장이
-    나간다 (`master/answer.py`).
+    나간다 (`master/domain/answer.py`).
 
     사실은 사라지지 않는다 — 같은 코드가 `soft_warnings` 로 나간다. 기본 픽스처는
     임계 정책이 등록돼 있지 않아 판정 스킵 2건이 실제로 발생하는 상태다.
@@ -1457,7 +1457,7 @@ def test_선언한_입력에_매입_시나리오_이름이_없다(wired):
     """`E-SCENARIO-LEAK` 의 자기 검증 — 밴드는 후보와 무관해야 한다 (§3.6.1).
 
     PRE_PURCHASE 는 제안이 생기기 **전에** 도는 경로라 구조적으로 성립하지만
-    (`master/flow.py::_collect_constraints` 가 PRE 회신만 모은다), 그 사실이 관측에도
+    (`master/service/flow.py::_collect_constraints` 가 PRE 회신만 모은다), 그 사실이 관측에도
     유지되는지는 따로 봐야 한다.
     """
     from app.master.critic.critic_v0_4 import FORBIDDEN_SCENARIO_INPUTS
@@ -2267,7 +2267,7 @@ def test_돌린_Tool_만_기록한다(wired_sales):
 def test_판매_경계에는_매입_Band_관측을_붙이지_않는다(wired_sales):
     """🔴 `_CAP_CHECK_ID` 는 **매입 밴드 전용 이름**이다.
 
-    판매 Flow 에는 Critic 경로가 아예 없는데(`master/sales_flow.py`) 그 이름으로
+    판매 Flow 에는 Critic 경로가 아예 없는데(`master/service/sales_flow.py`) 그 이름으로
     관측을 내면 매입의 밴드 검사가 판매 입력을 읽는다. 새 check_id 를 지어내는 것도
     금지다 — 마스터가 만들지 않은 계약을 물류가 먼저 만드는 것이 된다.
     """
@@ -2470,7 +2470,7 @@ def test_payload_가_판매_계약으로_그대로_읽힌다(wired_sales):
     런타임에 물류가 판매 스키마에 묶이면 판매가 자기 파일을 고치는 날 물류가 같이
     깨진다. 그렇다고 *"모양을 맞췄다"* 를 말로만 두면 어느 날 조용히 갈린다 —
     마스터가 `Capability` 어휘를 베껴 두고 테스트로만 대조하는 것과 **같은 자리**다
-    (`master/envelope.py` `Capability` docstring · `tests/master/test_sales_flow.py`).
+    (`contracts/envelope.py` `Capability` docstring · `tests/master/test_sales_flow.py`).
 
     ★ **받는 쪽이 옮길 것이 없다 (WP-4B).** payload 가 판매 계약 모양 **그대로**다 —
       종전에는 숫자 셋을 최상위로 끌어올려 두고 받는 쪽이 제자리로 옮겨야 했다.

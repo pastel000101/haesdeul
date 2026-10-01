@@ -14,8 +14,8 @@ app/sales/adapter.py:87   request_payload=asdict(request)
   안이 없는 것은 다르다 — 고치고 나니 진짜 사유가 드러났다
   (`PROPOSAL_QUANTITY_REQUIRED`).
 
-★ 저장소 관례는 이미 `model_dump(mode="json")` 이다 (`app/logistics/service.py:65` ·
-  `app/master/cycle_persistence.py:77`). 둘 다 날짜를 ISO 로 편다. 여기만
+★ 저장소 관례는 이미 `model_dump(mode="json")` 이다 (`app/logistics/service/cycle.py` ·
+  `app/master/service/cycle_persistence.py`). 둘 다 날짜를 ISO 로 편다. 여기만
   `dataclasses.asdict` 라 안 펴졌다.
 """
 

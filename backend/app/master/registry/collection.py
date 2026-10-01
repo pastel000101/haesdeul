@@ -40,7 +40,7 @@ class CollectionSource(Protocol):
 
     🔴 **멱등이어야 한다.** 같은 날 두 번 불러도 두 번 수금되면 안 된다. 재무 전이가
       **누적 target** 으로 적히는 것이 그 근거다 — 같은 target 을 두 번 넣으면 delta 가
-      0 이다 (`app/finance/collection.py` 의 *"cumulative collection cannot regress"*).
+      0 이다 (`app/finance/domain/collections.py` 의 *"cumulative collection cannot regress"*).
 
     🔴 **정본 축은 `(sim_run_id, financing_mode)` 다.**
 

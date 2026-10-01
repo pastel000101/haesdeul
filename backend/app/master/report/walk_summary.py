@@ -665,7 +665,7 @@ class WalkResult:
           못 답한다.** 물류가 *"자동 부분 폐기를 하지 않는다 — 남은 판단은 사람
           몫이다"* 로 일부러 남긴 줄이고, 창고가 안 비는 날 **거기부터 봐야** 한다.
 
-        ★ **이름의 주인은 `logistics/auto_maintenance.py` 다.** 여기서 새 이름을
+        ★ **이름의 주인은 `logistics/schemas/maintenance.py` 다.** 여기서 새 이름을
           안 붙이고 세기만 한다 (`transition_outcomes` 와 같은 모양).
 
         🔴 **`approval_outcomes` 와 한 칸에 담지 않는다.** 어휘가 다르고 축이 다르다.
@@ -1001,7 +1001,7 @@ _CASH_FLOWS = (
 #: ★ **왜 이 칸만 다른가.** 운영비 유출은 **나중에 생긴 축**이다. 이 칸이 서기 전에
 #:   돈 실행들(SIM-CHAIN-V2~V13 · WALK-* · PREFINAL)이 DB 에 그대로 남아 있고,
 #:   **그 실행들은 이 축을 한 번도 안 셌다.** 그래서 그쪽의 빈 값은 「0원이 나갔다」가
-#:   아니라 **「안 셌다」**다 — 재무가 `finance/schemas.py` 에
+#:   아니라 **「안 셌다」**다 — 재무가 `finance/schemas/dashboard.py` 에
 #:   `operating_expense_cash_out_krw: Decimal | None` 로, `api/finance/presenter.py` 에
 #:   `"기록 없음" if ... is None` 으로 적어 둔 그 뜻이다.
 #:

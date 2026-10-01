@@ -23,7 +23,7 @@ def read_walk_closings(*, sim_run_id: str, start: date, end: date) -> tuple[dict
 
     🔴 **여기서 아무것도 안 센다.** 합도 차이도 잔액도 만들지 않는다 — 금액의
       주인은 `daily_closings` 한 곳이고, 마스터는 그 값을 **나르기만** 한다
-      (`master/closing.py` 가 금액 칸을 하나도 안 든 것과 같은 규율).
+      (`master/schemas/closing.py` 의 `ClosingOut` 이 금액 칸을 하나도 안 든 것과 같은 규율).
 
     🔴 **범위를 SQL 이 건다.** 실행 하나에 번인 30일과 걷기 179일이 같이 앉을 수
       있고, 앞 구간의 행이 섞이면 **기초잔액이 그 앞 어딘가의 값**이 된다 —

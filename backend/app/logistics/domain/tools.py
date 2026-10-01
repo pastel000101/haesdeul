@@ -754,7 +754,7 @@ def earliest_delivery_date_for(
     ```
 
     ★ 달력일이다. 영업일 달력을 여기서 만들지 않는다 — 그 정본은 마스터가 들고 있고
-      (`master/market_calendar.py`) 물류가 두 번째 달력을 만들면 둘이 갈린다.
+      (`master/readmodel/market_calendar.py`) 물류가 두 번째 달력을 만들면 둘이 갈린다.
     """
     if outbound_prep_lead_days < 0 or transport_lead_days < 0:
         raise ValueError(

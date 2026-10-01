@@ -478,7 +478,7 @@ def test_쓴_도구와_순서의_길이가_같다(monkeypatch):
 # ── 등록 ────────────────────────────────────────────────────────────────
 #
 # 🟢 2026-09-29 (재구성 BL-011): ML 이 `app/ml/wiring.py::register_ml_agent` 로 마스터 등록소를
-#   import 해 스스로 붙던 것을, 마스터 조립 뿌리(`app/master/bootstrap.py`)가 다른 파트와
+#   import 해 스스로 붙던 것을, 마스터 조립 뿌리(`app/master/registry/bootstrap.py`)가 다른 파트와
 #   같이 `ml_port` 를 직접 거는 것으로 바꿨다. 그래서 여기 있던 검사 둘 —
 #   «마스터가 이름을 모르면 조용히 안 붙는다» · «이름을 알면 등록된다» — 을 지웠다.
 #   앞의 것은 ML 이 마스터 파일을 못 고치던 때의 방어라, 어휘가 `app/contracts/envelope.py`

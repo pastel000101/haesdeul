@@ -140,7 +140,7 @@ ML(지환님) 회신 §6 이 지적했고, **우리가 실제로 그 함정을 �
 ① upper 하나가 셋을 먹인다
      ci_width                 ① 판정 stable/uncertain
      compute_max_price        재무 STRESS 로 나간다 — 남이 등식을 검사한다
-                              (finance/capabilities/scenario.py · master/verifier.py)
+                              (finance/service/capabilities/scenario.py · master/domain/verifier.py)
      compute_cut_unit_price   ⑦ 컷 (지금은 위와 같은 값)
 
 ② 임계 0.08 로는 실제 폭이 **전부 uncertain** 이다

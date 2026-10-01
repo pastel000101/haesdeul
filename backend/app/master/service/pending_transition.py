@@ -28,7 +28,7 @@
 
   🟢 **물류가 그 행을 미리 안 만드는 것은 옳다.** `evidence_grade` · `approved_by` ·
   나머지 두 status 는 물류의 주장이고, 전이가 지어내면 **없는 근거가 물류 표에
-  앉는다** (`logistics/transition.py` 의 `LogisticsFixtureMissing` 원문).
+  앉는다** (`logistics/schemas/transition.py` 의 `LogisticsFixtureMissing` 원문).
 
   ★★ **그래서 고칠 자리는 물류도 승인도 아니라 「언제 다시 부르나」다.** 도착일이
   열린 날 — 즉 그 날 개장이 그 행을 세운 **직후** — 에 다시 한 번 세우면 된다.

@@ -33,7 +33,7 @@ T_FRESHNESS = "measure_freshness_facts"
 # --- Critic DeptMeta (#134) -------------------------------------------------
 
 #: Critic 의 물류 밴드 검사 id — **마스터 소유 상수**다
-#: (`app/master/critic_bridge.py:51 _INVENTORY_CAP_CHECK`). 마스터가 물류 PRE_PURCHASE
+#: (`app/master/adapters/critic_bridge.py` 의 `_INVENTORY_CAP_CHECK`). 마스터가 물류 PRE_PURCHASE
 #: payload 의 `warehouse_free_kg`·`cap_by_date` 로 check 를 합성할 때 붙이는 이름이고,
 #: **물류는 `checks[]` 를 내지 않는다** (2026-09-01 마스터 확정 — 같은 사실의 주인이
 #: 둘이 되면 마스터 합성분과 갈리는 자리가 새로 생긴다).
@@ -261,14 +261,14 @@ def inventory_dept_meta(
 
     `PRE_PURCHASE` 만 `inputs_used` 를 낸다. 마스터가 밴드 check 를 합성하는 입력은
     `constraints` 이고 그것은 PRE_PURCHASE 회신만 모으므로
-    (`master/flow.py::_collect_constraints`), SCENARIO_VALIDATION 에는 대응하는 cap
+    (`master/service/flow.py::_collect_constraints`), SCENARIO_VALIDATION 에는 대응하는 cap
     검사 축이 없다. 없는 검사에 가짜 `inputs_used` 를 지어내지 않고 **실제 산출 필드만**
     낸다 — `E-AUTHORITY` 는 그것으로 돈다. 마스터가 두 mode 의 관측을 **합쳐서** 나르므로
     빈 `inputs_used` 가 경계 관측을 덮지 않는다 (`critic_bridge._dept_meta_in`).
 
     🔴 **`PRE_SALES` 는 관측 자체를 내지 않는다 — `None` 이 답이다** (#346).
-      `_dept_meta_in` 을 부르는 것은 매입 Flow(`master/flow.py` → `critic_bridge`)뿐이고
-      판매 Flow(`master/sales_flow.py`)에는 Critic 경로가 아예 없다. 소비자가 없는데
+      `_dept_meta_in` 을 부르는 것은 매입 Flow(`master/service/flow.py` → `critic_bridge`)뿐이고
+      판매 Flow(`master/service/sales_flow.py`)에는 Critic 경로가 아예 없다. 소비자가 없는데
       관측을 내면 두 가지가 동시에 틀린다 — `CAP_CHECK_ID` 는
       `DEPT_CAP_CHECK_ID["inventory"]`, 즉 **매입 밴드 전용 이름**이라 판매 회신의
       입력이 그 이름으로 실리면 매입의 밴드 검사가 판매 입력을 읽고, 새 check_id 를
