@@ -291,6 +291,115 @@ def test_물류_적재가_터지면_전부_되돌린다() -> None:
     assert conn.returned == 1
 
 
+def test_물류_적재_실패는_원장과_재무를_쓴_뒤에_나고_그것까지_되돌린다() -> None:
+    """🔴 «전부 되돌린다» 는 앞의 둘이 **실제로 쓴 뒤**여야 뜻이 있다.
+
+    ★ 2026-10-01 재구성 BL-024: `test_물류_적재가_터지면_전부_되돌린다` 는 횟수만 잰다 — 물류가
+      원장 · 재무보다 먼저 불려도 통과한다. 여기서는 부른 순서를 같이 본다.
+    """
+    log: list[tuple[str, Any]] = []
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition(
+        "logistics",
+        가짜전이("logistics", log, persist_raises=RuntimeError("입고 예정 표가 잠겼다")),
+    )
+    conn = 가짜커넥션(log)
+
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
+    )
+
+    쓴_순서 = [name for name, _ in log if name.startswith("ledger.") or name.endswith(".persist")]
+    assert 쓴_순서 == [
+        "ledger.purchases",
+        "ledger.purchase_items",
+        "finance.persist",
+        "logistics.persist",
+    ]
+    assert out.status == "FAILED"
+    assert "입고 예정 표가 잠겼다" in out.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
+
+
+def test_재무_적재가_터지면_원장을_되돌리고_물류는_부르지_않는다() -> None:
+    """🔴 원장만 커밋되면 **매입은 있는데 채무가 없는** 장부가 된다."""
+    log: list[tuple[str, Any]] = []
+    registry_transition.register_transition(
+        "finance", 가짜전이("finance", log, persist_raises=RuntimeError("채무 표가 잠겼다"))
+    )
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
+    conn = 가짜커넥션(log)
+
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
+    )
+
+    쓴_순서 = [name for name, _ in log if name.startswith("ledger.") or name.endswith(".persist")]
+    assert 쓴_순서 == ["ledger.purchases", "ledger.purchase_items", "finance.persist"], (
+        "재무가 터졌는데 물류 적재를 불렀거나, 원장을 쓰기 전에 터졌다"
+    )
+    assert out.status == "FAILED"
+    assert "채무 표가 잠겼다" in out.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
+
+
+def test_원장_적재가_터지면_재무와_물류를_부르지_않는다() -> None:
+    """★ 셋 중 맨 앞(마스터 원장)이 터지는 자리. 뒤의 두 파트는 불리지 않고 rollback 한 번이다."""
+
+    class 원장에서_터지는_커서(가짜커서):
+        def execute(self, query: Any, params: Any = None) -> None:
+            if "INSERT INTO" in str(query):
+                raise RuntimeError("매입 원장이 잠겼다")
+            super().execute(query, params)
+
+    class 원장에서_터지는_커넥션(가짜커넥션):
+        def cursor(self) -> 가짜커서:
+            return 원장에서_터지는_커서(self._log)
+
+    log: list[tuple[str, Any]] = []
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
+    conn = 원장에서_터지는_커넥션(log)
+
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
+    )
+
+    assert [name for name, _ in log if name.endswith(".persist")] == []
+    assert out.status == "FAILED"
+    assert "매입 원장이 잠겼다" in out.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
+
+
+def test_커밋이_터지면_되돌리고_FAILED_다() -> None:
+    """★ 세 적재가 다 끝난 뒤 **commit 자체**가 터지는 자리.
+
+    같은 `except` 가 rollback 하고 값(FAILED)으로 돌려준다.
+    """
+
+    class 커밋이_터지는_커넥션(가짜커넥션):
+        def commit(self) -> None:
+            super().commit()
+            raise RuntimeError("커밋 중 연결이 끊겼다")
+
+    log: list[tuple[str, Any]] = []
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition("logistics", 가짜전이("logistics", log))
+    conn = 커밋이_터지는_커넥션(log)
+
+    out = service_transition.apply_approval(
+        _commitment(), borrow=_connect_spy(conn, []), sim_run_id=실행축
+    )
+
+    assert [name for name, _ in log if name.endswith(".persist")] == [
+        "finance.persist",
+        "logistics.persist",
+    ], "commit 까지 가지 않고 터졌다"
+    assert out.status == "FAILED"
+    assert "커밋 중 연결이 끊겼다" in out.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (1, 1, 1)
+
+
 def test_적재_실패가_예외로_올라가지_않는다() -> None:
     """★ 결정은 **이미 적재됐다.** 전이 실패가 500 이 되면 승인이 실패로 보인다."""
     log: list[tuple[str, Any]] = []
@@ -455,3 +564,61 @@ def test_등록되어_있으면_승인_경로가_커밋까지_간다(wired, monk
     assert out.transition.status == "APPLIED"
     assert conn.commits == 1
     assert conn.rollbacks == 0
+
+
+def test_결정이_저장된_뒤_전이_적재가_터져도_결정은_그대로_나간다(wired, monkeypatch) -> None:
+    """🔴 전이 실패가 **이미 저장된 결정**을 실패로 보이게 하면 사람이 같은 승인을 또 누른다.
+
+    ★ 2026-10-01 재구성 BL-024: 결정 저장(`save_decision` — 제 트랜잭션)이 끝난 **뒤** 전이
+      트랜잭션이 물류 적재에서 터지는 자리. 결정은 응답에 그대로 실리고, 전이 연결만 rollback 한다.
+    """
+    저장된_결정: list[dict[str, Any]] = []
+    진짜_저장 = decision.save_decision
+    monkeypatch.setattr(
+        decision, "save_decision", lambda **kw: (저장된_결정.append(kw), 진짜_저장(**kw))[1]
+    )
+    log: list[tuple[str, Any]] = []
+    conn = 가짜커넥션(log)
+    registry_transition.register_transition("finance", 가짜전이("finance", log))
+    registry_transition.register_transition(
+        "logistics",
+        가짜전이("logistics", log, persist_raises=RuntimeError("입고 예정 표가 잠겼다")),
+    )
+    real_apply = service_transition.apply_approval
+    monkeypatch.setattr(
+        decision,
+        "apply_approval",
+        lambda commitment, *, sim_run_id, **_: real_apply(
+            commitment, sim_run_id=sim_run_id, borrow=lambda: conn
+        ),
+    )
+
+    out = wired(_response(), decided_by=AUTO_BACKFILL)
+
+    assert len(저장된_결정) == 1, "결정 저장이 한 번 불려야 한다"
+    assert out.decision == "APPROVE" and out.decision_seq == 1, "저장된 결정이 응답에 없다"
+    assert out.transition is not None and out.transition.status == "FAILED"
+    assert "입고 예정 표가 잠겼다" in out.transition.reason
+    assert [name for name, _ in log if name.endswith(".persist")] == [
+        "finance.persist",
+        "logistics.persist",
+    ], "전이가 물류 적재까지 가서 터진 것이 아니다"
+    assert (conn.commits, conn.rollbacks) == (0, 1)
+
+
+def test_결정_저장이_터지면_전이를_부르지_않는다(wired, monkeypatch) -> None:
+    """★ 결정이 안 섰는데 전이가 서면 **근거 없는 매입**이 장부에 앉는다. 예외는 그대로 올라간다."""
+    전이_호출: list[Any] = []
+
+    def 저장이_터진다(**kw: Any) -> DecisionOut:
+        raise RuntimeError("결정 표가 잠겼다")
+
+    monkeypatch.setattr(decision, "save_decision", 저장이_터진다)
+    monkeypatch.setattr(
+        decision, "apply_approval", lambda *args, **kwargs: 전이_호출.append((args, kwargs))
+    )
+
+    with pytest.raises(RuntimeError, match="결정 표가 잠겼다"):
+        wired(_response(), decided_by=AUTO_BACKFILL)
+
+    assert 전이_호출 == []

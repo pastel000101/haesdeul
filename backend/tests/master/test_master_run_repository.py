@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import logging
 from datetime import date
 
 import pytest
@@ -25,8 +26,8 @@ from app.master.domain.plan import ExecutionPlan
 from app.master.domain.status_flow import StatusOutcome
 from app.master.repository import runs
 from app.master.schemas.procurement import ProcurementRunRequest, ProcurementRunResponse
+from app.master.service import cycle_persistence, run_history
 from app.master.service import persistence as service_persistence
-from app.master.service import run_history
 
 # ── ① 표 이름 ───────────────────────────────────────────────────────────────
 
@@ -116,6 +117,31 @@ def test_적재가_실제로_건너뛴다(monkeypatch):
 
 
 # ── ③ 새 컬럼이 실제로 실리는가 ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("module", [run_history, cycle_persistence], ids=["master", "critic"])
+def test_이력을_남기는_실행에서_적재가_터지면_None_이고_예외를_안_올린다(
+    monkeypatch, caplog, module
+):
+    """🔴 이력 저장 실패가 판단 결과를 지우면 안 된다 — 삼키되 **로그에는 남긴다.**
+
+    ★ 2026-10-01 재구성 BL-024: pytest 안에서는 `history_enabled()` 가 거짓이라 삼키는 분기에
+      닿지 않는다(위 검사가 재는 것은 건너뛰기다). 이력을 켠 조건으로 그 분기를 직접 잰다.
+    """
+    불림: list[dict[str, object]] = []
+
+    def _터진다(**kwargs):
+        불림.append(kwargs)
+        raise RuntimeError("실행이력 표가 없다")
+
+    monkeypatch.setattr(module, "history_enabled", lambda: True)
+    monkeypatch.setattr(module, "save_run", _터진다)
+
+    with caplog.at_level(logging.WARNING, logger=module.__name__):
+        assert module.try_save_run(cycle="PROCUREMENT") is None
+
+    assert 불림 == [{"cycle": "PROCUREMENT"}], "적재를 부르지 않고 None 을 냈다"
+    assert any("적재 실패" in record.getMessage() for record in caplog.records)
 
 
 def _response(end_code: str = "E1_APPROVED") -> ProcurementRunResponse:

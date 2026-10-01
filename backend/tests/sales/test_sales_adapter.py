@@ -103,6 +103,30 @@ def test_generate_sales_proposal_returns_ready_ok_with_payload(monkeypatch, lent
     assert lent_connection.events == ["commit", "returned:write"]
 
 
+def test_history_save_failure_is_raised_and_rolled_back(monkeypatch, lent_connection):
+    """판매 후보의 이력 저장 실패는 삼키지 않는다 — 예외가 `sales_port` 밖으로 나간다.
+
+    ★ 2026-10-01 재구성 BL-024: 재무(회신을 ERROR 로 바꿈) · 마스터(삼키고 None)와 다른 처리다.
+      마스터를 거치면 `MasterRunner` 가 ERROR 회신으로 바꾸고, `POST /sales/console-proposal` 은
+      그대로 올라간다. 빌린 연결은 commit 없이 rollback 하고 돌려준다.
+    """
+    monkeypatch.setenv("SALES_LLM_ENABLED", "false")
+    attempted = []
+
+    def failing_save(_conn, **kwargs):
+        attempted.append(kwargs["runtime_status"])
+        raise RuntimeError("sales_agent_runs is locked")
+
+    monkeypatch.setattr(generation, "save_sales_agent_run", failing_save)
+
+    with pytest.raises(RuntimeError, match="sales_agent_runs is locked"):
+        adapter.sales_port(_request())
+
+    assert attempted == ["READY"], "the save was not reached with a generated proposal"
+    assert lent_connection.borrows == ["write"]
+    assert lent_connection.events == ["rollback", "returned:write"]
+
+
 def test_request_context_becomes_sales_execution_identity(monkeypatch):
     captured = {}
 
