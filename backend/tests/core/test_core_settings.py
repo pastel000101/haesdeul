@@ -155,6 +155,74 @@ def test_bad_pool_settings_stop_before_the_pool_opens(
         settings.pool_settings()
 
 
+# ── 재접속 · 연결 확인 시간과 TCP 상태 확인 (2026-10-01 BL-010 사용자 결정) ─────────────
+
+
+def test_connection_health_defaults_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in settings.DB_CONNECTION_HEALTH_ENV_KEYS:
+        monkeypatch.delenv(key, raising=False)
+
+    assert settings.connection_health_settings() == settings.ConnectionHealthSettings(
+        reconnect_timeout_seconds=15.0,
+        check_timeout_seconds=5.0,
+        keepalives=True,
+        keepalives_idle_seconds=30,
+        keepalives_interval_seconds=10,
+        keepalives_count=3,
+        tcp_user_timeout_ms=30_000,
+    )
+
+
+def test_connection_health_follows_the_environment_and_treats_blank_as_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DB_POOL_RECONNECT_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "2.5")
+    monkeypatch.setenv("DB_TCP_KEEPALIVES", "0")
+    monkeypatch.setenv("DB_TCP_KEEPALIVES_IDLE_SECONDS", " ")
+    monkeypatch.setenv("DB_TCP_KEEPALIVES_INTERVAL_SECONDS", "5")
+    monkeypatch.setenv("DB_TCP_KEEPALIVES_COUNT", "4")
+    monkeypatch.setenv("DB_TCP_USER_TIMEOUT_MS", "0")
+
+    assert settings.connection_health_settings() == settings.ConnectionHealthSettings(
+        reconnect_timeout_seconds=20.0,
+        check_timeout_seconds=2.5,
+        keepalives=False,
+        keepalives_idle_seconds=30,
+        keepalives_interval_seconds=5,
+        keepalives_count=4,
+        tcp_user_timeout_ms=0,
+    )
+
+
+def test_the_check_limit_is_shorter_than_the_screen_read_timeout() -> None:
+    """빌려 주기 전 확인도 프론트 읽기(20초)보다 먼저 끝나야 백엔드 사유가 화면에 실린다."""
+    assert 0 < settings.DEFAULT_CONNECTION_HEALTH_SETTINGS.check_timeout_seconds < 15
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("DB_POOL_RECONNECT_TIMEOUT_SECONDS", "0"),
+        ("DB_POOL_CHECK_TIMEOUT_SECONDS", "-1"),
+        ("DB_POOL_CHECK_TIMEOUT_SECONDS", "x"),
+        ("DB_TCP_KEEPALIVES", "yes"),
+        ("DB_TCP_KEEPALIVES_IDLE_SECONDS", "0"),
+        ("DB_TCP_KEEPALIVES_COUNT", "1.5"),
+        ("DB_TCP_USER_TIMEOUT_MS", "-5"),
+    ],
+)
+def test_bad_connection_health_settings_stop_before_the_pool_opens(
+    monkeypatch: pytest.MonkeyPatch, key: str, value: str
+) -> None:
+    for name in settings.DB_CONNECTION_HEALTH_ENV_KEYS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValueError, match="DB 연결 상태 확인"):
+        settings.connection_health_settings()
+
+
 def test_missing_database_environment_is_still_a_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

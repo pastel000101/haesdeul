@@ -230,8 +230,8 @@ def test_the_pool_reads_connection_settings_once_not_per_borrow(
         _read_master_runs()
         _read_logistics_runs()
 
-    # 접속 정보 1 + 풀 크기 1 — 대여마다 늘지 않는다
-    assert loads == [settings.ENV_FILE, settings.ENV_FILE]
+    # 접속 정보 1 + 풀 크기 1 + 연결 상태 확인 1(2026-10-01 BL-010) — 대여마다 늘지 않는다
+    assert loads == [settings.ENV_FILE] * 3
 
 
 # ── ML — 입구 대신 계층이 빌린다 (2026-09-29 BL-017) ──────────────────────────────

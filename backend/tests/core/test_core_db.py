@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,12 @@ def test_first_borrow_opens_the_pool_with_the_department_connection_arguments(
             "password": "secret",
             "row_factory": dict_row,
             "connect_timeout": 5,
+            # TCP 상태 확인 기본값(2026-10-01 BL-010) — 초 · 초 · 횟수 · 밀리초
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 3,
+            "tcp_user_timeout": 30_000,
         }
     ]
 
@@ -217,6 +224,227 @@ def test_many_dead_idle_connections_do_not_time_out_the_next_borrow(
     with core_db.connection() as fresh:
         assert all(fresh is not conn for conn in held)
         assert not fresh.closed
+
+
+# ── 빌려 주기 전 확인의 시간 제한 · 재접속 · TCP 상태 확인 (2026-10-01 BL-010 사용자 결정) ──
+
+
+def test_the_pool_gets_the_reconnect_window_and_the_check_limit(
+    service_pool: core_db.DatabasePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """설정한 재접속 기간과 확인 제한이 실제 psycopg_pool 풀에 들어간다.
+
+    재접속 기간은 라이브러리 기본 300초가 아니다.
+    """
+    monkeypatch.setenv("DB_POOL_RECONNECT_TIMEOUT_SECONDS", "12")
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "3")
+    with core_db.connection():
+        pass
+
+    inner = service_pool._pool  # 열린 풀의 실제 값만 읽는다
+    assert inner is not None
+    assert inner.reconnect_timeout == 12.0
+    assert inner.check_timeout_seconds == 3.0
+
+
+def test_the_ml_source_pool_gets_the_same_tcp_health_arguments(
+    db_env: dict[str, str], fake_pg: type[FakePgConnection], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """서비스 풀과 ML 원본 풀이 같은 TCP 상태 확인 인자로 연결을 만든다."""
+    monkeypatch.setenv("ML_SOURCE_DB_NAME", "raw_db")
+    monkeypatch.setenv("DB_TCP_USER_TIMEOUT_MS", "12000")
+    monkeypatch.setenv("DB_TCP_KEEPALIVES_IDLE_SECONDS", "20")
+    pools = [
+        core_db.DatabasePool("t-service", settings.database_settings, connection_class=fake_pg),
+        core_db.DatabasePool(
+            "t-source", settings.ml_source_database_settings, connection_class=fake_pg
+        ),
+    ]
+    try:
+        for pool in pools:
+            with pool.connection():
+                pass
+    finally:
+        for pool in pools:
+            pool.close()
+
+    tcp = {
+        key: value
+        for key, value in fake_pg.connects[0].items()
+        if key.startswith(("keepalives", "tcp_"))
+    }
+    assert tcp == {
+        "keepalives": 1,
+        "keepalives_idle": 20,
+        "keepalives_interval": 10,
+        "keepalives_count": 3,
+        "tcp_user_timeout": 12_000,
+    }
+    assert [c["dbname"] for c in fake_pg.connects] == ["service_db", "raw_db"]
+    assert all({k: c[k] for k in tcp} == tcp for c in fake_pg.connects)
+
+
+def test_keepalives_off_sends_no_keepalive_timings(
+    service_pool: core_db.DatabasePool,
+    fake_pg: type[FakePgConnection],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DB_TCP_KEEPALIVES", "0")
+    with core_db.connection():
+        pass
+
+    sent = fake_pg.connects[0]
+    assert sent["keepalives"] == 0
+    assert sent["tcp_user_timeout"] == 30_000
+    assert not {"keepalives_idle", "keepalives_interval", "keepalives_count"} & set(sent)
+
+
+def _idle_connections(count: int) -> list[Any]:
+    """`count` 개를 동시에 빌렸다 돌려줘 풀 안에 쉬는 연결을 만든다."""
+    held: list[Any] = []
+    all_borrowed = threading.Barrier(count + 1)
+    release = threading.Event()
+
+    def worker() -> None:
+        with core_db.connection() as conn:
+            held.append(conn)
+            all_borrowed.wait(2)
+            release.wait(2)
+
+    threads = [threading.Thread(target=worker) for _ in range(count)]
+    for thread in threads:
+        thread.start()
+    all_borrowed.wait(2)
+    release.set()
+    for thread in threads:
+        thread.join(2)
+    return held
+
+
+def test_a_check_with_no_answer_stops_at_its_limit_and_the_connection_is_discarded(
+    service_pool: core_db.DatabasePool,
+    fake_pg: type[FakePgConnection],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DB 프로세스가 멈추면 빌려 주기 전 확인에 답이 오지 않는다.
+
+    확인은 제한 시간에 끝나고 그 연결은 버린다.
+
+    전에는 psycopg_pool 의 확인이 답을 끝없이 기다렸다(2026-10-01 실 DB — 일시정지 내내
+    대여가 멈춤).
+    """
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "0.2")
+    with core_db.connection() as frozen:
+        pass
+    frozen.hang_checks = True  # 쉬는 동안 DB 가 멈췄다
+
+    started = time.monotonic()
+    with pytest.raises(PoolTimeout), core_db.connection():
+        pass
+    elapsed = time.monotonic() - started
+
+    assert 0.3 <= elapsed < 1.0, f"확인이 제한(0.3초) 근처에서 끝나야 한다: {elapsed:.2f}초"
+    assert frozen.events.count("check") == 2  # 처음 대여 · 멈춘 뒤 대여
+    assert frozen.closed, "답이 없던 연결을 닫지 않았다"
+
+
+def test_after_a_timed_out_check_a_healthy_connection_is_lent_again(
+    service_pool: core_db.DatabasePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DB 가 다시 답하면 다음 대여는 살아 있는 연결을 받는다.
+
+    확인 시간 초과가 풀을 망가뜨리지 않는다.
+    """
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "0.2")
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "0.1")
+    with core_db.connection() as frozen:
+        pass
+    frozen.hang_checks = True
+    with pytest.raises(PoolTimeout), core_db.connection():
+        pass
+
+    with core_db.connection() as fresh:
+        _select(fresh)
+    assert fresh is not frozen
+    assert not fresh.closed
+
+
+def test_one_timed_out_check_does_not_check_every_other_idle_connection(
+    service_pool: core_db.DatabasePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """멈춘 DB 앞에서 한 대여가 쉬던 연결을 하나씩 다 기다리지 않는다(연결 수 × 제한 시간이 아님).
+
+    끊긴 연결이면 나머지를 바로 확인하지만(`test_many_dead_idle_connections_...`), 시간 초과는
+    DB 가 멈춘 것이라 나머지도 같은 제한까지 기다릴 뿐이다.
+    """
+    monkeypatch.setenv("DB_POOL_MAX_SIZE", "4")
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "0.2")
+    idle = _idle_connections(4)
+    for conn in idle:
+        conn.hang_checks = True  # DB 가 멈췄다
+
+    started = time.monotonic()
+    with pytest.raises(PoolTimeout), core_db.connection():
+        pass
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 1.0, f"한 대여가 쉬던 연결을 차례로 기다렸다: {elapsed:.2f}초"
+    assert sum(conn.closed for conn in idle) == 1, "확인한 연결 하나만 닫아야 한다"
+
+
+def test_the_sweep_after_a_broken_connection_is_bounded_as_a_whole(
+    service_pool: core_db.DatabasePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """끊긴 연결로 시작한 재확인이 멈춘 연결들을 만나도 전체가 확인 제한 한 번을 넘지 않는다."""
+    monkeypatch.setenv("DB_POOL_MAX_SIZE", "4")
+    monkeypatch.setenv("DB_POOL_CHECK_TIMEOUT_SECONDS", "0.5")
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "2")
+    idle = _idle_connections(4)
+    first_check = [psycopg.OperationalError("server closed the connection")]
+    for conn in idle:
+        # 첫 확인 하나만 끊김 오류, 그 뒤 재확인에는 답이 없다(DB 가 멈췄다)
+        conn.check_error = lambda: first_check.pop() if first_check else None
+        conn.hang_checks = True
+
+    started = time.monotonic()
+    with core_db.connection() as fresh:
+        pass
+    elapsed = time.monotonic() - started
+
+    assert fresh not in idle
+    assert elapsed < 1.0, f"재확인이 멈춘 연결마다 제한 시간을 기다렸다: {elapsed:.2f}초"
+    assert all(conn.closed for conn in idle)
+
+
+def test_a_check_that_fails_closes_the_connection(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    """확인이 오류로 끝난 연결은 닫는다.
+
+    풀은 상태가 «알 수 없음» 인 연결을 다시 빌려 주지 않는다.
+    """
+    with core_db.connection() as conn:
+        pass
+    conn.check_error = psycopg.OperationalError("server closed the connection")
+
+    with core_db.connection() as fresh:
+        pass
+
+    assert conn.closed
+    assert fresh is not conn
+
+
+def test_a_healthy_check_keeps_and_reuses_the_connection(
+    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
+) -> None:
+    for _ in range(3):
+        with core_db.connection() as conn:
+            pass
+    assert len(fake_pg.made) == 1
+    assert conn.events.count("check") == 3
+    assert not conn.closed
 
 
 def test_concurrent_borrows_get_different_connections(
@@ -502,13 +730,33 @@ def test_nothing_in_the_app_opens_a_connection_outside_the_pool() -> None:
 
 
 def test_connection_pools_are_created_only_in_core_db() -> None:
+    """풀(psycopg_pool `ConnectionPool` 과 그 하위 종류)을 만드는 자리는 `core/db.py` 하나다.
+
+    ★ 2026-10-01 BL-010: `core/db.py` 는 `ConnectionPool` 하위 종류(`HealthCheckedPool` — 쉬던
+      연결을 한꺼번에 확인할 때도 시간 제한 있는 확인)를 만든다. 하위 종류도 함께 센다.
+    """
+    pool_classes = {"ConnectionPool"} | {
+        node.name
+        for _name, tree in _app_sources()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and any(
+            (isinstance(base, ast.Name) and base.id == "ConnectionPool")
+            or (
+                isinstance(base, ast.Subscript)
+                and isinstance(base.value, ast.Name)
+                and base.value.id == "ConnectionPool"
+            )
+            for base in node.bases
+        )
+    }
     sites = sorted(
         name
         for name, tree in _app_sources()
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "ConnectionPool"
+        and node.func.id in pool_classes
     )
     assert sites == ["core/db.py"]
 

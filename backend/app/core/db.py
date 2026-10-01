@@ -35,10 +35,21 @@
   남는 차이는 조회마다 BEGIN · COMMIT 왕복이 붙는 것인데, autocommit 으로 읽으면 한 문장 =
   한 왕복이다. 읽기 전용 SELECT 라 보이는 결과는 같다(READ COMMITTED 는 문장마다 새 스냅숏).
 
-★ **빌려 줄 때 연결이 살아 있는지 확인한다** (`ConnectionPool.check_connection` · 빈
-  질의 한 번). 종전에는 매번 새 연결이라 죽은 연결을 받을 일이 없었다 — DB 가 재시작되거나
-  쉬던 연결이 끊겨도 요청이 그 연결로 실패하지 않게 풀이 바꿔 준다. 확인에 실패하면 쉬던
-  나머지 연결도 함께 확인한다(`_new_pool` 의 `check` · 2026-10-01 실 DB 검증에서 고침).
+★ **빌려 줄 때 연결이 살아 있는지 확인한다** (`check_connection_within` · 빈 질의 한 왕복).
+  종전에는 매번 새 연결이라 죽은 연결을 받을 일이 없었다 — DB 가 재시작되거나 쉬던 연결이
+  끊겨도 요청이 그 연결로 실패하지 않게 풀이 바꿔 준다. 확인에 실패하면 쉬던 나머지 연결도 함께
+  확인한다(`_new_pool` 의 `check` · 2026-10-01 실 DB 검증에서 고침).
+
+★ **그 확인에는 시간 제한이 있다** (`DB_POOL_CHECK_TIMEOUT_SECONDS` · 기본 5초 · 2026-10-01
+  사용자 결정). DB 프로세스가 멈추면(연결은 살아 있음) psycopg_pool 의 확인은 답을 끝없이
+  기다렸다. 제한을 넘긴 연결은 닫아 버리고, 대여는 다음 연결을 찾거나 대기 시간이 지났으면
+  `PoolTimeout` 으로 끝난다. **이 제한은 빌려 주기 전 확인에만 걸린다** — 빌린 연결로 실행하는
+  SQL 에는 클라이언트 쪽 시간 제한이 없다(재구성 전과 같음).
+
+★ **DB 에 못 닿을 때 풀의 재접속 시도는 15초 단위로 접는다** (`DB_POOL_RECONNECT_TIMEOUT_SECONDS`
+  · psycopg_pool `reconnect_timeout` · 라이브러리 기본 300초에서 바꿈). 연결에는 TCP keepalive ·
+  `tcp_user_timeout` 을 준다(`DB_TCP_*` · 망 단절을 OS 가 알아채는 시간 · Linux 에서 모두 효과).
+  값과 단위는 `app/core/settings.py::ConnectionHealthSettings`.
 
 ★ **이 모듈은 SQL 을 실행하지 않는다.** SQL 은 연결을 받은 쪽(부서 repository 함수)이
   `conn.cursor()` 로 직접 실행한다 (`tests/core/test_core_db.py` 가 잠근다).
@@ -56,7 +67,9 @@ repository     받은 conn 으로 SQL 실행. commit · rollback · 반환을 �
 """
 
 import logging
+import selectors
 import threading
+import time
 import weakref
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
@@ -68,9 +81,11 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from app.core.settings import (
+    ConnectionHealthSettings,
     DatabaseSettings,
     MissingDatabaseEnvironment,
     PoolSettings,
+    connection_health_settings,
     database_settings,
     ml_source_database_settings,
     pool_settings,
@@ -205,7 +220,8 @@ class DatabasePool:
       전부 그 풀을 쓴다. 요청 · 쿼리마다 풀을 새로 만들지 않는다. `close()` 뒤에 다시 빌리면
       새 풀을 연다 — psycopg_pool 은 닫힌 풀을 다시 열지 못한다(3.3.3 소스).
 
-    ★ 접속 정보(`settings`)와 크기(`pool_settings`)는 **열 때** 읽는다. 설정이 없으면
+    ★ 접속 정보(`settings`) · 크기(`pool_settings`) · 연결 상태 확인(`connection_health_settings`)은
+      **열 때** 읽는다. 설정이 없으면
       `MissingDatabaseEnvironment`(종전과 같은 문구)를 빌리려던 자리에서 올린다.
 
     :param name: 풀 이름(로그에 나온다).
@@ -249,7 +265,11 @@ class DatabasePool:
         with self._lock:
             if self._pool is None:
                 self._pool = _new_pool(
-                    self.name, self._settings(), pool_settings(), self._connection_class
+                    self.name,
+                    self._settings(),
+                    pool_settings(),
+                    connection_health_settings(),
+                    self._connection_class,
                 )
             return self._pool
 
@@ -280,16 +300,120 @@ class DatabasePool:
             yield conn
 
 
+class ConnectionCheckTimeout(psycopg.OperationalError):
+    """빌려 주기 전 연결 확인이 제한 시간 안에 끝나지 않았다. 그 연결은 닫았다.
+
+    풀 안에서만 쓰인다 — 대여자에게는 풀이 다음 연결을 주거나 `PoolTimeout` 을 올린다.
+    """
+
+
+class _DeadlinePassed(Exception):
+    """`_ping` 이 기다릴 시간을 다 썼다(이 모듈 안에서만 쓴다)."""
+
+
+#: 쉬던 연결을 한꺼번에 다시 확인하는 동안(`_discard_broken_idle_connections`) 그 확인 전체가
+#: 넘지 않을 시각. 그 확인은 부른 스레드에서 차례로 돌므로 스레드마다 따로 둔다.
+_sweep = threading.local()
+
+
+def check_connection_within(conn: Connection, timeout_seconds: float) -> None:
+    """빈 질의 한 왕복으로 연결이 살아 있는지 확인한다. **`timeout_seconds` 안에 끝낸다.**
+
+    psycopg_pool `ConnectionPool.check_connection` 과 같은 확인(빈 질의 — 트랜잭션을 열지 않는다)을
+    libpq 비동기 API 로 보내고, 답을 기다리는 동안 소켓을 남은 시간만큼만 기다린다. 다른 스레드나
+    뒤에서 계속 도는 작업을 만들지 않는다 — 기다림이 이 함수 안에서 끝난다.
+
+    ```text
+    답이 옴(빈 결과)             통과 — 연결은 그대로 쓸 수 있다
+    제한 시간을 넘김             연결을 닫고 ConnectionCheckTimeout
+    오류(끊김 · 서버 오류)       연결을 닫고 그 오류를 올린다
+    ```
+
+    🔴 **닫힌 연결은 풀이 버리고 새로 만든다**(풀은 돌려받은 연결의 상태가 «알 수 없음» 이면 버린다
+       · psycopg_pool 3.3.3 `_return_connection`). 확인에 실패한 연결을 다시 빌려 주지 않는다.
+
+    🔴 **빌려 주기 전 확인에만 쓴다.** SQL 실행의 시간 제한이 아니다.
+    """
+    pgconn = conn.pgconn
+    if conn.closed or pgconn.status != pq.ConnStatus.OK:
+        raise psycopg.OperationalError("the connection is closed")
+    deadline = time.monotonic() + timeout_seconds
+    sweep_deadline = getattr(_sweep, "deadline", None)
+    if sweep_deadline is not None:
+        deadline = min(deadline, sweep_deadline)
+    try:
+        with conn.lock:
+            _ping(pgconn, deadline)
+    except _DeadlinePassed:
+        _close_quietly(conn)
+        raise ConnectionCheckTimeout(
+            f"connection check did not finish within {timeout_seconds:g} sec"
+        ) from None
+    except Exception:
+        _close_quietly(conn)
+        raise
+
+
+def _ping(pgconn: Any, deadline: float) -> None:
+    """빈 질의를 보내고 결과를 모두 읽는다. `deadline` 을 넘기면 `_DeadlinePassed`."""
+    pgconn.send_query(b"")
+    while pgconn.flush():  # 1: 아직 보낼 것이 남았다(psycopg 연결은 nonblocking 이다)
+        _wait_socket(pgconn, selectors.EVENT_WRITE, deadline)
+    while True:
+        pgconn.consume_input()
+        if pgconn.is_busy():
+            _wait_socket(pgconn, selectors.EVENT_READ, deadline)
+            continue
+        result = pgconn.get_result()
+        if result is None:
+            return
+        if result.status == pq.ExecStatus.FATAL_ERROR:
+            message = (result.error_message or b"").decode("utf-8", "replace").strip()
+            raise psycopg.OperationalError(f"connection check failed: {message}")
+
+
+def _wait_socket(pgconn: Any, event: int, deadline: float) -> None:
+    """소켓이 `event` 할 수 있게 될 때까지, 남은 시간만큼만 기다린다."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _DeadlinePassed
+    with selectors.DefaultSelector() as selector:
+        selector.register(pgconn.socket, event)
+        selector.select(remaining)
+
+
+def _close_quietly(conn: Connection) -> None:
+    with suppress(Exception):
+        conn.close()
+
+
+class HealthCheckedPool(ConnectionPool[Connection]):
+    """psycopg_pool 풀 — 쉬던 연결을 한꺼번에 확인할 때(`check()`)도 시간 제한 있는 확인을 쓴다.
+
+    psycopg_pool 의 `check()` 는 정적 메서드 `check_connection` 으로 확인하는데, 그 확인에는 시간
+    제한이 없다(3.3.3 소스). 이 자리만 `check_connection_within` 으로 바꾼다. 대여 · 반환 · 재접속은
+    그대로다.
+    """
+
+    def __init__(self, *args: Any, check_timeout_seconds: float, **kwargs: Any) -> None:
+        self.check_timeout_seconds = check_timeout_seconds
+        super().__init__(*args, **kwargs)
+
+    def check_connection(self, conn: Connection) -> None:  # type: ignore[override]
+        check_connection_within(conn, self.check_timeout_seconds)
+
+
 def _new_pool(
     name: str,
     settings: DatabaseSettings,
     sizes: PoolSettings,
+    health: ConnectionHealthSettings,
     connection_class: type[Connection],
 ) -> ConnectionPool[Connection]:
     opened: list[ConnectionPool[Connection]] = []
 
     def check(conn: Connection) -> None:
-        """빌려 주기 전 확인. 끊긴 연결이면 쉬고 있던 나머지 연결도 바로 확인한다.
+        """빌려 주기 전 확인(`check_connection_within`). 끊긴 연결이면 쉬던 나머지 연결도 확인한다.
 
         🔴 2026-10-01 재구성 BL-010 실 DB 검증에서 고쳤다. psycopg_pool 은 확인에 실패한
            연결 하나만 버리고 다음 쉬던 연결을 꺼내는데, 두 번째 실패부터 1 · 2 · 4초를 쉰다
@@ -298,15 +422,22 @@ def _new_pool(
            두 번 실패). 하나가 끊겼으면 나머지도 같은 이유로 끊겼을 수 있으니, 풀 공개 API
            `check()` 로 쉬던 연결을 모두 확인해 끊긴 것을 버리고 새로 채운다. 살아 있는 연결은
            그대로 둔다.
+
+        🔴 **확인이 시간 제한에 걸린 경우에는 나머지를 확인하지 않는다** (같은 날 사용자 결정 뒤).
+           DB 가 멈춘 것이라 나머지도 제한 시간까지 기다릴 뿐이고, 한 대여가 제한 시간을 연결
+           수만큼 이어 기다리게 된다. 남은 연결은 각자 빌려 줄 때 같은 제한으로 확인된다. 끊김으로
+           시작한 재확인도 전체가 확인 제한 한 번을 넘지 않는다(`_discard_broken_idle_connections`).
         """
         try:
-            ConnectionPool.check_connection(conn)
+            check_connection_within(conn, health.check_timeout_seconds)
+        except ConnectionCheckTimeout:
+            raise
         except Exception:
             if opened:
-                _discard_broken_idle_connections(opened[0])
+                _discard_broken_idle_connections(opened[0], health.check_timeout_seconds)
             raise
 
-    pool: ConnectionPool[Connection] = ConnectionPool(
+    pool = HealthCheckedPool(
         connection_class=connection_class,
         kwargs={
             "host": settings.host,
@@ -316,11 +447,14 @@ def _new_pool(
             "password": settings.password,
             "row_factory": dict_row,
             "connect_timeout": CONNECT_TIMEOUT_SECONDS,
+            **_tcp_health_arguments(health),
         },
         min_size=sizes.min_size,
         max_size=sizes.max_size,
         timeout=sizes.timeout_seconds,
+        reconnect_timeout=health.reconnect_timeout_seconds,
         check=check,
+        check_timeout_seconds=health.check_timeout_seconds,
         name=f"haesdeul-{name}",
         open=False,
     )
@@ -329,15 +463,39 @@ def _new_pool(
     return pool
 
 
-def _discard_broken_idle_connections(pool: ConnectionPool[Connection]) -> None:
+def _tcp_health_arguments(health: ConnectionHealthSettings) -> dict[str, int]:
+    """libpq 연결 인자 — TCP keepalive · `tcp_user_timeout`(밀리초). 서비스 · ML 원본 풀이 같다.
+
+    ⚠️ libpq 가 지원하지 않는 OS 에서는 효과 없이 받아들인다: `keepalives_count` 는 Windows 에서,
+      `tcp_user_timeout` 은 Linux 밖에서 효과가 없다(libpq 문서). 운영 백엔드는 Linux 컨테이너다.
+    """
+    if not health.keepalives:
+        return {"keepalives": 0, "tcp_user_timeout": health.tcp_user_timeout_ms}
+    return {
+        "keepalives": 1,
+        "keepalives_idle": health.keepalives_idle_seconds,
+        "keepalives_interval": health.keepalives_interval_seconds,
+        "keepalives_count": health.keepalives_count,
+        "tcp_user_timeout": health.tcp_user_timeout_ms,
+    }
+
+
+def _discard_broken_idle_connections(
+    pool: ConnectionPool[Connection], limit_seconds: float
+) -> None:
     """쉬던 연결을 모두 확인해 끊긴 것을 버리고 새로 채운다(psycopg_pool `check()`).
 
-    여기서 난 오류는 올리지 않는다. 대여를 막는 것은 확인에 실패한 원래 오류다.
+    확인 전체가 `limit_seconds` 를 넘지 않는다 — 넘긴 뒤의 연결은 확인 없이 시간 초과로 닫혀
+    버려지고 풀이 새로 채운다. 여기서 난 오류는 올리지 않는다. 대여를 막는 것은 확인에 실패한
+    원래 오류다.
     """
+    _sweep.deadline = time.monotonic() + limit_seconds
     try:
         pool.check()
     except Exception:
         logger.warning("쉬던 연결을 다시 확인하지 못했다: %s", pool.name, exc_info=True)
+    finally:
+        _sweep.deadline = None
 
 
 def _settle_before_return(conn: Connection) -> None:
