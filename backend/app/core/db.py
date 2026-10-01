@@ -35,12 +35,13 @@
   남는 차이는 조회마다 BEGIN · COMMIT 왕복이 붙는 것인데, autocommit 으로 읽으면 한 문장 =
   한 왕복이다. 읽기 전용 SELECT 라 보이는 결과는 같다(READ COMMITTED 는 문장마다 새 스냅숏).
 
-★ **빌려 줄 때 연결이 살아 있는지 확인한다** (`check=ConnectionPool.check_connection` · 빈
+★ **빌려 줄 때 연결이 살아 있는지 확인한다** (`ConnectionPool.check_connection` · 빈
   질의 한 번). 종전에는 매번 새 연결이라 죽은 연결을 받을 일이 없었다 — DB 가 재시작되거나
-  쉬던 연결이 끊겨도 요청이 그 연결로 실패하지 않게 풀이 바꿔 준다.
+  쉬던 연결이 끊겨도 요청이 그 연결로 실패하지 않게 풀이 바꿔 준다. 확인에 실패하면 쉬던
+  나머지 연결도 함께 확인한다(`_new_pool` 의 `check` · 2026-10-01 실 DB 검증에서 고침).
 
-★ **이 모듈은 SQL 을 실행하지 않는다.** SQL 은 연결을 받은 쪽(부서 `db.py` 의 조회 함수,
-  repository 함수)이 `conn.cursor()` 로 직접 실행한다 (`tests/core/test_core_db.py` 가 잠근다).
+★ **이 모듈은 SQL 을 실행하지 않는다.** SQL 은 연결을 받은 쪽(부서 repository 함수)이
+  `conn.cursor()` 로 직접 실행한다 (`tests/core/test_core_db.py` 가 잠근다).
 
 ★ 역할 나눔 (설계서 §책임 위치)
 
@@ -285,6 +286,26 @@ def _new_pool(
     sizes: PoolSettings,
     connection_class: type[Connection],
 ) -> ConnectionPool[Connection]:
+    opened: list[ConnectionPool[Connection]] = []
+
+    def check(conn: Connection) -> None:
+        """빌려 주기 전 확인. 끊긴 연결이면 쉬고 있던 나머지 연결도 바로 확인한다.
+
+        🔴 2026-10-01 재구성 BL-010 실 DB 검증에서 고쳤다. psycopg_pool 은 확인에 실패한
+           연결 하나만 버리고 다음 쉬던 연결을 꺼내는데, 두 번째 실패부터 1 · 2 · 4초를 쉰다
+           (3.3.3 `AttemptWithBackoff`). DB 재시작처럼 쉬던 연결이 한꺼번에 끊기면, 살아 있는
+           DB 앞에서도 대여가 대기 시간(5초)을 넘겼다(끊긴 연결 5개 → 첫 대여 실패, 10개 →
+           두 번 실패). 하나가 끊겼으면 나머지도 같은 이유로 끊겼을 수 있으니, 풀 공개 API
+           `check()` 로 쉬던 연결을 모두 확인해 끊긴 것을 버리고 새로 채운다. 살아 있는 연결은
+           그대로 둔다.
+        """
+        try:
+            ConnectionPool.check_connection(conn)
+        except Exception:
+            if opened:
+                _discard_broken_idle_connections(opened[0])
+            raise
+
     pool: ConnectionPool[Connection] = ConnectionPool(
         connection_class=connection_class,
         kwargs={
@@ -299,12 +320,24 @@ def _new_pool(
         min_size=sizes.min_size,
         max_size=sizes.max_size,
         timeout=sizes.timeout_seconds,
-        check=ConnectionPool.check_connection,
+        check=check,
         name=f"haesdeul-{name}",
         open=False,
     )
+    opened.append(pool)
     pool.open(wait=False)
     return pool
+
+
+def _discard_broken_idle_connections(pool: ConnectionPool[Connection]) -> None:
+    """쉬던 연결을 모두 확인해 끊긴 것을 버리고 새로 채운다(psycopg_pool `check()`).
+
+    여기서 난 오류는 올리지 않는다. 대여를 막는 것은 확인에 실패한 원래 오류다.
+    """
+    try:
+        pool.check()
+    except Exception:
+        logger.warning("쉬던 연결을 다시 확인하지 못했다: %s", pool.name, exc_info=True)
 
 
 def _settle_before_return(conn: Connection) -> None:
