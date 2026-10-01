@@ -430,6 +430,42 @@ def test_적재가_터지면_전부_되돌린다() -> None:
     assert conn.returned == 1
 
 
+def test_개장_기록_연결이_터져도_파트_커밋과_개장_결과는_그대로다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """🔴 개장 기록은 파트 트랜잭션 **밖**의 별도 연결이다 — 기록이 터져도 연 하루는 그대로다.
+
+    ★ 2026-10-01 재구성 BL-024: `conftest` 가 `record_day_opening` 을 늘 성공하는 대역으로 바꿔
+      두어, `open_day` 가 진짜 기록 함수의 실패를 삼키는지는 재지 않았다. 여기서는 진짜 함수를
+      되돌려 놓고 기록이 빌리는 연결(공통 풀 입구)만 터뜨린다 — 파트는 넘겨받은 연결을 쓴다.
+    """
+    from 개장정본_격리 import 진짜_개장_정본_함수
+
+    기록_연결_시도: list[int] = []
+
+    def 기록_연결이_터진다() -> Any:
+        기록_연결_시도.append(1)
+        raise RuntimeError("기록 연결이 끊겼다")
+
+    monkeypatch.setattr(
+        service_day_open, "record_day_opening", 진짜_개장_정본_함수["record_day_opening"]
+    )
+    monkeypatch.setattr("app.core.db.connection", 기록_연결이_터진다)
+    monkeypatch.setenv("DB_SCHEMA", "haetdeul")
+    finance, logistics = _both({AS_OF - timedelta(days=1)})
+    conn = 가짜커넥션()
+
+    out = _open_day(AS_OF, borrow=lambda: conn, sim_run_id=축)
+
+    assert 기록_연결_시도 == [1], "개장 기록이 제 연결을 빌리려 하지 않았다"
+    assert out.status == "OPENED"
+    assert [part.opened for part in out.parts] == [[AS_OF], [AS_OF]]
+    assert finance.opened and logistics.opened
+    assert (conn.commits, conn.rollbacks, conn.returned) == (1, 0, 1), (
+        "기록 실패가 파트 커밋을 건드렸다"
+    )
+
+
 def test_적재_실패가_예외로_올라가지_않는다() -> None:
     """★ 500 이 되면 사람이 보기에 다음 날로 못 가는 것이 된다 — 실제로는 어제 그대로다."""
     _both({AS_OF - timedelta(days=1)})

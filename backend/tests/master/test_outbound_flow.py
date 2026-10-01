@@ -268,6 +268,28 @@ def test_조회가_터지면_FAILED_이고_NOTHING_DUE_가_아니다():
     assert "DB 가 죽었다" in out.reason
 
 
+def test_연결을_못_빌리면_FAILED_이고_아무것도_안_부른다():
+    """⚠️ 연결 실패도 *"나갈 것이 없다"* 가 아니다 — 그날 출고를 못 물어본 것이다.
+
+    ★ 2026-10-01 재구성 BL-024: 풀에서 빌리는 자리가 터지는 경우. 조회 · 예약 대역은 불리지 않는다.
+    """
+    불림: list[str] = []
+
+    def _못_빌린다() -> Any:
+        불림.append("borrow")
+        raise RuntimeError("풀이 비었다")
+
+    def _조회(_conn: Any, *, as_of: date, sim_run_id: str) -> Any:
+        불림.append("due")
+        return ()
+
+    out = ship_due_sales(AS_OF, sim_run_id=축, borrow=_못_빌린다, due_fn=_조회)
+
+    assert 불림 == ["borrow"]
+    assert out.status == "FAILED"
+    assert "연결 실패" in out.reason and "풀이 비었다" in out.reason
+
+
 # ── ⑤ 일부만 나갔으면 DELIVERED 로 안 적는다 ───────────────────────────
 
 

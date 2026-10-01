@@ -438,6 +438,54 @@ def test_예약이_터지면_확정까지_물러난다() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_예약이_확정_뒤에_불리고_터지면_같은_연결을_되돌린다() -> None:
+    """🔴 «확정까지 물러난다» 는 예약이 **확정이 쓴 그 연결에서 실제로 불린 뒤**여야 뜻이 있다.
+
+    ★ 2026-10-01 재구성 BL-024: 위 검사는 사유에 «예약» 이 있는지만 본다 — 예약 요청을 짓다가
+      터져도 같은 문구가 나온다. 여기서는 확정 → 예약 순서로 불렸고 예약이 낸 사유가 실렸는지 본다.
+    """
+    conn = 커넥션_대역()
+    확정 = 확정_대역()
+
+    class 불린_뒤_터지는_예약(예약_대역):
+        def __call__(self, conn: Any, request: Any) -> Any:
+            self.호출.append(request)
+            self.커넥션.append(conn)
+            raise RuntimeError("물류가 안 받았다")
+
+    예약 = 불린_뒤_터지는_예약()
+
+    결과 = _확정(확정, 예약, conn)
+
+    assert len(확정.호출) == 1, "확정을 안 부르고 예약으로 갔다"
+    assert 예약.커넥션 == [conn], "예약이 확정과 다른 연결에서 불렸거나 안 불렸다"
+    assert 결과.status == "FAILED"
+    assert "확정까지 롤백했다" in 결과.reason and "물류가 안 받았다" in 결과.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
+    assert 결과.sale_id is None, "되돌린 판매의 ID 가 응답에 나갔다"
+
+
+def test_판매가_확정을_거절하면_되돌리고_BLOCKED_다() -> None:
+    """★ 판매 원장이 «이미 다른 내용으로 있다» 고 거절한 자리 — 터진 것(FAILED)과 다르다.
+
+    🔴 거절도 같은 연결에서 난 일이라 rollback 한다. 예약은 부르지 않는다.
+    """
+    from app.sales.schemas.sale_ledger import SalesPersistenceConflict
+
+    conn = 커넥션_대역()
+    확정 = 확정_대역(터뜨린다=SalesPersistenceConflict("같은 주문이 다른 금액으로 이미 확정됐다"))
+    예약 = 예약_대역()
+
+    결과 = _확정(확정, 예약, conn)
+
+    assert len(확정.호출) == 1
+    assert 예약.호출 == [], "거절된 확정에 예약을 걸었다"
+    assert 결과.status == "BLOCKED"
+    assert "판매가 확정을 막았다" in 결과.reason
+    assert "같은 주문이 다른 금액으로 이미 확정됐다" in 결과.reason
+    assert (conn.commits, conn.rollbacks, conn.returned) == (0, 1, 1)
+
+
 def test_기본_예약_함수가_시뮬레이션_경로의_것이다() -> None:
     """🔴 `reserve_confirmed_sale` 이 아니다 — 저쪽은 전량 아니면 멈춘다."""
     import inspect

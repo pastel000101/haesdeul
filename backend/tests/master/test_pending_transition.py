@@ -313,6 +313,30 @@ def test_전이가_터져도_나머지를_계속_세운다() -> None:
     assert dict(out.outcomes) == {"FAILED": 1, "APPLIED": 1}
 
 
+def test_약정_재조립이_터져도_나머지를_계속_세운다() -> None:
+    """🔴 전이 **앞**(약정을 다시 짓는 자리)에서 터진 한 건이 그 뒤 승인을 멈추면 안 된다.
+
+    ★ 2026-10-01 재구성 BL-024: 전이가 터지는 자리(위 검사)와 사유 문구가 다르다 —
+      «약정 재조립이 터졌다» 는 전이를 부르기 전이라 그 건의 전이 호출이 없다.
+    """
+
+    def 첫_건만_터진다(request_id: str) -> ApprovedCommitment:
+        if request_id == "REQ-A":
+            raise RuntimeError("실행 행을 못 읽었다")
+        return _약정(request_id)
+
+    out, 전이 = _재시도(
+        decisions=[_승인행("REQ-A"), _승인행("REQ-B")], commitment_of=첫_건만_터진다
+    )
+
+    assert [약정.request_id for 약정, _ in 전이.calls] == ["REQ-B"], "터진 건 뒤의 승인을 안 세웠다"
+    assert dict(out.outcomes) == {"FAILED": 1, "APPLIED": 1}
+    실패 = [건 for 건 in out.retried if 건.outcome == "FAILED"]
+    assert [건.request_id for 건 in 실패] == ["REQ-A"]
+    assert "약정 재조립이 터졌다" in _NFC(실패[0].reason)
+    assert "실행 행을 못 읽었다" in _NFC(실패[0].reason)
+
+
 def test_조회가_터지면_FAILED_이지_NOTHING_DUE_가_아니다() -> None:
     """🔴 *"미적용이 없다"* 와 *"있었는지 못 물어봤다"* 는 다르다."""
 
