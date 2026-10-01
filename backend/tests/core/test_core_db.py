@@ -182,6 +182,43 @@ def test_a_dead_idle_connection_is_checked_and_replaced_before_it_is_lent(
         assert not fresh.closed
 
 
+def test_many_dead_idle_connections_do_not_time_out_the_next_borrow(
+    service_pool: core_db.DatabasePool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """쉬던 연결이 한꺼번에 끊겨도(DB 재시작) 다음 대여는 대기 시간 안에 새 연결을 받는다.
+
+    psycopg_pool 은 확인에 실패한 연결 하나만 버리고 1 · 2초를 쉬며 다음 쉬던 연결을 꺼낸다.
+    끊긴 연결이 여럿이면 살아 있는 DB 앞에서도 대여가 시간 초과로 끝났다 — 2026-10-01 실 DB
+    검증(끊긴 연결 5개 → 첫 대여 PoolTimeout). 지금은 하나가 끊겼으면 나머지도 확인해 버린다.
+    """
+    # 다섯 대여가 연결을 다 쓰게 해, 쉬던 연결이 모두 끊긴 것이 되게 한다(안 빌린 연결 없음).
+    monkeypatch.setenv("DB_POOL_MAX_SIZE", "5")
+    monkeypatch.setenv("DB_POOL_TIMEOUT_SECONDS", "2.5")
+    held: list[Any] = []
+    all_borrowed = threading.Barrier(6)
+    release = threading.Event()
+
+    def worker() -> None:
+        with core_db.connection() as conn:
+            held.append(conn)
+            all_borrowed.wait(2)
+            release.wait(2)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+    all_borrowed.wait(2)
+    release.set()
+    for thread in threads:
+        thread.join(2)
+    for conn in held:
+        conn.break_()  # 풀 안에서 쉬다가 모두 끊겼다
+
+    with core_db.connection() as fresh:
+        assert all(fresh is not conn for conn in held)
+        assert not fresh.closed
+
+
 def test_concurrent_borrows_get_different_connections(
     service_pool: core_db.DatabasePool,
 ) -> None:
