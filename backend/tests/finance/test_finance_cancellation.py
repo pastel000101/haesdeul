@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 
-from app.finance.adapter import FinanceCancellationAdapter
 from app.finance.domain.cash_events import payable_cash_events
 from app.finance.repository.cash_events import select_open_payables
 from app.finance.schemas.cancellation import FinanceCancellationConflict
@@ -247,7 +246,7 @@ def _existing_target_conn(*payables, unsettled="500") -> _Conn:
 def test_open_payable_is_cancelled_without_becoming_paid_or_deleted():
     conn = _existing_target_conn(_payable("PUR-A", "300"))
 
-    result = FinanceCancellationAdapter().cancel(
+    result = cancel_finance_payables(
         conn,
         purchase_ids=["PUR-A"],
         as_of=AS_OF,

@@ -179,7 +179,7 @@ def wire_registries() -> None:
     # 승인을 물리는 방법을 담는 등록소다. 전이와 한 사전에 섞으면 전이는 되는데 취소는 안
     # 되는 상태를 표현할 수 없다.
     #
-    # 재무 쪽 `FinanceCancellationAdapter`(`app/master/adapters/finance_parts.py`)는 마스터가
+    # 재무 파트용 `FinanceCancellationAdapter`(`app/master/adapters/finance_parts.py`)는 마스터가
     # 얹은 얇은 연결이다(`#280` 전례) — 재무 취소 함수(`#302`)를 Protocol 에 잇기만 한다.
     # 재무가 자기 구현을 올리면 그 어댑터를 지우고 이 줄만 바꾸면 된다. 물류 쪽은
     # `app/logistics/adapter.py` 의 `LogisticsCancellationAdapter` 다.

@@ -488,8 +488,7 @@ def check_axis_intrusion(replies: Mapping[Dept, T2Reply]) -> list[CriticFinding]
     여기는 price 를 들고 있으면) 계약상 정당한 channel_mix 제안이 축 침범으로 FAIL
     난다. L3 FAIL 은 T3 로 회송되므로 사후 루프 예산을 태우고 결국 E2 보류로 끝난다.
 
-    계약을 단일 출처로 삼는다. 룰을 두 벌 짜지 않는다(§6.4). `critic.run_l3` 도 같은
-    표를 읽는다.
+    계약을 단일 출처로 삼는다. 룰을 두 벌 짜지 않는다(§6.4).
     """
     out: list[CriticFinding] = []
     for dept, reply in replies.items():

@@ -12,7 +12,8 @@
 
   L1   하드 제약 재검사      ← 12종 check_* 를 DB 재조회 값으로 실행         [코드]
   L2   Evidence 숫자 대조    ← ref_id → 원본 조회 → 값 비교 (허용오차 0)     [코드]
-  L3   밴드 준수 · 축 침범   ← 최종 결정이 밴드 안인가                       [코드]
+  L3   밴드 준수 · 축 침범   ← 이 파일에 없다. `critic_v0_4` 의 결합 재검산과
+                               `check_axis_intrusion` 이 맡는다              [코드]
   L3.5 근거 등급 · 독립성    ← §7.3 check_evidence_grade / §7.1 source_ref  [코드]
   L4   rationale 논리 일관성 ← 여기만 LLM. temp 0, 생성 모델과 완전 분리     [LLM]
 
@@ -30,7 +31,6 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from app.contracts.core import (
-    _DEPT_AXES,
     HARD_ALLOWED_GRADES,
     Band,
     CheckResult,
@@ -173,79 +173,6 @@ def run_l2(
                                 dept,
                             )
                         )
-    return findings
-
-
-# ---------------------------------------------------------------------------
-# L3 — 밴드 준수 · 축 침범
-# ---------------------------------------------------------------------------
-
-
-def run_l3(
-    clip: ClipResult,
-    band: Band,
-    replies: Mapping[Dept, T2Reply],
-    unit_price: Mapping[ItemCode, float],
-) -> list[CriticFinding]:
-    findings: list[CriticFinding] = []
-    q = clip.clipped_qty_kg
-
-    for i, v in q.items():
-        f, c = band.floor_kg.get(i, 0.0), band.cap_kg.get(i, float("inf"))
-        if v < f - EPS:
-            findings.append(
-                CriticFinding(
-                    "L3_band_axis",
-                    f"band.floor.{i}",
-                    f"{i} 결정 {v:,.0f}kg < floor {f:,.0f}kg — 납기 미달",
-                )
-            )
-        if v > c + EPS:
-            findings.append(
-                CriticFinding(
-                    "L3_band_axis", f"band.cap.{i}", f"{i} 결정 {v:,.0f}kg > cap {c:,.0f}kg"
-                )
-            )
-
-    total = sum(q.values())
-    if total > band.cap_total_kg + EPS:
-        findings.append(
-            CriticFinding(
-                "L3_band_axis",
-                "band.cap_total_kg",
-                f"총 {total:,.0f}kg > 창고 상한 {band.cap_total_kg:,.0f}kg",
-            )
-        )
-
-    amount = sum(q[i] * unit_price.get(i, 0.0) for i in q)
-    if amount > band.cap_amount_krw + EPS:
-        findings.append(
-            CriticFinding(
-                "L3_band_axis",
-                "band.cap_amount_krw",
-                f"총 {amount:,.0f}원 > 가용 {band.cap_amount_krw:,.0f}원",
-            )
-        )
-
-    # 축 침범 — SuggestedAdjustment 생성자가 이미 막지만, 우회 경로를 이중으로 잡는다
-    #
-    # 허용 축을 계약(_DEPT_AXES)에서 읽는다. 하드코딩하지 않는다. 여기와 계약이 어긋나면
-    # (예: 계약이 영업 축을 price → channel_mix 로 바꿨는데 여기는 price 를 들고 있으면)
-    # 계약상 정당한 제안이 축 침범으로 FAIL 난다. L3 FAIL 은 T3 로 회송되므로 사후 루프
-    # 예산을 태우고 E2 보류로 끝난다. 룰을 두 벌 짜지 않는다 (§6.4).
-    for dept, reply in replies.items():
-        for adj in reply.suggested_adjustments:
-            allowed = set(_DEPT_AXES[dept])
-            if adj.axis not in allowed:
-                findings.append(
-                    CriticFinding(
-                        "L3_band_axis",
-                        f"{dept}.suggested_adjustment",
-                        f"{dept} 가 {adj.axis} 축을 침범했다. 허용: {sorted(allowed)} (§3.4.2)",
-                        (),
-                        dept,
-                    )
-                )
     return findings
 
 
