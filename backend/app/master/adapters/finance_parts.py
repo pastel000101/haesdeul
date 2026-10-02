@@ -13,12 +13,6 @@ receivable          issue(conn, *, as_of)            FinanceReceivableAdapter   
 있다. 등록은 `registry/bootstrap.py` 가 한다. 받은 연결은 그대로 넘긴다 — 여기서
 빌리거나 commit 하지 않는다.
 
-주의: 재무 쪽 `app/finance/adapter.py` 에도 같은 이름의 `FinanceCancellationAdapter` 가
-있다(서명이 다르다 — `purchase_ids: Sequence[str]` · `as_of` · 결과를 돌려준다). 등록되는
-것은 이 파일의 것이고, 재무 쪽은 재무 검사만 쓴다. 이름이 같다고 합치지 않았고, 앱 안
-호출이 없다는 이유만으로 지우지 않았다 — 처리 방침은 설계 쟁점 4(죽은 코드 · 미배선
-제거 범위) 결정 대기.
-
 ─── 취소 표면 ─────────────────────────────────────────────────────────────────────────
 
   마스터 `ApprovalCancellation` 을 재무 취소 함수에 잇는 연결.

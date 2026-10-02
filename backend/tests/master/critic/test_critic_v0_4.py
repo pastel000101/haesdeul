@@ -27,7 +27,6 @@ from app.contracts.core import (
     SuggestedAdjustment,
     T2Reply,
 )
-from app.master.critic.critic import run_l3 as legacy_run_l3
 from app.master.critic.critic_v0_4 import (
     CONTRACT_AMENDMENTS,
     CONTRACT_AMENDMENTS_CLOSED,
@@ -248,35 +247,52 @@ ok(
 )
 
 
-section("\n[B-4] L3 축 침범 — 계약(_DEPT_AXES) 단일 출처 교정")
+section("\n[B-4] L3 축 침범 — 계약(_DEPT_AXES) 단일 출처")
 
 adj = SuggestedAdjustment("sales", "channel_mix", 100.0, "kg", "채널 재배분", ("SRC-S-1",))
 r = T2Reply("sales", AS_OF, sales_reply().checks, (adj,))
-
-legacy = legacy_run_l3(_clip(_scenario()), _wide_band(), {"sales": r}, dict(PRICE_BASE))
-ok(
-    not any("channel_mix" in x.detail for x in legacy),
-    "critic.run_l3 이 계약상 정당한 channel_mix 를 통과시킨다 (v1.2.1 수정)",
-)
-
 ok(
     not check_axis_intrusion({"sales": r}),
-    "v0.4 check_axis_intrusion 도 동일 — 두 경로가 계약이라는 단일 출처를 읽는다",
+    "영업 channel_mix 축은 계약상 정당 → 통과 (v1.2.1 수정)",
 )
 
 bogus = SuggestedAdjustment(
     "inventory", "timing", 1.0, "d", "이연", ("SRC-I-1",), split_date=AS_OF
 )
 r_inv = T2Reply("inventory", AS_OF, (), (bogus,))
-ok(
-    not legacy_run_l3(_clip(_scenario()), _wide_band(), {"inventory": r_inv}, dict(PRICE_BASE))
-    and not check_axis_intrusion({"inventory": r_inv}),
-    "재고 timing 축도 두 경로에서 동일하게 통과",
-)
+ok(not check_axis_intrusion({"inventory": r_inv}), "재고 timing 축은 정당 → 통과")
 
 bad = SuggestedAdjustment("finance", "amount", 1.0, "krw", "한도", ("SRC-F-1",))
 r_bad = T2Reply("finance", AS_OF, _finance_reply().checks, (bad,))
 ok(not check_axis_intrusion({"finance": r_bad}), "재무 amount 축은 정당 → 통과")
+
+from app.contracts.core import ContractViolation
+
+try:
+    SuggestedAdjustment("sales", "amount", 1.0, "krw", "금액 조정", ("SRC-S-1",))
+    _blocked = False
+except ContractViolation:
+    _blocked = True
+ok(_blocked, "계약 밖 축(영업 amount)은 SuggestedAdjustment 생성에서 먼저 막힌다")
+
+# 생성자를 거치지 않고 들어온 회신(우회 경로)도 Critic 이 다시 잡는다.
+intruder = SuggestedAdjustment("sales", "quantity", 100.0, "kg", "수량 조정", ("SRC-S-1",))
+object.__setattr__(intruder, "axis", "amount")
+r_intruder = T2Reply("sales", AS_OF, sales_reply().checks, (intruder,))
+f = check_axis_intrusion({"sales": r_intruder})
+ok(
+    len(f) == 1
+    and f[0].layer == "L3_band_axis"
+    and f[0].check_id == "sales.suggested_adjustment"
+    and f[0].dept == "sales",
+    "우회한 영업 amount 축 → L3_band_axis 축 침범 한 건",
+)
+
+v = _run(_scenario(), _clip(_scenario()), replies={**_REPLIES, "sales": r_intruder})
+ok(
+    v.status == "FAIL" and any(x.check_id == "sales.suggested_adjustment" for x in v.findings),
+    "검토기 전체 실행도 축 침범으로 FAIL",
+)
 
 
 section("\n[B-5] L4 신설 — 회차별 도착일 분해")

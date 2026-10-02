@@ -489,10 +489,11 @@ finance_states  UNIQUE (sim_run_id, financing_mode, state_date)  일별 snapshot
 
 ### 미지급 매입채무 취소는 지급이나 상각이 아니다
 
-`FinanceCancellationAdapter.cancel(conn, *, purchase_ids, as_of, target_state_date,
-financing_mode)`는 Master 취소 전이가 부르는 Finance-owned 표면이다. Master가 전달한
-`financing_mode`를 사용해 Finance State를 exact axis로 잠그며 다른 실행 축으로 fallback하지
-않는다.
+`service/cancellation.py`의 `cancel_finance_payables(conn, *, purchase_ids, as_of,
+target_state_date, financing_mode)`가 취소를 맡는다. Master 승인 취소는 마스터 등록소에
+등록된 `FinanceCancellationAdapter`(`app/master/adapters/finance_parts.py`)가 Protocol 인자를
+이 함수 인자로 옮겨 부른다. Master가 전달한 `financing_mode`를 사용해 Finance State를 exact
+axis로 잠그며 다른 실행 축으로 fallback하지 않는다.
 
 ```text
 OPEN + paid=0   → CANCELLED
@@ -526,7 +527,7 @@ carry하며, 날짜는 Master가 준 값을 그대로 쓴다. 안정적인 취�
 app/finance/
 ├─ adapter.py      마스터 경계 번역 — finance_port 의 mode 분기 · 시나리오 입력 검증,
 │                  등록소 Protocol 표면(FinanceTransitionAdapter · FinanceDayOpening ·
-│                  FinanceClosingAdapter · FinanceCancellationAdapter)
+│                  FinanceClosingAdapter)
 │                  ← master/registry/bootstrap.py 와 POST /finance/agent 가 import
 ├─ schemas/        요청 · 응답 · 계약 모델, 자원별 파일(agent · sales_validation · planner ·
 │                  data_port · closing · receivables …)

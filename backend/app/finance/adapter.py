@@ -19,14 +19,14 @@ finance/adapter.py — 재무 에이전트 접점 (마스터 ↔ 재무)
 
 이 파일에는 번역과 mode 분기만 있다 — 봉투 payload → 매입 제안 모델. 준비 경계 · 조회 ·
 Controller 실행 · 회신 확정은 `service/`, 계산은 `domain/`. 마스터 파트 등록소가 부르는
-Protocol 표면(전이 · 개장 · 마감 · 취소)도 이 파일에 있다 — 표면은 인자를 넘기고 결과를
+Protocol 표면(전이 · 개장 · 마감)도 이 파일에 있다 — 표면은 인자를 넘기고 결과를
 옮기기만 한다. 앱에서 이 파일을 import 하는 곳은 마스터 등록소 조립
 (`master/registry/bootstrap.py`)과 재무 에이전트 라우트(`api/finance/agent.py`)다.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import date
 from typing import Any
 
@@ -35,7 +35,6 @@ from pydantic import ValidationError
 
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.contracts.parts import ClosingPartOut
-from app.finance.schemas.cancellation import FinanceCancellationResult
 from app.finance.schemas.transition import ApprovedCommitmentFacts, FinanceTransitionPlan
 from app.finance.service.agent_replies import (
     invalid_scenario_as_of_reply,
@@ -44,7 +43,6 @@ from app.finance.service.agent_replies import (
     not_implemented_reply,
 )
 from app.finance.service.agent_run import controller_boundary, run_controller
-from app.finance.service.cancellation import cancel_finance_payables
 from app.finance.service.closing import close_finance_day
 from app.finance.service.day_open import is_day_open, open_finance_day
 from app.finance.service.pre_sales_facts import answer_pre_sales_facts
@@ -53,7 +51,6 @@ from app.finance.service.transition import build_finance_transition, persist_fin
 from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 __all__ = [
-    "FinanceCancellationAdapter",
     "FinanceClosingAdapter",
     "FinanceDayOpening",
     "FinanceTransitionAdapter",
@@ -210,25 +207,4 @@ class FinanceClosingAdapter:
             reason=result.reason,
             closed=result.closed,
             created=result.created,
-        )
-
-
-class FinanceCancellationAdapter:
-    """Finance-owned surface for a future Master cancellation protocol."""
-
-    def cancel(
-        self,
-        conn: Any,
-        *,
-        purchase_ids: Sequence[str],
-        as_of: date,
-        target_state_date: date,
-        financing_mode: str,
-    ) -> FinanceCancellationResult:
-        return cancel_finance_payables(
-            conn,
-            purchase_ids=purchase_ids,
-            as_of=as_of,
-            target_state_date=target_state_date,
-            financing_mode=financing_mode,
         )
