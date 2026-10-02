@@ -100,7 +100,7 @@ Sales 확정 출고량
 이 파일에는 예약 · 할당 · 실출고 · 해제의 순서(잠금 → 재조회 → 판정 → 쓰기)가 있다.
 판정 · ID 는 `domain/outbound.py`, SQL 은 `repository/outbound.py`, 잠금은
 `repository/locks.py`, 어휘 · 결과는 `schemas/outbound.py` · `schemas/vocabulary.py` 다.
-판매 확정 DTO 를 받는 두 입구(`reserve_confirmed_sale*`)도 이 파일에 있다.
+판매 확정 DTO 를 받는 입구(`reserve_confirmed_sale_available`)도 이 파일에 있다.
 """
 
 from __future__ import annotations
@@ -1018,27 +1018,6 @@ def ship_allocated_stock(
         shipped_allocation_ids=tuple(보낸것),
         move_ids=tuple(move_ids),
         shipped_qty_kg=총량,
-    )
-
-
-def reserve_confirmed_sale(
-    conn: Any,
-    request: SalesOutboundReservationRequest,
-) -> ReservationResult:
-    """Reserve stock for a confirmed sale without allocating or shipping any Lot.
-
-    전량 아니면 멈춘다. 가용재고가 모자라면 `InvalidOutboundRequest` 다 —
-    `reserve_stock` 의 fail-closed 계약 그대로이고, 이 문은 그것을 안 바꾼다.
-    """
-
-    return reserve_stock(
-        conn,
-        reservation_id=request.reservation_id,
-        sim_run_id=request.sim_run_id,
-        item_id=request.item_id,
-        required_qty_kg=request.quantity_kg,
-        sale_id=request.sale_id,
-        as_of=request.as_of,
     )
 
 

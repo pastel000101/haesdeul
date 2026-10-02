@@ -14,7 +14,6 @@ from app.logistics.domain.turnover import fefo_sort_key
 from app.logistics.schemas.agent import (
     InventoryByItem,
     InventoryCostBasisSnapshot,
-    LogisticsApprovedPurchaseCommitment,
     LotConstraint,
     PurchaseAgentOutput,
 )
@@ -180,46 +179,6 @@ def collect_freshness_pressure_inputs(
 _UNATTRIBUTED: str | None = None
 
 
-def _replay_aggregate_occupancy(
-    *,
-    start_occupancy: Decimal,
-    inbound: list[ScheduledQuantity],
-    outbound: list[ScheduledQuantity],
-    target_date: date,
-) -> Decimal:
-    """품목 축 없이 총 kg만 날짜순으로 재생한다 (H1 미래 점유 전용).
-
-    출고가 열어주는 공간은 그 시점에 실제 창고에 있는 물량까지다. 확정 출고가
-    보유량보다 많은 것은 계산이 무너져야 하는 오류가 아니라 추가 매입이 필요할 수
-    있는 정상 업무 상태이고, 모자란 물량은 음수 점유량이 아니라 별개의 업무 사실이다
-    (상세설계 §4 물리 점유량 정의).
-
-    H1 승인 매입 Schedule에는 품목 축이 없어(`ArrivalScheduleItem`) 품목별 재생을
-    할 수 없으므로 이 경로만 총량 계산을 유지한다. PRE의 `cap_by_date`는
-    `_replay_occupancy_by_item()`을 쓴다.
-
-    날짜 규칙은 기존 정책 그대로다 — 입고는 `<= target_date`로 당일부터 점유하고,
-    출고는 `< target_date`로 당일 공간을 열지 않고 D+1부터 해제한다 (상세설계 §9).
-    """
-    inbound_by_date: dict[date, Decimal] = {}
-    for row in inbound:
-        if row.date <= target_date:
-            inbound_by_date[row.date] = inbound_by_date.get(row.date, Decimal(0)) + row.quantity_kg
-    outbound_by_date: dict[date, Decimal] = {}
-    for row in outbound:
-        if row.date < target_date:
-            released = outbound_by_date.get(row.date, Decimal(0))
-            outbound_by_date[row.date] = released + row.quantity_kg
-
-    occupancy = start_occupancy
-    for day in sorted({*inbound_by_date, *outbound_by_date}):
-        occupancy += inbound_by_date.get(day, Decimal(0))
-        # 같은 날 입고분까지 포함한 실재 물량이 그날 출고가 해제할 수 있는 상한이다.
-        # 못 내보낸 물량을 이후 입고에 떠넘기지 않는다 — 애초에 없던 재고다.
-        occupancy -= min(outbound_by_date.get(day, Decimal(0)), occupancy)
-    return occupancy
-
-
 def _initial_occupancy_by_item(
     snapshot: InventoryLogisticsSnapshot,
 ) -> dict[str | None, Decimal]:
@@ -325,45 +284,6 @@ def calculate_cap_by_date(
             Decimal(0), snapshot.guaranteed_capacity_kg - projected_occupancy
         )
     return result
-
-
-def overlay_approved_purchase(
-    snapshot: InventoryLogisticsSnapshot,
-    approved_purchase: LogisticsApprovedPurchaseCommitment,
-) -> list[ScheduledQuantity] | None:
-    """H1 승인 매입을 on_hand가 아닌 미래 입고 Schedule에 Overlay한다."""
-    if not is_inbound_schedule_complete(snapshot):
-        return None
-    assert snapshot.confirmed_inbound_schedule is not None
-    approved_schedule = [
-        ScheduledQuantity(date=item.date, quantity_kg=item.quantity_kg)
-        for item in approved_purchase.arrival_schedule
-    ]
-    return [*snapshot.confirmed_inbound_schedule, *approved_schedule]
-
-
-def calculate_future_occupancy_by_date(
-    snapshot: InventoryLogisticsSnapshot,
-    inbound_schedule: list[ScheduledQuantity],
-) -> dict[date, Decimal] | None:
-    """H1 미래 입고와 확정 출고를 반영한 날짜별 창고 점유량을 계산한다."""
-    if not is_inbound_schedule_complete(snapshot) or snapshot.confirmed_outbound_schedule is None:
-        return None
-    dates = sorted({item.date for item in inbound_schedule})
-    occupancy: dict[date, Decimal] = {}
-    for target_date in dates:
-        # 출고는 D+1부터 해제하고, 해제량은 그 시점에 실제 존재하는 물량을 넘지
-        # 않는다. 품목 축은 쓰지 않는다 — 승인 매입 Schedule에 item이 없어서다.
-        value = _replay_aggregate_occupancy(
-            start_occupancy=snapshot.used_capacity_kg,
-            inbound=inbound_schedule,
-            outbound=snapshot.confirmed_outbound_schedule,
-            target_date=target_date,
-        )
-        if value < Decimal(0):
-            raise ValueError("NEGATIVE_PROJECTED_OCCUPANCY")
-        occupancy[target_date] = value
-    return occupancy
 
 
 def find_in_transit_schedule_gap(snapshot: InventoryLogisticsSnapshot) -> str | None:

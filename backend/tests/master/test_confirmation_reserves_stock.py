@@ -487,7 +487,7 @@ def test_판매가_확정을_거절하면_되돌리고_BLOCKED_다() -> None:
 
 
 def test_기본_예약_함수가_시뮬레이션_경로의_것이다() -> None:
-    """🔴 `reserve_confirmed_sale` 이 아니다 — 저쪽은 전량 아니면 멈춘다."""
+    """🔴 전량형 `reserve_stock` 이 아니다 — 저쪽은 전량 아니면 멈춘다."""
     import inspect
 
     기본값 = (

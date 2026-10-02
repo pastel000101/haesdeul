@@ -1,4 +1,5 @@
-"""재무 에이전트 실행이력 SQL — v1(`finance_agent_runs`) · v2.2(`finance_agent_runs_v22`).
+"""재무 에이전트 실행이력 SQL — v1(`finance_agent_runs`) 조회 ·
+v2.2(`finance_agent_runs_v22`) 저장과 조회.
 
 받은 연결로 실행만 한다.
 """
@@ -7,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -32,59 +33,6 @@ _SELECT_COLUMNS = sql.SQL(
     FROM {}.finance_agent_runs
     """
 )
-
-
-def insert_finance_agent_run(
-    conn: Any,
-    *,
-    cycle: FinanceCycle,
-    as_of: date,
-    snapshot_id: str | None,
-    runtime_status: RuntimeStatus,
-    verdict: FinalVerdict | None,
-    request_payload: dict[str, object],
-    response_payload: dict[str, object],
-) -> dict[str, Any]:
-    """v1 실행이력 한 행을 적고 `RETURNING` 행을 돌려준다."""
-    query = sql.SQL(
-        """
-        INSERT INTO {}.finance_agent_runs (
-            run_id,
-            cycle,
-            as_of,
-            snapshot_id,
-            runtime_status,
-            verdict,
-            request_payload,
-            response_payload
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING
-            run_id,
-            cycle,
-            as_of,
-            snapshot_id,
-            runtime_status,
-            verdict,
-            request_payload,
-            response_payload,
-            created_at
-        """
-    ).format(sql.Identifier(get_db_schema()))
-    return returning_one(
-        conn,
-        query,
-        (
-            uuid4(),
-            cycle,
-            as_of,
-            snapshot_id,
-            runtime_status,
-            verdict,
-            Jsonb(request_payload),
-            Jsonb(response_payload),
-        ),
-    )
 
 
 def select_finance_agent_run(conn: Any, run_id: UUID) -> dict[str, Any] | None:

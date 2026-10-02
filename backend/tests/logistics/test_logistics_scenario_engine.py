@@ -3,12 +3,11 @@ from decimal import Decimal
 
 from app.logistics.domain.scenario_engine import (
     run_logistics_procurement_scenario,
-    run_logistics_sales_scenario,
     validate_purchase_scenarios,
 )
 from app.logistics.domain.tools import calculate_cap_by_date
-from app.logistics.schemas.agent import LogisticsSalesRequest, PurchaseAgentOutput
-from app.logistics.schemas.snapshot import InTransitItem, InventoryLotSnapshot, ScheduledQuantity
+from app.logistics.schemas.agent import PurchaseAgentOutput
+from app.logistics.schemas.snapshot import InventoryLotSnapshot, ScheduledQuantity
 
 ARRIVAL = date(2026, 8, 23)
 
@@ -264,42 +263,3 @@ def test_scenario_adjustments_never_touch_amount_or_channel(
 
     axes = {adj.axis for result in results for adj in result.adjustments}
     assert axes <= {"quantity", "timing"}
-
-
-def test_logistics_sales_engine_keeps_h1_future_and_on_hand_unchanged(
-    complete_logistics_snapshot,
-    logistics_sales_payload,
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    before = complete_logistics_snapshot.model_dump()
-
-    first = run_logistics_sales_scenario(request, complete_logistics_snapshot)
-    second = run_logistics_sales_scenario(request, complete_logistics_snapshot)
-
-    assert first == second
-    assert first["future_occupancy_by_date"] == {ARRIVAL: Decimal(5500)}
-    assert [item.lot_id for item in first["lot_constraints"]] == ["LOT-001"]
-    assert complete_logistics_snapshot.model_dump() == before
-
-
-def test_logistics_engine_preserves_inbound_completeness_fail_closed(
-    complete_logistics_snapshot,
-    logistics_sales_payload,
-):
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={
-            "in_transit": [
-                InTransitItem(
-                    item="배추",
-                    quantity_kg=Decimal(4500),
-                    expected_arrival_date=ARRIVAL,
-                )
-            ]
-        }
-    )
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-
-    result = run_logistics_sales_scenario(request, snapshot)
-
-    assert result["inbound_schedule"] is None
-    assert result["future_occupancy_by_date"] is None

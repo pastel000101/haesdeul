@@ -4,5 +4,4 @@
 않게 한다.
 
 이 패키지에는 `schemas.py` 하나만 있다. 선정을 실행하는 코드(runtime · selector)는 이
-패키지에 없고, `schemas/cycle.py` 와 `app/logistics/schemas/agent.py` 의 응답 모델이
-`LLMResponseFields` 를 상속한다."""
+패키지에 없고, `schemas/cycle.py` 의 응답 모델이 `LLMResponseFields` 를 상속한다."""

@@ -1,6 +1,6 @@
-"""재고·물류 Agent A/B 요청, Snapshot 및 응답 계약.
+"""재고·물류 Agent 판정 계약.
 
-이 파일은 에이전트 계약(판정 · 회신 · 사이클 요청/응답 모델)을 둔다. 스냅샷 · 정책 · fixture 는
+이 파일은 에이전트 계약(판정 · 시나리오 결과 · 재고 집계 모델)을 둔다. 스냅샷 · 정책 · fixture 는
 `schemas/snapshot.py`, 화면 조회 응답(`Console*`)은 `schemas/console.py` 에 있다. 출고 · 회전
 어휘는 `schemas/outbound.py` · `schemas/turnover.py` 에서 읽는다 — 계약 모듈이 쓰기 코어를
 import 하지 않는다.
@@ -8,19 +8,16 @@ import 하지 않는다.
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
     field_validator,
-    model_serializer,
-    model_validator,
 )
 
-from app.logistics.llm.schemas import LLMResponseFields
-from app.logistics.schemas.snapshot import POLICY_VERSION, PolicyVersion, reject_boolean
+from app.logistics.schemas.snapshot import reject_boolean
 from app.purchase_agent.schemas.proposal import PurchaseProposal
 
 RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]
@@ -152,123 +149,6 @@ class ScenarioValidationResult(BaseModel):
     adjustments: list[ScenarioAdjustment]
 
 
-class LogisticsBand(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    cap_by_date: dict[date, Decimal]
-    unit: Literal["kg"] = "kg"
-
-
-class InboundConstraints(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    inbound_lead_days: int | None
-    daily_inbound_capacity_kg: Decimal | None
-    inbound_transport_capacity_kg: Decimal | None
-
-
-class LogisticsEvidence(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    ref_id: str = Field(min_length=1)
-    claim: str = Field(min_length=1)
-
-
-class LogisticsProcurementResponse(LLMResponseFields):
-    model_config = ConfigDict(extra="forbid")
-
-    agent: Literal["inventory_logistics"] = "inventory_logistics"
-    cycle: Literal["PROCUREMENT"] = "PROCUREMENT"
-    as_of: date
-    snapshot_id: str | None
-    policy_version: PolicyVersion = POLICY_VERSION
-    runtime_status: RuntimeStatus
-    #: 시나리오 집계 ⊕ 하드 제약의 최악값 결합 (2026-09-01 마스터 확정 · #121 3단계).
-    #: any reject → FAIL / any conditional → REVIEW_REQUIRED / 전부 ok → PASS 에
-    #: 하드 UNRESOLVED/FAIL 이 값을 낮출 수만 있다. 2026-09-01 이전 실행이력의
-    #: verdict 는 하드 제약만의 판정이다.
-    verdict: FinalVerdict | None
-    band: LogisticsBand
-    #: 물류가 직접 집계한 품목별 가용재고. confirmed_outbound.item 누락 등으로
-    #: 정확히 계산할 수 없으면 None이며, 직렬화 시 키 자체를 뺀다 — `[]`(0건 확인)와
-    #: 구분되어야 하기 때문이다. M-1 missing_data 번역은 Master Adapter 책임.
-    inventory_by_item: list[InventoryByItem] | None = None
-    scenario_results: list[ScenarioValidationResult] | None = None
-    inbound_constraints: InboundConstraints
-    hard_constraints: list[ConstraintResult]
-    soft_warnings: list[str]
-    #: 사람이 읽을 미확정 항목의 무숫자 번역명. soft_warnings(원본 기계 코드)와
-    #: 채널을 분리한다 — 소비자가 AI 문장을 파싱하지 않고 바로 표시할 수 있고,
-    #: LLM Context의 missing_data와 같은 어휘를 쓴다.
-    missing_data: list[str] = Field(default_factory=list)
-    #: Rule/Scenario Engine 이 결정한 우선 조정 축(quantity/timing). 조정이 없거나
-    #: 축이 혼재하면 None — LLM 이 아니라 결정론 층이 정한 값이다.
-    #: reject 시나리오의 조정은 집계에서 제외된다(#121 2단계) — 그 조정은
-    #: scenario_results 안의 진단 기록으로만 남는다.
-    preferred_adjustment: str | None = None
-    evidences: list[LogisticsEvidence]
-
-    @model_serializer(mode="wrap")
-    def drop_uncomputable_inventory_by_item(self, handler: Any) -> dict:
-        data = handler(self)
-        if data.get("inventory_by_item") is None:
-            data.pop("inventory_by_item", None)
-        return data
-
-
-class ArrivalScheduleItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    date: date
-    quantity_kg: Decimal = Field(gt=0)
-
-    @field_validator("quantity_kg", mode="before")
-    @classmethod
-    def reject_boolean_quantity(cls, value: object) -> object:
-        return reject_boolean(value)
-
-
-class LogisticsApprovedPurchaseCommitment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    approval_id: str = Field(min_length=1)
-    total_qty_kg: Decimal = Field(gt=0)
-    expected_arrival_date: date
-    arrival_schedule: list[ArrivalScheduleItem] = Field(min_length=1)
-
-    @field_validator("total_qty_kg", mode="before")
-    @classmethod
-    def reject_boolean_total(cls, value: object) -> object:
-        return reject_boolean(value)
-
-    @model_validator(mode="after")
-    def validate_arrival_total(self) -> "LogisticsApprovedPurchaseCommitment":
-        scheduled_total = sum(
-            (item.quantity_kg for item in self.arrival_schedule), start=Decimal(0)
-        )
-        if self.total_qty_kg != scheduled_total:
-            raise ValueError("total_qty_kg must equal arrival_schedule quantity total")
-        if self.expected_arrival_date != min(item.date for item in self.arrival_schedule):
-            raise ValueError("expected_arrival_date must equal the first arrival schedule date")
-        return self
-
-
-class LogisticsSalesRequest(BaseModel):
-    """Logistics B가 받는 H1 승인 매입 Delta."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    cycle: Literal["SALES"]
-    as_of: date
-    approved_purchase: LogisticsApprovedPurchaseCommitment
-
-    @model_validator(mode="after")
-    def validate_arrival_dates(self) -> "LogisticsSalesRequest":
-        if any(item.date < self.as_of for item in self.approved_purchase.arrival_schedule):
-            raise ValueError("arrival_schedule dates must be on or after as_of")
-        return self
-
-
 class LotConstraint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -280,23 +160,3 @@ class LotConstraint(BaseModel):
     #: 필드를 빠뜨리는 것(키 없음)과 None(확인 불가)은 다른 상태다.
     grade: str | None = None
     status: str
-
-
-class LogisticsSalesResponse(LLMResponseFields):
-    model_config = ConfigDict(extra="forbid")
-
-    agent: Literal["inventory_logistics"] = "inventory_logistics"
-    cycle: Literal["SALES"] = "SALES"
-    snapshot_id: str | None
-    approval_id: str
-    runtime_status: RuntimeStatus
-    verdict: FinalVerdict | None
-    daily_outbound_capacity_kg: Decimal | None
-    lot_constraints: list[LotConstraint]
-    hard_constraints: list[ConstraintResult]
-    soft_warnings: list[str]
-    #: PRE와 같은 채널 분리 — 원본 기계 코드는 soft_warnings, 무숫자 번역명은 여기.
-    missing_data: list[str] = Field(default_factory=list)
-    #: Sales 에서 Rule 이 정한 우선 조정(현행 어휘: 우선 출고 검토 문장). LLM 이 아니라
-    #: 결정론 층이 정한다 — 없으면 LLM 도 추천하지 않는다(검증기 강제).
-    preferred_adjustment: str | None = None

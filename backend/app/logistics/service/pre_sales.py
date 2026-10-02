@@ -74,20 +74,10 @@ def pre_sales_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadat
     새 판매가능량 엔진이 아니다. 숫자는 전부 `tools` · `rules` 의 결정론 함수가
     만들고 여기는 번역만 한다 (이 파일의 다른 handler 와 같은 규율).
 
-    판매 사이클(B)의 판정 함수를 부르지 않는다 (#346 분석 결과). 닮은 이름이라 재사용처럼
-    보이지만 목적이 다르다 — 그 함수들은 H1 승인 매입을 미래 입고로 Overlay 한 뒤의 창고
-    판정이고, PRE_SALES 는 승인 매입이 아직 없는 판매 제안 전의 초기 컨텍스트다.
-
-      ```text
-      run_logistics_sales_scenario()       request.approved_purchase 를 반드시 읽는다
-      evaluate_sales_rules()               future_occupancy_by_date(=Overlay 산출)를 전제한다
-      ```
-
-      가짜 승인 매입을 만들어 통과시키지 않는다.
-      `LogisticsApprovedPurchaseCommitment` 은 `total_qty_kg > 0` ·
-      `arrival_schedule` 최소 1건이라 빈 값도 0 도 넣을 수 없다 — 넣으려면
-      없는 입고를 지어내야 하고, 그 지어낸 입고가 `LOG-H01`(미래 점유 ≤ 보장 capacity)
-      판정을 그대로 바꾼다. 숫자는 나오고 에러도 안 나며 봉투도 통과한다.
+    PRE_SALES 는 승인 매입이 아직 없는 판매 제안 전의 초기 컨텍스트다 (#346 분석 결과).
+    승인 매입을 미래 입고로 얹는 창고 판정을 하지 않고, 가짜 승인 매입을 만들어 넣지도
+    않는다 — 없는 입고를 지어내면 `LOG-H01`(미래 점유 ≤ 보장 capacity) 판정이 그대로
+    바뀌는데, 숫자는 나오고 에러도 안 나며 봉투도 통과한다.
 
     그래서 재사용 단위는 함수다 — `build_inventory_by_item` ·
     `build_lot_constraints` · `evaluate_sales_business_signals` 셋은 승인 매입 없이
@@ -170,10 +160,9 @@ def pre_sales_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadat
 
     # ── 출고 여력 ────────────────────────────────────────────────
     #
-    # 없으면 READY 를 내지 않는다. 판매 사이클의 기존 Rule 이 같은 기준이다 —
-    # `evaluate_sales_rules` 의 `calculation_ready` 가 `N17`
-    # (`shared_daily_outbound_capacity_kg`)을 필수로 세고 있다. 기준을 새로 정하는
-    # 것이 아니라 그 Rule 이 이미 정해 둔 것을 따른다.
+    # 없으면 READY 를 내지 않는다. 판매 쪽 출고 판정은 `N17`
+    # (`shared_daily_outbound_capacity_kg`)을 필수로 세 왔다 — 기준을 새로 정하는 것이
+    # 아니라 그 기준을 따른다.
     outbound_capacity = snapshot.shared_daily_outbound_capacity_kg
     if outbound_capacity is None:
         return not_ready_reply(
@@ -203,8 +192,7 @@ def pre_sales_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadat
 
     # ── 신선도 업무 위험 ─────────────────────────────────────────
     #
-    # 승인 매입 없이 도는 유일한 판매 Rule 이다. `evaluate_sales_rules` 와 달리
-    # 스냅샷만 읽는다.
+    # 승인 매입 없이 스냅샷만 읽는 판매 Rule 이다.
     #
     # `FRESHNESS_QUALITY_RISK` 는 `SELL_PRIORITY` 가 아니다. 이름이 비슷해 섞기
     # 쉬운데 축이 다르다 — 이쪽은 "지금 팔 수 있는 재고인가"(물리 신선도)이고
@@ -424,8 +412,8 @@ def pre_sales_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadat
             "reason_codes": list(delivery.reason_codes),
             "uncertainties": list(delivery.uncertainties),
         },
-        # 없는 판정을 지어내지 않는다. 판매 사이클의 하드 제약은
-        # `evaluate_sales_rules` 소유인데 그것은 승인 매입 Overlay 를 전제한다.
+        # 없는 판정을 지어내지 않는다. 판매 쪽 하드 제약은 승인 매입을 미래 입고로
+        # 얹어야 판정할 수 있어 여기서는 내지 않는다.
         "hard_constraints": [],
         # 기존 코드명을 그대로 보존한다. severity 도 점수도 새로 만들지 않는다.
         "soft_warnings": [

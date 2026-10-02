@@ -644,18 +644,41 @@ _FINANCE_STATE_ROW = {
 }
 
 
-def _save_finance_run() -> object:
-    from app.finance.service.run_history import save_finance_agent_run
+_FINANCE_RUN_ID = "00000000-0000-0000-0000-000000000001"
 
-    return save_finance_agent_run(
-        cycle="PROCUREMENT",
-        as_of=date(2026, 1, 5),
-        snapshot_id=None,
-        runtime_status="RUNTIME_NOT_READY",
-        verdict=None,
-        request_payload={},
-        response_payload={"verdict": None},
+
+def _save_finance_run() -> None:
+    """현재 재무 실행이력(v2.2) 저장 — 한 호출 = 연결 하나 · 트랜잭션 하나."""
+    from app.contracts.envelope import (
+        AgentReply,
+        AgentRequest,
+        ExecutionContext,
+        ExecutionMetadata,
     )
+    from app.finance.service.run_history import save_finance_execution
+
+    request = AgentRequest(
+        context=ExecutionContext(
+            request_id="REQ-1",
+            as_of=date(2026, 1, 5),
+            trigger="USER_REQUEST",
+            policy_version="v1.3-PROVISIONAL",
+        ),
+        agent="finance",
+        mode="PRE_PURCHASE",
+        payload={},
+    )
+    reply = AgentReply(
+        request_id="REQ-1",
+        as_of=date(2026, 1, 5),
+        agent="finance",
+        mode="PRE_PURCHASE",
+        run_id=_FINANCE_RUN_ID,
+        runtime_status="READY",
+        business_status="ok",
+    )
+    metadata = ExecutionMetadata(run_id=_FINANCE_RUN_ID, request_id="REQ-1", agent="finance")
+    save_finance_execution(request=request, reply=reply, metadata=metadata)
 
 
 def test_finance_read_borrows_one_read_connection_and_returns_it(
@@ -695,14 +718,15 @@ def test_finance_run_history_write_is_one_transaction_on_its_own_connection(
     service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
     """실행이력은 원장 연결에 얹히지 않는다 — 얹히면 원장 rollback 이 이력까지 지운다."""
-    fake_pg.one = {"run_id": "RUN-1"}
+    fake_pg.one = {"run_id": _FINANCE_RUN_ID}
 
     with core_db.connection() as held:
         _ = held.cursor().execute("SELECT held")
-        assert _save_finance_run() == {"run_id": "RUN-1"}
+        _save_finance_run()
 
     write = next(c for c in fake_pg.made if c is not held)
     assert len(write.executed) == 1
+    assert "finance_agent_runs_v22" in str(write.executed[0][0])
     assert write.events[-1] == "commit"
     assert "commit" not in held.events
 

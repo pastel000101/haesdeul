@@ -1,4 +1,4 @@
-"""고정 Inventory/Logistics Snapshot에서 A/B 계산과 Rule 호출을 조립한다."""
+"""고정 Inventory/Logistics Snapshot에서 매입(A) 시나리오 계산과 Rule 호출을 조립한다."""
 
 from datetime import date, timedelta
 from decimal import Decimal
@@ -7,22 +7,17 @@ from typing import TypedDict
 from app.logistics.domain.tools import (
     CAP_BY_DATE_WINDOW_DAYS,
     build_inventory_by_item,
-    build_lot_constraints,
     calculate_cap_by_date,
     calculate_expected_arrival_dates,
-    calculate_future_occupancy_by_date,
-    overlay_approved_purchase,
 )
 from app.logistics.schemas.agent import (
     InventoryByItem,
     LogisticsReasonCode,
-    LogisticsSalesRequest,
-    LotConstraint,
     PurchaseAgentOutput,
     ScenarioAdjustment,
     ScenarioValidationResult,
 )
-from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot, ScheduledQuantity
+from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
 
 
 class LogisticsProcurementScenarioResult(TypedDict):
@@ -30,13 +25,6 @@ class LogisticsProcurementScenarioResult(TypedDict):
     cap_by_date: dict[date, Decimal]
     inventory_by_item: list[InventoryByItem] | None
     scenario_results: list[ScenarioValidationResult]
-
-
-class LogisticsSalesScenarioResult(TypedDict):
-    inbound_schedule: list[ScheduledQuantity] | None
-    future_occupancy_by_date: dict[date, Decimal] | None
-    daily_outbound_capacity_kg: Decimal | None
-    lot_constraints: list[LotConstraint]
 
 
 def run_logistics_procurement_scenario(
@@ -211,26 +199,3 @@ def derive_preferred_adjustment(
     if len(axes) == 1:
         return next(iter(axes))
     return None
-
-
-def run_logistics_sales_scenario(
-    request: LogisticsSalesRequest,
-    snapshot: InventoryLogisticsSnapshot | None,
-) -> LogisticsSalesScenarioResult:
-    """H1 미래 입고와 lot/outbound 중간 결과를 계산한다."""
-    inbound_schedule = None
-    future_occupancy = None
-    daily_outbound_capacity = None
-    lot_constraints: list[LotConstraint] = []
-    if snapshot is not None:
-        daily_outbound_capacity = snapshot.shared_daily_outbound_capacity_kg
-        lot_constraints = build_lot_constraints(snapshot)
-        inbound_schedule = overlay_approved_purchase(snapshot, request.approved_purchase)
-        if inbound_schedule is not None:
-            future_occupancy = calculate_future_occupancy_by_date(snapshot, inbound_schedule)
-    return {
-        "inbound_schedule": inbound_schedule,
-        "future_occupancy_by_date": future_occupancy,
-        "daily_outbound_capacity_kg": daily_outbound_capacity,
-        "lot_constraints": lot_constraints,
-    }

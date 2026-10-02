@@ -10,7 +10,6 @@ from app.logistics.domain.tools import (
     collect_freshness_pressure_inputs,
     find_in_transit_schedule_gap,
     has_unattributed_confirmed_outbound,
-    is_inbound_schedule_complete,
 )
 from app.logistics.schemas.agent import (
     ConstraintResult,
@@ -403,71 +402,6 @@ def evaluate_procurement_rules(
         snapshot.confirmed_outbound_schedule,
     )
     calculation_ready = all(value is not None for value in core_values) and inbound_gap is None
-    return {
-        "runtime_status": "READY" if calculation_ready else "RUNTIME_NOT_READY",
-        "hard_constraints": constraints,
-        "soft_warnings": soft_warnings,
-        "calculation_ready": calculation_ready,
-    }
-
-
-def evaluate_sales_rules(
-    *,
-    as_of: date,
-    snapshot: InventoryLogisticsSnapshot | None,
-    future_occupancy_by_date: dict[date, Decimal] | None,
-) -> LogisticsRuleResult:
-    """Logistics B의 outbound 및 H1 미래 점유 계산 가능 여부를 판단한다."""
-    boundary = _snapshot_boundary(as_of=as_of, snapshot=snapshot)
-    if boundary is not None:
-        return boundary
-    assert snapshot is not None
-
-    warehouse_constraint = _known_constraint(
-        "LOG-H01", snapshot.guaranteed_capacity_kg, "N2_UNRESOLVED"
-    )
-    if snapshot.guaranteed_capacity_kg is not None and future_occupancy_by_date is not None:
-        warehouse_constraint = ConstraintResult(
-            code="LOG-H01",
-            status="PASS"
-            if all(
-                value <= snapshot.guaranteed_capacity_kg
-                for value in future_occupancy_by_date.values()
-            )
-            else "FAIL",
-        )
-    outbound_constraint = _known_constraint(
-        "N17",
-        snapshot.shared_daily_outbound_capacity_kg,
-        "N17_UNRESOLVED",
-    )
-    lots_complete = all(lot.remaining_freshness_days is not None for lot in snapshot.on_hand_by_lot)
-    lot_constraint = ConstraintResult(
-        code="N17-LOT",
-        status="PASS" if lots_complete else "UNRESOLVED",
-        skip_reason=None if lots_complete else "N17_LOT_FRESHNESS_UNRESOLVED",
-    )
-    inbound_completeness_constraint = None
-    sales_inbound_gap = find_in_transit_schedule_gap(snapshot)
-    if sales_inbound_gap is not None:
-        inbound_completeness_constraint = ConstraintResult(
-            code="IN_TRANSIT_SCHEDULE_UNRESOLVED",
-            status="UNRESOLVED",
-            skip_reason=sales_inbound_gap,
-        )
-    soft_warnings = _snapshot_warnings(snapshot)
-    if future_occupancy_by_date is None:
-        soft_warnings.append("H1_FUTURE_OCCUPANCY_UNRESOLVED")
-    calculation_ready = (
-        snapshot.shared_daily_outbound_capacity_kg is not None
-        and snapshot.guaranteed_capacity_kg is not None
-        and future_occupancy_by_date is not None
-        and lots_complete
-        and is_inbound_schedule_complete(snapshot)
-    )
-    constraints = [warehouse_constraint, outbound_constraint, lot_constraint]
-    if inbound_completeness_constraint is not None:
-        constraints.append(inbound_completeness_constraint)
     return {
         "runtime_status": "READY" if calculation_ready else "RUNTIME_NOT_READY",
         "hard_constraints": constraints,

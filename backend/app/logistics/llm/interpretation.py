@@ -6,9 +6,6 @@ Master 어댑터   signals · measurements · preferred · missing 원재료
                                      ↘ SanitizedLLMContext — 외부 Provider 전송 경계
 ```
 
-응답 모델(`LogisticsProcurementResponse` · `LogisticsSalesResponse`)을 받는 wrapper
-`build_logistics_context` · `enrich_logistics_response` 는 지금 앱 안에 부르는 곳이 없다.
-
 Master-facing 해석은 명시적 opt-in 이다 — `master_interpretation_service` 참조.
 """
 
@@ -32,8 +29,6 @@ from app.logistics.llm.runtime import (
 from app.logistics.llm.schemas import ContextFact, InterpretationResult, SanitizedLLMContext
 from app.logistics.schemas.agent import (
     LogisticsCycle,
-    LogisticsProcurementResponse,
-    LogisticsSalesResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,8 +74,8 @@ _MISSING_DATA_NAMES = {
 _UNMAPPED_MISSING_DATA = "unrecognized_missing_information"
 
 #: 이미 번역된 이름의 전체 집합 — `translate_missing_data` 가 멱등이 되는 근거다.
-#: 응답 모델의 `missing_data` 는 이미 번역돼 있고 Master 어댑터는 raw 코드를 준다.
-#: 한 조립기가 둘을 다 받으려면 번역명은 그대로 통과해야 한다 (#385).
+#: Master 어댑터는 raw 코드를 주지만 이미 번역된 이름이 섞여 와도 그대로 통과해야
+#: 한다 (#385).
 #: 코드(대문자 · `LOG-H01`)와 이름(소문자 snake)은 어휘가 겹치지 않는다.
 _TRANSLATED_MISSING_DATA_NAMES = frozenset({*_MISSING_DATA_NAMES.values(), _UNMAPPED_MISSING_DATA})
 
@@ -294,53 +289,6 @@ def build_sanitized_context(
         missing_data=translate_missing_data(missing_data),
     )
     return context, incomplete
-
-
-def build_logistics_context(
-    response: LogisticsProcurementResponse | LogisticsSalesResponse,
-    measurements: SignalMeasurements | None = None,
-) -> tuple[SanitizedLLMContext, bool]:
-    """결정론 응답에서 LLM Context 를 조립한다 — `build_sanitized_context` 의 얇은 wrapper.
-
-    signals 와 missing_data 는 저장 위치가 아니라 코드의 의미로 분류한다 —
-    soft_warnings 안의 업무 위험(BUSINESS_SIGNALS)만 signals 로 가고, 나머지
-    미확정 계열은 response.missing_data(이미 번역됨 — 번역이 멱등이라 그대로 통과)로
-    전달된다. 동작은 wrapper 등가 테스트가 고정한다.
-    """
-    return build_sanitized_context(
-        cycle="SALES" if isinstance(response, LogisticsSalesResponse) else "PROCUREMENT",
-        signals=response.soft_warnings,
-        measurements=measurements,
-        preferred_adjustment=response.preferred_adjustment,
-        missing_data=response.missing_data,
-    )
-
-
-def enrich_logistics_response[
-    LogisticsResponse: (LogisticsProcurementResponse, LogisticsSalesResponse)
-](
-    response: LogisticsResponse,
-    interpretation_service: InterpretationService | None = None,
-    measurements: SignalMeasurements | None = None,
-) -> LogisticsResponse:
-    service = interpretation_service or get_interpretation_service()
-    context, facts_incomplete = build_logistics_context(response, measurements)
-    result = service.interpret(
-        context,
-        runtime_ready=response.runtime_status == "READY",
-        # FAIL 만 차단한다 — UNRESOLVED(미확인)는 호출 자체를 막지 않고, 그 사실에
-        # 대한 추측만 금지된다 (LLM 정책 결정서 §2 — 17-A). 영구 UNRESOLVED 인
-        # LOG-H02 하나로 Procurement LLM 이 구조적으로 죽지 않게 한다.
-        has_blocking_constraints=any(
-            constraint.status == "FAIL" for constraint in response.hard_constraints
-        ),
-        facts_incomplete=facts_incomplete,
-    )
-    update = result.model_dump(exclude={"interpretation", "llm_context_facts"})
-    update["interpretation"] = result.interpretation
-    # model_copy 는 검증하지 않으므로 dict 가 아니라 모델 객체를 그대로 싣는다.
-    update["llm_context_facts"] = list(result.llm_context_facts)
-    return response.model_copy(update=update)
 
 
 # ---------------------------------------------------------------------------

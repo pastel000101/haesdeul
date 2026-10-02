@@ -59,7 +59,6 @@ from app.logistics.service.outbound import (
     release_reservation,
     reservation_allocation_state,
     reserve_available_stock,
-    reserve_confirmed_sale,
     reserve_confirmed_sale_available,
     reserve_stock,
     ship_allocated_stock,
@@ -726,7 +725,7 @@ def test_sales_boundary_request에서_명시적_lot_선택으로_inventory_OUT�
         as_of=AS_OF,
     )
 
-    reserved = reserve_confirmed_sale(conn, request)
+    reserved = reserve_confirmed_sale_available(conn, request)
     candidates = recommend_fefo_candidates(
         conn,
         sim_run_id=SIM_RUN_ID,
@@ -1549,25 +1548,6 @@ def test_S26_판매_경계가_부분예약으로_이어진다(conn: psycopg.Conn
     assert (결과.required_qty_kg, 결과.reserved_qty_kg) == (Decimal(100), Decimal(60))
     행 = _예약행(conn)
     assert (행["required_qty_kg"], 행["reserved_qty_kg"]) == (Decimal(100), Decimal(60))
-
-
-def test_S27_판매_경계_전량_문은_그대로_멈춘다(conn: psycopg.Connection) -> None:
-    """★ `reserve_confirmed_sale` 의 fail-closed 계약은 안 바뀐다."""
-    _lot(conn, "LOT-A", qty="60", received_at=date(2026, 1, 1))
-    request = SalesOutboundReservationRequest(
-        reservation_id=RSV,
-        sim_run_id=SIM_RUN_ID,
-        sale_id=SALE_ID,
-        sale_item_id=SALE_ITEM_ID,
-        item_id=ITEM_ID,
-        quantity_kg=Decimal(100),
-        as_of=AS_OF,
-    )
-
-    with pytest.raises(InvalidOutboundRequest, match="가용재고가 모자라"):
-        reserve_confirmed_sale(conn, request)
-
-    assert _예약수(conn) == 0
 
 
 def test_S28_판매_경계에서_출고까지_관통한다(conn: psycopg.Connection) -> None:

@@ -6,20 +6,17 @@ import pytest
 from app.logistics.domain.rules import (
     derive_logistics_verdict,
     evaluate_procurement_rules,
-    evaluate_sales_rules,
 )
 from app.logistics.domain.tools import (
     build_inventory_by_item,
     build_lot_constraints,
     calculate_cap_by_date,
     calculate_expected_arrival_dates,
-    calculate_future_occupancy_by_date,
     find_in_transit_schedule_gap,
     has_unattributed_confirmed_outbound,
     is_inbound_schedule_complete,
-    overlay_approved_purchase,
 )
-from app.logistics.schemas.agent import InventoryByItem, LogisticsSalesRequest, PurchaseAgentOutput
+from app.logistics.schemas.agent import InventoryByItem, PurchaseAgentOutput
 from app.logistics.schemas.snapshot import InTransitItem, InventoryLotSnapshot, ScheduledQuantity
 
 AS_OF = date(2026, 8, 21)
@@ -148,52 +145,28 @@ def test_unresolved_capacity_is_not_zero_or_unlimited(unresolved_logistics_snaps
 # ---------------------------------------------------------------------------
 
 
-def test_in_transit_none_blocks_procurement_and_sales(complete_logistics_snapshot):
+def test_in_transit_none_blocks_procurement(complete_logistics_snapshot):
     """None(미확인)은 [](0건 확인)이 아니다 — RUNTIME_NOT_READY."""
     snapshot = complete_logistics_snapshot.model_copy(update={"in_transit": None})
 
     assert find_in_transit_schedule_gap(snapshot) == "IN_TRANSIT_UNRESOLVED"
     procurement = evaluate_procurement_rules(as_of=AS_OF, snapshot=snapshot)
-    sales = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(5500)},
-    )
 
     assert procurement["runtime_status"] == "RUNTIME_NOT_READY"
-    assert sales["runtime_status"] == "RUNTIME_NOT_READY"
-    for result in (procurement, sales):
-        constraint = next(
-            item
-            for item in result["hard_constraints"]
-            if item.code == "IN_TRANSIT_SCHEDULE_UNRESOLVED"
-        )
-        assert constraint.skip_reason == "IN_TRANSIT_UNRESOLVED"
+    constraint = next(
+        item
+        for item in procurement["hard_constraints"]
+        if item.code == "IN_TRANSIT_SCHEDULE_UNRESOLVED"
+    )
+    assert constraint.skip_reason == "IN_TRANSIT_UNRESOLVED"
 
 
 def test_empty_in_transit_is_known_zero(complete_logistics_snapshot):
     assert is_inbound_schedule_complete(complete_logistics_snapshot) is True
 
     procurement = evaluate_procurement_rules(as_of=AS_OF, snapshot=complete_logistics_snapshot)
-    inbound = overlay_approved_purchase(
-        complete_logistics_snapshot,
-        LogisticsSalesRequest.model_validate(
-            {
-                "cycle": "SALES",
-                "as_of": "2026-08-21",
-                "approved_purchase": {
-                    "approval_id": "H1-KNOWN-ZERO",
-                    "total_qty_kg": 500,
-                    "expected_arrival_date": "2026-08-23",
-                    "arrival_schedule": [{"date": "2026-08-23", "quantity_kg": 500}],
-                },
-            }
-        ).approved_purchase,
-    )
 
     assert procurement["runtime_status"] == "READY"
-    assert inbound is not None
-    assert sum((item.quantity_kg for item in inbound), start=Decimal(0)) == Decimal(500)
 
 
 def test_matched_inbound_id_is_ready_without_double_counting(complete_logistics_snapshot):
@@ -210,16 +183,11 @@ def test_matched_inbound_id_is_ready_without_double_counting(complete_logistics_
     assert cap[date(2026, 8, 30)] == Decimal(6500)
 
 
-def test_in_transit_without_inbound_id_fails_closed(
-    complete_logistics_snapshot, logistics_sales_payload
-):
+def test_in_transit_without_inbound_id_fails_closed(complete_logistics_snapshot):
     snapshot = _matched_in_transit_snapshot(complete_logistics_snapshot, inbound_id=None)
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
 
     assert find_in_transit_schedule_gap(snapshot) == "IN_TRANSIT_INBOUND_ID_MISSING"
     assert is_inbound_schedule_complete(snapshot) is False
-    assert overlay_approved_purchase(snapshot, request.approved_purchase) is None
-    assert calculate_future_occupancy_by_date(snapshot, []) is None
     with pytest.raises(ValueError, match="IN_TRANSIT_SCHEDULE_UNRESOLVED"):
         calculate_cap_by_date(snapshot, [ARRIVAL])
 
@@ -603,44 +571,6 @@ def test_daily_inbound_and_transport_do_not_gate_runtime(complete_logistics_snap
     assert calculate_cap_by_date(snapshot, [ARRIVAL]) == {ARRIVAL: Decimal(7000)}
 
 
-def test_h1_overlay_stays_future_and_does_not_change_on_hand(
-    complete_logistics_snapshot, logistics_sales_payload
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    original_lots = build_lot_constraints(complete_logistics_snapshot)
-
-    inbound = overlay_approved_purchase(complete_logistics_snapshot, request.approved_purchase)
-    assert inbound is not None
-    occupancy = calculate_future_occupancy_by_date(complete_logistics_snapshot, inbound)
-
-    assert occupancy == {ARRIVAL: Decimal(5500)}
-    assert build_lot_constraints(complete_logistics_snapshot) == original_lots
-    assert len(original_lots) == 1
-
-
-def test_future_occupancy_same_day_outbound_releases_next_day(complete_logistics_snapshot):
-    """H1 미래 점유도 같은 정책 — D일 출고는 D일 공간을 열지 않고 D+1부터 해제."""
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={
-            "confirmed_outbound_schedule": [
-                ScheduledQuantity(date=ARRIVAL, quantity_kg=Decimal(500), item="배추")
-            ]
-        }
-    )
-    schedule = [
-        ScheduledQuantity(date=ARRIVAL, quantity_kg=Decimal(4500)),
-        ScheduledQuantity(date=date(2026, 8, 24), quantity_kg=Decimal(500)),
-    ]
-
-    occupancy = calculate_future_occupancy_by_date(snapshot, schedule)
-
-    assert occupancy is not None
-    # 8/23: used 1000 + inbound 4500 — 당일 출고 500은 미해제 (해제됐다면 5000).
-    assert occupancy[ARRIVAL] == Decimal(5500)
-    # 8/24: used 1000 + inbound 5000 − 전일 출고 500 해제 = 5500.
-    assert occupancy[date(2026, 8, 24)] == Decimal(5500)
-
-
 # ---------------------------------------------------------------------------
 # 확정 출고 > 보유량 — 추가 매입이 필요한 정상 상태이지 음수 점유가 아니다
 # ---------------------------------------------------------------------------
@@ -687,15 +617,6 @@ def test_outbound_never_releases_more_space_than_is_present(complete_logistics_s
         }
     )
     assert calculate_cap_by_date(with_later_inbound, [ARRIVAL]) == {ARRIVAL: Decimal(7800)}
-
-
-def test_future_occupancy_outbound_over_stock_stays_non_negative(complete_logistics_snapshot):
-    """H1 미래 점유도 같은 규칙 — 확정 출고 초과가 음수 점유를 만들지 않는다."""
-    snapshot = _short_supply_snapshot(complete_logistics_snapshot)
-    schedule = [ScheduledQuantity(date=ARRIVAL, quantity_kg=Decimal(300))]
-
-    # 8/22 출고 150은 실재 100만 해제해 0이 되고, 8/23 승인 매입 300이 그대로 점유한다.
-    assert calculate_future_occupancy_by_date(snapshot, schedule) == {ARRIVAL: Decimal(300)}
 
 
 # ---------------------------------------------------------------------------
@@ -809,31 +730,6 @@ def test_item_outbound_does_not_consume_unattributed_occupancy(complete_logistic
     assert calculate_cap_by_date(snapshot, [ARRIVAL]) == {ARRIVAL: Decimal(7300)}
 
 
-@pytest.mark.xfail(
-    reason=(
-        "H1 approved purchase contract lacks item dimension "
-        "(ArrivalScheduleItem has no item). Deferred until the H1 contract is revised."
-    ),
-    strict=True,
-)
-def test_future_occupancy_does_not_release_other_item_inventory(complete_logistics_snapshot):
-    """H1 미래 점유의 품목 혼선 — 알려진 한계다.
-
-    승인 매입 Schedule에 품목이 없어 품목별 재생을 할 수 없으므로 이 경로는 총량
-    계산을 유지한다. 배추 출고 150이 양파 100을 대신 소진해 300이 나온다.
-    """
-    snapshot = _outbound_snapshot(
-        complete_logistics_snapshot,
-        [_lot("LOT-YANGPA", "양파", 100, 5, "ACTIVE")],
-        item="배추",
-        quantity=150,
-    )
-    schedule = [ScheduledQuantity(date=ARRIVAL, quantity_kg=Decimal(300))]
-
-    # 양파 100은 남고 승인 매입 300이 더해져 400이어야 한다.
-    assert calculate_future_occupancy_by_date(snapshot, schedule) == {ARRIVAL: Decimal(400)}
-
-
 def test_projected_occupancy_never_goes_negative_across_mixed_outbound(
     complete_logistics_snapshot,
 ):
@@ -920,101 +816,6 @@ def test_named_outbound_before_unknown_item_still_opens_space(complete_logistics
 
     # 8-21 배추 50 해제 → 150, 8-22 품목 불명 80 해제 → 70.
     assert calculate_cap_by_date(snapshot, [ARRIVAL]) == {ARRIVAL: Decimal(7930)}
-
-
-def test_sales_rule_marks_warehouse_over_capacity(complete_logistics_snapshot):
-    result = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=complete_logistics_snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(9000)},
-    )
-
-    warehouse = next(item for item in result["hard_constraints"] if item.code == "LOG-H01")
-    assert warehouse.status == "FAIL"
-    assert result["runtime_status"] == "READY"
-    assert derive_logistics_verdict(result) == "FAIL"
-
-
-def test_sales_rule_all_pass_aggregates_to_pass(complete_logistics_snapshot):
-    result = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=complete_logistics_snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(5500)},
-    )
-
-    assert {item.status for item in result["hard_constraints"]} == {"PASS"}
-    assert derive_logistics_verdict(result) == "PASS"
-
-
-def test_sales_rule_requires_n17(complete_logistics_snapshot):
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={"shared_daily_outbound_capacity_kg": None}
-    )
-    result = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(5500)},
-    )
-
-    assert result["runtime_status"] == "RUNTIME_NOT_READY"
-    n17 = next(item for item in result["hard_constraints"] if item.code == "N17")
-    assert n17.status == "UNRESOLVED"
-
-
-def test_lot_freshness_unresolved_reaches_n17_lot(complete_logistics_snapshot):
-    """🔴 **`N17-LOT` 이 실제로 도달 가능해졌다** (#366).
-
-    이 UNRESOLVED 어휘는 *"Lot 의 잔여 신선도를 못 냈다"* 를 위해 진작 설계돼 있었지만,
-    Repository 가 그런 Lot 을 **만들기 전에 TypeError 로 죽어서** 닿을 수 없었다.
-    보관한계 NULL 이 `remaining_freshness_days=None` 으로 나오게 되면서 그 자리가 열린다.
-
-    ★ **새 code 를 만들지 않았다** — 있던 어휘가 이제 쓰인다.
-    """
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={
-            "on_hand_by_lot": [
-                complete_logistics_snapshot.on_hand_by_lot[0].model_copy(
-                    update={
-                        "remaining_freshness_days": None,
-                        "effective_freshness_limit_days": None,
-                    }
-                )
-            ]
-        }
-    )
-
-    result = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(5500)},
-    )
-
-    lot_constraint = next(item for item in result["hard_constraints"] if item.code == "N17-LOT")
-    assert lot_constraint.status == "UNRESOLVED"
-    assert lot_constraint.skip_reason == "N17_LOT_FRESHNESS_UNRESOLVED"
-    # 🔴 **ERROR 가 아니라 RUNTIME_NOT_READY 다.** 없는 사실은 상태이지 실행 실패가 아니다.
-    assert result["runtime_status"] == "RUNTIME_NOT_READY"
-    assert result["calculation_ready"] is False
-    # 다른 축은 멀쩡하다 — 신선도 부재가 창고 판정까지 끌고 내려가지 않는다.
-    warehouse = next(item for item in result["hard_constraints"] if item.code == "LOG-H01")
-    assert warehouse.status == "PASS"
-    n17 = next(item for item in result["hard_constraints"] if item.code == "N17")
-    assert n17.status == "PASS"
-
-
-def test_lot_freshness_present_keeps_n17_lot_passing(complete_logistics_snapshot):
-    """🔴 **회귀 방어.** 신선도가 있는 Lot 은 그대로 통과다 — 위 경로가 상시로 켜지면
-    모든 판매 판정이 UNRESOLVED 가 된다."""
-    result = evaluate_sales_rules(
-        as_of=AS_OF,
-        snapshot=complete_logistics_snapshot,
-        future_occupancy_by_date={ARRIVAL: Decimal(5500)},
-    )
-
-    lot_constraint = next(item for item in result["hard_constraints"] if item.code == "N17-LOT")
-    assert lot_constraint.status == "PASS"
-    assert lot_constraint.skip_reason is None
-    assert result["runtime_status"] == "READY"
 
 
 def test_logistics_rules_fail_closed_on_as_of_mismatch(complete_logistics_snapshot):
