@@ -115,8 +115,8 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     # 않으면 전 시나리오가 reject 인데 하드가 전부 PASS 라고 ok 가 나간다.
     verdict = derive_procurement_verdict(rules, scenario["scenario_results"])
 
-    # 업무 위험 판정(비교식)은 Rule 소유 — 독립 경로(service)와 같은 함수·같은 병합을
-    # 쓴다 (#111 A3). 여기서 계산하는 것이 아니라 Rule 이 낸 signal 을 나를 뿐이다.
+    # 업무 위험 판정(비교식)은 Rule 소유다 (#111 A3). 여기서 계산하는 것이 아니라
+    # Rule 이 낸 signal 을 나를 뿐이다.
     tools.append(T_SIGNALS)
     business = evaluate_procurement_business_signals(
         as_of=as_of,
@@ -133,7 +133,8 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
             {"code": c.code, "status": c.status, "skip_reason": c.skip_reason}
             for c in rules["hard_constraints"]
         ],
-        # Rule 경고 + 업무 위험 signal + 판정 스킵 사실 — 독립 응답과 같은 채널 구성이다.
+        # Rule 경고 + 업무 위험 signal + 판정 스킵 사실을 한 채널로 싣는다
+        # (`merge_business_warnings`).
         # CAPACITY_TIGHT 같은 signal 은 판정을 바꾸지 않지만 Critic 과 사람이 봐야 한다.
         "soft_warnings": merge_business_warnings(rules, business),
         # 시나리오별 판정 상세 (#111 A2) — 총평만으로는 "어떤 시나리오가 왜 conditional
@@ -191,8 +192,7 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
             {"item": entry.item, "available_qty_kg": to_float(entry.available_qty_kg)}
             for entry in scenario["inventory_by_item"]
         ]
-    # 업무 경고(`business["warnings"]`)는 여기 넣지 않는다. 독립 응답의
-    # `missing_data` 는 무숫자 번역 채널이라 그쪽에는 들어가지만, M-1 의
+    # 업무 경고(`business["warnings"]`)는 여기 넣지 않는다. M-1 의
     # `missing_data` 는 마스터가 사용자에게 무엇을 달라고 할지의 이름이고 형식도
     # `logistics_rule/LOG-H02` · `rental_cap_kg@policy_source_ref` 처럼 네임스페이스가
     # 붙은 필드명이다. 맨 경고 코드를 섞으면 어휘가 갈라지고, NOT_READY 로 떨어지는
@@ -204,13 +204,12 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     # ── 해석 (LLM) — 결정론 결과가 다 선 뒤에만 돈다 (#385) ─────────────
     #
     # 새 계산이 없다. signals · measurements 는 위 `evaluate_procurement_business_signals`
-    # 가 낸 것이고, preferred 는 `derive_preferred_adjustment` 가 정한 것이다. 조립기는
-    # 독립 Service 와 같은 함수다 — Context 에 실리는 것은 signal 코드 · 판정 수치의 확정
-    # 표기 · 허용/우선 조정 · 번역된 미확정 이름뿐이고, Lot · 날짜 · kg · 거래처 · 이
-    # payload 는 넘어가지 않는다.
-    # missing 원재료는 독립 Service `_missing_data` 와 같은 모집단이다 — 비-PASS 하드 제약
-    # 코드 + Rule 경고 + 판정 스킵 사실. M-1 `missing_data`(`logistics_rule/LOG-H02` 같은
-    # 네임스페이스 이름)를 넘기지 않는다 — 숫자가 든 채로 무숫자 경계를 우회한다.
+    # 가 낸 것이고, preferred 는 `derive_preferred_adjustment` 가 정한 것이다. Context 에
+    # 실리는 것은 signal 코드 · 판정 수치의 확정 표기 · 허용/우선 조정 · 번역된 미확정
+    # 이름뿐이고, Lot · 날짜 · kg · 거래처 · 이 payload 는 넘어가지 않는다.
+    # missing 원재료는 비-PASS 하드 제약 코드 + Rule 경고 + 판정 스킵 사실이다. M-1
+    # `missing_data`(`logistics_rule/LOG-H02` 같은 네임스페이스 이름)를 넘기지 않는다 —
+    # 숫자가 든 채로 무숫자 경계를 우회한다.
     # LLM 은 아래 어느 값도 바꾸지 않는다 — verdict · evidences · suggested_adjustments ·
     # preferred_adjustment · missing 은 이 블록 앞에서 이미 확정됐고, 해석은 payload 의
     # 별도 중첩 칸 하나에만 실린다. 실패 · timeout · 검증 탈락은 Template 로 접힌다.
@@ -228,7 +227,7 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     llm_result = llm.interpret(
         llm_context,
         runtime_ready=rules["runtime_status"] == "READY",
-        # FAIL 만 차단한다 — UNRESOLVED 는 호출을 막지 않는다 (독립 경로와 같은 17-A).
+        # FAIL 만 차단한다 — UNRESOLVED 는 호출을 막지 않는다 (17-A).
         has_blocking_constraints=any(c.status == "FAIL" for c in rules["hard_constraints"]),
         facts_incomplete=facts_incomplete,
     )

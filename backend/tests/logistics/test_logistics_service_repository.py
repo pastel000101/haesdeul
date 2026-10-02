@@ -7,7 +7,6 @@ from typing import Self
 from unittest.mock import MagicMock, patch
 
 import pytest
-from psycopg import OperationalError
 from pydantic import ValidationError
 
 from app.core import db as core_db
@@ -17,9 +16,7 @@ from app.logistics.readmodel.current import (
     get_current_inventory_logistics_snapshot,
     read_active_logistics_policy,
 )
-from app.logistics.schemas.agent import LogisticsSalesRequest, PurchaseAgentOutput
 from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
-from app.logistics.service.cycle import run_logistics_procurement, run_logistics_sales
 
 #: ★ 2026-10-01 재구성 BL-022: 이 모듈의 검사는 가짜 연결에 싣는 SQL 에 스키마 이름을 쓴다 —
 #:   전에는 다른 모듈이 수집 때 넣어 둔 `DB_SCHEMA` 에 기대 파일 하나만 돌리면 빨갰다.
@@ -1033,152 +1030,6 @@ def test_broken_storage_limit_type_is_still_rejected():
 
     with pytest.raises(TypeError, match="operational_limit_days"):
         _snapshot_with_rows(rows)
-
-
-def test_logistics_a_ready_response_and_persistence(
-    complete_logistics_snapshot, logistics_purchase_payload
-):
-    request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=complete_logistics_snapshot,
-        ),
-        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
-    ):
-        response = run_logistics_procurement(request)
-
-    assert response.runtime_status == "READY"
-    assert response.verdict == "REVIEW_REQUIRED"
-    assert response.snapshot_id == "T0-20260821-001"
-    assert response.band.cap_by_date == {date(2026, 8, 23): Decimal(7000)}
-    assert response.inventory_by_item is not None
-    assert [(row.item, row.available_qty_kg) for row in response.inventory_by_item] == [
-        ("배추", Decimal(1000))
-    ]
-    assert [result.verdict for result in response.scenario_results] == ["ok"]
-    assert response.llm_status == "SKIPPED_TEMPLATE"
-    assert response.llm_attempts == 0
-    saved = save_run.call_args.kwargs
-    assert saved["cycle"] == "PROCUREMENT"
-    assert saved["runtime_status"] == "READY"
-    assert saved["verdict"] == "REVIEW_REQUIRED"
-    assert saved["response_payload"]["verdict"] == "REVIEW_REQUIRED"
-    assert saved["snapshot_id"] == "T0-20260821-001"
-    assert saved["request_payload"]["scenarios"][0]["total_qty_kg"] == 4500
-    assert saved["response_payload"]["llm_status"] == "SKIPPED_TEMPLATE"
-    assert [row["item"] for row in saved["response_payload"]["inventory_by_item"]] == ["배추"]
-    assert [row["verdict"] for row in saved["response_payload"]["scenario_results"]] == ["ok"]
-
-
-def test_logistics_a_unresolved_response_is_saved(
-    unresolved_logistics_snapshot, logistics_purchase_payload
-):
-    request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=unresolved_logistics_snapshot,
-        ),
-        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
-    ):
-        response = run_logistics_procurement(request)
-
-    assert response.runtime_status == "RUNTIME_NOT_READY"
-    assert response.verdict is None
-    assert response.band.cap_by_date == {}
-    # 계산 불가(None)는 0건 확인([])이 아니다 — 직렬화에서 키 자체가 빠진다.
-    assert response.inventory_by_item is None
-    assert [result.verdict for result in response.scenario_results] == ["skipped"]
-    assert save_run.call_args.kwargs["runtime_status"] == "RUNTIME_NOT_READY"
-    assert save_run.call_args.kwargs["verdict"] is None
-    assert save_run.call_args.kwargs["response_payload"]["verdict"] is None
-    assert "inventory_by_item" not in save_run.call_args.kwargs["response_payload"]
-
-
-def test_logistics_b_keeps_h1_out_of_on_hand_and_saves_run(
-    complete_logistics_snapshot, logistics_sales_payload
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=complete_logistics_snapshot,
-        ),
-        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
-    ):
-        response = run_logistics_sales(request)
-
-    assert response.runtime_status == "READY"
-    assert response.verdict == "PASS"
-    assert response.approval_id == "H1-20260821-001"
-    assert response.daily_outbound_capacity_kg == Decimal(1000)
-    assert [item.lot_id for item in response.lot_constraints] == ["LOT-001"]
-    assert response.llm_status == "SKIPPED_TEMPLATE"
-    assert response.llm_attempts == 0
-    assert save_run.call_args.kwargs["cycle"] == "SALES"
-    assert save_run.call_args.kwargs["verdict"] == "PASS"
-    assert save_run.call_args.kwargs["response_payload"]["verdict"] == "PASS"
-
-
-def test_logistics_b_unresolved_n17_is_saved(
-    unresolved_logistics_snapshot, logistics_sales_payload
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=unresolved_logistics_snapshot,
-        ),
-        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
-    ):
-        response = run_logistics_sales(request)
-
-    assert response.runtime_status == "RUNTIME_NOT_READY"
-    assert response.verdict is None
-    assert response.daily_outbound_capacity_kg is None
-    assert save_run.call_args.kwargs["runtime_status"] == "RUNTIME_NOT_READY"
-    assert save_run.call_args.kwargs["verdict"] is None
-
-
-def test_logistics_b_ready_blocking_constraint_persists_fail(
-    complete_logistics_snapshot, logistics_sales_payload
-):
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={"guaranteed_capacity_kg": Decimal(5000)}
-    )
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=snapshot,
-        ),
-        patch("app.logistics.service.cycle.save_logistics_agent_run") as save_run,
-    ):
-        response = run_logistics_sales(request)
-
-    assert response.runtime_status == "READY"
-    assert response.verdict == "FAIL"
-    assert save_run.call_args.kwargs["verdict"] == "FAIL"
-    assert save_run.call_args.kwargs["response_payload"]["verdict"] == "FAIL"
-
-
-def test_logistics_persistence_failure_is_not_runtime_warning(
-    complete_logistics_snapshot, logistics_purchase_payload
-):
-    request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
-    with (
-        patch(
-            "app.logistics.service.cycle.get_current_inventory_logistics_snapshot",
-            return_value=complete_logistics_snapshot,
-        ),
-        patch(
-            "app.logistics.service.cycle.save_logistics_agent_run",
-            side_effect=OperationalError("persistence unavailable"),
-        ),
-        pytest.raises(OperationalError, match="persistence unavailable"),
-    ):
-        run_logistics_procurement(request)
 
 
 def test_missing_storage_limit_does_not_promote_to_runtime_error():

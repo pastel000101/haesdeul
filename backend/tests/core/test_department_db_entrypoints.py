@@ -16,10 +16,10 @@ ML             입구 `ml/db.py` 가 없다 (2026-09-29 BL-017) — 원본 창�
                (아래 ML 절)
 매입           입구 `purchase_agent/db.py` 가 없다 (2026-09-29 BL-016) — 시세 조회가 조회 연결만
                빌리고 SQL 은 repository 가 받은 연결로 실행한다. 쓰기 대여 없음 (아래 매입 절)
-물류           입구 `logistics/db.py` 가 없다 (2026-09-30 재구성 BL-015) — 조회는 readmodel 이
-               조회 연결을, 실행이력 쓰기는 service 가 연결 하나 · 트랜잭션 하나를 빌려
-               repository 에 넘긴다. 스키마 이름을 읽을 때 .env 는 프로세스에서 한 번만 적재
-               (아래 물류 절)
+물류           입구 `logistics/db.py` 가 없다 — 조회는 readmodel 이 조회 연결을 빌려
+               repository 에 넘긴다. 쓰기는 마스터가 넘긴 연결로만 해서 물류가 스스로 쓰기
+               연결을 빌리는 곳은 없다. 스키마 이름을 읽을 때 .env 는 프로세스에서 한 번만
+               적재 (아래 물류 절)
 ```
 
 ★ 연결은 `service_pool` fixture 가 바꿔 끼운 **진짜 psycopg_pool 풀 + 가짜 연결 종류**다
@@ -154,7 +154,9 @@ def test_every_department_shares_the_one_service_pool(
     """같은 접속 대상 · 같은 계정이라 부서별 풀을 따로 만들지 않는다."""
     _read_master_runs()  # 마스터 실행 이력 조회 (2026-09-30 BL-018 전에는 `master/db.py` 입구)
     _read_quotes()  # 매입 시세 조회 (2026-09-29 BL-016 전에는 `purchase_agent/db.py` 입구)
-    _read_logistics_runs()  # 물류 실행이력 조회 (2026-09-30 BL-015 전에는 `logistics/db.py` 입구)
+    for made in fake_pg.made:
+        made.rows = _logistics_policy_rows()  # 물류 정책 조회는 필수 정책 행을 요구한다
+    _read_logistics_policy()  # 물류 활성 정책 조회 (화면 재고 콘솔 · STATUS_QUERY 가 쓴다)
 
     assert len(fake_pg.connects) == 1
 
@@ -214,6 +216,7 @@ def test_logistics_still_loads_env_once_while_the_shared_loader_reads_every_call
 def test_the_pool_reads_connection_settings_once_not_per_borrow(
     monkeypatch: pytest.MonkeyPatch,
     service_pool: core_db.DatabasePool,
+    fake_pg: type[FakePgConnection],
 ) -> None:
     """종전에는 연결마다 `.env` 를 읽었다(물류는 대시보드 한 번에 550회). 이제 풀을 열 때 한 번.
 
@@ -225,10 +228,11 @@ def test_the_pool_reads_connection_settings_once_not_per_borrow(
     loads: list[object] = []
     monkeypatch.setattr(settings, "load_dotenv", lambda path: loads.append(path))
     monkeypatch.setattr("app.master.readmodel.runs.get_db_schema", lambda: "haetdeul_test")
+    fake_pg.rows = _logistics_policy_rows()
 
     for _ in range(3):
         _read_master_runs()
-        _read_logistics_runs()
+        _read_logistics_policy()
 
     # 접속 정보 1 + 풀 크기 1 + 연결 상태 확인 1(2026-10-01 BL-010) — 대여마다 늘지 않는다
     assert loads == [settings.ENV_FILE] * 3
@@ -730,43 +734,61 @@ def test_finance_run_history_write_failure_rolls_back_and_keeps_the_error(
     assert "commit" not in conn.events
 
 
-# ── 물류 — 입구 대신 계층이 빌린다 (2026-09-30 재구성 BL-015) ─────────────────────────
+# ── 물류 — 입구 대신 계층이 빌린다 ─────────────────────────────────────────────────
 #
-# 옛 `logistics/db.py` 입구에서 재던 것 — 조회는 조회 연결을 빌려 돌려주고 commit 하지 않는다 ·
-# 쓰기는 남의 연결에 얹히지 않는 한 트랜잭션이다 · 행이 없으면 되돌린다 · 접속 정보 누락 문구 —
-# 을 그 일을 맡은 물류 readmodel(실행이력 조회) · service(실행이력 저장)에서 같은 진짜 풀로 잰다.
+# 옛 `logistics/db.py` 입구에서 재던 것 중 지금도 물류가 하는 일 — 조회는 조회 연결을 빌려
+# 돌려주고 commit 하지 않는다 · 실패 뒤에도 연결을 돌려주고 오류를 그대로 올린다 · 접속 정보 누락
+# 문구 — 을 그 일을 맡은 물류 readmodel(활성 정책 조회)에서 같은 진짜 풀로 잰다. 물류 쓰기는
+# 마스터가 넘긴 연결로만 해서 물류가 스스로 쓰기 연결을 빌리는 경계가 없다.
 
 
-def _read_logistics_runs() -> object:
-    from app.logistics.readmodel.runs import list_logistics_agent_runs
+def _logistics_policy_rows() -> list[dict[str, object]]:
+    from app.logistics.schemas.snapshot import LOGISTICS_POLICY_VERSION
+    from app.logistics.schemas.vocabulary import USAGE_SCOPE
 
-    return list_logistics_agent_runs(limit=1)
+    values = {
+        "guaranteed_capacity_kg": ("NUMERIC", Decimal(8000)),
+        "burst_capacity_kg": ("NUMERIC", Decimal(9600)),
+        "inbound_lead_days": ("NUMERIC", Decimal(2)),
+        "daily_inbound_capacity_kg": ("NUMERIC", Decimal(5000)),
+        "inbound_transport_capacity_kg": ("NUMERIC", Decimal(5000)),
+        "shared_daily_outbound_capacity_kg": ("NUMERIC", Decimal(5000)),
+        "cap_by_date_policy": ("TEXT", "CONFIRMED_ONLY"),
+    }
+    return [
+        {
+            "policy_key": key,
+            "value_kind": kind,
+            "value_numeric": value if kind == "NUMERIC" else None,
+            "value_text": value if kind == "TEXT" else None,
+            "value_json": None,
+            "source_ref": f"MVP-POLICY:{key}",
+            "policy_version": LOGISTICS_POLICY_VERSION,
+            "usage_scope": USAGE_SCOPE,
+        }
+        for key, (kind, value) in values.items()
+    ]
 
 
-def _save_logistics_run() -> object:
-    from app.logistics.service.run_history import save_logistics_agent_run
+def _read_logistics_policy() -> object:
+    from app.logistics.readmodel.current import read_active_logistics_policy
 
-    return save_logistics_agent_run(
-        cycle="PROCUREMENT",
-        as_of=date(2026, 1, 5),
-        snapshot_id=None,
-        runtime_status="RUNTIME_NOT_READY",
-        verdict=None,
-        request_payload={},
-        response_payload={"verdict": None},
-    )
+    return read_active_logistics_policy()
 
 
 def test_logistics_read_borrows_one_read_connection_and_returns_it(
     service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
 ) -> None:
-    fake_pg.rows = [{"run_id": "RUN-1"}]
+    fake_pg.rows = _logistics_policy_rows()
 
-    assert _read_logistics_runs() == [{"run_id": "RUN-1"}]
-    assert _read_logistics_runs() == [{"run_id": "RUN-1"}]
+    first = _read_logistics_policy()
+    second = _read_logistics_policy()
 
+    assert first.guaranteed_capacity_kg == Decimal(8000)
+    assert second == first
     (conn,) = fake_pg.made  # 두 조회가 한 연결을 다시 썼다
     assert len(conn.executed) == 2
+    assert "agent_policy_config" in str(conn.executed[0][0])
     assert "commit" not in conn.events  # 조회는 트랜잭션을 열지 않는다
     assert conn.autocommit is False  # 돌려받은 연결은 쓰기용으로 되돌려져 있다
 
@@ -778,54 +800,14 @@ def test_logistics_failed_read_returns_the_connection_and_keeps_the_error(
         warm.fail_on_execute = psycopg.errors.UndefinedTable("no table")
 
     with pytest.raises(psycopg.errors.UndefinedTable):
-        _read_logistics_runs()
+        _read_logistics_policy()
 
     (conn,) = fake_pg.made
     conn.fail_on_execute = None
-    assert _read_logistics_runs() == []  # 다음 조회가 같은 연결로 멀쩡히 돈다
-
-
-def test_logistics_run_history_write_is_one_transaction_on_its_own_connection(
-    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
-) -> None:
-    """실행이력은 남이 쥔 연결에 얹히지 않는다 — 얹히면 커밋 시점이 바뀐다."""
-    fake_pg.one = {"run_id": "RUN-1"}
-
-    with core_db.connection() as held:
-        _ = held.cursor().execute("SELECT held")
-        assert _save_logistics_run() == {"run_id": "RUN-1"}
-
-    write = next(c for c in fake_pg.made if c is not held)
-    assert len(write.executed) == 1
-    assert write.events[-1] == "commit"
-    assert "commit" not in held.events
-
-
-def test_logistics_run_history_write_without_a_row_rolls_back(
-    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
-) -> None:
-    """RETURNING 행이 없으면 종전 문구로 멈추고, 그 예외로 쓰기가 rollback 된다."""
-    with pytest.raises(RuntimeError) as raised:
-        _save_logistics_run()
-
-    assert str(raised.value) == "Database write did not return a row"
-    (conn,) = fake_pg.made
-    assert conn.events[-1] == "rollback"
-    assert "commit" not in conn.events
-
-
-def test_logistics_run_history_write_failure_rolls_back_and_keeps_the_error(
-    service_pool: core_db.DatabasePool, fake_pg: type[FakePgConnection]
-) -> None:
-    with core_db.connection() as warm:
-        warm.fail_on_execute = psycopg.errors.UniqueViolation("dup")
-
-    with pytest.raises(psycopg.errors.UniqueViolation):
-        _save_logistics_run()
-
-    (conn,) = fake_pg.made
-    assert conn.events[-1] == "rollback"
-    assert "commit" not in conn.events
+    conn.rows = _logistics_policy_rows()
+    # 다음 조회가 같은 연결로 멀쩡히 돈다
+    assert _read_logistics_policy().guaranteed_capacity_kg == Decimal(8000)
+    assert fake_pg.made == [conn]
 
 
 def test_logistics_missing_env_message_is_unchanged(
@@ -838,7 +820,7 @@ def test_logistics_missing_env_message_is_unchanged(
     monkeypatch.setattr(core_db, "SERVICE_POOL", pool)
 
     with pytest.raises(RuntimeError) as raised:
-        _read_logistics_runs()
+        _read_logistics_policy()
 
     assert str(raised.value) == (
         "Missing required database environment variables: "

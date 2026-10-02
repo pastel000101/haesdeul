@@ -1,15 +1,14 @@
 """재고·물류 Agent A/B 요청, Snapshot 및 응답 계약.
 
-이 파일은 에이전트 계약(판정 · 회신 · 독립 사이클 요청/응답)을 둔다. 스냅샷 · 정책 · fixture 는
+이 파일은 에이전트 계약(판정 · 회신 · 사이클 요청/응답 모델)을 둔다. 스냅샷 · 정책 · fixture 는
 `schemas/snapshot.py`, 화면 조회 응답(`Console*`)은 `schemas/console.py` 에 있다. 출고 · 회전
 어휘는 `schemas/outbound.py` · `schemas/turnover.py` 에서 읽는다 — 계약 모듈이 쓰기 코어를
 import 하지 않는다.
 """
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
-from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -301,17 +300,3 @@ class LogisticsSalesResponse(LLMResponseFields):
     #: Sales 에서 Rule 이 정한 우선 조정(현행 어휘: 우선 출고 검토 문장). LLM 이 아니라
     #: 결정론 층이 정한다 — 없으면 LLM 도 추천하지 않는다(검증기 강제).
     preferred_adjustment: str | None = None
-
-
-class LogisticsAgentRunResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: UUID
-    cycle: LogisticsCycle
-    as_of: date
-    snapshot_id: str | None
-    runtime_status: RuntimeStatus
-    verdict: FinalVerdict | None
-    request_payload: dict[str, object]
-    response_payload: dict[str, object]
-    created_at: datetime

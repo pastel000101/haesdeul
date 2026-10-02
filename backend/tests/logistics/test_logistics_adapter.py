@@ -2141,9 +2141,9 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
     **import 가 없으면 부를 방법이 없다.**
 
     ```text
-    run_logistics_sales()                sim_run_id 축 소실 + save_logistics_agent_run DB write
-    run_logistics_sales_with_snapshot()  enrich_logistics_response → LLM
     run_logistics_sales_scenario()       approved_purchase 필수
+    evaluate_sales_rules()               H1 Overlay 산출을 전제
+    enrich_logistics_response()          응답 모델 LLM 해석
     ```
 
     ★ #385 이후 `app.logistics.interpretation` 은 **허용**이다 — 어댑터가 재사용하는 것은
@@ -2153,14 +2153,9 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
     """
     modules, names = _adapter_imports()
 
-    # ★ 2026-09-30 재구성 BL-015: 옛 이름 → 새 자리. 독립 Service(`service.py`)는
-    #   `service/cycle.py`, 실행이력(`run_repository.py`)은 `service/run_history.py` ·
-    #   `repository/runs.py`, 출고(`outbound.py`)는 계층마다 한 파일이다. `app.logistics.service`
-    #   는 이제 mode 조립도 담는 패키지라 통째로 막지 않고 그 안의 옛 Service 자리를 막는다.
+    # 출고(`outbound.py`)는 계층마다 한 파일이다. `app.logistics.service` 는 mode 조립도 담는
+    # 패키지라 통째로 막지 않고 그 안의 막을 자리를 하나씩 막는다.
     금지_모듈 = {
-        "app.logistics.service.cycle",
-        "app.logistics.service.run_history",
-        "app.logistics.repository.runs",
         "app.logistics.db",
         # ★ 2026-09-29 풀 전환 뒤 연결을 빌리는 문 — 옛 `get_connection` 과 같은 자리다.
         "app.core.db",
@@ -2172,13 +2167,10 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
         "app.master.cycle_llm",
     }
     금지_이름 = {
-        "run_logistics_sales",
-        "run_logistics_sales_with_snapshot",
         "run_logistics_sales_scenario",
         "evaluate_sales_rules",
         "enrich_logistics_response",
         "get_interpretation_service",
-        "save_logistics_agent_run",
         "get_connection",
         "execute_returning_one",
     }

@@ -1,24 +1,23 @@
-"""물류 행동 계약 테스트 — 감사 P0 2건 + Adapter↔Service parity (#121).
+"""물류 행동 계약 테스트 — 감사 P0 2건 + 어댑터 회신의 결정론 값 (#121).
 
 1단계에서 결함의 현재 동작을 PIN 으로 고정했고, 2·3단계 수정이 반영되면서 전부
 **계약 테스트**로 전환됐다 (PIN 잔존 없음).
 
 ★ (a) P0-1 — business_status 는 시나리오 집계 ⊕ 하드 제약의 최악값 결합이다
   (2026-09-01 마스터 확정: any reject → reject · 조정안은 판정을 무르지 않음 ·
-  하드 제약은 낮출 수만 있음). 독립 API 최상위 verdict 도 같은 규칙이다.
+  하드 제약은 낮출 수만 있음).
 
 ★ (b) P0-2 — reject 안의 adjustment 는 scenario_results 에 진단으로만 남고,
   preferred·suggested·needs_followup 으로 승격되지 않는다.
 
-★ (c) parity 는 재현이 아니라 상시 안전망이다 — Core 에 값이 추가되고 한쪽 조립에만
-  반영되는 드리프트(PR #116 에서 실제로 일어난 일)를 자동으로 잡는다.
-  **응답 전체를 비교하지 않는다.** 두 경로는 계약이 다르다(Evidence · missing_data
-  어휘 · LLM 필드) — 공유돼야 하는 결정론 값만 대조한다.
+★ (c) 어댑터 회신이 Rule · Scenario 의 결정론 값(재고 · 시나리오 · 수용량 · 우선 축 ·
+  경고 · 하드 제약)을 빠짐없이 싣는지 기대값으로 고정한다. signal 이 서는 날과 조용한
+  날을 함께 본다 — «없음» 을 빠뜨리는 회귀는 조용한 날에만 보인다.
 
 ★ (d) P1-1 — 스냅샷 로드 실패의 분류: 데이터 부재(LookupError)는 RUNTIME_NOT_READY,
   실행 오류(무결성 위반·DB 장애 등)는 ERROR. 예외 원문은 reasoning 으로 새지 않는다.
 
-★ DB 를 타지 않는다. (a)~(c)의 스냅샷은 양쪽에 동일 객체를 직접 주입하고,
+★ DB 를 타지 않는다. (a)~(c)의 스냅샷은 어댑터에 직접 주입하고,
   (d)만 로드 실패 자체를 대상으로 repository 함수를 갈아 끼운다.
 """
 
@@ -32,7 +31,6 @@ import pytest
 
 from app.contracts.envelope import AgentRequest, ExecutionContext, validate_reply
 from app.logistics import adapter
-from app.logistics.domain import agent_evidence
 from app.logistics.domain.rules import (
     BUSINESS_SIGNALS,
     UNRESOLVED_WARNING_CODES,
@@ -43,7 +41,6 @@ from app.logistics.domain.scenario_engine import (
     validate_purchase_scenarios,
 )
 from app.logistics.llm.interpretation import _MISSING_DATA_NAMES
-from app.logistics.llm.runtime import InterpretationService, LLMSettings, UnavailableProvider
 from app.logistics.schemas.agent import (
     ConstraintCode,
     ConstraintResult,
@@ -58,7 +55,6 @@ from app.logistics.schemas.snapshot import (
     LogisticsPolicy,
 )
 from app.logistics.service import agent_read
-from app.logistics.service.cycle import run_logistics_procurement_with_snapshot
 from tests.logistics.mode_modules import swap_in_modes
 
 AS_OF = date(2026, 8, 21)
@@ -194,18 +190,6 @@ def _wire(monkeypatch: pytest.MonkeyPatch, snapshot: InventoryLogisticsSnapshot)
     )
 
 
-def _disabled_llm() -> InterpretationService:
-    settings = LLMSettings(
-        enabled=False,
-        provider="ollama",
-        model="test",
-        base_url="http://127.0.0.1:9",
-        timeout_seconds=0.1,
-        max_retries=0,
-    )
-    return InterpretationService(settings, UnavailableProvider())
-
-
 # ---------------------------------------------------------------------------
 # (a) P0-1 — business_status 는 시나리오 집계 ⊕ 하드 제약 결합이다 (3단계 수정 반영)
 # ---------------------------------------------------------------------------
@@ -265,15 +249,6 @@ def test_전_시나리오_reject_면_business_status_도_reject_다(monkeypatch)
     assert evidence.unit == "non_ok_input_count"
     assert evidence.value == 1.0  # 비통과 하드 0건 + reject 1안 + conditional 0안
     assert "reject 1안" in evidence.evidence_detail
-
-    # 독립 API 도 같은 결합 규칙이다 (#121 3단계의 나머지 절반) — 이 픽스처에서
-    # 하드만 보면 PASS, 결합이면 FAIL 이라 service 쪽 되돌리기가 여기서 잡힌다.
-    service_response = run_logistics_procurement_with_snapshot(
-        PurchaseAgentOutput.model_validate(payload),
-        snapshot,
-        interpretation_service=_disabled_llm(),
-    )
-    assert service_response.verdict == "FAIL"
 
 
 def _rule_result(*, runtime: str = "READY", statuses: tuple[str, ...] = ("PASS",)) -> dict:
@@ -536,22 +511,13 @@ def test_혼합_케이스에서_어댑터는_비reject_조정만_승격한다(mo
     evidence = next(e for e in reply.evidences if e.claim == "preferred_adjustment")
     assert evidence.value == 1.0
 
-    # 독립 API 정렬의 두 번째 대조점 — 이 픽스처는 하드만 보면 REVIEW_REQUIRED,
-    # 결합이면 FAIL 이다 ((a)의 PASS→FAIL 과 다른 갈림이라 함께 고정한다).
-    service_response = run_logistics_procurement_with_snapshot(
-        PurchaseAgentOutput.model_validate(payload),
-        snapshot,
-        interpretation_service=_disabled_llm(),
-    )
-    assert service_response.verdict == "FAIL"
-
 
 # ---------------------------------------------------------------------------
-# (c) Adapter↔Service parity — 공유 결정론 값만 대조하는 상시 안전망
+# (c) 결정론 값 — 어댑터 회신이 Rule · Scenario 결과를 빠짐없이 싣는다
 # ---------------------------------------------------------------------------
 
 
-def _parity_case() -> tuple[InventoryLogisticsSnapshot, dict[str, Any]]:
+def _signal_case() -> tuple[InventoryLogisticsSnapshot, dict[str, Any]]:
     """세 signal(CAPACITY_TIGHT·신선도 압박·조정 필요)이 전부 서는 시나리오.
 
     여유 1,000 에 3,000 제안 → conditional(수량 조정) → SCENARIO_ADJUSTMENT_REQUIRED.
@@ -580,170 +546,95 @@ def _parity_case() -> tuple[InventoryLogisticsSnapshot, dict[str, Any]]:
     return snapshot, payload
 
 
-def _norm_scenario_results_from_models(results: Any) -> list[tuple]:
-    return [
-        (
-            r.label,
-            r.verdict,
-            tuple(r.reason_codes),
-            tuple(
-                (
-                    a.axis,
-                    a.split_date.isoformat(),
-                    None if a.suggested_qty_kg is None else float(a.suggested_qty_kg),
-                    None
-                    if a.suggested_arrival_date is None
-                    else a.suggested_arrival_date.isoformat(),
-                )
-                for a in r.adjustments
-            ),
-        )
-        for r in results
-    ]
-
-
-def _norm_scenario_results_from_payload(rows: list[dict[str, Any]]) -> list[tuple]:
-    return [
-        (
-            row["label"],
-            row["verdict"],
-            tuple(row["reason_codes"]),
-            tuple(
-                (
-                    a["axis"],
-                    a["split_date"],
-                    a.get("suggested_qty_kg"),
-                    a.get("suggested_arrival_date"),
-                )
-                for a in row["adjustments"]
-            ),
-        )
-        for row in rows
-    ]
-
-
 def _business_signals(warnings: list[str]) -> set[str]:
     return {w for w in warnings if w in BUSINESS_SIGNALS}
 
 
-def _norm_constraints_from_models(constraints: Any) -> list[tuple]:
-    return [(c.code, c.status, c.skip_reason) for c in constraints]
+_HARD_CONSTRAINTS_ZONE_UNRESOLVED = [
+    {"code": "LOG-H01", "status": "PASS", "skip_reason": None},
+    {"code": "LOG-H02", "status": "UNRESOLVED", "skip_reason": "ZONE_CAPACITY_UNRESOLVED"},
+    {"code": "LOG-H03", "status": "PASS", "skip_reason": None},
+    {"code": "LOG-H04", "status": "PASS", "skip_reason": None},
+    {"code": "LOG-H05", "status": "PASS", "skip_reason": None},
+]
 
 
-def _norm_constraints_from_payload(rows: list[dict[str, Any]]) -> list[tuple]:
-    return [(row["code"], row["status"], row["skip_reason"]) for row in rows]
+def test_signal_이_서는_날_어댑터가_결정론_값을_싣는다(monkeypatch):
+    """세 signal 이 서는 날 — 판정 · 재고 · 시나리오 · 수용량 · 우선 축 · 경고 · 하드 제약.
 
-
-def test_어댑터와_독립_경로는_공유_결정론_값이_같다(monkeypatch):
-    """같은 스냅샷 + 같은 제안 → 두 조립의 공유값이 일치해야 한다.
-
-    PR #116 이 수동으로 맞춘 정합을 자동 감시로 바꾼다. 감시 범위는 **아래에
-    열거된 공유값**이다 — 여기 없는 새 공유값이 Core 에 생기면 이 목록에도
-    추가해야 감시가 미친다(자동 확장이 아니다). 대조 대상: runtime_status ·
-    inventory_by_item · scenario_results · cap_by_date · preferred_adjustment ·
-    soft_warnings(같은 merge_business_warnings 출력이라 전체 대조) ·
-    hard_constraints(같은 rules 출력). 계약이 다른 필드(Evidence · missing_data
-    어휘 · LLM)는 비교하지 않는다.
+    값은 픽스처에서 바로 나온다. 보장 8,000 − 사용 7,000 = 여유 1,000 이라 3,000kg 안은
+    수량 1,000 으로 줄이는 conditional 이고, 우선 축은 그 하나뿐인 quantity 다. 이 픽스처는
+    zone 을 싣지 않아 LOG-H02 가 UNRESOLVED 라 최상위 판정이 conditional 이다.
     """
-    snapshot, payload = _parity_case()
-    proposal = PurchaseAgentOutput.model_validate(payload)
-
-    service_response = run_logistics_procurement_with_snapshot(
-        proposal, snapshot, interpretation_service=_disabled_llm()
-    )
-
+    snapshot, payload = _signal_case()
     _wire(monkeypatch, snapshot)
+
     reply, _meta = adapter.logistics_port(_request(payload))
 
-    # 대조가 무의미하지 않은지 먼저 — 세 signal 이 실제로 섰고 판정은 conditional 이다.
-    assert service_response.runtime_status == "READY"
-    assert _business_signals(service_response.soft_warnings) == {
+    assert reply.runtime_status == "READY"
+    assert reply.business_status == "conditional"
+    assert reply.payload["inventory_by_item"] == [{"item": "배추", "available_qty_kg": 600.0}]
+    assert reply.payload["scenario_results"] == [
+        {
+            "label": "기본",
+            "verdict": "conditional",
+            "reason_codes": ["CAPACITY_EXCEEDED"],
+            "adjustments": [
+                {"axis": "quantity", "split_date": "2026-08-21", "suggested_qty_kg": 1000.0}
+            ],
+        }
+    ]
+    assert reply.payload["cap_by_date"] == {"2026-08-23": 1000.0}
+    assert reply.payload["preferred_adjustment"] == "quantity"
+    # 경고 채널은 Rule 경고와 업무 signal 을 merge_business_warnings 순서대로 싣는다
+    # (signal 부분집합만 보면 POLICY_UNRESOLVED 계열의 누락을 놓친다).
+    assert reply.payload["soft_warnings"] == [
+        "GRADE_VOCABULARY_UNRESOLVED",
         "CAPACITY_TIGHT",
         "INVENTORY_FRESHNESS_PRESSURE",
         "SCENARIO_ADJUSTMENT_REQUIRED",
-    }
-
-    # ① runtime·최상위 판정 — 같은 rules 결과·같은 결합 규칙을 쓴다 (#121 3단계:
-    #    독립 API verdict 와 M-1 business_status 는 같은 집계의 두 표기다)
-    assert reply.runtime_status == service_response.runtime_status
-    assert service_response.verdict is not None
-    assert reply.business_status == agent_evidence.VERDICT_MAP[service_response.verdict]
-
-    # ② inventory_by_item
-    assert service_response.inventory_by_item is not None
-    service_inventory = [
-        (entry.item, float(entry.available_qty_kg)) for entry in service_response.inventory_by_item
     ]
-    adapter_inventory = [
-        (row["item"], row["available_qty_kg"]) for row in reply.payload["inventory_by_item"]
-    ]
-    assert adapter_inventory == service_inventory
-
-    # ③ scenario_results (판정·사유·조정 전부)
-    assert service_response.scenario_results is not None
-    assert _norm_scenario_results_from_payload(
-        reply.payload["scenario_results"]
-    ) == _norm_scenario_results_from_models(service_response.scenario_results)
-
-    # ④ cap_by_date
-    service_cap = {
-        day.isoformat(): float(value) for day, value in service_response.band.cap_by_date.items()
-    }
-    assert reply.payload["cap_by_date"] == service_cap
-
-    # ⑤ preferred_adjustment — 어댑터는 None 이면 키를 뺀다
-    assert reply.payload.get("preferred_adjustment") == service_response.preferred_adjustment
-
-    # ⑥ 경고 채널 — 두 경로가 같은 merge_business_warnings 를 쓰므로 전체가 같아야
-    #    한다 (signal 부분집합만 보면 POLICY_UNRESOLVED 계열의 한쪽 누락을 놓친다)
-    assert reply.payload["soft_warnings"] == service_response.soft_warnings
     assert _business_signals(reply.payload["soft_warnings"]) == {
         "CAPACITY_TIGHT",
         "INVENTORY_FRESHNESS_PRESSURE",
         "SCENARIO_ADJUSTMENT_REQUIRED",
     }
-
-    # ⑦ hard_constraints — 같은 evaluate_procurement_rules 출력을 양쪽이 싣는다
-    assert _norm_constraints_from_payload(
-        reply.payload["hard_constraints"]
-    ) == _norm_constraints_from_models(service_response.hard_constraints)
+    assert reply.payload["hard_constraints"] == _HARD_CONSTRAINTS_ZONE_UNRESOLVED
 
 
-def test_parity_는_시나리오가_전부_통과인_날도_성립한다(monkeypatch):
-    """조정·signal 이 없는 조용한 날에도 두 조립이 같은 것을 실어야 한다.
+def test_조용한_날도_어댑터가_없음을_계약대로_싣는다(monkeypatch):
+    """조정 · signal 이 없는 날에도 «없음» 을 계약 모양으로 싣는다.
 
-    (풍부한 케이스만 대조하면 "없음"을 한쪽만 싣는 드리프트를 놓친다 —
-    preferred 키 생략 규칙이 정확히 그런 자리다.)
+    풍부한 날만 보면 «없음» 을 빠뜨리는 회귀를 놓친다 — preferred 키 생략 규칙이 정확히
+    그런 자리다.
     """
     snapshot = _snapshot()  # 여유 7,000 — 1,000kg 제안은 그대로 통과
     payload = _proposal_payload(
         split_plan=[{"seq": 1, "date": AS_OF.isoformat(), "qty_kg": 1000}],
         sourcing_qty=1000,
     )
-    proposal = PurchaseAgentOutput.model_validate(payload)
-
-    service_response = run_logistics_procurement_with_snapshot(
-        proposal, snapshot, interpretation_service=_disabled_llm()
-    )
     _wire(monkeypatch, snapshot)
+
     reply, _meta = adapter.logistics_port(_request(payload))
 
-    assert service_response.preferred_adjustment is None
-    # 조용한 날도 최상위 판정 결합 규칙은 동일하다.
-    assert service_response.verdict is not None
-    assert reply.business_status == agent_evidence.VERDICT_MAP[service_response.verdict]
+    assert reply.runtime_status == "READY"
+    assert reply.business_status == "conditional"  # LOG-H02 UNRESOLVED 때문 — 시나리오는 ok
     # 키 생략까지 고정한다 — `.get() is None` 은 "키 없음"과 "명시적 null 탑재"를
     # 구분하지 못한다 (§1.2-10). 어댑터는 preferred 가 없으면 키 자체를 빼야 한다.
     assert "preferred_adjustment" not in reply.payload
-    # 빈 집계도 양쪽이 같은 모양이어야 한다 — []("0건 확인")를 한쪽만 싣는 드리프트 방지.
-    assert service_response.inventory_by_item == []
+    # 빈 집계는 키를 빼지 않고 [] 로 싣는다 — "0건 확인" 이다.
     assert reply.payload["inventory_by_item"] == []
-    assert _norm_scenario_results_from_payload(
-        reply.payload["scenario_results"]
-    ) == _norm_scenario_results_from_models(service_response.scenario_results or [])
-    # 조용한 날의 경고는 signal 이 아니라 POLICY_UNRESOLVED 계열뿐 — 전체 대조로 고정.
-    assert reply.payload["soft_warnings"] == service_response.soft_warnings
+    assert reply.payload["scenario_results"] == [
+        {"label": "기본", "verdict": "ok", "reason_codes": [], "adjustments": []}
+    ]
+    assert reply.payload["cap_by_date"] == {"2026-08-23": 7000.0}
+    # 조용한 날의 경고는 signal 이 아니라 POLICY_UNRESOLVED 계열뿐이다.
+    assert reply.payload["soft_warnings"] == [
+        "CAPACITY_TIGHT_POLICY_UNRESOLVED",
+        "FRESHNESS_PRESSURE_POLICY_UNRESOLVED",
+    ]
     assert _business_signals(reply.payload["soft_warnings"]) == set()
+    assert reply.payload["hard_constraints"] == _HARD_CONSTRAINTS_ZONE_UNRESOLVED
 
 
 # ---------------------------------------------------------------------------

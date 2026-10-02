@@ -14,9 +14,8 @@
    파일 · 환경 · 시계를 모르고(시간대 상수 `SEOUL` 하나만), repository 는 판단 · 조립 · 순서를
    모르고, 어댑터는 service · domain · schemas 만 부른다. FastAPI 를 모른다.
 2. 연결 — repository 는 빌리지도 commit 하지도 않는다. readmodel 은 조회 연결만 빌린다.
-   service 에서 연결을 빌리는 곳은 둘뿐이다(`run_history` 저장 한 트랜잭션 · `status_question`
-   조회 연결). 그 밖의 service — 마스터가 연결을 넘기는 경로 전부 — 는 빌리지도 commit ·
-   rollback 하지도 않는다.
+   service 에서 연결을 빌리는 곳은 하나뿐이다(`status_question` 조회 연결). 그 밖의
+   service — 마스터가 연결을 넘기는 경로 전부 — 는 빌리지도 commit · rollback 하지도 않는다.
 3. SQL 은 repository 에만 있고, 쓰기 전역 잠금(`pg_advisory`)은 `repository/locks.py` 한 곳에
    좌표 넷과 획득 순서 표로 있다.
 4. 밖에서 들이는 자리 — 어댑터는 마스터 bootstrap 만, 화면은 readmodel · domain · schemas 만,
@@ -73,7 +72,6 @@ _MAY_NOT_TAKE: dict[str, tuple[str, ...]] = {
 
 #: service 에서 연결을 빌려도 되는 파일과 그 방법 — 마스터가 연결을 넘기지 않는 입구뿐이다.
 _SERVICE_MAY_BORROW = {
-    "service/run_history.py": frozenset({"connection", "transaction"}),
     "service/status_question.py": frozenset({"read_connection"}),
 }
 
