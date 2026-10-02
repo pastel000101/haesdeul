@@ -1,11 +1,8 @@
 """사용자 기록 자금 입·출금 — 화면 `POST /finance/cash-adjustments` 와 마스터 ask 가 같은 함수를
 부른다.
 
-★ `apply_cash_adjustment` 가 한 요청 = 한 트랜잭션의 경계를 연다(받은 연결에 `transaction`).
-  `record_cash_adjustment` 는 그 안의 순서다 — commit 하지 않는다.
-
-★ 2026-09-29 재구성 BL-014: `finance/cash_adjustments.py` 의 순서와 `finance/router.py` 핸들러 안의
-  트랜잭션을 옮겼다.
+`apply_cash_adjustment` 가 한 요청 = 한 트랜잭션의 경계를 연다(받은 연결에 `transaction`).
+`record_cash_adjustment` 는 그 안의 순서다 — commit 하지 않는다.
 """
 
 from datetime import date
@@ -82,7 +79,7 @@ def record_cash_adjustment(
 def apply_cash_adjustment(
     conn: core_db.Connection, change: CashAdjustmentChange
 ) -> dict[str, object]:
-    """사용자 자금 입금·출금을 근거와 함께 기록한다 — **한 요청 = 한 트랜잭션.**
+    """사용자 자금 입금·출금을 근거와 함께 기록한다 — 한 요청 = 한 트랜잭션.
 
     화면 `POST /finance/cash-adjustments` 와 마스터 ask(FINANCE_CASH_ADJUSTMENT_CREATE)가 같은
     함수를 부른다. 받지 않은 요청: 조정 충돌(금액 · 출금 뒤 현금 · 갱신 실패) CONFLICT, 그날

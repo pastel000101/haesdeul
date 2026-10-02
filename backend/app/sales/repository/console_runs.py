@@ -1,7 +1,6 @@
 """판매 운영 콘솔의 실행이력 SQL — 실행 축은 저장된 봉투 안의 값으로 거른다.
 
-★ 2026-09-29 BL-013: `sales/console_runs.py` 에서 SQL 을 옮겼다. 행을 응답으로 펴는 것은
-  `readmodel/console_runs.py` 다.
+행을 응답으로 펴는 것은 `readmodel/console_runs.py` 다.
 """
 
 from datetime import date

@@ -1,7 +1,4 @@
-"""재무 개장 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/day_open.py` 에서 옮겼다(문면 그대로).
-"""
+"""재무 개장 SQL."""
 
 from __future__ import annotations
 
@@ -51,7 +48,7 @@ def select_exact_states(
 
 
 def carry_forward_state(conn: Any, params: dict[str, object]) -> int:
-    """앞날 상태를 그날로 물려받아 한 행 세운다(이미 있으면 안 세운다). **세운 행 수.**"""
+    """앞날 상태를 그날로 물려받아 한 행 세운다(이미 있으면 안 세운다). 세운 행 수."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(_carry_forward_query(schema), params)

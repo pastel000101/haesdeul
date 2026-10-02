@@ -1,7 +1,4 @@
-"""하루 넘김 판정 — 그날 활성 실행 목록으로 «내 실행의 날이 열렸나».
-
-★ 2026-09-30 재구성 BL-015: `logistics/day_open.py` 에서 옮겼다.
-"""
+"""하루 넘김 판정 — 그날 활성 실행 목록으로 «내 실행의 날이 열렸나»."""
 
 from __future__ import annotations
 
@@ -18,7 +15,7 @@ def day_open_from_runs(실행들: list[Any], *, pinned: bool, as_of: date) -> bo
     DB 를 만지지 않는다.
     """
     if pinned:
-        # ★ 조회가 이미 내 실행으로 좁혀져 있다 — 나온 것이 있으면 내 행이다.
+        # 조회가 이미 내 실행으로 좁혀져 있다 — 나온 것이 있으면 내 행이다.
         return bool(실행들)
     if len(실행들) > 1:
         raise LogisticsRunAmbiguous(

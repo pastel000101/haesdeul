@@ -1,30 +1,15 @@
 """재고·물류 Agent A/B 결정론적 실행 흐름.
 
-🔴 **지금 production 경로에서는 부르지 않는다** (2026-09-15). 이 파일을 부르던 유일한
-   자리가 `app/logistics/router.py` 였고, 그 HTTP 라우터를 화면도 마스터도 안 써서
-   걷어냈다 — 화면은 `/api/logistics`, 마스터는 `adapter.logistics_port` 를 파이썬으로
-   부른다.
+production 경로에서는 이 파일을 부르지 않는다. 이 흐름을 부르는 HTTP 라우터가 없고,
+화면은 `/api/logistics`, 마스터는 `adapter.logistics_port` 를 파이썬으로 부른다. 마스터가
+부르는 네 Mode 의 조립은 `service/agent_status` · `pre_purchase` · `pre_sales` ·
+`scenario_validation` 이 맡는다.
 
-   ⚠️ **그래서 지우지 않는다.** `adapter.py` 가 2,676줄로 네 Mode 와 Evidence · LLM ·
-      오류 처리를 다 들고 있고, 그 업무 조립 책임을 이 파일로 옮기는 것이 다음 설계다.
-
-```text
-adapter.py    Master ↔ Logistics 계약 번역만
-service.py    물류 내부 업무 흐름 조립 (Repository · Tool · Rule · Scenario 호출)   ← 여기로
-```
-
-   ★ **지금 살아 있는 것은 검사뿐이다** — `tests/logistics/test_logistics_behavior_pinning.py` ·
-     `test_logistics_business_signals.py` · `test_logistics_scenario_engine.py` ·
-     `test_logistics_service_repository.py` 가 이 파일로 업무 규칙을 잠그고 있다.
-     그 규칙이 없어진 것이 아니므로 검사도 그대로 둔다.
-
-   🟡 재설계는 **발표 뒤**다 (물류 문서 28 · 2~4단계).
-
-★ 2026-09-30 재구성 BL-015: `logistics/service.py` 에서 자리만 옮겼다(내용 그대로). 위 «`adapter.py`
-  가 네 Mode 를 다 들고 있다 · 그 조립을 이 파일로 옮기는 것이 다음 설계» 는 옮기기 전 이야기다 —
-  이번에 네 Mode 조립은 `service/agent_status` · `pre_purchase` · `pre_sales` ·
-  `scenario_validation` 으로 나뉘었고, 이 파일(A/B 독립 흐름)은 여전히 production 에서
-  부르지 않는다.
+이 파일을 쓰는 것은 검사다 — `tests/logistics/test_logistics_behavior_pinning.py` ·
+`test_logistics_business_signals.py` · `test_logistics_scenario_engine.py` ·
+`test_logistics_service_repository.py` 가 이 파일로 업무 규칙을 검사한다. 그 규칙이
+없어진 것이 아니므로 검사도 그대로 둔다. 재설계는 발표 뒤로 미뤄져 있다 (물류 문서 28 ·
+2~4단계).
 """
 
 from datetime import date
@@ -112,8 +97,8 @@ def run_logistics_procurement_with_snapshot(
         snapshot_id=snapshot.snapshot_id if snapshot is not None else None,
         runtime_status=rule_result["runtime_status"],
         # M-1 business_status 와 같은 규칙 — 시나리오 집계 ⊕ 하드 제약 최악값 결합
-        # (2026-09-01 마스터 확정 · #121 3단계). 실행이력 verdict 컬럼·/logistics/runs
-        # 필터의 의미도 이 시점부터 결합 판정이다.
+        # (마스터 확정 · #121 3단계). 실행이력 verdict 컬럼·/logistics/runs 필터의 의미도
+        # 결합 판정이다.
         verdict=derive_procurement_verdict(rule_result, scenario_result["scenario_results"]),
         band=LogisticsBand(
             cap_by_date=(scenario_result["cap_by_date"] if rule_result["calculation_ready"] else {})

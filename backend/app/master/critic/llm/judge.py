@@ -1,12 +1,10 @@
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
-
-L5 Judge — `run_critic_v04(judge=...)` / `run_critic_b(...)` 에 주입하는 어댑터.
+"""L5 Judge — `run_critic_v04(judge=...)` / `run_critic_b(...)` 에 주입하는 어댑터.
 
 `RationaleJudge` 프로토콜은 `(payload: Mapping) -> tuple[bool, str]` 이다.
 Critic 러너는 이 콜러블만 알면 되고, LLM 설정·검증·재시도는 여기서 끝난다.
 
-★ 러너가 judge 를 호출한 뒤에야 LLM 상태를 알 수 있으므로, 어댑터가 결과를 담아 둔다.
-  서비스는 러너 실행 후 `runner.result` 를 읽어 응답 필드를 채운다.
+러너가 judge 를 호출한 뒤에야 LLM 상태를 알 수 있으므로, 어댑터가 결과를 담아 둔다.
+서비스는 러너 실행 후 `runner.result` 를 읽어 응답 필드를 채운다.
 """
 
 from __future__ import annotations
@@ -58,8 +56,8 @@ class JudgeRunner:
         )
         self.result = result
         interpretation = result.interpretation
-        # ★ SUCCESS 가 아니면 판정하지 않은 것이다. FAIL 로 만들지 않고 PASS 로 통과시킨 뒤
-        #   서비스가 `skipped` 에 올려 coverage 로 드러낸다 (설계서 §8).
+        # SUCCESS 가 아니면 판정하지 않은 것이다. FAIL 로 만들지 않고 PASS 로 통과시킨 뒤
+        # 서비스가 `skipped` 에 올려 coverage 로 드러낸다 (설계서 §8).
         if result.llm_status != "SUCCESS":
             return True, interpretation.note
         return interpretation.verdict == "PASS", interpretation.note

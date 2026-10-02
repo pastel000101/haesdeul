@@ -1,8 +1,4 @@
-"""에이전트 실행 상태에서 읽는 판단 — 마지막 시나리오 판정.
-
-★ 2026-09-29 재구성 BL-014: `finance/state.py` 의 `_scenario_verdict` 를 공개 이름으로 옮겼다(몸통
-  그대로).
-"""
+"""에이전트 실행 상태에서 읽는 판단 — 마지막 시나리오 판정."""
 
 from __future__ import annotations
 

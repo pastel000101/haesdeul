@@ -1,14 +1,12 @@
 -- inventory_move_lines — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- §7  원장 상세 — Move Line
---     ★ `inventory_moves` 헤더는 `10_domain_schema.sql` 소유다. 여기는 상세다.
+--     `inventory_moves` 헤더는 `inventory_moves.sql` 이 정의한다. 여기는 상세다.
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS haetdeul.inventory_move_lines (
     move_line_id BIGSERIAL NOT NULL,
@@ -20,7 +18,7 @@ CREATE TABLE IF NOT EXISTS haetdeul.inventory_move_lines (
     note         TEXT,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT inventory_move_lines_pkey PRIMARY KEY (move_line_id),
-    -- 🔴 복합 FK 둘이 "Line 의 Lot" 을 헤더·Pallet 과 **강제로 일치**시킨다.
+    -- 복합 FK 둘이 "Line 의 Lot" 을 헤더·Pallet 과 강제로 일치시킨다.
     --    단일 FK 셋으로 나누면 Line 이 다른 Lot 을 가리켜도 DB 가 안 막는다.
     CONSTRAINT fk_move_lines_move_lot
         FOREIGN KEY (move_id, lot_id) REFERENCES haetdeul.inventory_moves(move_id, lot_id),

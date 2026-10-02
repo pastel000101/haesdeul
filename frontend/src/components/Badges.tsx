@@ -1,8 +1,8 @@
 /**
- * 입력 출처 배지 — **이 화면이 반드시 보여줘야 하는 셋 중 하나.**
+ * 입력 출처 배지 — 이 화면이 반드시 보여줘야 하는 셋 중 하나.
  *
  * 같은 값이라도 실 DB 에서 온 것과 mock 에서 온 것은 판단의 무게가 다르다. 값만
- * 그리면 리포트를 읽는 사람이 **전부 실측으로 읽는다.**
+ * 그리면 리포트를 읽는 사람이 전부 실측으로 읽는다.
  */
 
 const GRADE_STYLE: Record<string, string> = {
@@ -48,7 +48,7 @@ export function SourceBadges({ sources }: { sources: Record<string, string> }) {
   );
 }
 
-/** 지적·확인 필요 묶음. **비어 있으면 그리지 않는다** — 할 말이 없으면 안 한다. */
+/** 지적·확인 필요 묶음. 비어 있으면 그리지 않는다 — 할 말이 없으면 안 한다. */
 export function Panel({
   title,
   items,

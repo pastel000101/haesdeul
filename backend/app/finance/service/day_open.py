@@ -1,6 +1,6 @@
-"""재무 개장 — 마스터 개장 경계가 넘긴 연결로 그날 상태를 물려받아 세운다. **commit 하지 않는다.**
+"""재무 개장 — 마스터 개장 경계가 넘긴 연결로 그날 상태를 물려받아 세운다. commit 하지 않는다.
 
-★ 2026-09-29 재구성 BL-014: `finance/day_open.py` 를 판정 · 순서 · SQL 로 나눴다.
+판정은 `domain/day_open.py`, SQL 은 `repository/day_open.py`.
 """
 
 from __future__ import annotations

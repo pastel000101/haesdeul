@@ -1,22 +1,21 @@
-"""그날 만든 판매안 read model — **매입 화면의 «금일 매입안» 과 같은 자리다.**
+"""그날 만든 판매안 read model — 매입 화면의 «금일 매입안» 과 같은 자리다.
 
-★ 판매 화면에는 «오늘 무엇을 팔자고 했나» 를 보여 주는 자리가 없었다. 확정된 판매와
-  채권은 있지만, 그건 이미 끝난 일이다. 매입 화면은 그날의 안을 카드로 펴 놓고 근거와
-  걸리는 것을 함께 보여 준다 — 판매도 같은 것을 볼 수 있어야 한다.
+판매 화면에서 «오늘 무엇을 팔자고 했나» 를 보여 준다. 확정된 판매와 채권은 이미 끝난
+일이고, 매입 화면처럼 그날의 안을 카드로 펴 놓고 근거와 걸리는 것을 함께 보여 주는
+것이 이 read model 이다.
 
-🔴 **판매가 자기 저장소를 읽는다.** 안 자체는 `sales_agent_runs` 의
-   `response_payload.payload.scenarios` 에 있다. 다시 만들지 않고 저장된 것을 편다.
+판매가 자기 저장소를 읽는다. 안 자체는 `sales_agent_runs` 의
+`response_payload.payload.scenarios` 에 있다. 다시 만들지 않고 저장된 것을 편다.
 
-🔴 **재무 판정을 판매가 계산하지 않는다.** 통과 여부는 재무가 자기 이력에 남긴 값이고,
-   여기서는 **같은 요청 키와 안 번호로 찾아 읽기만** 한다. 판매가 마진이나 여신으로
-   판정을 흉내 내면 두 화면이 다른 답을 말하는 날이 온다.
+재무 판정을 판매가 계산하지 않는다. 통과 여부는 재무가 자기 이력에 남긴 값이고,
+여기서는 같은 요청 키와 안 번호로 찾아 읽기만 한다. 판매가 마진이나 여신으로 판정을
+흉내 내면 두 화면이 다른 답을 말하는 날이 온다.
 
-⚠️ **실행 축이 컬럼에 없다.** `sales_agent_runs` 는 `sim_run_id` 칸을 갖고 있지 않아
-  요청 봉투 안의 값으로 거른다 (`console_runs` 와 같은 자리).
+주의: 실행 축이 컬럼에 없다. `sales_agent_runs` 는 `sim_run_id` 칸을 갖고 있지 않아
+요청 봉투 안의 값으로 거른다 (`console_runs` 와 같은 방식).
 
-★ 2026-09-29 BL-013: `sales/console_proposals.py` 에서 저장된 안을 응답으로 펴는 조립을
-  옮겼다. SQL 은 `repository/console_proposals.py`, 안 하나와 그날 화면의 자리를 가르는 판정은
-  `domain/console_proposals.py`, 응답 모델은 `schemas/console_proposals.py` 다.
+SQL 은 `repository/console_proposals.py`, 안 하나와 그날 화면의 자리를 가르는 판정은
+`domain/console_proposals.py`, 응답 모델은 `schemas/console_proposals.py` 다.
 """
 
 from collections import Counter
@@ -40,7 +39,7 @@ def _decimal(value: object) -> Decimal | None:
     try:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
-        #  ⚠️ 못 읽는 값을 0 으로 바꾸지 않는다. 0 원 제안과 «못 읽었다» 는 다른 사실이다.
+        # 못 읽는 값을 0 으로 바꾸지 않는다. 0 원 제안과 «못 읽었다» 는 다른 사실이다.
         return None
 
 
@@ -65,7 +64,7 @@ def _date(value: object) -> date | None:
 
 
 def _texts(value: object) -> list[str]:
-    """문장 목록. **문자열이 아닌 항목은 버리지 않고 글자로 적는다.**"""
+    """문장 목록. 문자열이 아닌 항목은 버리지 않고 글자로 적는다."""
     if not isinstance(value, list):
         return []
     return [item if isinstance(item, str) else str(item) for item in value]
@@ -76,7 +75,7 @@ def _sale_status(
 ) -> str | None:
     """`sale_id_for`(`domain/sale_ledger.py`)가 만든 번호는 `…-{안 번호}` 로 끝난다.
 
-    ★ **다른 안과 섞이지 않게 끝까지 맞춘다.**
+    다른 안과 섞이지 않게 끝까지 맞춘다.
     """
     suffix = f"-{scenario_id}"
     for (request, sale_id), status in found.items():
@@ -88,8 +87,8 @@ def _sale_status(
 def _strategy(payload: dict[str, Any]) -> ConsoleSalesStrategy | None:
     """저장된 전략 라벨. 아무 칸도 없으면 `None` 이다 — 빈 칸을 지어내지 않는다.
 
-    ★ 여기 담기는 것은 **저장된 어휘**뿐이다. 모델이 돌려준 원문이나 HTTP 응답 본문은
-      들어오지 않는다.
+    여기 담기는 것은 저장된 어휘뿐이다. 모델이 돌려준 원문이나 HTTP 응답 본문은
+    들어오지 않는다.
     """
     keys = (
         "strategy_source",
@@ -112,7 +111,7 @@ def _strategy(payload: dict[str, Any]) -> ConsoleSalesStrategy | None:
 
 
 def _recommendation_reason(payload: dict[str, Any], recommended: bool) -> str | None:
-    """추천한 안에만, 판매가 저장한 이유를 옮긴다. 비어 있으면 `None` 이다."""
+    """추천한 안에만, 판매가 저장한 이유를 싣는다. 비어 있으면 `None` 이다."""
     if not recommended:
         return None
     for key in ("recommendation", "llm"):
@@ -125,7 +124,7 @@ def _recommendation_reason(payload: dict[str, Any], recommended: bool) -> str | 
 
 
 def get_console_sales_proposals(*, sim_run_id: str, as_of: date) -> ConsoleSalesProposalsResponse:
-    """그날의 판매안. **안이 없으면 빈 목록이지, 0원 제안이 아니다.**"""
+    """그날의 판매안. 안이 없으면 빈 목록이지, 0원 제안이 아니다."""
     with core_db.read_connection() as conn:
         rows: list[ConsoleSalesProposal] = []
         requests: set[str] = set()
@@ -145,8 +144,8 @@ def get_console_sales_proposals(*, sim_run_id: str, as_of: date) -> ConsoleSales
                 continue
             quantity = _decimal(scenario.get("quantity_kg"))
             if quantity is not None and quantity <= 0:
-                #  🔴 팔 물량이 0이면 안이 선 것이 아니다. 재무도 검토할 것이 없어
-                #     판정이 안 붙고, 화면에서는 «검토 전» 으로 남아 밀린 안처럼 보인다.
+                # 팔 물량이 0이면 안이 선 것이 아니다. 재무도 검토할 것이 없어
+                # 판정이 안 붙고, 화면에서는 «검토 전» 으로 남아 밀린 안처럼 보인다.
                 hidden += 1
                 continue
             payload = raw["payload"] if isinstance(raw["payload"], dict) else {}
@@ -213,8 +212,8 @@ def get_console_sales_proposals(*, sim_run_id: str, as_of: date) -> ConsoleSales
                     recommendation_reason=_recommendation_reason(payload, is_recommended),
                     sale_status=_sale_status(sale_statuses, request_id, str(scenario_id)),
                     presentation_state=state,  # type: ignore[arg-type]
-                    #  🔴 통과한 안만 확정 경계를 넘을 수 있다. «확인 필요» 도 막는다 —
-                    #     사람이 봐야 한다는 말은 아직 승인이 아니라는 뜻이다.
+                    # 통과한 안만 확정 경계를 넘을 수 있다. «확인 필요» 도 막는다 —
+                    # 사람이 봐야 한다는 말은 아직 승인이 아니라는 뜻이다.
                     approval_blocked=state != "PRESENTABLE",
                     unresolved_reason_codes=unresolved_reasons,
                     strategy=_strategy(payload),
@@ -240,17 +239,17 @@ def _text(value: object) -> str | None:
 
 
 def _bool(value: object) -> bool | None:
-    """⚠️ `None` 은 «모른다» 다. `False` 로 바꾸면 «확인했고 아니다» 가 된다."""
+    """`None` 은 «모른다» 다. `False` 로 바꾸면 «확인했고 아니다» 가 된다."""
     return None if value is None else bool(value)
 
 
 def _failing_reasons(rule_results: object) -> list[str]:
-    """판정을 **가른** 규칙의 사유만 모은다.
+    """판정을 가른 규칙의 사유만 모은다.
 
-    🔴 **최상위 `reason_codes` 를 쓰지 않는다.** 그 배열에는 통과 사유까지 함께 들어
-       있어(실측: PASS 판정에도 일곱 개), 그대로 쓰면 통과한 규칙이 거절 사유로 읽힌다.
+    최상위 `reason_codes` 를 쓰지 않는다. 그 배열에는 통과 사유까지 함께 들어
+    있어(실측: PASS 판정에도 일곱 개), 그대로 쓰면 통과한 규칙이 거절 사유로 읽힌다.
 
-    ⚠️ `REVIEW_REQUIRED` 도 함께 담는다 — 왜 «확인 필요» 인지도 사유가 있어야 한다.
+    `REVIEW_REQUIRED` 도 함께 담는다 — 왜 «확인 필요» 인지도 사유가 있어야 한다.
     """
     if not isinstance(rule_results, list):
         return []

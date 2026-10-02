@@ -1,12 +1,12 @@
 /**
  * 마스터 API 클라이언트.
  *
- * ★ **`/api` 프리픽스는 개발에서는 `next.config.ts`, production 정적 export에서는
- *   nginx가 백엔드로 넘긴다.** 둘 다 same-origin 이므로 CORS 와 외부 절대 주소가 없다.
+ * `/api` 프리픽스는 개발에서는 `next.config.ts`, production 정적 export에서는
+ * nginx가 백엔드로 넘긴다. 둘 다 same-origin 이므로 CORS 와 외부 절대 주소가 없다.
  *
- * ★ **서버가 낸 오류 문장을 그대로 올린다.** 화면이 *"오류가 발생했습니다"* 로 덮으면
- *   `422 '초공격' 은 이 실행이 내놓은 안이 아니다. 제시된 안: 보수, 기본, 공격` 처럼
- *   **무엇을 고쳐야 하는지 알려주는 문장**이 사라진다.
+ * 서버가 낸 오류 문장을 그대로 올린다. 화면이 "오류가 발생했습니다" 로 덮으면
+ * `422 '초공격' 은 이 실행이 내놓은 안이 아니다. 제시된 안: 보수, 기본, 공격` 처럼
+ * 무엇을 고쳐야 하는지 알려주는 문장이 사라진다.
  */
 
 import { DEFAULT_AS_OF, asOfSnapshot } from "./demo_as_of";
@@ -38,38 +38,39 @@ export class ApiError extends Error {
  *
  * 2026-09-11 실측 (같은 LAN 의 DB · 걷기가 도는 중) — `/health` `0.12s` ·
  * `/master/burn-in` `0.09s` · `/master/runs/{id}` `0.07s` · `…/report` `0.04s`.
- * **20초는 그 최대의 160배**다.
+ * 20초는 그 최대의 160배다.
  */
 const READ_TIMEOUT_MS = 20_000;
 
 /**
  * 실행은 상한이 다르다 — 하루치 판단을 통째로 돌린다.
  *
- * 처음에 `180초`(읽기 최대의 6배)로 잡았다가 **재고 물렀다.** `master_agent_runs.elapsed_ms`
- * 를 `request_id` 로 묶어(5분 넘게 벌어지면 다른 실행으로 자름) 실행 한 번의 소요를 세면 —
+ * 2026-09-11 실측: `master_agent_runs.elapsed_ms` 를 `request_id` 로 묶어(5분 넘게
+ * 벌어지면 다른 실행으로 자름) 실행 한 번의 소요를 세면 —
  *
- *     LLM 이 산 실행   377회   중앙 12.6s · p90 45.1s · p99 243.0s · 최대 **731.0s**
- *     LLM 이 꺼진 실행 5,102회 중앙  2.3s · p90  5.0s · p99  11.5s · 최대   67.2s
+ *     LLM 이 산 실행   377회   중앙 12.6s · p90 45.1s · p99 243.0s · 최대 731.0s
+ *     LLM 이 꺼진 실행 5,102회 중앙  2.3s · p90  5.0s · p99  11.5s · 최대  67.2s
  *
- * 상한별로 **잘렸을 실행**이 이렇게 된다 (LLM 이 산 377회 기준) —
+ * 상한별로 잘렸을 실행이 이렇게 된다 (LLM 이 산 377회 기준) —
  *
  *      60s  32건 (8.5%)      180s  9건 (2.4%)      600s  1건 (0.3%)
  *     120s  13건 (3.4%)      300s  2건 (0.5%)      900s  0건
  *
- * ★ `900초` 를 고른다. 이 상한이 하려는 일은 *"느린 실행을 빨리 자르는 것"* 이 아니라
- *   *"영영 안 끝나는 실행을 끝내는 것"* 이다 — **관측된 정상 실행을 하나도 안 자르는**
- *   가장 낮은 칸이다. 잘린 실행은 화면에서 안이 통째로 사라지므로, 시연에서는 그쪽이
- *   더 나쁘다.
+ * `900초` 를 고른다. 이 상한이 하려는 일은 "느린 실행을 빨리 자르는 것" 이 아니라
+ * "영영 안 끝나는 실행을 끝내는 것" 이다 — 관측된 정상 실행을 하나도 안 자르는
+ * 가장 낮은 칸이다. 잘린 실행은 화면에서 안이 통째로 사라지므로, 시연에서는 그쪽이
+ * 더 나쁘다.
  *
- * ⚠️ 15분 스피너가 좋다는 뜻이 아니다. 그건 진행 표시로 풀 일이고 여기 상한과 다른 판이다.
- * 🟡 위 표는 `2026-09-11` 기록이다. LLM·모델이 바뀌면 다시 재고 이 칸을 조인다.
- * 🔴 **`next.config.ts` 의 `experimental.proxyTimeout` 과 같은 값이다.** 개발에서는 이 호출이
- *   Next 프록시를 지나므로, 그쪽이 더 짧으면 여기 상한은 아무 의미가 없다 — 한쪽을 고치면 다른 쪽도.
+ * 주의: 15분 스피너가 좋다는 뜻이 아니다. 그건 진행 표시로 풀 일이고 여기 상한과 다른 판이다.
+ * 위 표는 2026-09-11 기록이다. LLM·모델이 바뀌면 다시 재고 이 칸을 조인다.
+ *
+ * 제약: `next.config.ts` 의 `experimental.proxyTimeout` 과 같은 값이다. 개발에서는 이 호출이
+ * Next 프록시를 지나므로, 그쪽이 더 짧으면 여기 상한은 아무 의미가 없다 — 한쪽을 고치면 다른 쪽도.
  */
 const EXECUTE_TIMEOUT_MS = 900_000;
 
 async function call<T>(path: string, init?: RequestInit, timeoutMs = READ_TIMEOUT_MS): Promise<T> {
-  // 🔴 **본문까지 같은 상한 안에 둔다.** 헤더만 먼저 오고 본문이 안 끝나는 경우가 있다.
+  // 본문까지 같은 상한 안에 둔다. 헤더만 먼저 오고 본문이 안 끝나는 경우가 있다.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -85,8 +86,8 @@ async function send<T>(
   timeoutMs: number,
   init?: RequestInit,
 ): Promise<T> {
-  // ⚠️ **끊은 것과 못 닿은 것은 다른 사고다.** 한 문장으로 뭉치면 보는 사람이
-  //    "서버를 켜라" 는 엉뚱한 조치를 한다 — 서버는 떠 있고 느린 것이다.
+  // 끊은 것과 못 닿은 것은 다른 사고다. 한 문장으로 뭉치면 보는 사람이
+  // "서버를 켜라" 는 엉뚱한 조치를 한다 — 서버는 떠 있고 느린 것이다.
   const tooSlow = () =>
     new ApiError(0, `${timeoutMs / 1000}초 안에 응답이 오지 않아 끊었습니다 — 서버가 떠 있으나 느립니다.`);
 
@@ -127,17 +128,17 @@ async function send<T>(
 /**
  * 기본 기준일.
  *
- * 🔴 값의 주인은 `lib/demo_as_of.ts` 하나다 (`#431`). 예전에는 이 파일과
- *    `components/console/useTab.ts` 가 **각자 다른 기본값을 들고 있었다** —
- *    마스터는 `2025-12-31` 로 판단하고 탭은 `2026-01-06` 을 보여 줬다.
+ * 값의 주인은 `lib/demo_as_of.ts` 하나다 (`#431`). 이 파일과
+ * `components/console/useTab.ts` 가 각자 기본값을 들면 마스터가 판단한 날짜와 탭이
+ * 보여 주는 날짜가 갈린다.
  *
- * ★ 이 상수는 **기본값 자리로만 남는다.** 실제로 부를 때 쓰는 값은
- *   `asOfSnapshot()` 이 준다 — 시연 중에 화면에서 날짜를 바꾸면 그 값이 바뀐다.
+ * 이 상수는 기본값 자리로만 남는다. 실제로 부를 때 쓰는 값은
+ * `asOfSnapshot()` 이 준다 — 시연 중에 화면에서 날짜를 바꾸면 그 값이 바뀐다.
  */
 export const AS_OF = DEFAULT_AS_OF;
 export const POLICY_VERSION = "v1.3";
 
-/** ① 발화문을 분류한다. **확인이 필요하면 아무것도 실행하지 않는다.** */
+/** ① 발화문을 분류한다. 확인이 필요하면 아무것도 실행하지 않는다. */
 export function ask(
   utterance: string,
   context?: { simRunId?: string; dateFrom?: string; dateTo?: string },
@@ -158,14 +159,14 @@ export function ask(
 /**
  * ② 확인한 의도를 실행한다.
  *
- * 🔴 **`intent` 를 그대로 되돌려보낸다.** 서버는 재분류하지 않는다 — 다시 분류하면
- *    사용자가 확인한 것과 다른 것이 돌 수 있고, 그 순간 확인의 뜻이 사라진다.
+ * `intent` 를 그대로 되돌려보낸다. 서버는 재분류하지 않는다 — 다시 분류하면
+ * 사용자가 확인한 것과 다른 것이 돌 수 있고, 그 순간 확인의 뜻이 사라진다.
  */
 export function execute(args: {
   intent: Intent;
   requestId?: string;
   targetRequestId?: string;
-  /** 화면이 **보고 있던 실행**. 없으면 서버가 최신을 고르고 경합이 남는다. */
+  /** 화면이 보고 있던 실행. 없으면 서버가 최신을 고르고 경합이 남는다. */
   targetHistoryRunId?: string;
   decidedBy?: string;
   /** 일반 Finance/Sales/Partner write 의 로그인 사용자. 승인 의미와 분리한다. */
@@ -190,7 +191,7 @@ export function execute(args: {
         utterance: args.utterance ?? null,
       }),
     },
-    // 🔴 여기만 상한이 다르다 — 읽기가 아니라 **돌리는** 호출이다.
+    // 여기만 상한이 다르다 — 읽기가 아니라 돌리는 호출이다.
     EXECUTE_TIMEOUT_MS,
   );
 }
@@ -199,7 +200,7 @@ export function runHistory(requestId: string): Promise<RunHistory> {
   return call<RunHistory>(`/master/runs/${encodeURIComponent(requestId)}`);
 }
 
-/** 매입안 보고서. **서버가 만든 Markdown 을 그대로 받는다.** */
+/** 매입안 보고서. 서버가 만든 Markdown 을 그대로 받는다. */
 export function runReport(requestId: string): Promise<RunReport> {
   return call<RunReport>(`/master/runs/${encodeURIComponent(requestId)}/report`);
 }
@@ -212,7 +213,7 @@ export function getPurchaseRecord(requestId: string): Promise<PurchaseRecordOut>
 /**
  * 사람이 실제로 산 값을 적는다. 적는 순간 그 값으로 매입 원장 · 채무 · 입고 일정이 선다.
  *
- * ★ 422 · 409 의 사유(재검증 불통과 · 마감된 날짜 · 이미 기록함)는 `ApiError.message` 에 그대로 온다.
+ * 422 · 409 의 사유(재검증 불통과 · 마감된 날짜 · 이미 기록함)는 `ApiError.message` 에 그대로 온다.
  */
 export function postPurchaseRecord(
   requestId: string,
@@ -230,17 +231,17 @@ export function postPurchaseRecord(
 }
 
 /**
- * 사람이 한 승인을 **되돌린다** — 조건을 붙인 재요청을 한 회차 더 적는다.
+ * 사람이 한 승인을 되돌린다 — 조건을 붙인 재요청을 한 회차 더 적는다.
  *
- * ★ **새 경로가 아니다.** 승인 · 전체 거절과 같은 `/decision` 한 곳이고, 무엇을
- *   적느냐만 다르다. 결정은 지우지 않고 **회차를 쌓아 접는다** — 최신 회차가 승인이
- *   아니게 되면 그 승인이 만든 실매입 기록은 매입 원장에 서지 않는다.
+ * 별도 경로가 아니다. 승인 · 전체 거절과 같은 `/decision` 한 곳이고, 무엇을
+ * 적느냐만 다르다. 결정은 지우지 않고 회차를 쌓아 접는다 — 최신 회차가 승인이
+ * 아니게 되면 그 승인이 만든 실매입 기록은 매입 원장에 서지 않는다.
  *
- * 🔴 **조건(`conditionText`)이 비면 서버가 422 로 거절한다** — 조건 없는 재요청은
- *   그냥 거절이라 다른 뜻이 된다. 부르기 전에 화면이 먼저 막는다.
+ * 조건(`conditionText`)이 비면 서버가 422 로 거절한다 — 조건 없는 재요청은
+ * 그냥 거절이라 다른 뜻이 된다. 부르기 전에 화면이 먼저 막는다.
  *
- * ★ 상한은 읽기와 같다. 승인과 달리 **재검증을 돌리지 않는** 결정이라 DB 한 번 쓰고
- *   끝난다 — 15분 상한은 이 호출이 멈춘 것을 15분 동안 숨긴다.
+ * 상한은 읽기와 같다. 승인과 달리 재검증을 돌리지 않는 결정이라 DB 한 번 쓰고
+ * 끝난다 — 15분 상한은 이 호출이 멈춘 것을 15분 동안 숨긴다.
  */
 export function requestPlanChange(args: {
   requestId: string;
@@ -262,11 +263,11 @@ export function requestPlanChange(args: {
 /* ── 하루를 넘기는 단계 ─────────────────────────────────────────────────── */
 
 /**
- * 하루가 도는 순서의 한 칸. **이름의 주인은 백엔드 라우트다** — 화면이 짓지 않는다.
+ * 하루가 도는 순서의 한 칸. 이름의 주인은 백엔드 라우트다 — 화면이 짓지 않는다.
  *
- * 🔴 **순서는 `app/master/service/scheduler.py` 가 못 박았다** (개장 → 전이 재시도 → 입고 →
- *    채권 → 수금 → 판단 → 출고 → 마감). 여기 타입은 그 순서를 **고르는 자리**일 뿐이고,
- *    무엇을 먼저 부를지는 부르는 쪽이 그 문서대로 적는다.
+ * 순서는 `app/master/service/scheduler.py` 가 못 박았다 (개장 → 전이 재시도 → 입고 →
+ * 채권 → 수금 → 판단 → 출고 → 마감). 여기 타입은 그 순서를 고르는 자리일 뿐이고,
+ * 무엇을 먼저 부를지는 부르는 쪽이 그 문서대로 적는다.
  */
 export type DayStepPath =
   | "open"
@@ -278,11 +279,11 @@ export type DayStepPath =
   | "close";
 
 /**
- * 단계 하나의 결과. **일곱이 같은 모양이다** — `status` 와 `reason` 이 그날의 사실이다.
+ * 단계 하나의 결과. 일곱이 같은 모양이다 — `status` 와 `reason` 이 그날의 사실이다.
  *
- * 🔴 **성공 어휘를 화면이 외우지 않는다.** 단계마다 다르고(`OPENED` · `RECEIVED` ·
- *    `ISSUED` · `COLLECTED` · `RAN` · `CLOSED` · `NOTHING_DUE` …) 주인은 각 부서
- *    모듈이다. 화면은 **멈추는 어휘 넷**만 보고 나머지는 지나간 것으로 읽는다.
+ * 성공 어휘를 화면이 외우지 않는다. 단계마다 다르고(`OPENED` · `RECEIVED` ·
+ * `ISSUED` · `COLLECTED` · `RAN` · `CLOSED` · `NOTHING_DUE` …) 주인은 각 부서
+ * 모듈이다. 화면은 멈추는 어휘 넷만 보고 나머지는 지나간 것으로 읽는다.
  */
 export interface DayStepOut {
   status: string;
@@ -291,9 +292,9 @@ export interface DayStepOut {
 }
 
 /**
- * 하루 단계 하나를 손으로 부른다. **걷기가 부르는 함수와 같은 자리다.**
+ * 하루 단계 하나를 손으로 부른다. 걷기가 부르는 함수와 같은 자리다.
  *
- * ★ 상한은 실행과 같다 — 장부를 바꾸는 호출이라 읽기 상한(20초)으로는 짧다.
+ * 상한은 실행과 같다 — 장부를 바꾸는 호출이라 읽기 상한(20초)으로는 짧다.
  */
 export function dayStep(
   step: DayStepPath,
@@ -316,12 +317,12 @@ export function health(): Promise<{ status: string }> {
 /**
  * 운영 콘솔이 보내는 판매 요청.
  *
- * 🔴 **업무 요청 수준만 보낸다.** 원가·여신·마진·물류 판정·`end_code` 는 여기 없다 —
- *    그것은 각 도메인이 답할 몫이고, 화면이 실어 보내면 판정이 화면에서 시작된다.
+ * 업무 요청 수준만 보낸다. 원가·여신·마진·물류 판정·`end_code` 는 여기 없다 —
+ * 그것은 각 도메인이 답할 몫이고, 화면이 실어 보내면 판정이 화면에서 시작된다.
  *
- * ★ `source_ref` 는 *"이 상업조건을 누가 정했나"* 다. 콘솔에서 사람이 조건을 적었으니
- *   출처는 **이 요청 자체**이고, 그 사실을 그대로 적는다. 없으면 재무가 입력 미비로
- *   판정을 닫는다 (실측 2026-09-11 · `SALES_INPUT_INCOMPLETE`).
+ * `source_ref` 는 "이 상업조건을 누가 정했나" 다. 콘솔에서 사람이 조건을 적었으니
+ * 출처는 이 요청 자체이고, 그 사실을 그대로 적는다. 없으면 재무가 입력 미비로
+ * 판정을 닫는다 (2026-09-11 실측 · `SALES_INPUT_INCOMPLETE`).
  */
 export interface SalesRunRequest {
   as_of: string;
@@ -362,11 +363,11 @@ export interface SalesRunResponse {
 }
 
 /**
- * 판매 후보를 만든다. **마스터가 순서를 소유한다** — 화면은 물류·재무를 직접 부르지
+ * 판매 후보를 만든다. 마스터가 순서를 소유한다 — 화면은 물류·재무를 직접 부르지
  * 않는다.
  *
- * ⚠️ 상한은 실행(`execute`)과 같은 자리에 둔다. 물류 조회 → 판매 제안 → 재무 검증까지
- *   한 번에 도는 호출이라 읽기 상한(20초)으로는 짧다.
+ * 상한은 실행(`execute`)과 같은 자리에 둔다. 물류 조회 → 판매 제안 → 재무 검증까지
+ * 한 번에 도는 호출이라 읽기 상한(20초)으로는 짧다.
  */
 export function salesRun(request: SalesRunRequest): Promise<SalesRunResponse> {
   return call<SalesRunResponse>(
@@ -389,9 +390,9 @@ export function salesRun(request: SalesRunRequest): Promise<SalesRunResponse> {
 /**
  * 거래처 원장 행.
  *
- * 🔴 **여신 한도가 없다.** 그 정본은 재무의 `partner_credit_limits` 이고, 여기에 칸을
- *    하나 더 두면 두 곳이 서로 다른 한도를 말하는 날이 온다. `credit_source` 가 어디에
- *    물어야 하는지를 말한다.
+ * 여신 한도가 없다. 그 정본은 재무의 `partner_credit_limits` 이고, 여기에 칸을
+ * 하나 더 두면 두 곳이 서로 다른 한도를 말하는 날이 온다. `credit_source` 가 어디에
+ * 물어야 하는지를 말한다.
  */
 export interface PartnerProfile {
   partner_id: string;
@@ -409,7 +410,7 @@ export interface PartnerProfile {
   credit_source: string;
 }
 
-/** 보낸 칸만 고친다. **안 보낸 칸은 그대로다.** */
+/** 보낸 칸만 고친다. 안 보낸 칸은 그대로다. */
 export type PartnerProfileUpdate = Partial<
   Pick<
     PartnerProfile,
@@ -430,7 +431,7 @@ export function partnerProfile(partnerId: string): Promise<PartnerProfile> {
   return call<PartnerProfile>(`/sales/partners/${encodeURIComponent(partnerId)}/profile`);
 }
 
-/** 고친 뒤 **저장된 행**을 돌려받는다 — 화면이 믿는 값이 아니라 장부의 값이다. */
+/** 고친 뒤 저장된 행을 돌려받는다 — 화면이 믿는 값이 아니라 장부의 값이다. */
 export function savePartnerProfile(
   partnerId: string,
   update: PartnerProfileUpdate,

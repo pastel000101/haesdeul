@@ -1,8 +1,7 @@
 """재고·물류 Agent의 결정론적 계산 도구.
 
-★ 2026-09-30 재구성 BL-015: `logistics/tools.py` 에서 옮겼다. 판매 가용 Lot 상태
-  (`ACTIVE_LOT_STATUS`)는 `schemas/vocabulary.py` 에서 읽고, 다른 모듈이 쓰던 두 도우미는 공개
-  이름(`sellable_lot_contributions` · `commitment_axes`)으로 올렸다.
+판매 가용 Lot 상태(`ACTIVE_LOT_STATUS`)는 `schemas/vocabulary.py` 에서 읽는다. 다른 모듈도
+쓰는 두 도우미는 공개 이름(`sellable_lot_contributions` · `commitment_axes`)이다.
 """
 
 from collections.abc import Mapping, Sequence
@@ -29,9 +28,9 @@ from app.logistics.schemas.vocabulary import ACTIVE_LOT_STATUS
 #: cap_by_date 조회 창 길이 (`as_of + inbound_lead_days`부터, Policy 확정값 18).
 #: Window 밖은 0이 아니라 미조회 영역이다.
 #:
-#: ★ **이 값과 창 구성은 여기 한 벌이다** (#121 ⑤). 종전에는 어댑터가 같은 18과
-#:   같은 날짜 나열을 따로 들고 있어, 한쪽만 바뀌는 날 판정 창(CAPACITY_TIGHT)과
-#:   M-1 조회 창이 조용히 갈라질 자리였다.
+#: 이 값과 창 구성은 여기 한 벌이다 (#121 ⑤). 같은 18과 같은 날짜 나열을 다른 곳이
+#: 따로 들고 있으면, 한쪽만 바뀌는 날 판정 창(CAPACITY_TIGHT)과 M-1 조회 창이 조용히
+#: 갈라진다.
 CAP_BY_DATE_WINDOW_DAYS = 18
 
 
@@ -80,9 +79,9 @@ def calculate_window_capacity_usage(
     드러내므로 여기서 이름을 중복으로 만들지 않는다.
     """
     guaranteed = snapshot.guaranteed_capacity_kg
-    # ★ guaranteed 를 **먼저** 본다 — 창 구성보다 앞이다. 순서를 바꾸면 극단 입력
-    #   (`as_of` 가 date.max 근처 + lead > 0)에서 종전의 `None` 대신 OverflowError 가
-    #   난다. 관측 가능성은 낮지만 순서 하나로 종전 동작이 그대로 남는다.
+    # guaranteed 를 먼저 본다 — 창 구성보다 앞이다. 순서를 바꾸면 극단 입력
+    # (`as_of` 가 date.max 근처 + lead > 0)에서 guaranteed 가 없을 때 `None` 대신
+    # OverflowError 가 난다. 관측 가능성은 낮지만 순서 하나로 `None` 이 지켜진다.
     if guaranteed is None:
         return None
     window = build_cap_window(snapshot, as_of)
@@ -99,22 +98,22 @@ def calculate_window_capacity_usage(
 
 @dataclass(frozen=True)
 class FreshnessLotCensus:
-    """가용(ACTIVE) Lot 을 신선도 계산 가능성으로 가른 결과. **분류의 유일한 주인이다.**
+    """가용(ACTIVE) Lot 을 신선도 계산 가능성으로 가른 결과. 분류의 유일한 주인이다.
 
     ```text
     ratios                비율을 셈할 수 있었던 Lot (잔여 > 0 · 유효 한계 > 0)
     unresolved_lot_count  잔여 또는 유효 한계를 확인하지 못해 뺀 Lot
-    expired_lot_count     잔여가 0 이하로 **확인된** Lot
+    expired_lot_count     잔여가 0 이하로 확인된 Lot
     ```
 
-    ★ 세 갈래는 서로 배타이고 합이 ACTIVE Lot 수다 — 어느 Lot 도 두 번 세이지 않고,
-      어느 Lot 도 조용히 사라지지 않는다.
+    세 갈래는 서로 배타이고 합이 ACTIVE Lot 수다 — 어느 Lot 도 두 번 세이지 않고,
+    어느 Lot 도 조용히 사라지지 않는다.
 
-    🔴 **`expired_lot_count` 는 폐기 판정이 아니다.** 잔여가 0 이하라는 사실은
-       `build_inventory_by_item` 이 판매 가용에서 빼는 기준이고
-       `turnover.is_disposal_candidate` 가 폐기**대기**로 읽는 입력이지만, 폐기 여부의
-       판정과 실행은 `turnover` · `disposal` 소유이며 사람 확정을 거친다. 여기서
-       세는 것은 상태 건수뿐이다.
+    `expired_lot_count` 는 폐기 판정이 아니다. 잔여가 0 이하라는 사실은
+    `build_inventory_by_item` 이 판매 가용에서 빼는 기준이고
+    `turnover.is_disposal_candidate` 가 폐기대기로 읽는 입력이지만, 폐기 여부의
+    판정과 실행은 `turnover` · `disposal` 소유이며 사람 확정을 거친다. 여기서
+    세는 것은 상태 건수뿐이다.
     """
 
     ratios: list[Decimal]
@@ -125,7 +124,7 @@ class FreshnessLotCensus:
 def collect_freshness_lot_census(
     snapshot: InventoryLogisticsSnapshot,
 ) -> FreshnessLotCensus:
-    """가용 Lot 을 신선도 계산 가능성으로 가른다. **비교도 판정도 하지 않는다.**
+    """가용 Lot 을 신선도 계산 가능성으로 가른다. 비교도 판정도 하지 않는다.
 
     비율 = remaining_freshness_days ÷ effective_freshness_limit_days.
     분모는 remaining 계산에 실제 사용된 유효 한계다 — operational_limit 원값을
@@ -133,11 +132,11 @@ def collect_freshness_lot_census(
 
     대상은 가용 재고 Lot 이다: 비-ACTIVE(격리·검수 등)는 `build_inventory_by_item` 과
     같은 기준으로 제외한다. remaining 이나 유효 한계가 None 인 Lot 은 0 취급도 위험
-    강제도 하지 않고 비율에서 빼되 **센다** (조용한 누락 금지). grade=None 은 제외
+    강제도 하지 않고 비율에서 빼되 센다 (조용한 누락 금지). grade=None 은 제외
     사유가 아니다 — remaining 은 등급과 무관하게 계산된다.
 
-    ★ **갈래의 순서가 계약이다.** 잔여가 `None` 인지 먼저 보고(미확인), 그 다음 0 이하
-      인지 본다(만료 확인). 순서를 바꾸면 `None` 이 만료로 읽힌다.
+    갈래의 순서가 계약이다. 잔여가 `None` 인지 먼저 보고(미확인), 그 다음 0 이하
+    인지 본다(만료 확인). 순서를 바꾸면 `None` 이 만료로 읽힌다.
     """
     ratios: list[Decimal] = []
     unresolved = 0
@@ -169,9 +168,9 @@ def collect_freshness_pressure_inputs(
 ) -> tuple[list[Decimal], int]:
     """가용 Lot 의 신선도 잔여 비율 목록과, 비율을 셈할 수 없어 제외된 Lot 수.
 
-    ★ **`collect_freshness_lot_census` 의 얇은 wrapper 다** (#396). 분류를 한 곳에 두어
-      *"만료로 빠진 Lot"* 을 새로 세면서도 signal 판정의 입력은 글자 그대로 같게 남긴다 —
-      이 함수의 반환은 추출 전과 동일하고, `rules` 의 두 signal 도 그대로다.
+    `collect_freshness_lot_census` 의 얇은 wrapper 다 (#396). 분류를 한 곳에 두어
+    "만료로 빠진 Lot" 을 따로 세면서도 `rules` 의 두 signal 판정은 비율 목록과 미확인
+    건수만 입력으로 받는다.
     """
     census = collect_freshness_lot_census(snapshot)
     return census.ratios, census.unresolved_lot_count
@@ -190,7 +189,7 @@ def _replay_aggregate_occupancy(
 ) -> Decimal:
     """품목 축 없이 총 kg만 날짜순으로 재생한다 (H1 미래 점유 전용).
 
-    출고가 열어주는 공간은 **그 시점에 실제 창고에 있는 물량까지**다. 확정 출고가
+    출고가 열어주는 공간은 그 시점에 실제 창고에 있는 물량까지다. 확정 출고가
     보유량보다 많은 것은 계산이 무너져야 하는 오류가 아니라 추가 매입이 필요할 수
     있는 정상 업무 상태이고, 모자란 물량은 음수 점유량이 아니라 별개의 업무 사실이다
     (상세설계 §4 물리 점유량 정의).
@@ -244,7 +243,7 @@ def _replay_occupancy_by_item(
 ) -> Decimal:
     """품목별 물리 점유를 날짜순으로 재생해 target_date 시점의 창고 점유량을 만든다.
 
-    품목이 명확한 확정 출고는 **그 품목 재고에서만** 공간을 연다 — 다른 품목이나
+    품목이 명확한 확정 출고는 그 품목 재고에서만 공간을 연다 — 다른 품목이나
     미귀속 점유를 대신 소진했다고 계산하지 않는다. 창고 Capacity는 총 kg만 맞으면
     되는 숫자가 아니기 때문이다.
 
@@ -252,7 +251,7 @@ def _replay_occupancy_by_item(
     차감한다. 임의 품목 배분은 하지 않는다 — Partial Output 정책상 이 행이 있어도
     총량 Capacity는 계속 제공해야 한다.
 
-    품목 불명 출고가 한 번 나오면 **그 날짜부터 품목별 잔량을 확정할 수 없다.**
+    품목 불명 출고가 한 번 나오면 그 날짜부터 품목별 잔량을 확정할 수 없다.
     어느 품목에서 나갔느냐에 따라 이후 품목 지정 출고가 실제로 열 수 있는 공간이
     달라지기 때문이다. 배정을 추정하지 않고, 그 시점부터는 품목 지정 출고를 추가
     해제 근거로 쓰지 않는다. 보장할 수 없는 공간을 있는 것처럼 열어 주는 쪽보다
@@ -383,7 +382,7 @@ def find_in_transit_schedule_gap(snapshot: InventoryLogisticsSnapshot) -> str | 
         return "CONFIRMED_INBOUND_SCHEDULE_UNRESOLVED"
 
     # 같은 inbound_id가 confirmed schedule에 두 번 있으면 정상 데이터로 보지 않는다.
-    # 대조는 id 하나에 행 하나를 전제하는데, Capacity 계산은 두 행을 **모두** 점유로
+    # 대조는 id 하나에 행 하나를 전제하는데, Capacity 계산은 두 행을 모두 점유로
     # 더한다 — 조용히 넘기면 대조는 통과하고 점유만 이중 계상된다. 어느 행이 진짜인지
     # 여기서 고르지 않는다(뒤 행이 앞 행을 덮는 것도 하나를 고르는 것이다).
     #
@@ -436,52 +435,45 @@ def build_inventory_by_item(
     """가용재고 정의를 적용한 품목별 자유재고를 집계한다.
 
     가용 제외: 비-ACTIVE 상태(검수/격리/사용불가), 신선도 만료(<= 0),
-    **출고가 이미 잡아 둔 몫(예약·할당)**. 예상 판매·계획 출고는 차감하지 않는다.
+    출고가 이미 잡아 둔 몫(예약·할당). 예상 판매·계획 출고는 차감하지 않는다.
 
-    🔴 **차감 축은 한 벌이다 — 예약·할당뿐이다 (WP-3).** 종전에는 여기서
-       `confirmed_outbound_schedule` 도 함께 뺐다. 그런데 확정 판매는 그날 마스터
-       출고 흐름이 **예약으로 내려보내는 바로 그 사실**이라, 둘을 다 빼면 같은 판매가
-       두 번 차감된다.
+    차감 축은 한 벌이다 — 예약·할당뿐이다 (WP-3). `confirmed_outbound_schedule` 은
+    빼지 않는다. 확정 판매는 그날 마스터 출고 흐름이 예약으로 내려보내는 바로 그
+    사실이라, 둘을 다 빼면 같은 판매가 두 번 차감된다.
 
     ```text
-    ~WP-2   on_hand − 예약·할당 − confirmed_outbound   🔴 같은 판매를 두 번 뺀다
-    WP-3~   on_hand − 예약·할당                        ✅ 한 벌
+    on_hand − 예약·할당 − confirmed_outbound   틀리다  같은 판매를 두 번 뺀다
+    on_hand − 예약·할당                        맞다    한 벌
     ```
 
-       ⚠️ 실측(2026-09-05~09-09)에서 fixture 쪽이 전부 `CONFIRMED_ZERO`·`[]` 라
-          겹치지 않았을 뿐이다. 이 파일의 종전 주석이 *"실제 값이 들어오는 날 한 축으로
-          합쳐야 한다"* 고 예고했고(`schemas.InventoryLogisticsSnapshot`), WP-3 이 출고
-          정본을 판매로 옮기면서 그날이 왔다.
+    미래 Capacity 와는 다른 셈이다. `_replay_occupancy_by_item` 은
+    `confirmed_outbound_schedule` 을 쓴다 — 저쪽은 "미래 어느 날 창고가 얼마나
+    비는가" 이고 이쪽은 "지금 더 팔 수 있는가" 다. 둘을 한 축으로 합치지 않는다.
 
-    ★ **미래 Capacity 와는 다른 셈이다.** `_replay_occupancy_by_item` 은 여전히
-      `confirmed_outbound_schedule` 을 쓴다 — 저쪽은 *"미래 어느 날 창고가 얼마나
-      비는가"* 이고 이쪽은 *"지금 더 팔 수 있는가"* 다. 둘을 한 축으로 합치지 않는다.
-
-    🔴 **`outbound.item_free_stock_qty` 와 같은 답을 내야 한다.** 매입에 나가는 이 값이
-       예약이 실제로 잡을 수 있는 양보다 크면, 매입은 팔 수 있다고 보고 판매는 못 잡는
-       상태가 된다. 그래서 차감 규칙을 글자 그대로 맞춘다.
+    `service/outbound.item_free_stock_qty` 와 같은 답을 내야 한다. 매입에 나가는 이 값이
+    예약이 실제로 잡을 수 있는 양보다 크면, 매입은 팔 수 있다고 보고 판매는 못 잡는
+    상태가 된다. 그래서 차감 규칙을 글자 그대로 맞춘다.
 
     ```text
     Lot 기여   = available_qty_kg − 그 Lot 의 살아있는 할당 (ALLOCATED · PICKED)
     품목 차감  = 아직 Lot 을 안 고른 예약의 미할당 잔여
     ```
 
-      ★ 제외된 Lot(비-ACTIVE·신선도 만료)의 할당은 **자동으로 함께 빠진다** — 그 Lot 이
-        애초에 합계에 안 들어가므로 따로 빼면 과다 차감이 된다.
+      제외된 Lot(비-ACTIVE·신선도 만료)의 할당은 자동으로 함께 빠진다 — 그 Lot 이
+      애초에 합계에 안 들어가므로 따로 빼면 과다 차감이 된다.
 
-    ⚠️ `outbound_commitments` 가 `None`(미조회)이면 `None` 을 돌려준다.
-       `confirmed_outbound_schedule` 이 `None` 일 때와 같은 규율이다 — 못 읽은 축을
-       0 으로 놓으면 이미 팔린 재고를 다시 팔 수 있다고 답하게 된다.
+    `outbound_commitments` 가 `None`(미조회)이면 `None` 을 돌려준다. 못 읽은 축을
+    0 으로 놓으면 이미 팔린 재고를 다시 팔 수 있다고 답하게 된다.
 
-    ★ **품목을 `ITEMS` 로 거르지 않는다.** ML Forecast 가 없거나 계약 품목에서 빠진
-      품목이라도 창고에 실물이 있으면 그 사실은 나간다 — 계약 `app/contracts/core.py`
-      `ITEMS` 주석의 *"예측이 없다는 이유로 재고를 숨기지 않는다"* 가 이 자리를 가리킨다.
-      재고 축과 제안 축은 다르다: `E-UNKNOWN-ITEM`(`critic_v0_4.py`)이 거르는 것은
-      `scenario.qty_kg` 의 제안 품목이고 재고 집계가 아니다.
+    품목을 `ITEMS` 로 거르지 않는다. ML Forecast 가 없거나 계약 품목에서 빠진
+    품목이라도 창고에 실물이 있으면 그 사실은 나간다 — 계약 `app/contracts/core.py`
+    `ITEMS` 주석의 "예측이 없다는 이유로 재고를 숨기지 않는다" 가 이 자리를 가리킨다.
+    재고 축과 제안 축은 다르다: `E-UNKNOWN-ITEM`(`master/critic/critic_v0_4.py`)이
+    거르는 것은 `scenario.qty_kg` 의 제안 품목이고 재고 집계가 아니다.
     """
-    # 🔴 **`confirmed_outbound_schedule` 로 막지 않는다 (WP-3).** 이 셈이 그 축을 더
-    #    이상 안 쓰므로, 그것을 못 읽었다는 이유로 판매가능량을 못 낸다고 답하면
-    #    **상관없는 축 때문에 화면이 비는** 것이 된다.
+    # `confirmed_outbound_schedule` 로 막지 않는다 (WP-3). 이 셈이 그 축을 쓰지
+    # 않으므로, 그것을 못 읽었다는 이유로 판매가능량을 못 낸다고 답하면
+    # 상관없는 축 때문에 화면이 비는 것이 된다.
     axes = commitment_axes(snapshot)
     if axes is None:
         return None
@@ -502,15 +494,15 @@ def build_inventory_by_item(
 def sellable_lot_contributions(
     snapshot: InventoryLogisticsSnapshot, allocated_by_lot: Mapping[str, Decimal]
 ) -> list[tuple[InventoryLotSnapshot, Decimal]]:
-    """**판매가능 판정의 주인은 여기 하나다.** Lot 별로 더 팔 수 있는 양을 낸다.
+    """판매가능 판정의 주인은 여기 하나다. Lot 별로 더 팔 수 있는 양을 낸다.
 
-    ★ 품목 합계(`build_inventory_by_item`)와 FEFO 원가 배부(`fefo_inventory_cost_basis`)가
-      **같은 함수**를 부른다. 같은 규칙을 두 벌 적어 두면 한쪽만 고치는 날
-      *"팔 수 있다고 센 재고"* 와 *"원가를 배부한 재고"* 가 갈리고, 그때 나오는 것은
-      오류가 아니라 **맞지 않는 원가**다.
+    품목 합계(`build_inventory_by_item`)와 FEFO 원가 배부(`fefo_inventory_cost_basis`)가
+    같은 함수를 부른다. 같은 규칙을 두 벌 적어 두면 한쪽만 고치는 날
+    "팔 수 있다고 센 재고" 와 "원가를 배부한 재고" 가 갈리고, 그때 나오는 것은
+    오류가 아니라 맞지 않는 원가다.
 
-    ⚠️ 품목 단위 미할당 예약은 여기서 빼지 않는다 — Lot 에 붙지 않은 차감이라
-      Lot 축에 나눌 근거가 없다. 부르는 쪽이 자기 축에서 뺀다.
+    품목 단위 미할당 예약은 여기서 빼지 않는다 — Lot 에 붙지 않은 차감이라
+    Lot 축에 나눌 근거가 없다. 부르는 쪽이 자기 축에서 뺀다.
     """
     out: list[tuple[InventoryLotSnapshot, Decimal]] = []
     for lot in snapshot.on_hand_by_lot:
@@ -531,8 +523,8 @@ def commitment_axes(
 ) -> tuple[dict[str, Decimal], dict[str, Decimal]] | None:
     """출고가 이미 잡아 둔 몫을 (Lot 축, 품목 축) 두 벌로 모은다.
 
-    ⚠️ `outbound_commitments` 가 `None`(미조회)이면 `None` 이다. 못 읽은 축을 0 으로
-      놓으면 **이미 팔린 재고를 다시 팔 수 있다**고 답하게 된다.
+    `outbound_commitments` 가 `None`(미조회)이면 `None` 이다. 못 읽은 축을 0 으로
+    놓으면 이미 팔린 재고를 다시 팔 수 있다고 답하게 된다.
     """
     if snapshot.outbound_commitments is None:
         return None
@@ -556,45 +548,45 @@ def fefo_inventory_cost_basis(
     item: str,
     quantity_kg: Decimal,
 ) -> InventoryCostBasisSnapshot | None:
-    """확정 판매 물량에 창고 Lot 의 **실제 취득단가**를 FEFO 로 배부한다.
+    """확정 판매 물량에 창고 Lot 의 실제 취득단가를 FEFO 로 배부한다.
 
     ```text
-    정렬      turnover.fefo_sort_key — 실제 자동 출고와 **같은 키**다
+    정렬      turnover.fefo_sort_key — 실제 자동 출고와 같은 키다
     배부      남은 물량이 0 이 될 때까지 앞 Lot 부터 헌다
     완료 조건  remaining == 0 일 때만 기준이 선다
     ```
 
-    🔴 **예상이지 사실이 아니다.** PRE_SALES 는 이 판매의 예약도 할당도 서기 **전**이라
-       (판매 승인 → 예약 → `fefo_allocation` → 출고 순서다), 여기서 고른 Lot 은
-       *"지금 출고한다면 FEFO 가 집을 Lot"* 이다. 실제 출고 Lot 이 아니다 —
-       납기가 미래면 그 사이 입고·만료·남의 예약으로 달라질 수 있다.
+    예상이지 사실이 아니다. PRE_SALES 는 이 판매의 예약도 할당도 서기 전이라
+    (판매 승인 → 예약 → `fefo_allocation` → 출고 순서다), 여기서 고른 Lot 은
+    "지금 출고한다면 FEFO 가 집을 Lot" 이다. 실제 출고 Lot 이 아니다 —
+    납기가 미래면 그 사이 입고·만료·남의 예약으로 달라질 수 있다.
 
-       ★ 그래서 **순서만이라도 실제와 같아야 한다.** 규칙이 다르면 예상이 빗나가는
-         것이 아니라 **처음부터 다른 것을 재는** 것이 된다.
+    그래서 순서만이라도 실제와 같아야 한다. 규칙이 다르면 예상이 빗나가는
+    것이 아니라 처음부터 다른 것을 재는 것이 된다.
 
-    🔴 **모자라면 기준을 세우지 않는다 (`None`).** 0원이나 평균단가로 남은 물량을
-       메우면 재무는 *"원가를 안다"* 고 읽고 마진을 판정한다 — 없는 것을 채운 수치로
-       승인이 난다. `None` 이면 재무는 `RUNTIME_NOT_READY` 로 멈춘다.
+    모자라면 기준을 세우지 않는다 (`None`). 0원이나 평균단가로 남은 물량을
+    메우면 재무는 "원가를 안다" 고 읽고 마진을 판정한다 — 없는 것을 채운 수치로
+    승인이 난다. `None` 이면 재무는 `RUNTIME_NOT_READY` 로 멈춘다.
 
-    🔴 **판매가능 판정을 여기서 다시 만들지 않는다.** ACTIVE · 신선도 · 예약/할당
-       규칙은 `sellable_lot_contributions` 한 곳이 주인이고, 이 함수는 그 결과를
-       **소비만** 한다. 두 벌로 적으면 «팔 수 있다고 센 재고» 와 «원가를 배부한 재고»
-       가 갈리고, 그때 나오는 것은 오류가 아니라 맞지 않는 원가다.
+    판매가능 판정을 여기서 다시 만들지 않는다. ACTIVE · 신선도 · 예약/할당
+    규칙은 `sellable_lot_contributions` 한 곳이 주인이고, 이 함수는 그 결과를
+    소비만 한다. 두 벌로 적으면 «팔 수 있다고 센 재고» 와 «원가를 배부한 재고»
+    가 갈리고, 그때 나오는 것은 오류가 아니라 맞지 않는 원가다.
 
-    ★ **품목 축 미할당 예약도 FEFO 앞 Lot 부터 먹는다.** Lot 에 안 붙은 예약이라 어느
-      Lot 에서 나갈지는 아직 모르지만, **실제 자동 할당이 FEFO 앞쪽부터 집으므로**
-      (`fefo_allocation.allocate_reserved_stock_fefo`) 그 순서로 선점된 것으로 본다.
-      선점을 순서대로 소비하므로 여기 배부 가능한 총량은
-      `max(0, Σ기여 − 선점)` 이고, `build_inventory_by_item` 의 품목 합계와
-      **정확히 같다** — 그 합계는 순서와 무관하다.
+    품목 축 미할당 예약도 FEFO 앞 Lot 부터 먹는다. Lot 에 안 붙은 예약이라 어느
+    Lot 에서 나갈지는 아직 모르지만, 실제 자동 할당이 FEFO 앞쪽부터 집으므로
+    (`service/fefo_allocation.allocate_reserved_stock_fefo`) 그 순서로 선점된 것으로
+    본다. 선점을 순서대로 소비하므로 여기 배부 가능한 총량은
+    `max(0, Σ기여 − 선점)` 이고, `build_inventory_by_item` 의 품목 합계와
+    정확히 같다 — 그 합계는 순서와 무관하다.
 
-    ⚠️ `received_at` 이나 `unit_cost_krw_per_kg` 를 못 읽은 Lot 이 배부 대상에 걸리면
-      기준을 세우지 않는다 — 순서를 모르는 Lot 을 아무 데나 끼우거나 단가를 추정하는
-      대신 멈춘다.
+    `received_at` 이나 `unit_cost_krw_per_kg` 를 못 읽은 Lot 이 배부 대상에 걸리면
+    기준을 세우지 않는다 — 순서를 모르는 Lot 을 아무 데나 끼우거나 단가를 추정하는
+    대신 멈춘다.
 
-      ★ **신선도(`remaining_freshness_days`)가 `None` 인 것은 막지 않는다.** 그것은
-        *"모른다"* 이고 `fefo_sort_key` 가 **맨 뒤**로 보낸다 — 실제 출고와 같은
-        처리다 (`0 != null`).
+      신선도(`remaining_freshness_days`)가 `None` 인 것은 막지 않는다. 그것은
+      "모른다" 이고 `fefo_sort_key` 가 맨 뒤로 보낸다 — 실제 출고와 같은
+      처리다 (`0 != null`).
     """
     if quantity_kg <= 0:
         return None
@@ -674,49 +666,49 @@ def build_lot_constraints(snapshot: InventoryLogisticsSnapshot) -> list[LotConst
 
 # ── WP-4 · 날짜별 공급량과 납기 ─────────────────────────────────────────
 
-#: 🔴 **운송 소요시간의 정본이 스키마에 없다.** `transport.TransportPlan.standard_minutes`
-#:   가 늘 `None` 인 그 자리다 — 지도 API·평균속도·거리÷속도로 분을 지어내지 않기로
-#:   한 결정이 저쪽 모듈 주석에 있고, 여기서 그것을 뒤집지 않는다.
+#: 운송 소요시간의 정본이 스키마에 없다. `TransportPlan.standard_minutes`
+#: (`schemas/transport.py`)가 늘 `None` 인 그 자리다 — 지도 API·평균속도·거리÷속도로
+#: 분을 지어내지 않기로 한 결정이 그쪽 주석에 있고, 여기서 그것을 뒤집지 않는다.
 #:
-#: ★ **그래서 MVP 확정값 0 일을 상수로 든다.** `agent_policy_config` 행으로 만들면
-#:   *"정본이 있다"* 로 읽히는데 실제로는 없다. 0 은 «당일 출고분이 당일 닿는다» 는
-#:   MVP 가정이지 측정값이 아니다.
+#: 그래서 MVP 확정값 0 일을 상수로 든다. `agent_policy_config` 행으로 만들면
+#: "정본이 있다" 로 읽히는데 실제로는 없다. 0 은 «당일 출고분이 당일 닿는다» 는
+#: MVP 가정이지 측정값이 아니다.
 #:
-#: 🔴 **`outbound_prep_lead_days` 와 합치지 않는다.** 준비(1일)와 운송(0일)은 다른
-#:   사실이고, 합쳐 두면 운송 정본이 생기는 날 무엇을 고쳐야 하는지 알 수 없다.
+#: `outbound_prep_lead_days` 와 합치지 않는다. 준비(1일)와 운송(0일)은 다른
+#: 사실이고, 합쳐 두면 운송 정본이 생기는 날 무엇을 고쳐야 하는지 알 수 없다.
 TRANSPORT_LEAD_DAYS = 0
 
-#: 납기를 못 낸 이유. 🔴 **`LogisticsReasonCode`(창고 축)와 섞지 않는다** —
-#: 저쪽 `CAPACITY_EXCEEDED` 는 **창고 보관** 용량이고 이쪽은 **하루 출고** 여력이다.
+#: 납기를 못 낸 이유. `LogisticsReasonCode`(창고 축)와 섞지 않는다 —
+#: 저쪽 `CAPACITY_EXCEEDED` 는 창고 보관 용량이고 이쪽은 하루 출고 여력이다.
 DeliveryReasonCode = Literal[
     "DELIVERY_BEFORE_PREP_LEAD",
     "DAILY_OUTBOUND_CAPACITY_EXCEEDED",
 ]
 
-#: 그날 이미 확정된 출고가 하루 여력을 넘었다. 🔴 **0 으로 접지 않는다** — 접으면
+#: 그날 이미 확정된 출고가 하루 여력을 넘었다. 0 으로 접지 않는다 — 접으면
 #: 정책·데이터 이상이 «여력 0» 이라는 정상 사실로 보인다.
 OUTBOUND_CAPACITY_OVERCOMMITTED = "OUTBOUND_CAPACITY_OVERCOMMITTED"
 
-#: 미래 확정 출고 축을 **확인한 적이 없다** (fixture status 가 `UNRESOLVED`).
-#: 🔴 *"확인했고 0 건"* 과 다른 사실이라 0 으로 놓지 않는다 — 놓으면 하루 출고
+#: 미래 확정 출고 축을 확인한 적이 없다 (fixture status 가 `UNRESOLVED`).
+#: "확인했고 0 건" 과 다른 사실이라 0 으로 놓지 않는다 — 놓으면 하루 출고
 #: 여력이 통째로 비어 있다고 답하게 된다.
 CONFIRMED_OUTBOUND_UNRESOLVED = "CONFIRMED_OUTBOUND_UNRESOLVED"
 
 
 @dataclass(frozen=True)
 class SupplyByDate:
-    """어느 하루의 공급 사실. **두 수량의 뜻이 다르다.**
+    """어느 하루의 공급 사실. 두 수량의 뜻이 다르다.
 
     ```text
     confirmed_sellable_quantity_kg            그날 판매 근거로 쓸 수 있는 양
     freshness_unresolved_inbound_quantity_kg  그날까지 들어오지만 신선도가 안 정해진 양
     ```
 
-    🔴 **뒤엣것을 앞엣것에 더하지 않는다.** 입고 예정은 Lot 이 아직 없어 신선도가
-       확정되지 않았고, 확정 안 된 재고를 판매 근거로 쓰면 **팔고 나서 못 내보내는
-       상태**가 된다.
+    뒤엣것을 앞엣것에 더하지 않는다. 입고 예정은 Lot 이 아직 없어 신선도가
+    확정되지 않았고, 확정 안 된 재고를 판매 근거로 쓰면 팔고 나서 못 내보내는
+    상태가 된다.
 
-    ★ `None` 은 «모른다» 이고 `0` 은 «0kg 확인» 이다 (§1.2-10).
+    `None` 은 «모른다» 이고 `0` 은 «0kg 확인» 이다 (§1.2-10).
     """
 
     date: date
@@ -727,17 +719,17 @@ class SupplyByDate:
 
 @dataclass(frozen=True)
 class DeliveryFeasibility:
-    """납기 판정 한 벌. **숫자는 전부 이미 있던 사실이다.**"""
+    """납기 판정 한 벌. 숫자는 전부 이미 있던 사실이다."""
 
     status: Literal["READY", "FAIL", "UNRESOLVED"]
     daily_outbound_capacity_kg: Decimal | None
     delivery_route: str | None
-    #: 운송 소요 **달력일**. 🔴 **이름에 단위를 안 붙인다** — 판매 계약의 정본 이름이
+    #: 운송 소요 달력일. 이름에 단위를 안 붙인다 — 판매 계약의 정본 이름이
     #: `transport_lead_time` 이고, 물류가 `_days` 를 붙이면 같은 사실이 두 이름으로
     #: 다닌다 (WP-4B). 단위는 이 주석과 Evidence 의 `unit` 이 나른다.
     #:
-    #: ⚠️ **`outbound_prep_lead_days` 와 다른 값이다.** 저쪽은 창고가 내보낼 준비를
-    #:    하는 날이고 이쪽은 실려서 닿는 날이다 — 합쳐서 한 정책으로 만들지 않는다.
+    #: `outbound_prep_lead_days` 와 다른 값이다. 저쪽은 창고가 내보낼 준비를
+    #: 하는 날이고 이쪽은 실려서 닿는 날이다 — 합쳐서 한 정책으로 만들지 않는다.
     transport_lead_time: int | None
     earliest_delivery_date: date | None
     reason_codes: tuple[DeliveryReasonCode, ...] = ()
@@ -747,14 +739,14 @@ class DeliveryFeasibility:
 def earliest_delivery_date_for(
     as_of: date, *, outbound_prep_lead_days: int, transport_lead_days: int = TRANSPORT_LEAD_DAYS
 ) -> date:
-    """가장 이른 납기일. **`as_of` 만 읽는다 — 벽시계를 안 본다.**
+    """가장 이른 납기일. `as_of` 만 읽는다 — 벽시계를 안 본다.
 
     ```text
     as_of + 준비 1일 + 운송 0일 = as_of + 1
     ```
 
-    ★ 달력일이다. 영업일 달력을 여기서 만들지 않는다 — 그 정본은 마스터가 들고 있고
-      (`master/readmodel/market_calendar.py`) 물류가 두 번째 달력을 만들면 둘이 갈린다.
+    달력일이다. 영업일 달력을 여기서 만들지 않는다 — 그 정본은 마스터가 들고 있고
+    (`master/readmodel/market_calendar.py`) 물류가 두 번째 달력을 만들면 둘이 갈린다.
     """
     if outbound_prep_lead_days < 0 or transport_lead_days < 0:
         raise ValueError(
@@ -765,7 +757,7 @@ def earliest_delivery_date_for(
 
 
 def _fresh_until(snapshot: InventoryLogisticsSnapshot, lot: InventoryLotSnapshot) -> date | None:
-    """그 Lot 이 **언제까지** 팔 수 있나. 신선도를 모르면 `None`."""
+    """그 Lot 이 언제까지 팔 수 있나. 신선도를 모르면 `None`."""
     if lot.remaining_freshness_days is None:
         return None
     return snapshot.as_of + timedelta(days=int(lot.remaining_freshness_days))
@@ -780,31 +772,31 @@ def supply_capacity_by_date(
     daily_outbound_capacity_kg: Decimal,
     item: str | None = None,
 ) -> list[SupplyByDate]:
-    """날짜마다 **판매 근거로 쓸 수 있는 양**을 낸다 (WP-4).
+    """날짜마다 판매 근거로 쓸 수 있는 양을 낸다 (WP-4).
 
     ```text
     confirmed_sellable(d) = min( 그날까지 신선한 판매가능 재고 ,
                                  하루 출고 여력 − 그날 이미 확정된 출고 )
     ```
 
-    🔴 **새 판매가능량 엔진이 아니다.** 재고 축의 출발점은 `build_inventory_by_item`
-       이 낸 값 그대로다 — 그것이 예약·할당을 이미 뺀 정본이고, 여기서 다시 세면
-       `outbound.item_free_stock_qty` 와 갈린다.
+    새 판매가능량 엔진이 아니다. 재고 축의 출발점은 `build_inventory_by_item`
+    이 낸 값 그대로다 — 그것이 예약·할당을 이미 뺀 정본이고, 여기서 다시 세면
+    `service/outbound.item_free_stock_qty` 와 갈린다.
 
-    🔴 **입고 예정을 confirmed 에 더하지 않는다.** 아직 Lot 이 없어 신선도가 확정되지
-       않았다 — 그 몫은 `freshness_unresolved_inbound_quantity_kg` 에만 담는다.
+    입고 예정을 confirmed 에 더하지 않는다. 아직 Lot 이 없어 신선도가 확정되지
+    않았다 — 그 몫은 `freshness_unresolved_inbound_quantity_kg` 에만 담는다.
 
-    ★ **신선도 차감은 보수적으로 한다.** 그날 이전에 신선도가 끝나는 Lot 의 **물리
-      잔량 전부**를 뺀다. 그 Lot 몫 중 일부가 이미 예약에 잡혀 있으면 두 번 빼는
-      셈이지만, 방향이 «적게 판다» 라 안전하다 — 반대로 접으면 못 내보낼 재고를
-      팔게 된다. 신선도를 **모르는** Lot 은 빼지 않는다
-      (`build_inventory_by_item` 이 `None` 을 만료로 안 보는 것과 같은 규율).
+    신선도 차감은 보수적으로 한다. 그날 이전에 신선도가 끝나는 Lot 의 물리
+    잔량 전부를 뺀다. 그 Lot 몫 중 일부가 이미 예약에 잡혀 있으면 두 번 빼는
+    셈이지만, 방향이 «적게 판다» 라 안전하다 — 반대로 접으면 못 내보낼 재고를
+    팔게 된다. 신선도를 모르는 Lot 은 빼지 않는다
+    (`build_inventory_by_item` 이 `None` 을 만료로 안 보는 것과 같은 규율).
 
-    🔴 **이미 확정된 출고가 여력을 넘으면 `None` 이다.** 0 으로 접으면 정책·데이터
-       이상이 «오늘은 더 못 나간다» 는 정상 사실로 보인다. 그 날 행에
-       `OUTBOUND_CAPACITY_OVERCOMMITTED` 를 남긴다.
+    이미 확정된 출고가 여력을 넘으면 `None` 이다. 0 으로 접으면 정책·데이터
+    이상이 «오늘은 더 못 나간다» 는 정상 사실로 보인다. 그 날 행에
+    `OUTBOUND_CAPACITY_OVERCOMMITTED` 를 남긴다.
 
-    :param dates: 답할 날짜들. **물류가 만들지 않는다** — 사용자가 물은 날이다.
+    :param dates: 답할 날짜들. 물류가 만들지 않는다 — 사용자가 물은 날이다.
     :param item: 품목을 좁힐지. `None` 이면 전 품목 합이다.
     """
     if daily_outbound_capacity_kg < 0:
@@ -860,7 +852,7 @@ def evaluate_delivery_feasibility(
     confirmed_outbound_on_preferred_kg: Decimal | None,
     transport_lead_days: int = TRANSPORT_LEAD_DAYS,
 ) -> DeliveryFeasibility:
-    """납기가 되나. **사용자가 물은 것만 판정한다.**
+    """납기가 되나. 사용자가 물은 것만 판정한다.
 
     ```text
     준비일 정책이 없다 · Route 를 못 읽었다     UNRESOLVED   ← 답을 안 낸다
@@ -870,17 +862,17 @@ def evaluate_delivery_feasibility(
     그 밖                                        READY
     ```
 
-    :param confirmed_outbound_known: 미래 확정 출고 축을 **읽었나**.
-        🔴 `False` 를 «출고 0kg» 으로 접으면 하루 여력이 통째로 비어 있다고 답한다 —
-        fixture 가 그 축을 `UNRESOLVED` 로 적었다는 것은 *"확인한 적 없다"* 이지
-        *"확인했고 0 건"* 이 아니다 (`domain/snapshot.schedule_source`).
+    :param confirmed_outbound_known: 미래 확정 출고 축을 읽었나.
+        `False` 를 «출고 0kg» 으로 접으면 하루 여력이 통째로 비어 있다고 답한다 —
+        fixture 가 그 축을 `UNRESOLVED` 로 적었다는 것은 "확인한 적 없다" 이지
+        "확인했고 0 건" 이 아니다 (`domain/snapshot.schedule_source`).
 
-    🔴 **정책이 없으면 코드 상수로 메우지 않는다.** `outbound_prep_lead_days` 가
-       `None` 이면 가장 이른 납기일을 못 내고, 못 내는 것을 `READY` 로 답하면
-       **DB 에 정책이 없는데도 납기가 확정된 것처럼** 나간다 (WP-4 M4).
+    정책이 없으면 코드 상수로 메우지 않는다. `outbound_prep_lead_days` 가
+    `None` 이면 가장 이른 납기일을 못 내고, 못 내는 것을 `READY` 로 답하면
+    DB 에 정책이 없는데도 납기가 확정된 것처럼 나간다 (WP-4 M4).
 
-    ★ **희망일이 없어도 `READY` 다.** 그때 이 블록이 답하는 것은 *"가장 이른 납기일이
-      언제인가"* 이고 그 답은 냈다 — 판정할 희망일이 없는 것과 판정에 실패한 것은 다르다.
+    희망일이 없어도 `READY` 다. 그때 이 블록이 답하는 것은 "가장 이른 납기일이
+    언제인가" 이고 그 답은 냈다 — 판정할 희망일이 없는 것과 판정에 실패한 것은 다르다.
     """
     uncertainties: list[str] = []
     if outbound_prep_lead_days is None:

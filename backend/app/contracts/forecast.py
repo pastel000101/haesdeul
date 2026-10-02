@@ -13,24 +13,22 @@ IO명세 §1-① 의 반환 형태가 기준이다.
 
 ``is_filled`` · ``use_recommended`` 는 IO명세에 없다. 그래도 싣는 이유:
 
-- **``is_filled``** — 토·일·공휴일은 경매가 없어 예측이 없다. 그 칸은 직전
+- ``is_filled`` — 토·일·공휴일은 경매가 없어 예측이 없다. 그 칸은 직전
   개장일 값을 끌어와 채운다. 채운 값과 진짜 예측이 구분되지 않으면 나중에
   이상한 판단이 나왔을 때 원인을 되짚을 수 없다. 18일 중 5~6일이 채운 값이다.
-- **``use_recommended``** — 조합에 따라 우리 모델이 "어제 가격 그대로" 보다
+- ``use_recommended`` — 조합에 따라 우리 모델이 "어제 가격 그대로" 보다
   나쁘다. 그런 조합은 쓰면 손해다. 2026-08-27 기준 중도매가·양파가 그렇다.
 
 포트가 무시해도 되지만, 없으면 조용히 틀린 값을 쓰게 된다.
 
 ## 자리
 
-🟢 **`app/contracts/forecast.py`** (2026-09-29 재구성 BL-011 — 전에는 `app/ml/schemas.py`).
-  판매가 이 계약을 받으려고 ML 패키지를 import 하던 부서 간 의존을 공용 계약 자리로
-  옮겼다. 필드 · 기본값 · validator 는 그대로다. 예측을 만드는 쪽의 설정값
-  (``HORIZON_DAYS`` · ``ITEMS`` · ``SPEC``)은 ML 것이라 ML 에 남는다 — 2026-09-29 BL-017 부터
-  ``app/ml/schemas/forecast.py``.
+공용 계약 자리에 둔다. 판매도 이 계약을 받으므로 ML 패키지 안에 두면 부서 간 의존이
+생긴다. 예측을 만드는 쪽의 설정값(``HORIZON_DAYS`` · ``ITEMS`` · ``SPEC``)은 ML 것이라
+``app/ml/schemas/forecast.py`` 에 있다.
 
-⚠️ ``app.contracts.core.Forecast`` 와 **다른 타입이다.** 그쪽은 T0 스냅샷의 분위 예측
-  (``q10`` · ``q50`` · ``q90``) dataclass 이고 이름만 같다.
+주의: ``app.contracts.core.Forecast`` 와 다른 타입이다. 그쪽은 T0 스냅샷의 분위 예측
+(``q10`` · ``q50`` · ``q90``) dataclass 이고 이름만 같다.
 """
 
 from datetime import date, datetime
@@ -53,14 +51,14 @@ class DailyPoint(BaseModel):
     lower: int = Field(gt=0)
     upper: int = Field(gt=0)
 
-    # 🔴 **뷰가 이미 싣고 있는 셋이다** (2026-09-11 · `v_ml_price_forecast.daily`).
+    # 뷰(`v_ml_price_forecast.daily`)가 이미 싣고 있는 셋이다.
     #
-    #    ★★ 계약이 `extra="forbid"` 라 이 셋이 붙어 오면 **봉투가 통째로 거부된다.**
-    #      걷기 206일에서 판매 537건이 그렇게 죽었다 — 값이 틀린 것이 아니라
-    #      **계약에 칸이 없어서**였다.
+    #    계약이 `extra="forbid"` 라 칸이 없으면 이 셋이 붙어 온 봉투가 통째로 거부된다.
+    #    걷기 206일에서 판매 537건이 그렇게 실패했다 — 값이 틀린 것이 아니라 계약에 칸이
+    #    없어서였다.
     #
-    #    ⚠️ **기본값을 `None` 으로 둔다.** 필수로 만들면 이 셋을 안 싣는 옛 경로가
-    #      거꾸로 막힌다 — *"안 온 것"* 과 *"거짓인 것"* 은 다른 사실이다.
+    #    기본값을 `None` 으로 둔다. 필수로 만들면 이 셋을 안 싣는 경로가 거꾸로 막힌다 —
+    #    "안 온 것" 과 "거짓인 것" 은 다른 사실이다.
     is_filled: bool | None = None
     is_gated: bool | None = None
     gate_reason: str | None = None
@@ -100,7 +98,7 @@ class Forecast(BaseModel):
 
     @model_validator(mode="after")
     def _calendar_axis(self) -> "Forecast":
-        """``daily`` 는 **연속 달력일 D+1~D+18** 이어야 한다.
+        """``daily`` 는 연속 달력일 D+1~D+18 이어야 한다.
 
         우리 내부는 개장일 축으로 센다. 변환을 빠뜨리면 날짜가 띄엄띄엄해지고
         판정 기준일(D+14)이 조용히 밀린다. 여기서 막는다.

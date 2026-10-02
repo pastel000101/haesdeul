@@ -1,7 +1,4 @@
-"""질문형 STATUS_QUERY 의 결정론 규칙 — 프로젝트 품목 gate · 품목 해석 · 답 숫자 표기.
-
-★ 2026-09-30 재구성 BL-015: `logistics/query/status_query.py` 에서 옮겼다.
-"""
+"""질문형 STATUS_QUERY 의 결정론 규칙 — 프로젝트 품목 gate · 품목 해석 · 답 숫자 표기."""
 
 from __future__ import annotations
 
@@ -13,7 +10,7 @@ from typing import Any
 from app.logistics.schemas.status_question import ResolvedItems
 
 # ---------------------------------------------------------------------------
-# 프로젝트 품목 범위 — 🔴 업무 결정이다 (DB 정책/Zone 유무가 아니다)
+# 프로젝트 품목 범위 — 업무 결정이다 (DB 정책/Zone 유무가 아니다)
 # ---------------------------------------------------------------------------
 
 #: 프로젝트 정상 조회 대상 (이름 → item_id). item_id 는 언제나 `resolve_item_names`(DB)가

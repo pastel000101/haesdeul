@@ -1,18 +1,13 @@
-"""★ **`app/orchestrator/` 에서 옮겼다** (2026-09-07 · 지시). 옛 경로는 없다.
+"""라우터가 계산 뒤에 실행이력(cycle run)을 적재하는 얇은 층.
 
-⚠️ **`cycle_` 는 이름이 겹쳐서 붙였다** — `app/master/persistence.py` 가 이미 있다.
-  그대로 옮기면 덮어쓴다.
+부르는 곳: `app/api/critic/verdicts.py` 가 `master/critic/service.py` 의 검증을 `record` 로
+감싼다. 이름에 `cycle_` 를 붙인 것은 같은 폴더의 `persistence.py` 와 구분하기 위해서다.
 
-라우터가 계산 뒤에 실행이력을 적재하는 얇은 층.
+계산과 적재를 섞지 않는다. 계산 쪽은 순수하게 두고 여기서만 DB 를 만진다. 적재 실패는
+응답을 막지 않는다(`try_save_run` 이 삼킨다).
 
-★ 계산과 적재를 섞지 않는다. `service.py` 는 여전히 순수하고, 여기서만 DB 를 만진다.
-  적재 실패는 응답을 막지 않는다 (`try_save_run` 이 삼킨다).
-
-★ 2026-09-30 재구성 BL-018: `master/cycle_persistence.py` 에서 옮겼고,
-  `master/cycle_run_repository.py`
-  의 적재 쪽(`save_run` · `history_enabled` · `try_save_run`)을 함께 모았다. `save_run` 은 종전
-  `execute_returning_one` 과 같은 경계(연결 하나 · 트랜잭션 하나 · 행이 없으면 예외로 rollback)를
-  직접 연다. SQL 은 `repository/cycle_runs.py`, 조회는 `readmodel/cycle_runs.py`.
+`save_run` 은 연결 하나 · 트랜잭션 하나 경계를 직접 열고, 행이 없으면 예외로 rollback 한다.
+SQL 은 `repository/cycle_runs.py`, 조회는 `readmodel/cycle_runs.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -113,12 +108,11 @@ def save_run(
 ) -> OrchestratorAgentRun:
     """실행 1건을 적재한다.
 
-    ★ `request_id`·`plan` 은 마스터 행에만 채워진다 (2026-08-27).
-      오케·Critic 은 UUID 로 조회하지만 마스터는 **업무 키**(`REQ-20260827-0001`)로 찾는다.
-      `plan` 을 응답 원문 안에 묻지 않고 컬럼으로 뺀 것은, 검증 Tool 의 ④ 실행 계획
-      온전성 검사(M-16)가 **이것만** 읽기 때문이다.
+    `request_id`·`plan` 은 마스터 행에만 채워진다. 오케·Critic 은 UUID 로 조회하지만
+    마스터는 업무 키(`REQ-20260827-0001`)로 찾는다. `plan` 을 응답 원문 안에 묻지 않고
+    컬럼으로 뺀 것은 검증 Tool 의 ④ 실행 계획 온전성 검사(M-16)가 이 컬럼만 읽기 때문이다.
     """
-    schema = get_db_schema()  # ★ 종전처럼 문장을 짓고(스키마 이름) 나서 연결을 빌린다
+    schema = get_db_schema()  # 스키마 이름을 먼저 정하고 나서 연결을 빌린다
     with core_db.connection() as conn, core_db.transaction(conn):
         row = insert_cycle_run(
             conn,
@@ -149,9 +143,9 @@ def save_run(
 def history_enabled() -> bool:
     """실행이력을 남길지.
 
-    ★ pytest 안에서는 남기지 않는다. 표가 팀 공용 DB 에 있어, 테스트를 돌릴 때마다
-      2ms 짜리 가짜 실행이 쌓여 진짜 이력을 덮는다(실측: 12행 중 10행이 테스트 산물이었다).
-      `RUN_HISTORY_ENABLED=false` 로 수동으로도 끌 수 있다.
+    pytest 안에서는 남기지 않는다. 표가 팀 공용 DB 에 있어, 테스트를 돌릴 때마다
+    2ms 짜리 가짜 실행이 쌓여 진짜 이력을 덮는다(실측: 12행 중 10행이 테스트 산물이었다).
+    `RUN_HISTORY_ENABLED=false` 로 수동으로도 끌 수 있다.
     """
     if os.getenv("PYTEST_CURRENT_TEST"):
         return False
@@ -166,8 +160,8 @@ def history_enabled() -> bool:
 def try_save_run(**kwargs: Any) -> UUID | None:
     """적재를 시도하되 실패해도 예외를 올리지 않는다.
 
-    ★ DB 가 없거나 표가 아직 없어도 API 는 계산 결과를 돌려줘야 한다.
-      이력이 없는 것보다 결과를 못 주는 것이 나쁘다.
+    DB 가 없거나 표가 아직 없어도 API 는 계산 결과를 돌려줘야 한다.
+    이력이 없는 것보다 결과를 못 주는 것이 나쁘다.
     """
     if not history_enabled():
         return None

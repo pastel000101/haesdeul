@@ -1,7 +1,6 @@
 """질문형 STATUS_QUERY 의 LLM 계약 — 지시문 · Tool 스키마 · 허용 Tool 이름.
 
-★ 2026-09-30 재구성 BL-015: `logistics/query/status_query.py` 에서 옮겼다(글자 그대로). 루프는
-  `service/status_question.py`.
+루프는 `service/status_question.py` 가 돈다.
 """
 
 from __future__ import annotations

@@ -1,48 +1,38 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: 마스터의 검증 Tool — 이미 주입돼 돈다 (2026-09-10 실측)
-#   6레이어 56검사. 정의서 §3.7.1 — **마스터가 직접 가진 검증 Tool** 이다.
-#   → "주입될 구현" 이 아니라 **주입돼 있다.** 기본값 자리에 있어 안 주면 이것이 붙는다.
+# STATUS: 마스터의 검증 Tool — 기본값으로 주입돼 돈다
+#   6레이어 56검사. 정의서 §3.7.1 — 마스터가 직접 가진 검증 Tool 이다.
+#   기본값 자리에 있어 따로 주지 않으면 이것이 붙는다.
 #         service/verifier.py        critic: CriticPort | None = run_critic_procurement
 #         critic/service.py          run_critic_procurement 이 이 파일을 부른다
 #         service/procurement.py     verifier = MasterVerifier() if verifier is None else ...
-#     그 뒤로 `app/master/service/flow.py` 의 `VerifierPort` 로 들어간다. (자리는 2026-10-01 기준)
-#   ⚠️ 삭제 대상이 아니다. 마스터 구조에서 오히려 호출 지점이 늘어난다(④ 실행 계획 온전성).
+#     그 뒤로 `app/master/service/flow.py` 의 `VerifierPort` 로 들어간다.
+#   삭제 대상이 아니다. 마스터 구조에서 오히려 호출 지점이 늘어난다(④ 실행 계획 온전성).
 # ─────────────────────────────────────────────────────────────────────────────
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
+"""critic_v0_4.py — Critic 설계서 v0.4 구현 (기준: 프로젝트_정의서_v1.2 · 유저플로우_v1.4 · UI_v1.3)
 
-critic_v0_4.py — Critic 설계서 v0.4 구현 (기준: 프로젝트_정의서_v1.2 · 유저플로우_v1.4 · UI_v1.3)
-
-기존 `critic.py`(v0.3 계열, L1~L4)를 **대체하지 않고 감싼다.**
+`critic.py`(v0.3 계열, L1~L4)를 대체하지 않고 감싼다.
 v0.4 설계서가 요구하는 6레이어(L0~L5)로 재배치하고, 설계서 §3 의 신설 3종과
 §1 의 불일치 대응(CONCERN · CRITIC_A/B · 회차별 도착일)을 얹는다.
 
   L0  형식 · 구조             코드  6
-  L1  바인딩 · 출처 · 권한     코드 13   ← E-AUTHORITY · E-GRADE-LEAK 신설
+  L1  바인딩 · 출처 · 권한     코드 13   ← E-AUTHORITY · E-GRADE-LEAK
   L2  as_of 룩어헤드          코드  4
-  L3  하드 제약               코드 17   ← 기존 critic.run_l1 재사용
-  L4  결합 재검산             코드 10   ← 회차별 도착일 분해 신설
-  L5  논리 일관성             LLM   6   ← 기존 critic.run_l4. FAIL 대신 CONCERN
+  L3  하드 제약               코드 17   ← critic.run_l1 재사용
+  L4  결합 재검산             코드 10   ← 회차별 도착일 분해
+  L5  논리 일관성             LLM   6   ← critic.run_l4. FAIL 대신 CONCERN
 
 ────────────────────────────────────────────────────────────────────────────
-★ 이 파일의 사이드카는 **contracts/core.py 가 FROZEN 이던 시절의 산물**이다.
+사이드카(`DeptMeta`): 설계서가 요구하는 `CheckResult.inputs_used` 와 부서 산출 필드
+목록이 계약(`contracts/core.py`)에 없어서, 부서가 그 둘을 계약 밖 사이드카로 따로 낸다.
 
-  ① 그때 — 설계서가 요구하는 `CheckResult.inputs_used` 와 부서 산출 필드 목록이
-     계약에 없는데 계약을 고칠 수 없었다. 그래서 **사이드카**(`DeptMeta`)로 받았다.
-     `DeptMeta` 가 여기 있는 이유가 이것이다. 유래를 지우지 않는다.
+계약은 개정할 수 있다. 그래서 남은 개정은 사이드카를 늘리는 쪽이 아니라 계약을
+고치는 쪽으로 간다. 새 사실이 계약에 없으면 먼저 계약 개정을 검토한다. 사이드카는
+그것이 막혔을 때의 차선이지 기본값이 아니다. `DeptMeta` 를 걷어내는 것은 계약이
+`inputs_used`·`produced_fields` 를 받은 뒤의 일이다.
 
-  ② 지금 — 계약은 FROZEN 이 아니다. 그 뒤로 최소 두 번 개정됐다.
-
-         v1.2.1   ArrivalLeg 신설 + ApprovedPurchaseCommitment.arrival_schedule
-         #265     SplitLeg.amount_krw 신설
-
-  ③ 그러니 — 남은 개정은 **사이드카를 늘리는 쪽이 아니라 계약을 고치는 쪽**으로 간다.
-     새 사실이 계약에 없으면 먼저 계약 개정을 검토한다. 사이드카는 그것이
-     막혔을 때의 차선이지 기본값이 아니다. `DeptMeta` 를 걷어내는 것은 계약이
-     `inputs_used`·`produced_fields` 를 받은 뒤의 일이다.
-
-  남은 개정 목록은 이 파일 맨 아래 `CONTRACT_AMENDMENTS` 에 있다.
-  닫힌 것은 `CONTRACT_AMENDMENTS_CLOSED` 로 옮긴다 — 목록이 낡으면
-  `tests/master/critic/test_contract_amendments_are_open.py` 가 운다.
+남은 개정 목록은 이 파일 맨 아래 `CONTRACT_AMENDMENTS` 에 있다.
+닫힌 것은 `CONTRACT_AMENDMENTS_CLOSED` 로 옮긴다 — 목록이 낡으면
+`tests/master/critic/test_contract_amendments_are_open.py` 가 실패한다.
 ────────────────────────────────────────────────────────────────────────────
 """
 
@@ -96,13 +86,13 @@ EPS = 1e-6
 # ---------------------------------------------------------------------------
 
 CriticStatus = Literal["PASS", "CONCERN", "FAIL"]
-"""★ 설계서 §1 불일치 ③ — UI v1.3 은 PASS 만 정의한다.
-   L5(LLM)는 결정을 죽일 수 없으므로(§4.3) FAIL 이 아니라 CONCERN 으로 올린다.
-   화면에 자리가 없으면 사람은 Critic 이 무엇을 걸었는지 모른 채 승인하게 된다."""
+"""설계서 §1 불일치 ③ — UI v1.3 은 PASS 만 정의한다.
+L5(LLM)는 결정을 막을 수 없으므로(§4.3) FAIL 이 아니라 CONCERN 으로 올린다.
+화면에 자리가 없으면 사람은 Critic 이 무엇을 걸었는지 모른 채 승인하게 된다."""
 
-# ★ 설계서 §1 불일치 ② — EndStage 값 집합에 Critic 이 없다.
-#   "조정이 안 됐다"(T3)와 "검증에서 걸렸다"(Critic)는 원인도 대응도 다르다.
-#   T3 로 뭉치면 blocking_agent 분포가 흐려진다.
+# 설계서 §1 불일치 ② — 계약의 EndStage 값 집합에 Critic 이 없다.
+# "조정이 안 됐다"(T3)와 "검증에서 걸렸다"(Critic)는 원인도 대응도 다르다.
+# T3 로 뭉치면 blocking_agent 분포가 흐려진다.
 CriticEndStage = Literal["CRITIC_A", "CRITIC_B"]
 
 # 설계서 §3.2 — 재무 금액 cap 산출에 끼어들면 안 되는 입력
@@ -116,15 +106,16 @@ FORBIDDEN_IN_FINANCE_CAP: frozenset[str] = frozenset(
     }
 )
 
-# 설계서 §3.1 — S3(오케스트레이터) 전속 판정. 부서가 산출하면 위반이다.
+# 설계서 §3.1 — S3(사이클 B 결합 단계, `master/domain/outbound.py`) 전속 판정.
+# 부서가 산출하면 위반이다.
 S3_EXCLUSIVE_FIELDS: frozenset[str] = frozenset({"has_unmet_obligation"})
 
-# ★ v1.2.5 — 정의서 §3.6.1 "각 부서는 **시나리오와 무관하게** 하루에 한 번만 회신한다"
-#   T2 조언자가 매입 시나리오를 입력으로 읽으면 위반이다. 부서 무관하게 적용된다.
+# 정의서 §3.6.1 "각 부서는 시나리오와 무관하게 하루에 한 번만 회신한다"
+# 밴드 값을 채우는 검사가 매입 시나리오를 입력으로 읽으면 위반이다
+# (`check_scenario_independence`). 부서 무관하게 적용된다.
 #
-#   왜 전 부서인가. v1.2.4 까지는 재무만 막았는데(E-GRADE-LEAK), 조항은 부서를
-#   가리지 않는다. 재고가 매입안을 보고 cap_by_date 를 내면 §3.6.7 의
-#   "확정분만 반영"이 깨지고, 영업이 보면 명세 §1 의 구조 계약 위반이다.
+# 전 부서에 거는 이유: 조항은 부서를 가리지 않는다. 재고가 매입안을 보고 cap_by_date 를
+# 내면 §3.6.7 의 "확정분만 반영"이 깨지고, 영업이 보면 명세 §1 의 구조 계약 위반이다.
 FORBIDDEN_SCENARIO_INPUTS: frozenset[str] = frozenset(
     {
         "purchase_output",
@@ -177,20 +168,20 @@ class CriticVerdictV04:
     coverage: Mapping[str, tuple[int, int]] = field(default_factory=dict)
     """레이어별 (실행된 검사 수, 정의된 검사 수). 화면 배지 'PASS (2/13)' 의 출처.
 
-    ★ 설계서 §8 — 커버리지를 감추면 사람은 전 항목 통과로 읽는다.
-      실제로는 미결(N-계열) 때문에 돌지 않은 검사가 대부분인 날이 있다."""
+    설계서 §8 — 커버리지를 감추면 사람은 전 항목 통과로 읽는다. 실제로는 미결
+    (N-계열) 때문에 돌지 않은 검사가 대부분인 날이 있다."""
     skipped: tuple[str, ...] = ()
     llm_note: str = ""
     end_stage: CriticEndStage | None = None
 
     @property
     def passed(self) -> bool:
-        """기존 graph.py 의 `verdict.passed` 와 호환. CONCERN 은 통과로 본다."""
+        """계약 `CriticVerdict.passed` 와 같은 뜻이다. CONCERN 은 통과로 본다."""
         return self.status != "FAIL"
 
     @property
     def route(self):
-        """기존 CriticVerdict.route 와 동일 규약. FAIL 이 아니면 회송 없음."""
+        """계약 `CriticVerdict.route` 와 같은 규약. FAIL 이 아니면 회송 없음."""
         if self.status != "FAIL" or not self.findings:
             return None
         return self.findings[0].route
@@ -213,7 +204,7 @@ class CriticVerdictV04:
 
 def run_l0(scenario: PurchaseScenario) -> list[CriticFinding]:
     """
-    시나리오가 계약 형태를 갖췄는가. **여기서 걸리면 뒤 계층은 의미가 없다.**
+    시나리오가 계약 형태를 갖췄는가. 여기서 걸리면 뒤 계층은 의미가 없다.
 
     L0-2 가 설계서 §2 의 개명 대상이다 — `variant_axis` → `strategy_type`,
     FAIL 코드도 `E-AXIS-GATE` → `E-STRATEGY-GATE`.
@@ -269,11 +260,10 @@ def check_obligation_authority(
     """
     E5 판정 권한 침범 탐지 — 축 침범(§3.4.2)과 같은 성격이다.
 
-    ★ 왜 하드하게 막는가.
-      부서가 이 플래그를 세팅하면 매입의 `no_proposal` 이 곧 E5 로 오독된다.
-      재고에 여유가 있으면 매입 0 이어도 납품은 가능하다 — 부서는 자기 도메인
-      사실만 알 뿐 **전체 충족 여부를 판정할 위치가 아니다.**
-      E5 는 계약 위반 선언이므로 오판 비용이 크다.
+    하드하게 막는 이유: 부서가 이 플래그를 세팅하면 매입의 `no_proposal` 이 곧 E5 로
+    오독된다. 재고에 여유가 있으면 매입 0 이어도 납품은 가능하다 — 부서는 자기 도메인
+    사실만 알 뿐 전체 충족 여부를 판정할 위치가 아니다.
+    E5 는 계약 위반 선언이므로 오판 비용이 크다.
     """
     leaked = S3_EXCLUSIVE_FIELDS & set(produced_fields)
     if not leaked:
@@ -301,12 +291,12 @@ def check_finance_cap_grade_neutrality(
 ) -> list[CriticFinding]:
     """
     max_feasible_amount_krw = 등급 무관 · 순수 금액 상한.
-    **재무는 어떤 단가도 가정하지 않는다** (§3.4.5-④ v1.2).
+    재무는 어떤 단가도 가정하지 않는다 (§3.4.5-④ v1.2).
 
-    ★ 이 검사가 없으면 조용히 틀린다.
-      재무가 평균가를 가정해 cap 을 냈는데 매입이 특급 위주로 배분하면
-      두 값의 기준이 달라 대조 자체가 무의미해진다.
-      그런데 **숫자는 멀쩡히 나오므로 아무 에러도 발생하지 않는다.**
+    이 검사가 없으면 조용히 틀린다.
+    재무가 평균가를 가정해 cap 을 냈는데 매입이 특급 위주로 배분하면
+    두 값의 기준이 달라 대조 자체가 무의미해진다.
+    그런데 숫자는 멀쩡히 나오므로 아무 에러도 발생하지 않는다.
     """
     if check.dept != "finance" or check.cap_amount_krw is None:
         return []
@@ -337,16 +327,16 @@ def check_snapshot_binding(
     reply_snapshot_ids: Mapping[Dept, str] | None = None,
 ) -> list[CriticFinding]:
     """
-    부서 회신이 **이 스냅샷**을 보고 답했는가.
+    부서 회신이 이 스냅샷을 보고 답했는가. as_of 와 함께 `snapshot_id` 도 대조한다
+    (영업 IO 명세 §1 · §3).
 
-    ★ v1.2.3 — `snapshot_id` 대조를 추가한다 (영업 IO 명세 §1 · §3).
+    as_of 만 보면 같은 날 재실행(run_seq 2)에서 만든 다른 스냅샷의 회신이
+    그대로 통과한다. 명세가 "입력과 같은 스냅샷인지 크리틱이 대조한다"고
+    명시적으로 Critic 에 이 검사를 배정했다.
 
-      as_of 만 보면 같은 날 재실행(run_seq 2)에서 만든 다른 스냅샷의 회신이
-      그대로 통과한다. 명세가 "입력과 같은 스냅샷인지 크리틱이 대조한다"고
-      명시적으로 Critic 에 이 검사를 배정했다.
-
-      `reply_snapshot_ids` 는 T2Reply 에 필드가 없어 사이드카로 받는다
-      (계약 개정 목록 참조).
+    `reply_snapshot_ids` 는 T2Reply 에 필드가 없어 사이드카로 받는다. 이 항목은
+    `CONTRACT_AMENDMENTS` 에 올라 있지 않고, 이 파일의 러너(`run_critic_v04` ·
+    `run_critic_b`)는 이 인자를 넘기지 않으므로 러너 안에서는 as_of 대조만 돈다.
     """
     out: list[CriticFinding] = []
     ids = reply_snapshot_ids or {}
@@ -395,27 +385,27 @@ def check_scenario_independence(
     inputs_used: Sequence[str],
 ) -> list[CriticFinding]:
     """
-    **밴드를 채우는 검사**가 매입 시나리오를 읽었는가 (v1.2.5 · v1.2.8 범위 축소).
+    밴드를 채우는 검사가 매입 시나리오를 읽었는가.
 
     정의서 §3.6.1 — "각 부서는 시나리오와 무관하게 하루에 한 번만 회신한다."
 
-    ★ v1.2.8 — 갱신된 「각_에이전트_필요_산출물」 PDF 가 재무 A · 물류 A INPUT 에
-      `purchase_output` 을 **그대로 두고**, 영업 A 만 "재무·물류와 달리 없다"고
-      명시했다. v1.2.5 의 전 부서 차단은 이 계약과 충돌한다.
+    「각_에이전트_필요_산출물」 PDF 는 재무 A · 물류 A INPUT 에 `purchase_output` 을
+    두고, 영업 A 만 "재무·물류와 달리 없다"고 명시한다. 그래서 전 부서의 매입안
+    입력을 막으면 이 계약과 충돌한다.
 
-      조정: §3.6.1 이 막는 것은 **밴드가 후보에 의존하는 것**이지 매입안을
-      받는 것 자체가 아니다. 재무/물류는 자문 주석(soft_warnings·evidences —
-      물류의 FRESHNESS_RISK 는 중품 입고를 참조한다)에 매입안을 쓸 수 있다.
-      **금지는 밴드 값을 채우는 검사에만** 건다.
+    §3.6.1 이 막는 것은 밴드가 후보에 의존하는 것이지 매입안을 받는 것 자체가
+    아니다. 재무/물류는 자문 주석(soft_warnings·evidences — 물류의 FRESHNESS_RISK 는
+    중품 입고를 참조한다)에 매입안을 쓸 수 있다. 금지는 밴드 값을 채우는 검사에만
+    건다.
 
         밴드 검사(floor_kg·cap_*·cap_by_date_kg) + 시나리오 입력  → FAIL
         자문 검사(soft warning·evidence)      + 시나리오 입력  → 허용
 
-    ★ 재무 cap 은 이 위에 `E-GRADE-LEAK` 이 한 겹 더 있다 — 시나리오를 안 읽어도
-      등급·수량을 가정하면 안 된다 (§3.6.8).
+    재무 cap 은 이 위에 `E-GRADE-LEAK` 이 한 겹 더 있다 — 시나리오를 안 읽어도
+    등급·수량을 가정하면 안 된다 (§3.6.8).
     """
     if not _fills_band(check):
-        return []  # 자문 검사는 매입안 참조 허용 (v1.2.8)
+        return []  # 자문 검사는 매입안 참조 허용
     leaked = FORBIDDEN_SCENARIO_INPUTS & set(inputs_used)
     if not leaked:
         return []
@@ -435,11 +425,11 @@ def check_scenario_independence(
 
 def check_sales_authority(facts: Any | None) -> list[CriticFinding]:
     """
-    영업 사실 보고에 판정 필드가 섞였는가 (v1.2.3).
+    영업 사실 보고에 판정 필드가 섞였는가.
 
-    ★ 영업 IO 명세 §5 — "영업은 판정하지 않는다. 빈 후보 목록과 사유, 확정 납품
-      의무량, 충당 가능 물량이라는 사실만 제출한다."
-      `has_unmet_obligation` 은 S3 전속이므로 `E-AUTHORITY` 와 같은 계열이다.
+    영업 IO 명세 §5 — "영업은 판정하지 않는다. 빈 후보 목록과 사유, 확정 납품
+    의무량, 충당 가능 물량이라는 사실만 제출한다."
+    `has_unmet_obligation` 은 S3 전속이므로 `E-AUTHORITY` 와 같은 계열이다.
     """
     if facts is None:
         return []
@@ -467,8 +457,8 @@ def check_lookahead(
     snapshot: T0Snapshot,
 ) -> list[CriticFinding]:
     """
-    미래정보 차단(§1.2-6). `AsOfSession` 이 조회 시점에 막지만,
-    Critic 은 **결과물에 남은 흔적**으로 한 번 더 본다.
+    미래정보 차단(§1.2-6). 조회 시점의 as_of 차단과 별개로,
+    Critic 은 결과물에 남은 흔적으로 한 번 더 본다.
     """
     out: list[CriticFinding] = []
     for dept, reply in replies.items():
@@ -486,22 +476,20 @@ def check_lookahead(
 
 
 # ---------------------------------------------------------------------------
-# L3 — 축 침범 (기존 run_l3 의 하드코딩 화이트리스트를 계약에서 읽도록 교정)
+# L3 — 축 침범 (허용 축은 계약 `_DEPT_AXES` 에서 읽는다)
 # ---------------------------------------------------------------------------
 
 
 def check_axis_intrusion(replies: Mapping[Dept, T2Reply]) -> list[CriticFinding]:
     """
-    ★ 기존 `critic.run_l3` 은 허용 축을 함수 안에 하드코딩한다.
+    허용 축을 함수 안에 적지 않고 계약(`_DEPT_AXES`)에서 읽는다.
 
-          {"sales": {"price", "quantity"}, ...}
+    여기와 계약이 어긋나면(예: 계약이 영업 축을 price → channel_mix 로 바꿨는데
+    여기는 price 를 들고 있으면) 계약상 정당한 channel_mix 제안이 축 침범으로 FAIL
+    난다. L3 FAIL 은 T3 로 회송되므로 사후 루프 예산을 태우고 결국 E2 보류로 끝난다.
 
-      그런데 계약(`_DEPT_AXES`)은 v0.2 에서 영업 축을 price → channel_mix 로
-      개명했다. 두 곳이 어긋나 있어서 **계약상 정당한 channel_mix 제안이
-      축 침범으로 FAIL 난다.** L3 FAIL 은 T3 로 회송되므로 사후 루프 예산을
-      태우고 결국 E2 보류로 끝난다.
-
-      여기서는 계약을 단일 출처로 삼는다. 룰을 두 벌 짜지 않는다(§6.4).
+    계약을 단일 출처로 삼는다. 룰을 두 벌 짜지 않는다(§6.4). `critic.run_l3` 도 같은
+    표를 읽는다.
     """
     out: list[CriticFinding] = []
     for dept, reply in replies.items():
@@ -533,8 +521,8 @@ def check_arrival_decomposition(
         날짜 d 점유 = 확정 점유[d] + Σ(매입안 중 d까지 도착분) ≤ cap_by_date[d]
                                       ↑ split_plan 회차별로 각각
 
-    ★ 총량 단일 도착일로 뭉치면 분할 매입의 창고 부담 분산 효과가 사라진다.
-      전량이 하루에 도착한 것으로 계산되어 cap_by_date 검사가 무의미해진다.
+    총량 단일 도착일로 뭉치면 분할 매입의 창고 부담 분산 효과가 사라진다.
+    전량이 하루에 도착한 것으로 계산되어 cap_by_date 검사가 무의미해진다.
 
     반환: (findings, skipped)  — N4 미결이면 FAIL 이 아니라 skipped 다.
       0 으로 대체하면 '오늘 승인분이 오늘 도착'이 되어 §3.2.3 on_hand 전환 금지가
@@ -587,13 +575,13 @@ def classify_collapse(
     scenarios: Mapping[str, PurchaseScenario],
 ) -> tuple[bool, str | None]:
     """
-    AXIS     — 전 안이 같은 strategy_type. 애초에 차별화가 없었다 → **T1 문제**
-    QUANTITY — 클리핑 후 수량이 수렴했다. 밴드가 좁다 → **회사 상태 문제**
+    AXIS     — 전 안이 같은 strategy_type. 애초에 차별화가 없었다 → T1 문제
+    QUANTITY — 클리핑 후 수량이 수렴했다. 밴드가 좁다 → 회사 상태 문제
 
-    ★ 판정은 `band.detect_collapse_type()` 에 위임한다. 룰을 두 벌 짜지 않는다(§6.4).
-      Critic 이 자체 구현하면 T3 와 미세하게 달라져 "T3 는 붕괴 아님 / Critic 은 붕괴"가
-      반복되고, 그 차이를 메우는 데 사후 루프 예산이 소진된다.
-      여기서 하는 일은 **축 목록을 시나리오에서 뽑아 넘기는 것**뿐이다.
+    판정은 `band.detect_collapse_type()` 에 위임한다. 룰을 두 벌 짜지 않는다(§6.4).
+    Critic 이 자체 구현하면 T3 와 미세하게 달라져 "T3 는 붕괴 아님 / Critic 은 붕괴"가
+    반복되고, 그 차이를 메우는 데 사후 루프 예산이 소진된다.
+    여기서 하는 일은 축 목록을 시나리오에서 뽑아 넘기는 것뿐이다.
     """
     live = [c for c in clips if not c.infeasible]
     axes = [getattr(scenarios.get(c.scenario_id), "strategy_type", "") for c in live]
@@ -609,16 +597,13 @@ _LAYER_TOTALS = {"L0": 6, "L1": 13, "L2": 4, "L3": 17, "L4": 10, "L5": 6}
 
 
 def _dept_meta_checks(dept: Dept) -> str:
-    """`DeptMeta` 가 없어서 **그 부서에** 못 도는 검사 이름.
+    """`DeptMeta` 가 없어서 그 부서에 못 도는 검사 이름.
 
-    🔴 **전에는 전 부서에 `E-AUTHORITY·E-GRADE-LEAK` 이라고 적었다 (2026-09-01 정정).**
-      `E-GRADE-LEAK` 은 `check_finance_cap_grade_neutrality` 가 `dept != "finance"` 에서
-      바로 돌아서므로 **재무 말고는 애초에 안 돈다.** 반대로 `E-SCENARIO-LEAK` 은 전 부서
-      공통인데 이름이 빠져 있었다.
-
-      물류에게는 **틀린 이름 하나를 적고 맞는 이름 하나를 빠뜨린** 문장이었다. 물류
-      `warehouse_cap` 은 `cap_total_kg`·`cap_by_date_kg` 를 채우므로 `_fills_band` 가
-      참이고, `E-SCENARIO-LEAK` 이 실제로 걸리는 부서다.
+    부서마다 다르다. `E-GRADE-LEAK` 은 `check_finance_cap_grade_neutrality` 가
+    `dept != "finance"` 에서 바로 돌아서므로 재무 말고는 애초에 안 돈다. `E-AUTHORITY` 와
+    `E-SCENARIO-LEAK` 은 전 부서 공통이다. 예를 들어 물류 `warehouse_cap` 은
+    `cap_total_kg`·`cap_by_date_kg` 를 채우므로 `_fills_band` 가 참이고,
+    `E-SCENARIO-LEAK` 이 실제로 걸리는 부서다.
     """
     checks = ["E-AUTHORITY", "E-SCENARIO-LEAK"]
     if dept == "finance":
@@ -651,9 +636,9 @@ def run_critic_v04(
 ) -> CriticVerdictV04:
     """
     앞 계층이 FAIL 이면 뒤는 돌리지 않는다 — L1 이 깨졌는데 L5 LLM 을 호출하는 것은
-    비용 낭비다. 다만 **커버리지는 돌지 않은 계층도 기록한다** (설계서 §8).
+    비용 낭비다. 다만 커버리지는 돌지 않은 계층도 기록한다 (설계서 §8).
 
-    unattended : 백테스트 무인 구간. L5 CONCERN 을 **승인하되 별도 카운트**한다(설계서 §10).
+    unattended : 백테스트 무인 구간. L5 CONCERN 을 승인하되 별도 카운트한다(설계서 §10).
       자동 승인으로 처리하면 L5 가 무력화되고, 자동 반려하면 LLM 이 결정을 죽이게 되어
       §4.3 과 충돌한다. 판정을 유보하고 관측으로 돌린다.
     """
@@ -686,14 +671,13 @@ def run_critic_v04(
                 covered += 1
             else:
                 skipped.append(f"{dept}: DeptMeta 미제출 — {_dept_meta_checks(dept)} 생략")
-        # 🔴 **부서 하나가 냈다고 이 검사가 완주한 것이 아니다 (2026-09-01 실측).**
-        #   전에는 `2 if meta else 0` 이라 **아무 부서나 하나 내면 2를 다 세었다.**
-        #   재무만 낸 상태에서 물류가 생략돼도 커버리지가 같았다 — 숫자가 실제보다
-        #   후하게 나가고, 생략된 사실은 `skipped` 줄에만 남았다.
+        # 부서 하나가 냈다고 이 검사가 완주한 것이 아니다. 아무 부서나 하나 내면 2를 다
+        # 세면, 재무만 낸 상태에서 물류가 생략돼도 커버리지가 같아진다 — 숫자가 실제보다
+        # 후하게 나가고, 생략된 사실은 `skipped` 줄에만 남는다.
         #
-        #   `_LAYER_TOTALS["L1"]` 의 13 은 이 둘을 **한 번씩** 세므로, 회신을 낸 부서가
-        #   전부 제출했을 때만 완주로 친다. 하나라도 빠지면 0이다 — 부분 수행을
-        #   반올림해 주면 "못 한 것을 통과로 치지 않는다"가 무너진다.
+        # `_LAYER_TOTALS["L1"]` 의 13 은 이 둘을 한 번씩 세므로, 회신을 낸 부서가
+        # 전부 제출했을 때만 완주로 친다. 하나라도 빠지면 0이다 — 부분 수행을
+        # 반올림해 주면 "못 한 것을 통과로 치지 않는다"가 무너진다.
         if replies and covered == len(replies):
             l1_ran += 2
         findings += _run_evidence_match(replies, resolve_evidence)
@@ -771,23 +755,23 @@ def run_critic_v04(
             )
         l4_ran += 1
 
-        # 회차별 도착일 분해 🆕
+        # 회차별 도착일 분해
         arr_f, arr_s = check_arrival_decomposition(clip, snapshot.inbound_lead_days)
         findings += arr_f
         skipped += arr_s
         l4_ran += 1 if not arr_s else 0
 
-        # 날짜별 창고 점유 — T1 · T3 와 **같은 함수**를 쓴다 (설계서 §4)
+        # 날짜별 창고 점유 — T1 · T3 와 같은 함수를 쓴다 (설계서 §4)
         #
-        # 🔴 **`check_occupancy_by_date` 가 아니라 상세형을 쓴다** (#183). 짧은 쪽은
-        #   problems 만 돌려주므로 **검사하지 못한 회차가 여기서 통째로 사라졌다** —
-        #   창 밖 도착이 빈 problems 로 와서 통과로 집계됐다. 설계서 §8 이 막는 자리다.
+        # `check_occupancy_by_date` 가 아니라 상세형을 쓴다 (#183). 짧은 쪽은 problems 만
+        # 돌려주므로 검사하지 못한 회차가 여기서 통째로 사라진다 — 창 밖 도착이 빈
+        # problems 로 와서 통과로 집계된다. 설계서 §8 이 막는 자리다.
         occ = check_occupancy_detailed(clip, band, snapshot)
         findings += [
             CriticFinding("L3_band_axis", "check_occupancy_by_date", p) for p in occ.problems
         ]
         skipped += [f"check_occupancy_by_date: {note}" for note in occ.skipped]
-        # 못 본 회차가 하나라도 있으면 이 검사는 **돈 것이 아니다.**
+        # 못 본 회차가 하나라도 있으면 이 검사는 돈 것이 아니다.
         # 위 `check_arrival_decomposition` 이 이미 같은 규율을 쓴다.
         l4_ran += 1 if occ.ran and not occ.skipped else 0
     coverage["L4"] = (l4_ran, _LAYER_TOTALS["L4"])
@@ -803,10 +787,8 @@ def run_critic_v04(
             # judge 는 붙었지만 LLM 이 실제로 판정하지 못했다. 검사한 척하지 않는다 —
             # coverage 를 0 으로 두고 skipped 에 드러낸다 (설계서 §8).
             #
-            # 🔴 **왜 못 했는지를 가른다.** 전에는 미가동·장애·호출 불필요를 한 문구로
-            #    냈는데, 셋은 **해야 할 일이 다르다** — 앞 둘은 고칠 것이 있고 뒤는
-            #    없다. 한 줄로 내면 사람이 **없는 문제를 찾는다** (매입 8/31 지적과
-            #    같은 종류다).
+            # 왜 못 했는지를 가른다. 미가동·장애·호출 불필요는 해야 할 일이 다르다 — 앞
+            # 둘은 고칠 것이 있고 뒤는 없다. 한 문구로 내면 사람이 없는 문제를 찾는다.
             skipped.append(f"L5: {_l5_skip_reason(judge)} — 논리 일관성 검증 생략")
         else:
             l5_ran = 6
@@ -975,11 +957,10 @@ def check_overlay_cap_by_date(
 
 #: `judge` 가 판정하지 못한 이유. `JudgeRunner` 가 남긴 `llm_status` 로 가른다.
 #:
-#: 🔴 `SKIPPED_TEMPLATE` 이 이 Flow 의 기본 상태다 — **판정할 문장이 없다.**
-#:   L5 는 *"클리핑 후에 쓰인 결정 근거"* 를 본다. 1차 Flow 에는 그 문장을 쓰는
-#:   단계가 없어서(오케 selector 가 하던 일), `rationale` 이 빈 채로 온다.
-#:   **이건 장애가 아니라 아직 없는 단계다.** "미수행" 이라고만 적으면 읽는 사람이
-#:   서버를 뒤진다.
+#: `SKIPPED_TEMPLATE` 이 마스터 판단 경로의 기본 상태다 — 판정할 문장이 없다.
+#:   L5 는 "클리핑 후에 쓰인 결정 근거" 를 본다. 마스터 흐름에는 그 문장을 쓰는
+#:   단계가 없어서 `adapters/critic_bridge.py` 가 `rationale` 을 빈 채로 보낸다.
+#:   장애가 아니라 없는 단계다. "미수행" 이라고만 적으면 읽는 사람이 서버를 뒤진다.
 _L5_SKIP_REASON: dict[str, str] = {
     "SKIPPED_TEMPLATE": "판정할 결정 근거가 없다 (이 Flow 에는 그 문장을 쓰는 단계가 없다)",
     "FALLBACK": "LLM 을 불렀으나 쓸 수 있는 판정을 못 받았다",
@@ -1128,16 +1109,15 @@ def run_critic_b(
 # 계약 개정 요청 목록
 # ---------------------------------------------------------------------------
 #
-# 처음에는 contracts/core.py 가 FROZEN 이라 여기 적어 두는 대기표였다.
-# 계약이 열린 지금은 **아직 안 된 일의 목록**이다 — 여기 있는 것은 사이드카로
-# 우회할 것이 아니라 계약을 고칠 것이다 (파일 머리 ③).
+# 아직 안 된 계약 개정의 목록이다 — 여기 있는 것은 사이드카로 우회할 것이 아니라
+# 계약을 고칠 것이다 (파일 머리말 참고).
 #
-# 🔴 닫힌 항목을 그냥 지우지 않는다. 지우기만 하면 왜 없어졌는지 아무 데도 안 남고,
-#   다음 사람이 같은 사이드카를 또 만든다. 아래 `CONTRACT_AMENDMENTS_CLOSED` 로
-#   옮기고 **무엇이 닫았는지**를 같이 적는다.
+# 닫힌 항목을 그냥 지우지 않는다. 지우기만 하면 왜 없어졌는지 아무 데도 안 남고,
+# 다음 사람이 같은 사이드카를 또 만든다. 아래 `CONTRACT_AMENDMENTS_CLOSED` 로
+# 옮기고 무엇이 닫았는지를 같이 적는다.
 #
 # `tests/master/critic/test_contract_amendments_are_open.py` 가 항목마다 계약을 직접
-# 들여다본다. 누가 개정을 구현하는 날 그 검사가 red 가 되어 목록에서 걷도록 만든다.
+# 들여다본다. 누가 개정을 구현하는 날 그 검사가 실패해 목록에서 걷도록 만든다.
 
 CONTRACT_AMENDMENTS: tuple[tuple[str, str], ...] = (
     (
@@ -1163,7 +1143,7 @@ CONTRACT_AMENDMENTS: tuple[tuple[str, str], ...] = (
 )
 
 
-#: 계약에 반영되어 **닫힌** 개정. (요청, 무엇이 닫았나, 원래 왜 필요했나)
+#: 계약에 반영되어 닫힌 개정. (요청, 무엇이 닫았나, 원래 왜 필요했나)
 #:
 #: 요청 문구를 그대로 남긴다 — 이유가 사라지면 다음 사람이 "이 필드 왜 있지" 로
 #: 되돌아온다. `CONTRACT_AMENDMENTS` 와 이 표는 같은 검사가 함께 본다.

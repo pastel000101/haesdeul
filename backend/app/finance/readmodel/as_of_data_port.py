@@ -1,7 +1,4 @@
-"""as-of 재현성을 지키는 DataPort 구현.
-
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다. 메서드마다 조회 연결을 한 번 빌린다.
-"""
+"""as-of 재현성을 지키는 DataPort 구현. 메서드마다 조회 연결을 한 번 빌린다."""
 
 from datetime import date
 from decimal import Decimal
@@ -33,16 +30,15 @@ class PostgresFinanceAsOfDataPort:
     """명시적인 재현성 보호 장치를 둔 현재 Schema용 Adapter.
 
     상태 선택은 `load_finance_state_row` 가 ``as_of`` 로 한다 — 고정된 한 행이
-    아니라 그 시점에 유효한 행이다. 그 위에 **잔액을 옮겨 쓰지 않는** 보호를 한 겹
+    아니라 그 시점에 유효한 행이다. 그 위에 잔액을 옮겨 쓰지 않는 보호를 한 겹
     더 둔다: 고른 행의 날짜가 ``as_of`` 와 다르면 그날 잔액을 모르는 것이므로
     준비되지 않은 것으로 보고한다.
 
-    ★ 2026-09-29 재구성 BL-014: 메서드 하나가 조회 연결을 **한 번** 빌려 필요한 SQL 을
-      같은 순서로 읽는다.
+    메서드 하나가 조회 연결을 한 번 빌려 필요한 SQL 을 같은 순서로 읽는다.
     """
 
     def __init__(self, *, sim_run_id: str | None = None) -> None:
-        #: 이 DataPort 가 읽는 실행. **주면 그 실행만 본다** — 실행이 여럿인 환경에서
+        #: 이 DataPort 가 읽는 실행. 주면 그 실행만 본다 — 실행이 여럿인 환경에서
         #: 축을 안 주면 어느 실행의 잔액인지 말할 수 없다.
         self.sim_run_id = sim_run_id
         self._position_cache: tuple[date, dict[str, object]] | None = None
@@ -82,8 +78,8 @@ class PostgresFinanceAsOfDataPort:
     def load_partner_receivables(self, as_of: date, partner_id: str) -> list[PartnerReceivable]:
         """이 실행의 sim_run 과 as_of 안에서만 거래처 채권을 읽는다.
 
-        ★ `load_finance_position` 을 먼저 통과한다 — 과거 시점을 오늘 상태로 대신
-          답하지 않는 보호가 채권에도 그대로 걸려야 한다.
+        `load_finance_position` 을 먼저 통과한다 — 과거 시점을 오늘 상태로 대신 답하지 않는
+        보호가 채권에도 그대로 걸려야 한다.
         """
         position = self.load_finance_position(as_of)
         return load_partner_receivables(
@@ -93,9 +89,9 @@ class PostgresFinanceAsOfDataPort:
     def load_partner_credit_limit(self, as_of: date, partner_id: str) -> Decimal | None:
         """그날 유효한 거래처 여신한도.
 
-        ★ **실행 축을 걸지 않는다.** 여신한도는 거래처와 계약이 소유한 사실이고 어느
-          시뮬레이션에서 보든 같다 — `sim_run_id` 로 좁히면 실행마다 다른 한도가
-          있는 것처럼 읽힌다. 시점만 `as_of` 로 자른다.
+        실행 축을 걸지 않는다. 여신한도는 거래처와 계약이 소유한 사실이고 어느 시뮬레이션에서
+        보든 같다 — `sim_run_id` 로 좁히면 실행마다 다른 한도가 있는 것처럼 읽힌다. 시점만
+        `as_of` 로 자른다.
         """
         return load_partner_credit_limit(as_of=as_of, partner_id=partner_id)
 

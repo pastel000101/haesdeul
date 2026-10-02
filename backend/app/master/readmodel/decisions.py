@@ -1,9 +1,7 @@
 """결정 이력 조회 — 조회 연결을 빌려 `master_decisions` 를 읽고 현재 결정을 표시한다.
 
-★ 2026-09-30 재구성 BL-018: `master/decision_repository.py` 에서 옮겼다 — `list_decisions`. 종전
-  `fetch_all` 헬퍼처럼 호출 하나에 조회 연결(autocommit) 하나를 빌린다. SQL 은
-  `repository/decisions.py`. 전에는 `decision_service.get_decisions` 가 이 함수를 그대로 돌려주는
-  전달 함수였는데, 그 함수는 없앴다 — 부르던 곳(라우터 · 이력 조회 · ask)은 이 함수를 부른다.
+호출 하나에 조회 연결(autocommit) 하나를 빌린다. SQL 은 `repository/decisions.py`.
+라우터 · 이력 조회 · ask 는 결정 목록을 이 함수로 읽는다.
 """
 
 from __future__ import annotations

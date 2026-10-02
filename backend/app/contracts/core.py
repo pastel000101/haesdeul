@@ -1,94 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: 공용 계약 (2026-09-03 이전 완료)
+# STATUS: 공용 계약
 #   마스터·검증·재무·물류·매입 어댑터가 전부 여기서 타입을 가져온다.
-#   `app/contracts/envelope.py`(2026-09-29 전 `app/master/envelope.py`) 가
-#   Evidence·Verdict·RuntimeStatus·SuggestedAdjustment 를 쓴다.
+#   `app/contracts/envelope.py` 가 Evidence·Verdict·RuntimeStatus·SuggestedAdjustment 를 쓴다.
 #
-#   🟢 **2026-09-29 계산 함수 7개를 `rules.py` 로 뗐다** (재구성 BL-011). 여기에는
-#      타입·어휘·상수·계약 위반 예외와 타입 자신의 생성 검사만 남는다. `__all__` 도
-#      `dir()` 전체(표준 라이브러리 이름까지)에서 이 파일이 정의한 이름 목록으로 바꿨다.
-#
-#   🟢 **`app/orchestrator/contracts_core.py` 에서 여기로 옮겼다** (2026-09-03).
-#      전에는 공용 계약이 한 파트 폴더에 있어 네 파트가 "오케를 임포트하는" 모양이었다.
-#      다섯 파트 동의: 매입·물류·재무 (판매는 참조 0건이라 대상 아님).
-#
-#   (2026-09-03 당시) 옛 자리는 재수출 shim 으로 남겨 두고
-#      순서 ① 이동 → ② shim 유지 → ③ 파트별 import 교체 → ④ shim 제거 로 갔다.
-#      🟢 ④까지 끝났다 — 옛 자리 `app/orchestrator/` 는 2026-09-07 에 없어졌고(`app/main.py`
-#      머리말), 지금 이 계약을 다른 경로로 내보내는 shim 은 없다(2026-10-01 확인).
-#
-#   🔴 **④ 는 `app/master/envelope.py` 를 먼저 옮긴 뒤에 친다.** 물류·판매가 봉투를
-#      경유해 이 모듈을 두 번째 경로로 읽는다 — 자기 import 를 다 고쳐도 봉투가
-#      옛 자리를 가리키면 같이 깨진다 (2026-09-03 물류 지적).
-#
-#   ★ **이 판에서 타입·필드 정의는 하나도 안 건드렸다.** 위치와 import 만이다.
-#      섞으면 무엇이 깨뜨렸는지 못 가린다 (재무 합의).
+#   여기에는 타입·어휘·상수·계약 위반 예외와 타입 자신의 생성 검사만 둔다. 이 타입으로
+#   계산하는 판정 함수는 `rules.py` 에 있다. `__all__` 은 이 파일이 정의한 이름 목록이다.
+#   이 계약을 다른 경로로 다시 내보내는 shim 은 없다.
 # ─────────────────────────────────────────────────────────────────────────────
 """
-contracts_core.py v1.2.8 — 햇들농산 공용 계약 타입 (오케스트레이터/Critic 소유: 이현서)
+core.py — 햇들농산 공용 계약 타입 (계약 판 v1.2.8 · 오케스트레이터/Critic 소유: 이현서)
 
-v0.2 → v0.3 (정의서 v0.13 반영)
-  ⑧ Cycle 신설 — 사이클 A(조달) / B(판매) 분리. 타입·로그·Critic 전부 사이클 인지
-  ⑨ cap_by_date 벡터 — 재고 cap 이 날짜별 (N15). 창고 점유 검사 신설
-  ⑩ N12 확정 반영 — T3 는 단가 환산을 하지 않는다. 시나리오가 낸 총액으로만 대조
-  ⑪ Severity 3단계 → verdict 판정 규칙 (§3.4.5-⑥)
-  ⑫ E5 · single_option_reason · has_unmet_obligation (§5.0)
-  ⑬ 부서 reject 사유 → E2/E3 매핑 (§5.1). base_state_violated 신설
-  ⑭ price_basis 기본값 AUCTION (N11 종결)
-  ⑮ 판매 배분 타입 (SaleAllocation) · T0 on_hand/in_transit 분리
+두 사이클(A 조달 · B 판매)이 주고받는 타입을 정의한다 — 근거(Evidence) · 부서 검사
+결과(CheckResult) · 조정 제안 · 부서 회신(T2Reply) · T0 스냅샷 · 시나리오 · 판매 배분 ·
+사이클 간 승인 약정 · 밴드와 클리핑 결과 · Critic 판정 · 하루 종료 코드 · cycle_log ·
+승인 규약 · 파이프라인 상태.
 
-v0.3 → v1.1 (정의서 v1.1 반영)
-  ⑯ ApprovedPurchaseCommitment — 사이클 간 상태 전달 계약 (§3.2.3) 🔴
-  ⑰ 0 / NULL 엄격 구분 — require_value() 로 계산 자체를 차단 (§1.2-10)
-  ⑱ cash_priority 2종 분리 — base_(T0) / sales_(S2 산출) (§7.4.1)
-  ⑲ cash_before_outflow / cash_after_outflow 분리 (§3.4.5-①)
-  ⑳ usable_remaining_borrowing_capacity — 정책한도 ≠ 가용액
-  ㉑ INVALID_FOR_HARD 상태 — N2 창고 capacity 하드 제약 사용 차단 (§7.2)
-
-v1.1 → v1.2 (정의서 v1.2 · 유저플로우 v1.4 · UI v1.3)
-  ㉒ 🔴 strategy_type 의미 충돌 해소 — 축은 strategy_type, 성향은 stance
-  ㉓ 🔴 cycle_log 1일 1행 · a_/b_ 컬럼 구조로 교체 (유저플로우 §⑧)
-  ㉔ 🔴 has_unmet_obligation 산출 주체 T0 → S3(오케스트레이터) 이동 (§5.0 v1.2)
-  ㉕ 🔴 파산선 = minimum_cash_balance (0원 아님)
-  ㉖ expected_arrival_date 는 매입이 회차별로 계산 (N4 3자 공유, §3.4.5-③)
-  ㉗ collapse_type AXIS | QUANTITY 구분
-  ㉘ 승인 규약 — recommended_id · override_reason (UI §5 approval 테이블)
-
-v0.1 → v0.2 변경 (`매입파트_답변서_v0.9_검토의견` 반영)
-  ① SplitLeg · SourcingLot 신설 — C-1 (a) 총량 스칼라 + split_plan 확정에 대응
-  ② ClipResult 확장 — 클리핑 시 하위 계획도 함께 축소해 삼중 일치를 유지 (B1)
-  ③ PurchaseScenario 프로토콜 4 → 8 필드
-  ④ T0Snapshot 8필드 추가 (안건 9.5 취합분)
-  ⑤ EvidenceGrade 에 SIM_FIXED 신설 (안건 12)
-  ⑥ 영업 축 price → channel_mix 개명 (이름 충돌 해소)
-  ⑦ PriceBasis 신설 — 경락가/중도매가 혼선 방지 (확인 4번)
-
-v1.2 → v1.2.1 (버그 수정 · 계약은 하위 호환)
-  ㉙ 🔴 ArrivalLeg 신설 + ApprovedPurchaseCommitment.arrival_schedule
-       도착일이 단수라 분할 매입이 사이클 B overlay 에서 하루로 뭉쳤다 (§3.6.5)
-  ㉚ 🔴 CycleBState.in_transit · cap_by_date_overlay 를 회차별 누적으로 교정
-  ㉛ EndCode · BacktestEnd · resolve_end_code 중복 정의 제거 (한쪽만 고치는 함정)
-
-v1.2.1 → v1.2.2 (사이클 B 골격 · 계약은 하위 호환)
-  ㉜ OutboundBand 신설 — 사이클 B 밴드 (cap 만 있고 floor 는 없다, §3.7.4)
-  ㉝ PipelineState.outbound_band 추가
-
-v1.2.2 → v1.2.3 (영업 IO 명세 v0.6 반영)
-  ㉞ 🔴 Verdict 에 skipped 신설 — 미결 입력으로 못 돈 검사를 ok 로 내지 않는다 (§1)
-  ㉟ 🔴 HOLD 채널 — is_outbound · outbound_qty_by_item. 보유는 출고가 아니다 (§5)
-  ㊱ 🔴 OutboundLeg · outbound_by_date — S3 공용 출고 결합 검사의 정본 입력 (§5)
-  ㊲ 🔴 SalesFacts — confirmed_obligation_kg · coverable_kg. E5 판정 입력 (§5)
-  ㊳ T2Reply.skipped_checks · PipelineState.sales_facts
-
-v1.2.3 → v1.2.4 (재무·물류 문서 v1.2 · 품목별 T2 결합)
-  ㊴ 🔴 T2Reply.item — 품목별 회신 (영업 IO 명세 §0 run_floor_reply(item, ...))
-  ㊵ 🔴 RuntimeStatus + T2Reply.runtime_status + Band.not_ready
-       READY 가 아닌 부서를 조용히 건너뛰면 그 cap 이 무한대가 되어
-       **부서가 죽은 날 무제한 매입이 통과한다**. T3 가 E4 로 끊는다.
-  ㊶ combine_band 가 부서당 회신 여럿을 받는다 (하위 호환 유지)
-
-  ※ 신규 필드·타입은 전부 기본값이 있어 기존 호출부는 그대로 동작한다.
-    다만 **전원 배포 대상**이므로 재배포가 필요하다.
+각 타입이 왜 그런 모양인지는 그 타입 옆 주석과 docstring 에 적는다.
 
 정의서 v0.9 §1.2 / §3.4 / §3.4.5-④ / §7.3, 계약서 v0.3 §8 준수.
 """
@@ -104,44 +31,44 @@ from typing import Any, Literal, Protocol
 # 0. 기본 타입
 # ---------------------------------------------------------------------------
 
-ItemCode = str  # "배추" | "무" | "양파"  — v1.0 3품목 체제
+ItemCode = str  # "배추" | "무" | "양파"  — 3품목 체제
 Grade = str  # "특" | "상" | "중"
 
-#: 취급 품목. **여기가 정본이다** — 파트별로 따로 세면 어긋난 날을 아무도 못 본다.
+#: 취급 품목. 여기가 정본이다 — 파트별로 따로 세면 어긋난 날을 아무도 못 본다.
 #:
-#: 🔴 v1.0 (2026-09-03) 에서 피마늘을 뺐다. 근거 둘이 각각 독립으로 선다.
+#: 피마늘은 넣지 않는다. 근거 둘이 각각 독립으로 선다.
 #:   ① ML 에 피마늘 예측이 없다 — 경락가 결측 11%(타 품목 1%) · 피마늘/깐마늘
-#:      미분리 · 서울 소매 없음 · 중도매가가 94% 날에 전일과 동일. 지금 넣으면
-#:      조용히 틀린 값이 간다 (ML 2026-08-27). ``app/ml/schemas.py`` 는 이미 셋이었다.
+#:      미분리 · 서울 소매 없음 · 중도매가가 94% 날에 전일과 동일 (ML 2026-08-27
+#:      확인). 넣으면 조용히 틀린 값이 간다.
 #:   ② 물류가 운영 품목을 셋으로 확정했다 (페르소나 v0.5.2 · Policy §8).
 #:
-#: 선례는 건고추다 (v0.9). 계약에서 빼고 DB Lot 은 지우지 않고 소진 처리했다.
-#: ★ 뺀다고 창고의 실물이 없어지지는 않는다. 재고가 있으면 그 사실은 나가야 한다 —
-#:   예측이 없다는 이유로 재고를 숨기지 않는다.
+#: 계약에서 뺀 품목도 DB Lot 은 지우지 않고 소진 처리한다(건고추가 선례다). 뺀다고
+#: 창고의 실물이 없어지지는 않는다. 재고가 있으면 그 사실은 나가야 한다 — 예측이
+#: 없다는 이유로 재고를 숨기지 않는다.
 #:
-#: 🔴 **그래서 이 목록은 제안 축에만 건다** (2026-09-03 · 물류 회신).
+#: 그래서 이 목록은 제안 축에만 건다 (물류 회신).
 #:
-#:   제안 축   "사자고 제안한 품목"   ITEMS 로 거른다 (critic_v0_4.py:226 · 문 앞 검증)
+#:   제안 축   "사자고 제안한 품목"   ITEMS 로 거른다 (master/critic/critic_v0_4.py · 문 앞 검증)
 #:   재고 축   "창고에 있는 품목"     자유 문자열 — 좁히지 않는다
 #:
-#:   재고 축의 `item` 을 `Literal` 로 좁히는 날, `ITEMS` 밖 재고가 **검증 에러로
-#:   죽는다.** 원칙이 조용히 뒤집히고 아무도 못 본다. 그 자리를
+#:   재고 축의 `item` 을 `Literal` 로 좁히면 `ITEMS` 밖 재고가 검증 에러로 실패한다.
+#:   원칙이 조용히 뒤집히고 아무도 못 본다. 그 자리를
 #:   `tests/master/test_inventory_axis_stays_open.py` 가 지킨다.
 ITEMS: tuple[ItemCode, ...] = ("배추", "무", "양파")
 
 Dept = Literal["sales", "inventory", "finance"]
 
-# ★ v1.2.3 — skipped 신설. 영업 IO 명세 v0.6 §1 이 요구한다.
+# skipped — 영업 IO 명세 v0.6 §1 이 요구한다.
 #   "하드 제약의 입력값이 null 이면 그 검사는 회사 공통 CheckResult 규약의
 #    skipped 로 회신된다. 값을 임의로 채워 평가된 것처럼 보이게 하지 않는다."
 #
-#   v1.2.2 까지는 이 값이 없어서 부서가 ok(통과)로 낼 수밖에 없었다.
-#   **미결값 때문에 못 돈 검사와 돌아서 통과한 검사가 구분되지 않는다.**
-#   §1.2-10(0 과 NULL 을 섞지 않는다)의 CheckResult 판 이다.
+#   이 값이 없으면 부서가 ok(통과)로 낼 수밖에 없어, 미결값 때문에 못 돈 검사와
+#   돌아서 통과한 검사가 구분되지 않는다. §1.2-10(0 과 NULL 을 섞지 않는다)의
+#   CheckResult 판이다.
 Verdict = Literal["ok", "conditional", "reject", "skipped"]
 CheckKind = Literal["hard", "soft"]
 
-# ★ v0.2 — SIM_FIXED 신설 (안건 12 / 재무 검토 메모 F4)
+# SIM_FIXED (안건 12 / 재무 검토 메모 F4)
 #   "독립의 정확한 의미는 정적(static)이다"(N2 논의 결론)를 근거 등급에도 적용한다.
 #   팀이 명시적으로 확정하고 백테스트 내내 변하지 않는 값은, 출처가 가정이더라도
 #   제약으로서는 OFFICIAL 과 성질이 같다. 흔들리는 것은 ASSUMED 뿐이다.
@@ -150,46 +77,46 @@ EvidenceGrade = Literal["OFFICIAL", "VENDOR", "SIM_FIXED", "ASSUMED", "INVALID_F
 
 HARD_ALLOWED_GRADES: frozenset[str] = frozenset({"OFFICIAL", "VENDOR", "SIM_FIXED"})
 
-# ★ v1.1 — INVALID_FOR_HARD 는 ASSUMED 보다 아래다.
+# INVALID_FOR_HARD 는 ASSUMED 보다 아래다.
 #   ASSUMED 는 "출처가 약하다"이고, INVALID_FOR_HARD 는 "이 값으로 하드 제약을
 #   만들면 제약이 무력화된다"이다 (§7.1 제약 독립성 위반).
 #   현재 해당: N2 창고 capacity — 수요 역산으로 산출돼 가동률 5.9% 로 영원히
-#   바인딩되지 않는다. allow_assumed_hard 완화 대상이 **아니다.**
+#   바인딩되지 않는다. allow_assumed_hard 완화 대상이 아니다.
 INVALID_FOR_HARD = "INVALID_FOR_HARD"
 
-# ★ v0.2 — 매입 기준 시장. 확인 4번(경락가 vs 중도매가) 혼선 방지용.
+# 매입 기준 시장. 확인 4번(경락가 vs 중도매가) 혼선 방지용.
 #   (가)/(나) 어느 쪽으로 결정되든 오케스트레이터 로직은 동일하고 이 상수만 바뀐다.
 PriceBasis = Literal["AUCTION", "WHOLESALE"]  # 경락가 / 중도매가
 DEFAULT_PRICE_BASIS: PriceBasis = "AUCTION"  # N11 종결 (v0.11) — 경락가 확정
 
-# ★ v0.3 — 사이클 분리 (정의서 v0.13 §3.1)
+# 사이클 분리 (정의서 v0.13 §3.1)
 #   A: 조달 (제안자=매입)  T1 → T2 → T3 → Critic → H1
 #   B: 판매 (제안자=영업)  S1 → S2 → S3 → Critic → H2
 #   두 사이클은 같은 형태다 — 제안 → 제약 → 조정 → 검증 → 승인.
-#   구현 패턴을 재사용하되 **사이클을 넘나드는 회송은 없다** (§3.6.3).
+#   구현 패턴을 재사용하되 사이클을 넘나드는 회송은 없다 (§3.6.3).
 Cycle = Literal["A", "B"]
 
-# ★ v0.3 — 소프트 경고 severity (§3.4.5-⑥)
+# 소프트 경고 severity (§3.4.5-⑥)
 #   verdict = conditional 의 조건을 "소프트 경고 존재"로 두면
 #   구조적 상시 경고(회수 D+30, 미수금 집중) 때문에 verdict 가 정보를 잃는다.
 Severity = Literal["HIGH", "MEDIUM", "LOW"]
 
-# ★ v1.2.4 — 재무·물류 통합 문서 v1.2 가 A 사이클의 verdict 를 runtime_status 로 바꿨다.
-#   둘은 다른 축이므로 **대체가 아니라 병존**한다.
+# runtime_status 와 verdict (재무·물류 통합 문서 v1.2).
+#   둘은 다른 축이므로 대체가 아니라 병존한다.
 #     runtime_status  이 에이전트가 오늘 돌 수 있었는가        (실행 가능성)
 #     verdict         회신 내용의 상태                          (판정)
 #   READY 가 아니면 밴드 기여가 없다. 그때 밴드를 그냥 비우면 cap 이 무한대가 되어
-#   **부서가 죽은 날에 무제한 매입이 통과한다.** Band.not_ready 로 명시적으로 막는다.
+#   부서가 죽은 날에 무제한 매입이 통과한다. Band.not_ready 로 명시적으로 막는다.
 RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]
 
-# ★ 2026-09-03 — 안이 무엇 때문에 깎였는가. **소유는 마스터**다 (매입 P-4 답).
+# 안이 무엇 때문에 깎였는가. 소유는 마스터다 (매입 P-4 답).
 #
-#   매입 `draft_plan` 이 `clipped_by[].constraint` 로 내고, 앞으로 `applied_adjustments`
-#   의 `binding` 에도 같은 어휘가 실린다. 공용 계약이고 Critic 도 검사해야 하므로
-#   **한 파트가 정하면 그 파트 화면 문구에 맞는 값**이 된다.
+#   매입 `draft_plan` 이 `clipped_by[].constraint` 로 내고, `applied_adjustments` 의
+#   `binding` 에도 같은 어휘가 실린다. 공용 계약이고 Critic 도 검사해야 하므로 한 파트가
+#   정하면 그 파트 화면 문구에 맞는 값이 된다.
 #
-# 🔴 **한글을 쓰지 않는 이유가 있다.** 지금 매입은 `{"창고", "현금", "신선도"}` 를
-#   쓰는데, `"현금"` 이 **다른 축에도 있다**.
+# 한글을 값으로 쓰지 않는다. 매입 화면 문구 `{"창고", "현금", "신선도"}` 의 `"현금"` 이
+#   다른 축에도 있다.
 #
 #   ```text
 #   자원 축     clipped_by[].constraint     창고 · 현금 · 신선도
@@ -197,38 +124,38 @@ RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]
 #                (app/purchase_agent/schemas/proposal.py `RationaleSource`)
 #   ```
 #
-#   **같은 문자열인데 뜻이 다르다.** 표시 문구를 값으로 쓰면 축이 섞인다.
+#   같은 문자열인데 뜻이 다르다. 표시 문구를 값으로 쓰면 축이 섞인다.
 #
-# ⚠️ `"현금"` 이 아니라 `자금` 인 것도 그래서다 (매입·판매 정리) — 재무 제약은
-#   차입여력·예정 유출입까지 포함해서 *"현금"* 은 좁게 읽힌다.
+# `"현금"` 이 아니라 `자금` 인 것도 그래서다 (매입·판매 정리) — 재무 제약은
+#   차입여력·예정 유출입까지 포함해서 "현금" 은 좁게 읽힌다.
 BindingConstraint = Literal["WAREHOUSE", "FINANCE", "FRESHNESS"]
 
-# 🔴 **`ClipResult.binding_constraints` 를 흡수하지 않는다** (매입 지적 2026-09-03).
+# `ClipResult.binding_constraints` 를 흡수하지 않는다 (매입 지적).
 #
-#   같은 질문(*"무엇이 안을 깎았나"*)에 답하지만 **층이 다르다.**
+#   같은 질문("무엇이 안을 깎았나")에 답하지만 층이 다르다.
 #
 #       BindingConstraint               자원     창고 · 자금 · 신선도
 #       ClipResult.binding_constraints  밴드 축   cap_total_kg · cap_amount_krw ·
 #                                                cap_by_date.{날짜}
 #
-# ⚠️ **셋이 안 겹친다.** `신선도` 는 밴드 축에 없고(매입 내부 제약),
+# 셋이 안 겹친다. `신선도` 는 밴드 축에 없고(매입 내부 제약),
 #   `cap_by_date.{날짜}` 는 날짜가 붙어 어휘를 못 닫는다.
 #
-# ★ **합치면 Critic 이 잃는다.** `cap_total_kg` 과 `cap_by_date.2026-01-05` 가
+# 합치면 Critic 이 잃는다. `cap_total_kg` 과 `cap_by_date.2026-01-05` 가
 #   같은 `WAREHOUSE` 가 되면 LLM 이 인과를 대조할 재료가 줄어든다
 #   (`master/critic/llm/runtime.py`).
 #
-# ⬜ **다만 대응표는 필요하다.** 안 두면 Critic 결과와 화면이 다른 이름을 말한다.
-#   목표 도착일 칸(②)과 같은 판에서 정한다 — 지금 정하면 두 번 바뀐다.
+# 미결정: 두 층의 대응표는 필요하다. 안 두면 Critic 결과와 화면이 다른 이름을 말한다.
+#   목표 도착일 칸(②)과 함께 정하기로 했다.
 BINDING_CONSTRAINT_LABELS: Mapping[str, str] = {
     "WAREHOUSE": "창고",
     "FINANCE": "자금",
     "FRESHNESS": "신선도",
 }
-"""사람이 읽는 문구. **어휘는 마스터가, 표시는 부서가 정한다** — 뜻을 아는 쪽이
-   문구를 정하는 것이 맞다 (매입 제공 2026-09-03).
+"""사람이 읽는 문구. 어휘는 마스터가, 표시는 부서가 정한다 — 뜻을 아는 쪽이
+   문구를 정하는 것이 맞다 (매입 제공).
 
-⚠️ **표시 문구로 판정하지 않는다.** 값 비교는 위 `BindingConstraint` 로만 한다."""
+표시 문구로 판정하지 않는다. 값 비교는 위 `BindingConstraint` 로만 한다."""
 
 
 class ContractViolation(Exception):
@@ -280,9 +207,9 @@ class CheckResult:
     │  재무     → cap_amount_krw    (§4.3 금액 축)                  │
     └───────────────────────────────────────────────────────────────┘
 
-    ★ floor 는 품목별이다. 총량 floor 는 존재하지 않는다.
-      확정주문이 품목별이므로 총량으로 뭉개면 "배추 납기는 못 지키고
-      무를 초과 매입"해도 통과한다. (검토의견 §3-3 정정 사항)
+    floor 는 품목별이다. 총량 floor 는 존재하지 않는다.
+    확정주문이 품목별이므로 총량으로 뭉개면 "배추 납기는 못 지키고
+    무를 초과 매입"해도 통과한다. (검토의견 §3-3)
     """
 
     check_id: str
@@ -302,20 +229,20 @@ class CheckResult:
     source_ref: str = ""
     allow_loose_cap: bool = False
 
-    # ── v0.3 신설 ────────────────────────────────────────────────
+    # ── 사이클 · 경고 심각도 · 날짜별 점유 ─────────────────────────
     cycle: Cycle = "A"
 
     severity: Severity = "MEDIUM"
     """소프트 경고 전용. HIGH 만 verdict 를 conditional 로 올린다 (§3.4.5-⑥)."""
 
     cap_by_date_kg: Mapping[date, float] | None = None
-    """재고 전용 · N15. 날짜별 창고 점유 상한. **확정분만 반영** (§3.4.5-④ v0.13).
+    """재고 전용 · N15. 날짜별 창고 점유 상한. 확정분만 반영 (§3.4.5-④).
        전략적 판매·사이클 B 후보는 반영하지 않는다 — 체결 불확실한 물량을
        창고 여유로 계산하면 판매가 안 됐을 때 창고가 넘친다.
        사이클 A 는 전략 판매 = 0 을 가정하고 안전한 방향으로만 틀린다."""
 
     base_state_violated: bool = False
-    """★ §5.1 — reject 가 '오늘은 못 산다'(E2)인지 '회사가 위험하다'(E3)인지 구분.
+    """§5.1 — reject 가 '오늘은 못 산다'(E2)인지 '회사가 위험하다'(E3)인지 구분.
        True = BASE 상태 자체가 하드 제약 위반 → E3 반려 + 백테스트 종료 검토.
        이 플래그가 없으면 파산/교착 종료 판정이 성립하지 않는다."""
 
@@ -365,11 +292,11 @@ class CheckResult:
 # 3. suggested_adjustment — 부서별 축 제한 (§3.4.2)
 # ---------------------------------------------------------------------------
 
-# ★ v0.2 — 영업 축 price → channel_mix 개명.
-#   variant_axis 의 price(매입 상한가, V-2에서 폐기)와 문자열이 겹쳐
-#   constraints.yaml / cycle_log / Critic L3 에서 구분이 안 됐다.
+# 영업 축 이름은 price 가 아니라 channel_mix 다.
+#   price 는 variant_axis 의 price(매입 상한가)와 문자열이 겹쳐
+#   constraints.yaml / cycle_log / Critic L3 에서 구분이 안 된다.
 #   §3.7.4 채널 포트폴리오에서 영업의 실제 결정 변수가 채널 배분이므로
-#   이름이 실체에 더 가까워지는 부수 효과도 있다.
+#   이름이 실체에도 더 가깝다.
 AdjustAxis = Literal["quantity", "timing", "channel_mix", "amount"]
 
 _DEPT_AXES: dict[Dept, tuple[AdjustAxis, ...]] = {
@@ -378,13 +305,12 @@ _DEPT_AXES: dict[Dept, tuple[AdjustAxis, ...]] = {
     "finance": ("amount",),
 }
 
-# ★ v1.2 — 필드명 개명 전파 (정의서 §3.5.1)
-#   variant_axis → strategy_type. 값은 quantity | timing | mix 그대로다.
+# 축 필드 이름은 strategy_type 이다 (정의서 §3.5.1). 값은 quantity | timing | mix.
 #   variant_collapsed 는 이름을 유지한다 (축이 아니라 수렴 '현상'을 가리키므로).
 #
-#   🔴 v0.3 은 strategy_type 에 "보수/기준/공격"을 담았는데 이는 V-3 의 다른 논의였다.
-#     UI v1.3 §2 가 PurchaseCandidate.strategy_type: quantity|timing|mix 로 확정했으므로
-#     성향 라벨은 stance 로 분리한다. 두 개념을 한 필드에 담으면 화면과 계약이 어긋난다.
+#   UI v1.3 §2 가 PurchaseCandidate.strategy_type: quantity|timing|mix 로 확정했으므로
+#   성향 라벨("보수/기준/공격")은 stance 로 분리한다. 두 개념을 한 필드에 담으면 화면과
+#   계약이 어긋난다.
 StrategyType = Literal["quantity", "timing", "mix"]
 VariantAxis = StrategyType  # 하위 호환 별칭. 신규 코드는 StrategyType 사용.
 
@@ -403,33 +329,31 @@ class SuggestedAdjustment:
     reason: str
     ref_ids: tuple[str, ...]
 
-    #: 🆕 **이 조정이 어느 시나리오를 대상으로 하는가** (2026-09-02 · 되먹임 계약 v0.2).
+    #: 이 조정이 어느 시나리오를 대상으로 하는가 (되먹임 계약 v0.2).
     #:
-    #: 전에는 시나리오 축이 아예 없어 `reason` 문장 안에만 남았다. 받는 쪽이 그것을
-    #: 쓰려면 **부서 문장을 파싱해야 했다.**
+    #: 이 칸이 없으면 시나리오 축이 `reason` 문장 안에만 남아 받는 쪽이 부서 문장을
+    #: 파싱해야 한다. 부서 하나의 사정이 아니다 — 재무도 걸린다. 상한 2,000만에
+    #: 보수 1,500만 · 기본 2,100만 · 공격 2,800만이면 기본·공격만 재조정 대상이고,
+    #: 그 사실을 기계가 이 칸으로 읽는다.
     #:
-    #: 🔴 부서 하나의 사정이 아니다 — 재무도 걸린다. 상한 2,000만에 보수 1,500만 ·
-    #:   기본 2,100만 · 공격 2,800만이면 **기본·공격만 재조정 대상**인데, 그 사실을
-    #:   기계가 읽을 자리가 없었다.
-    #:
-    #: ★ **여럿을 담는다.** 물류는 축·회차·목표값이 같으면 시나리오를 가로질러
+    #: 여럿을 담는다. 물류는 축·회차·목표값이 같으면 시나리오를 가로질러
     #:   한 건으로 합치는데, 그때 합쳐진 라벨을 다 담는다 — 건수를 안 늘리면서
     #:   "이 조정은 세 안 모두에 해당" 이 값으로 드러난다.
     #:
-    #: ★ **비어 있어도 된다.** 안 채운 것과 해당 없는 것을 여기서 가르지 않는다.
+    #: 비어 있어도 된다. 안 채운 것과 해당 없는 것을 여기서 가르지 않는다.
     scenario_labels: tuple[str, ...] = ()
 
-    #: 🆕 **어느 회차의 상한인가** (2026-09-02).
+    #: 어느 회차의 상한인가.
     #:
-    #: 물류 내부 `ScenarioAdjustment` 는 `split_date` 로 회차를 식별하는데 그 값이
-    #: 표준형으로 안 옮겨졌다. **값이 갈리느냐와 무관하게** 받는 쪽이 *"이 상한을
-    #: 어느 회차에 적용할지"* 를 알아야 한다.
+    #: 물류 내부 `ScenarioAdjustment` 는 `split_date` 로 회차를 식별하고, 그 값을
+    #: 표준형에도 싣는다. 값이 갈리느냐와 무관하게 받는 쪽이 "이 상한을 어느 회차에
+    #: 적용할지" 를 알아야 한다.
     #:
-    #: ★ **번호가 아니라 날짜다** (물류 지정). 물류에는 회차 번호가 없다 —
-    #:   번호 칸을 두면 **없는 값을 만들게 된다.** 받는 쪽이 번호를 원하면 자기
+    #: 번호가 아니라 날짜다 (물류 지정). 물류에는 회차 번호가 없다 —
+    #:   번호 칸을 두면 없는 값을 만들게 된다. 받는 쪽이 번호를 원하면 자기
     #:   회차 목록에서 날짜로 찾는다.
     #:
-    #: ★ 회차 개념이 없는 축(재무 `amount`)은 `None` 이다.
+    #: 회차 개념이 없는 축(재무 `amount`)은 `None` 이다.
     split_date: date | None = None
 
     def __post_init__(self) -> None:
@@ -441,14 +365,14 @@ class SuggestedAdjustment:
         if not self.ref_ids:
             raise ContractViolation("suggested_adjustment 에도 ref_ids 필수 (§1.2-5).")
         if self.axis == "timing" and self.split_date is None:
-            # 🔴 **`None` 이 두 뜻이던 것을 하나로 만든다** (2026-09-03).
+            # `None` 이 두 뜻이 되지 않게 한다.
             #
             #   재무 amount    회차 개념이 없다        → None 이 정상
             #   물류 timing    회차가 있는데 안 실었다 → None 이 누락
             #
-            #   화면(`master/answer.py`)이 둘을 같게 봐서 *"N 회차"* 가 한 번도 안 떴다.
-            #   물류가 채운 지금(#214) 강제해도 아무도 안 깨진다 — timing 을 내는 곳은
-            #   `logistics/domain/scenario_engine.py` 하나다.
+            #   둘을 같게 보면 화면(`master/domain/answer.py`)에 "N 회차" 가 뜨지 않는다.
+            #   timing 을 내는 곳은 `logistics/domain/scenario_engine.py` 하나이고 회차를
+            #   채운다(#214).
             raise ContractViolation(
                 "timing 조정은 어느 회차인지 밝혀야 한다 — split_date 필수. "
                 "회차 개념이 없는 축은 timing 이 아니다."
@@ -469,9 +393,9 @@ class T2Reply:
     reasoning: str = ""
 
     item: ItemCode | None = None
-    """★ v1.2.4 — 품목별 회신이면 그 품목. 전사 단일 회신이면 None.
+    """품목별 회신이면 그 품목. 전사 단일 회신이면 None.
 
-    영업 IO 명세 §0 이 `run_floor_reply(item, ...)` 로 **품목마다 한 번씩** 호출된다고
+    영업 IO 명세 §0 이 `run_floor_reply(item, ...)` 로 품목마다 한 번씩 호출된다고
     정했다. 반면 재무 A 는 `scope = ALL_ITEMS_TOTAL` 로 전사 총액 하나를 낸다.
     두 축이 한 밴드에서 만나므로, 어느 쪽인지 회신 자신이 밝혀야 결합이 성립한다."""
 
@@ -486,19 +410,19 @@ class T2Reply:
     @property
     def verdict(self) -> Verdict:
         """
-        §3.4.5-⑥ 판정 규칙 (v0.3)
+        §3.4.5-⑥ 판정 규칙
 
             reject       ⟸ 하드 제약 위반
             conditional  ⟸ 하드 통과 + 밴드 유효 + HIGH 경고 ≥ 1
             ok           ⟸ 하드 통과 + 밴드 유효 + HIGH 경고 없음
 
-        ★ verdict 는 사람 승인 화면과 cycle_log 기록용이다.
-          T3 클리핑은 밴드 값만으로 수행하며 verdict 를 참조하지 않는다 (§5.1 말미).
+        verdict 는 사람 승인 화면과 cycle_log 기록용이다.
+        T3 클리핑은 밴드 값만으로 수행하며 verdict 를 참조하지 않는다 (§5.1 말미).
 
-        ★ v1.2.3 — skipped 는 verdict 를 움직이지 않는다.
-          영업 IO 명세 §3 이 verdict 를 `ok | conditional` 두 값으로 정의하고
-          소프트 경고 심각도로만 정한다. skipped 는 "이 검사가 못 돌았다"는 사실이며
-          판정이 아니다. 대신 `skipped_checks` 로 드러내 T3·Critic 이 보게 한다.
+        skipped 는 verdict 를 움직이지 않는다.
+        영업 IO 명세 §3 이 verdict 를 `ok | conditional` 두 값으로 정의하고
+        소프트 경고 심각도로만 정한다. skipped 는 "이 검사가 못 돌았다"는 사실이며
+        판정이 아니다. 대신 `skipped_checks` 로 드러내 T3·Critic 이 보게 한다.
         """
         hard = [c.verdict for c in self.checks if c.kind == "hard"]
         if "reject" in hard:
@@ -515,11 +439,11 @@ class T2Reply:
     @property
     def skipped_checks(self) -> tuple[CheckResult, ...]:
         """
-        미결 입력 때문에 돌지 못한 검사들 (v1.2.3).
+        미결 입력 때문에 돌지 못한 검사들.
 
-        ★ 통과와 구분해서 흘려보내야 한다. 이것이 비어 있지 않은 날은
-          "전 항목 통과"가 아니라 "일부는 아직 검사 자체를 못 했다"이다.
-          Critic 의 coverage 와 같은 취지다.
+        통과와 구분해서 흘려보내야 한다. 이것이 비어 있지 않은 날은
+        "전 항목 통과"가 아니라 "일부는 아직 검사 자체를 못 했다"이다.
+        Critic 의 coverage 와 같은 취지다.
         """
         return tuple(c for c in self.checks if c.verdict == "skipped")
 
@@ -538,7 +462,7 @@ class T2Reply:
 
 
 # ---------------------------------------------------------------------------
-# 5. T0 스냅샷 (§8.1) — v0.2 에서 8필드 추가 (안건 9.5)
+# 5. T0 스냅샷 (§8.1)
 # ---------------------------------------------------------------------------
 
 
@@ -574,19 +498,19 @@ class FinanceSnapshot:
     credit_headroom_krw: float
     horizon_days: int = 30
 
-    # ── v1.1 §3.4.5-① 판정 시점 분리 ────────────────────────
+    # ── §3.4.5-① 판정 시점 분리 ────────────────────────────
     cash_before_outflow: Mapping[date, float] = field(default_factory=dict)
-    """그날 의무를 지급하기 **직전** 잔액. 급여·원리금 커버 판정에 쓴다."""
+    """그날 의무를 지급하기 직전 잔액. 급여·원리금 커버 판정에 쓴다."""
 
     cash_after_outflow: Mapping[date, float] = field(default_factory=dict)
-    """그날 모든 확정 유출 **후** 잔액. 최소현금 방어선 판정에 쓴다.
+    """그날 모든 확정 유출 후 잔액. 최소현금 방어선 판정에 쓴다.
        projected_cash_min = MIN(cash_after_outflow[d])"""
 
     usable_remaining_borrowing_capacity_krw: float | None = None
-    """★ 정책한도 − 기실행액 ≠ 실제 조달 가능액 (v1.1).
+    """정책한도 − 기실행액 ≠ 실제 조달 가능액.
        정책한도는 '빌려도 된다고 정한 상한'이고, 이 값은 '실제로 빌릴 수 있는 액수'다.
        N9 에서 별도 결정되므로 그 전까지 None(미결) — require_value() 로 차단된다."""
-    # ★ v0.2 — ports 재호출 금지(검토의견 §4)에 따라 스케줄을 T0 에서 확정 배포
+    # ports 재호출 금지(검토의견 §4)에 따라 스케줄을 T0 에서 확정 배포
     obligation_schedule: tuple[CashFlowLeg, ...] = ()
     receivable_schedule: tuple[CashFlowLeg, ...] = ()
 
@@ -613,8 +537,8 @@ class InventoryLot:
 
 @dataclass(frozen=True)
 class T0Snapshot:
-    """§3.1.1 필드 계약 (v0.10 확정 · v0.13 유지).
-    ★ 여기 없는 값을 개별 조회하면 §1.2-9 위반이다."""
+    """§3.1.1 필드 계약.
+    여기 없는 값을 개별 조회하면 §1.2-9 위반이다."""
 
     as_of: date
     run_seq: int
@@ -626,17 +550,17 @@ class T0Snapshot:
     finance: FinanceSnapshot
     budget_envelope_krw: float
 
-    # ── v0.2 신설 8필드 ─────────────────────────────────────────
+    # ── 매입 기준 · 편중 · 게이팅 · 단가 (안건 9.5) ──────────────
     price_basis: PriceBasis = DEFAULT_PRICE_BASIS
-    """매입 기준 시장. N11 종결로 **경락가 확정**(v0.11 §3.7.5).
+    """매입 기준 시장. N11 종결로 경락가 확정(§3.7.5).
        계약단가 산정 기준과 반드시 일치해야 한다 —
        Critic check_price_basis_consistency() 가 검사한다."""
 
     contract_price_basis: PriceBasis = DEFAULT_PRICE_BASIS
-    """계약단가 분자도 경락가 평균으로 전환됨 (v0.11). price_basis 와 달라지면 FAIL."""
+    """계약단가 분자도 경락가 평균이다. price_basis 와 달라지면 FAIL."""
 
     item_mix_ratio_amount: Mapping[ItemCode, float] = field(default_factory=dict)
-    """품목 편중 — **금액 기준**. mix 축 게이팅의 정본.
+    """품목 편중 — 금액 기준. mix 축 게이팅의 정본.
        금액 기준인 이유: 재무 cap 이 금액이고, mix 축의 실효성은
        '자금을 어떻게 나눠 쓰는가'에서 나온다. 수량이 고르더라도 금액이
        한 품목에 쏠리면 재무 cap 이 그 품목 하나에 걸린다.
@@ -646,12 +570,12 @@ class T0Snapshot:
     """품목 편중 — 수량 기준. 창고 cap 해석용. 게이팅에는 쓰지 않는다."""
 
     allowed_variant_axes: tuple[VariantAxis, ...] = ("quantity", "timing")
-    """★ 게이팅 결과를 T0 에서 확정 배포한다.
+    """게이팅 결과를 T0 에서 확정 배포한다.
        매입이 T1 에서 자체 계산하면 T3 의 회송 지시와 어긋난다 —
        §8.1('여기 없는 값을 개별 조회하면 에이전트마다 다른 숫자를 본다')의 직접 적용."""
 
     contract_price_krw_per_kg: Mapping[ItemCode, float] = field(default_factory=dict)
-    """매입이 **참조값으로만** 읽는다. 하드 컷 아님 (검토의견 §3-5)."""
+    """매입이 참조값으로만 읽는다. 하드 컷 아님 (검토의견 §3-5)."""
 
     margin_defense_floor_rate: float = 0.0
     """as_of 로 거치(0.267)/상환기(0.284) 선택된 값. 판정은 영업 T2 소관."""
@@ -659,7 +583,7 @@ class T0Snapshot:
     grade_unit_price: Mapping[tuple[ItemCode, Grade], float] = field(default_factory=dict)
     """등급별 예측 단가. 금액 항등식의 입력 (§3.4.5-④)."""
 
-    # ── v0.3 신설 (정의서 v0.13 §3.1.1) ─────────────────────────
+    # ── 스냅샷 식별 · 로트 · 정책 (정의서 v0.13 §3.1.1) ──────────
     snapshot_id: str = ""
     horizon_end: date | None = None
     horizon_basis: str = ""  # 투영 기간을 그 길이로 정한 이유 (재무)
@@ -668,7 +592,7 @@ class T0Snapshot:
     """로트 단위 필수. on_hand / in_transit 구분이 여기서 나온다."""
 
     base_cash_priority: str = "MEDIUM"
-    """★ v1.1 §7.4.1 — T0 시점 BASE Projection 기반. **참조·대시보드 전용.**
+    """§7.4.1 — T0 시점 BASE Projection 기반. 참조·대시보드 전용.
        영업이 쓰는 것은 이 값이 아니라 S2 에서 산출되는 sales_cash_priority 다.
        T0 값을 영업에 주면 방금 승인한 조달 의무를 모른 채 판매를 결정하게 된다."""
 
@@ -684,20 +608,20 @@ class T0Snapshot:
     cap_by_date_window_days: int | None = None
     """`cap_by_date` 를 계산한 창의 길이 (물류 IO Contract §6 · #183).
 
-    ★ **`inbound_lead_days` 와 짝이다.** 창의 시작이 `as_of + inbound_lead_days`,
-      길이가 이 값이다. 둘 다 물류가 준다 (`logistics/tools.build_cap_window`).
+    `inbound_lead_days` 와 짝이다. 창의 시작이 `as_of + inbound_lead_days`,
+      길이가 이 값이다. 둘 다 물류가 준다 (`logistics/domain/tools.build_cap_window`).
 
-    🔴 **이 값이 없으면 "키가 없는 날짜" 를 읽을 수 없다.** 물류가 정한 규약이
+    이 값이 없으면 "키가 없는 날짜" 를 읽을 수 없다. 물류가 정한 규약이
       셋으로 갈리는데, 창을 모르면 뒤의 둘을 못 가른다.
 
         키 존재 + 값 0    입고 가능량이 0 이다
         창 안인데 키 없음  계산 누락 또는 미결
         창 밖             계산 대상이 아니다   ← 0 도 무한대도 아니다
 
-      가르지 못하면 마스터는 **무한대 쪽으로 틀린다** — 창 밖 도착이 어느 비교에도
+      가르지 못하면 마스터는 무한대 쪽으로 틀린다 — 창 밖 도착이 어느 비교에도
       안 걸리고 조용히 통과한다."""
 
-    # ★ v1.2 정정 — has_unmet_obligation 은 T0 필드가 아니다.
+    # has_unmet_obligation 은 T0 필드가 아니다.
     #   부서는 자기 도메인 사실만 알 뿐 납품 의무 충족 여부를 판정할 위치가 아니다.
     #     매입 → no_proposal_reason      (유효 시나리오 없음 + 사유)
     #     영업 → today_floor · 부족분
@@ -716,7 +640,7 @@ class T0Snapshot:
 
 
 # ---------------------------------------------------------------------------
-# 6. 시나리오 — v0.2: 4 → 8 필드
+# 6. 시나리오
 # ---------------------------------------------------------------------------
 
 
@@ -725,7 +649,7 @@ class SplitLeg:
     """
     분할 입고 1회분. C-1 (a) 총량 스칼라 + split_plan 별도 필드.
 
-    ★ v1.2 §3.4.5-③ — expected_arrival_date 는 **매입이 회차별로 계산**한다.
+    §3.4.5-③ — expected_arrival_date 는 매입이 회차별로 계산한다.
       계산은 매입, 값(inbound_lead_days)은 재고가 공급한다 (N4 3자 공유).
       총량 기준 단일 도착일로 뭉치면 분할 매입의 창고 부담 분산 효과가 사라진다.
       N4 가 NULL 인 동안은 계산하지 않는다 — 0 으로 대체하면 "오늘 승인분이 오늘 도착"이
@@ -737,9 +661,9 @@ class SplitLeg:
     expected_arrival_date: date | None = None
 
     amount_krw: Mapping[ItemCode, float] | None = None
-    """회차별 금액. **매입이 보낸다** — 마스터도 오케도 계산하지 않는다.
+    """회차별 금액. 매입이 보낸다 — 마스터도 오케도 계산하지 않는다.
 
-    ★ 스칼라가 아니라 `qty_kg` 와 같은 **품목별 매핑**이다. 근거 둘.
+    스칼라가 아니라 `qty_kg` 와 같은 품목별 매핑이다. 근거 둘.
 
     ```text
     ① 원장이 요구한다    purchase_items 는 (회차, 품목) 마다 한 줄이고
@@ -749,13 +673,14 @@ class SplitLeg:
                          축소가 sourcing 과 정확히 같은 비율로 간다
     ```
 
-    ★ **기본값이 `None` 이다. `0.0` 이나 빈 매핑으로 채우지 않는다** — 없는 것과
+    기본값이 `None` 이다. `0.0` 이나 빈 매핑으로 채우지 않는다 — 없는 것과
       0 원은 다르다 (§1.2-10). None 이면 `check_triple_identity` 의 split 금액 변은
       통째로 건너뛴다.
 
-    ★ 매입 → 여기까지의 통로는 셋이고 **다 이어져 있다** (#295). `SplitLegIn.amount_krw`
-      → `critic_bridge._split_legs` (스칼라에 실행 품목 이름표) → `critic.service._to_scenario`.
-      한 칸만 끊겨도 값이 안 닿고, 그때 금액 변은 *"통과"* 가 아니라 *"안 돈 것"* 이 된다.
+    매입 → 여기까지의 통로는 셋이고 다 이어져 있다 (#295). `SplitLegIn.amount_krw`
+      → `master/adapters/critic_bridge._split_legs` (스칼라에 실행 품목 이름표)
+      → `master/critic/service._to_scenario`.
+      한 칸만 끊겨도 값이 안 닿고, 그때 금액 변은 "통과" 가 아니라 "안 돈 것" 이 된다.
     """
 
 
@@ -779,14 +704,13 @@ class SourcingLot:
 
 class PurchaseScenario(Protocol):
     """
-    ★ v0.2 정정 — 요구사항명세서 v0.1 §4.3 에서 "오케스트레이터에는 총량만
-      넘어온다"고 적었으나 이는 틀렸다. 붕괴 판정이 split_plan 을 봐야 하기
-      때문이다 (총량이 같고 분할만 다른 두 안을 붕괴로 오판하면 timing 축이
-      무력화된다).
+    오케스트레이터에는 총량만이 아니라 split_plan 도 넘어온다. 붕괴 판정이
+    split_plan 을 봐야 하기 때문이다 (총량이 같고 분할만 다른 두 안을 붕괴로
+    오판하면 timing 축이 무력화된다).
     """
 
     scenario_id: str
-    strategy_type: str  # quantity | timing | mix (v1.2)
+    strategy_type: str  # quantity | timing | mix
     stance: str  # 보수 | 기준 | 공격 (화면 라벨)
     qty_kg: Mapping[ItemCode, float]
     unit_price_krw_per_kg: Mapping[ItemCode, float]  # sourcing 가중평균 (파생)
@@ -794,7 +718,7 @@ class PurchaseScenario(Protocol):
     sourcing_plan: tuple[SourcingLot, ...]
     price_basis: str
     total_amount_krw: float
-    """★ v1.2 §3.4.5-④ — 재무 cap 과 대조되는 **유일한** 값.
+    """§3.4.5-④ — 재무 cap 과 대조되는 유일한 값.
        재무의 max_feasible_amount_krw 는 등급가를 가정하지 않는 순수 금액 상한이므로,
        등급 구성은 그 상한 안에서 매입이 짠다. 재무는 어떤 단가도 가정하지 않는다."""
 
@@ -820,12 +744,12 @@ class MinimalScenario:
 
 
 # ---------------------------------------------------------------------------
-# 6.5 판매 배분 후보 — 사이클 B (v0.3 신설, 정의서 v0.13 §3.1)
+# 6.5 판매 배분 후보 — 사이클 B (정의서 v0.13 §3.1)
 # ---------------------------------------------------------------------------
 
 
-# ★ v1.2.3 — 영업 IO 명세 v0.6 §5 의 채널 enum.
-#   HOLD 는 **출고가 아니다.** 오늘 안 내보내고 들고 가기로 한 물량이다.
+# 영업 IO 명세 v0.6 §5 의 채널 enum.
+#   HOLD 는 출고가 아니다. 오늘 안 내보내고 들고 가기로 한 물량이다.
 SALES_CHANNELS: tuple[str, ...] = ("KIMCHI_FACTORY", "SCHOOL_MEAL", "SPOT", "HOLD")
 HOLD_CHANNEL = "HOLD"
 
@@ -833,17 +757,17 @@ HOLD_CHANNEL = "HOLD"
 @dataclass(frozen=True)
 class OutboundLeg:
     """
-    날짜별 출고 예정 1건 (v1.2.3 · 영업 IO 명세 §5 `outbound_by_date`).
+    날짜별 출고 예정 1건 (영업 IO 명세 §5 `outbound_by_date`).
 
-    ★ **확정 납품분을 포함한다.** 전략 배분(legs)과 범위가 다르다.
-      HOLD 는 출고가 아니므로 들어가지 않는다.
+    확정 납품분을 포함한다. 전략 배분(legs)과 범위가 다르다.
+    HOLD 는 출고가 아니므로 들어가지 않는다.
     """
 
     date: date
     qty_kg: float
 
 
-# ★ v1.2.8 — 사이클 B 조언자(S2) 출력 계약. 갱신 PDF 물류 B / 재무 B 로 확정.
+# 사이클 B 조언자(S2) 출력 계약. PDF 물류 B / 재무 B 로 확정.
 #   S3 가 판매 후보를 대조할 때 읽는다. 부서가 후보를 직접 판정하지는 않는다.
 
 LotStatus = Literal["AVAILABLE", "RESERVED", "EXPIRED"]
@@ -854,8 +778,8 @@ class LotConstraint:
     """
     물류 B 출력의 로트 1건 (PDF 물류 B OUTPUT `lot_constraints`).
 
-    ★ S3 의 판매 후보 검증 입력이다 (04 §6 `validate_sales_candidate`).
-      Critic B 의 L4-9(on_hand 초과)·L4-10(신선도·납기)이 이 값으로 재검산한다.
+    S3 의 판매 후보 검증 입력이다 (04 §6 `validate_sales_candidate`).
+    Critic B 의 L4-9(on_hand 초과)·L4-10(신선도·납기)이 이 값으로 재검산한다.
     """
 
     lot_id: str
@@ -870,8 +794,8 @@ class CollectionPreference:
     """
     재무 B 출력의 채널 회수 선호 1건 (PDF 재무 B OUTPUT `collection_preferences`).
 
-    ★ **배분 지시가 아니라 순위 신호다.** liquidity_rank 가 낮을수록 회수가 빠르다.
-      재무는 특정 후보를 PASS/FAIL 하지 않는다 (통합 문서 §3). S3 가 참고한다.
+    배분 지시가 아니라 순위 신호다. liquidity_rank 가 낮을수록 회수가 빠르다.
+    재무는 특정 후보를 PASS/FAIL 하지 않는다 (통합 문서 §3). S3 가 참고한다.
     """
 
     channel_type: str
@@ -883,11 +807,11 @@ class CollectionPreference:
 @dataclass(frozen=True)
 class SalesFacts:
     """
-    S1 이 제출하는 **사실 보고** (v1.2.3 · 영업 IO 명세 §5).
+    S1 이 제출하는 사실 보고 (영업 IO 명세 §5).
 
-    ★ 영업은 판정하지 않는다. 의무량과 충당 가능량이라는 사실만 낸다.
-      `has_unmet_obligation` 과 E5 판정은 매입·판매 전체를 보는 S3 의 몫이다
-      (§5.0). 영업이 그 플래그를 내면 Critic 의 `E-AUTHORITY` 위반이다.
+    영업은 판정하지 않는다. 의무량과 충당 가능량이라는 사실만 낸다.
+    `has_unmet_obligation` 과 E5 판정은 매입·판매 전체를 보는 S3 의 몫이다
+    (§5.0). 영업이 그 플래그를 내면 Critic 의 `E-AUTHORITY` 위반이다.
     """
 
     confirmed_obligation_kg: Mapping[ItemCode, float] = field(default_factory=dict)
@@ -913,13 +837,13 @@ class ChannelLeg:
     @property
     def is_outbound(self) -> bool:
         """
-        ★ v1.2.3 — HOLD 는 출고량에 넣지 않는다 (영업 IO 명세 §5).
+        HOLD 는 출고량에 넣지 않는다 (영업 IO 명세 §5).
 
           "보유(HOLD)는 출고가 아니라 제외"
 
-          이 구분이 없으면 공용 출고 능력 결합 검사가 **보유하기로 한 물량까지
-          출고로 세어** 실제보다 좁게 클리핑한다. 오늘 안 내보내기로 한 결정이
-          출고 능력을 잡아먹는 셈이 된다.
+        이 구분이 없으면 공용 출고 능력 결합 검사가 보유하기로 한 물량까지
+        출고로 세어 실제보다 좁게 클리핑한다. 오늘 안 내보내기로 한 결정이
+        출고 능력을 잡아먹는 셈이 된다.
         """
         return self.channel != HOLD_CHANNEL
 
@@ -928,8 +852,8 @@ class SaleAllocation(Protocol):
     """
     S1 산출물. 오케스트레이터가 의존하는 최소 인터페이스.
 
-    ★ on_hand 만 쓴다. 오늘 승인된 매입은 보지 않는다 (§3.4.5-⑦).
-      오늘 도착분은 T0 입고 처리에서 이미 반영됐다.
+    on_hand 만 쓴다. 오늘 승인된 매입은 보지 않는다 (§3.4.5-⑦).
+    오늘 도착분은 T0 입고 처리에서 이미 반영됐다.
     """
 
     allocation_id: str
@@ -937,12 +861,12 @@ class SaleAllocation(Protocol):
     legs: tuple[ChannelLeg, ...]
     expected_contribution_krw: float
     outbound_by_date: tuple[OutboundLeg, ...]
-    """★ v1.2.3 — S3 공용 출고 결합 검사의 **정본 입력** (영업 IO 명세 §5).
+    """S3 공용 출고 결합 검사의 정본 입력 (영업 IO 명세 §5).
 
     legs 를 합산해 유추하지 않는다. 두 값의 범위가 다르기 때문이다.
 
-        legs             전략 가능 재고의 배분. **확정 주문분을 포함하지 않는다**
-        outbound_by_date 그날의 총 출고량. **확정 납품분을 포함한다**. HOLD 는 제외
+        legs             전략 가능 재고의 배분. 확정 주문분을 포함하지 않는다
+        outbound_by_date 그날의 총 출고량. 확정 납품분을 포함한다. HOLD 는 제외
 
     legs 합으로 결합 검사를 하면 확정 납품분이 빠져 출고 능력을 과소 계상한다."""
 
@@ -959,7 +883,7 @@ class MinimalAllocation:
 
     @property
     def qty_by_item(self) -> dict[ItemCode, float]:
-        """배분 총량. **HOLD 포함** — 전략 가능 재고와 대조할 때 쓴다."""
+        """배분 총량. HOLD 포함 — 전략 가능 재고와 대조할 때 쓴다."""
         out: dict[ItemCode, float] = {}
         for leg in self.legs:
             out[leg.item] = out.get(leg.item, 0.0) + leg.qty_kg
@@ -968,10 +892,10 @@ class MinimalAllocation:
     @property
     def outbound_qty_by_item(self) -> dict[ItemCode, float]:
         """
-        실제 출고량. **HOLD 제외** (v1.2.3).
+        실제 출고량. HOLD 제외.
 
-        ★ 클리핑과 출고 능력 검사는 반드시 이쪽을 쓴다.
-          qty_by_item 을 쓰면 오늘 안 내보내기로 한 물량이 출고 능력을 잡아먹는다.
+        클리핑과 출고 능력 검사는 반드시 이쪽을 쓴다.
+        qty_by_item 을 쓰면 오늘 안 내보내기로 한 물량이 출고 능력을 잡아먹는다.
         """
         out: dict[ItemCode, float] = {}
         for leg in self.legs:
@@ -986,14 +910,14 @@ class MinimalAllocation:
 
 
 # ---------------------------------------------------------------------------
-# 6.6 사이클 간 상태 전달 계약 (v1.1 신설 · §3.2.3) 🔴
+# 6.6 사이클 간 상태 전달 계약 (§3.2.3)
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class ArrivalLeg:
     """
-    승인 약정의 도착 1회분 (v1.2.1 신설). `CashFlowLeg` 의 입고 버전이다.
+    승인 약정의 도착 1회분. `CashFlowLeg` 의 입고 버전이다.
 
     split_index 는 원안 split_plan 의 회차 번호다. 승인 후 실제 입고와 대조할 때
     "몇 회차가 늦었는가"를 추적하려면 순번이 남아 있어야 한다.
@@ -1008,15 +932,15 @@ class ArrivalLeg:
 class ApprovedPurchaseCommitment:
     """
     §1.2-9 는 "T0 스냅샷이 유일한 데이터 출처"라고 규정한다.
-    그런데 **H1 승인 결과는 T0 이후에 생긴 새 사실이다.**
-    사이클 B 가 이를 어떻게 반영하는지가 v0.13 까지 비어 있었다.
+    그런데 H1 승인 결과는 T0 이후에 생긴 새 사실이다. 사이클 B 는 이를 다음처럼
+    반영한다.
 
         T0 Snapshot    = Base State 정본. 절대 수정하지 않는다
         H1 Commitment  = 같은 날 새로 확정된 Delta
         사이클 B State = T0 Snapshot + H1 Commitment overlay
 
-    ★ **DB 재조회가 아니라 Delta 합성**이므로 §1.2-9 를 위반하지 않는다.
-      H1 승인분을 반영하려고 DB 를 다시 읽으면 위반이다.
+    DB 재조회가 아니라 Delta 합성이므로 §1.2-9 를 위반하지 않는다.
+    H1 승인분을 반영하려고 DB 를 다시 읽으면 위반이다.
     """
 
     approval_id: str
@@ -1024,20 +948,19 @@ class ApprovedPurchaseCommitment:
     total_amount_krw: float
     total_qty_kg: float
     payment_date: date | None  # as_of + purchase_payment_days (N5 미결 → None)
-    expected_arrival_date: date | None  # **최초** 도착일. 상세는 arrival_schedule (v1.2.1)
+    expected_arrival_date: date | None  # 최초 도착일. 상세는 arrival_schedule
     source_scenario_id: str
     ref_ids: tuple[str, ...] = ()
     payment_schedule: tuple[CashFlowLeg, ...] = ()
 
     arrival_schedule: tuple[ArrivalLeg, ...] = ()
-    """★ v1.2.1 신설 — payment_schedule 과 대칭.
+    """payment_schedule 과 대칭인 도착 스케줄.
 
-    v1.2 는 도착일이 **단수**였다. 지급은 복수 스케줄인데 도착은 하나였다.
-    timing 축(분할 매입) 안이 승인되면 도착이 여러 날에 나뉘는데 스키마가 담지 못해,
-    사이클 B overlay 에서 **전량이 최초 도착일 하루에 들어온 것으로 계산**됐다.
+    timing 축(분할 매입) 안이 승인되면 도착이 여러 날에 나뉜다. 도착일을 하나로만
+    담으면 사이클 B overlay 에서 전량이 최초 도착일 하루에 들어온 것으로 계산되어,
     분할 매입이 창고 부담을 분산시키는 효과가 통째로 사라진다 (§3.6.5 위반).
 
-    expected_arrival_date 는 하위 호환을 위해 남기되 **최초 도착일**로 정의한다."""
+    expected_arrival_date 는 하위 호환을 위해 남기되 최초 도착일로 정의한다."""
 
     def __post_init__(self) -> None:
         if not self.ref_ids:
@@ -1054,19 +977,19 @@ class ApprovedPurchaseCommitment:
 @dataclass(frozen=True)
 class CycleBState:
     """
-    사이클 B 가 읽는 상태. **스냅샷은 불변이고 commitment 가 겹쳐진다.**
+    사이클 B 가 읽는 상태. 스냅샷은 불변이고 commitment 가 겹쳐진다.
 
     부서별 overlay 범위 (§3.2.3) — 무엇을 반영하고 무엇을 제외하는가
 
     | 부서 | overlay 한다 | 하지 않는다 |
     |---|---|---|
     | 재무 | payment_date 현금 유출 · post_h1_projected_cash_min | 예상 판매액·매출채권 |
-    | 재고 | expected_arrival 기준 in_transit 추가 · cap_by_date 갱신 | **on_hand 전환** |
+    | 재고 | expected_arrival 기준 in_transit 추가 · cap_by_date 갱신 | on_hand 전환 |
     | 영업 | — | 전부 (오늘 판매 후보는 on_hand 만) |
 
-    ★ **재고의 on_hand 전환 금지가 핵심이다.** H1 에서 승인해도 물건은
-      inbound_lead_days 뒤에 도착한다. 이를 on_hand 에 넣으면 아직 오지 않은
-      물량이 오늘의 판매 후보가 되어 납기 위반으로 이어진다.
+    재고의 on_hand 전환 금지가 핵심이다. H1 에서 승인해도 물건은
+    inbound_lead_days 뒤에 도착한다. 이를 on_hand 에 넣으면 아직 오지 않은
+    물량이 오늘의 판매 후보가 되어 납기 위반으로 이어진다.
     """
 
     snapshot: T0Snapshot
@@ -1074,12 +997,12 @@ class CycleBState:
 
     @property
     def on_hand(self) -> tuple[InventoryLot, ...]:
-        """★ commitment 와 무관하다. 오늘 승인분은 오늘 도착하지 않는다."""
+        """commitment 와 무관하다. 오늘 승인분은 오늘 도착하지 않는다."""
         return self.snapshot.on_hand
 
     @property
     def in_transit(self) -> tuple[InventoryLot, ...]:
-        """★ v1.2.1 — arrival_schedule 이 있으면 **회차별로** 로트를 만든다.
+        """arrival_schedule 이 있으면 회차별로 로트를 만든다.
 
         총량 하나로 뭉치면 2회차(D+5) 도착분까지 최초 도착일에 들어온 것이 되어
         분할 매입의 창고 부담 분산 효과가 사라진다."""
@@ -1121,9 +1044,9 @@ class CycleBState:
         """재고 overlay — 도착 예정일 이후 날짜의 여유를 줄인다.
            S2 에서 보유(HOLD) 후보의 창고 여유를 판단할 때 필요하다.
 
-        ★ v1.2.1 — 회차별 누적으로 차감한다. D+2 에 절반, D+5 에 나머지가 도착하면
-          D+2~D+4 는 절반만 차감되어야 한다. 전량을 최초 도착일부터 빼면
-          **실제보다 창고를 좁게 보고 보유 판단이 과도하게 보수적이 된다.**"""
+        회차별 누적으로 차감한다. D+2 에 절반, D+5 에 나머지가 도착하면
+        D+2~D+4 는 절반만 차감되어야 한다. 전량을 최초 도착일부터 빼면
+        실제보다 창고를 좁게 보고 보유 판단이 과도하게 보수적이 된다."""
         c = self.commitment
         if c is None:
             return dict(base)
@@ -1154,8 +1077,8 @@ class CycleBState:
 IDENTITY_TOL_KG = 0.5
 IDENTITY_TOL_KRW = 1.0
 
-# 검사 함수 `check_triple_identity` 는 `rules.py` 에 있다 (2026-09-29 분리). 허용 오차는
-# `ApprovedPurchaseCommitment` 의 생성 검사도 쓰므로 여기 남는다.
+# 검사 함수 `check_triple_identity` 는 `rules.py` 에 있다. 허용 오차는
+# `ApprovedPurchaseCommitment` 의 생성 검사도 쓰므로 여기 둔다.
 
 
 # ---------------------------------------------------------------------------
@@ -1172,12 +1095,12 @@ class Band:
     cap_total_kg: float
     cap_amount_krw: float
     contributors: Mapping[str, str]
-    cap_by_date_kg: Mapping[date, float] = field(default_factory=dict)  # v0.3 · N15
+    cap_by_date_kg: Mapping[date, float] = field(default_factory=dict)  # N15
 
     not_ready: tuple[Dept, ...] = ()
-    """★ v1.2.4 — runtime_status 가 READY 가 아니었던 부서.
+    """runtime_status 가 READY 가 아니었던 부서.
 
-    비어 있지 않으면 **이 밴드로 클리핑하면 안 된다.** 그 부서의 상한이 통째로
+    비어 있지 않으면 이 밴드로 클리핑하면 안 된다. 그 부서의 상한이 통째로
     빠진 상태이므로 cap 이 실제보다 넓다. 재고가 죽은 날 무제한 매입이 통과하는
     것을 막는 장치다. T3 는 이를 교착이 아니라 E4(미시작)로 다룬다 —
     회사 상태 문제가 아니라 실행 환경 문제다."""
@@ -1203,9 +1126,9 @@ class Band:
 @dataclass(frozen=True)
 class OutboundBand:
     """
-    사이클 B 의 밴드 (v1.2.2 신설 · §3.7.4). **cap 만 있고 floor 는 없다.**
+    사이클 B 의 밴드 (§3.7.4). cap 만 있고 floor 는 없다.
 
-    ★ Band 를 재사용하지 않는 이유. 축의 모양이 다르다.
+    Band 를 재사용하지 않는 이유. 축의 모양이 다르다.
 
         A(T3)  floor(kg) ≤ 수량 ≤ cap(kg) · 금액 ≤ cap(원)   ← 단위가 섞여 환산이 난점
         B(S3)  Σ배분 ≤ 하루 공용 출고 능력 · 배분[i] ≤ on_hand[i]  ← 전부 kg
@@ -1213,10 +1136,10 @@ class OutboundBand:
       Band 에는 cap_amount_krw · cap_by_date_kg 처럼 B 에서 의미 없는 축이 있고,
       억지로 끼우면 "이 필드는 B 에서 안 쓴다"는 주석이 계약 전체에 번진다.
 
-    ★ 왜 floor 가 없는가.
+    왜 floor 가 없는가.
       "오늘 안 파는 것도 정상 결정"이다 (§5.0 — 매입 정상 + 판매 0 → E1).
       확정 납품 의무는 floor 처럼 보이지만 성격이 다르다. 못 채우면 클리핑으로
-      끌어올릴 수 있는 것이 아니라 **E5(계약 위반 선언)** 로 가는 신호다.
+      끌어올릴 수 있는 것이 아니라 E5(계약 위반 선언) 로 가는 신호다.
       밴드에 넣으면 "조금 더 팔면 되는 문제"로 잘못 다뤄진다.
     """
 
@@ -1224,7 +1147,7 @@ class OutboundBand:
     """품목별 상한. on_hand + 신선도 창 (재고 S2)."""
 
     cap_total_kg: float
-    """하루 공용 출고 능력. **사이클 B 의 유일한 결합 제약** (§3.7.4 검사 3번)."""
+    """하루 공용 출고 능력. 사이클 B 의 유일한 결합 제약 (§3.7.4 검사 3번)."""
 
     contributors: Mapping[str, str] = field(default_factory=dict)
 
@@ -1256,11 +1179,11 @@ STRUCTURAL_SLACK_MIN = 0.15  # B5 구조적 협소 밴드
 @dataclass(frozen=True)
 class ClipResult:
     """
-    ★ v0.2 핵심 변경 — 하위 계획도 함께 축소한다.
+    하위 계획도 함께 축소한다.
 
-      v0.1 은 total_qty 만 잘랐다. 그러면 split_plan · sourcing_plan 이
-      원안 그대로 남아 삼중 일치가 깨지고, Critic L1 이 FAIL 을 내며,
-      **클리핑이 발생하는 모든 날이 보류로 끝난다.**
+      total_qty 만 자르면 split_plan · sourcing_plan 이 원안 그대로 남아
+      삼중 일치가 깨지고, Critic L1 이 FAIL 을 내며, 클리핑이 발생하는 모든
+      날이 보류로 끝난다.
 
       축소는 상수 비율 곱셈이므로 §1.2-3(LLM 숫자 생성 금지) 대상이 아니다.
       검토의견 §1-3 이 C-3(클리핑 후 마진 재계산)에 대해 인정한 논리와 동일하며,
@@ -1342,7 +1265,7 @@ FAIL_ROUTING: dict[CriticLayer, FailRoute] = {
     "L2_evidence": "T2_dept",
     "L3_band_axis": "T3_combine",
     "L3_5_grade": "T2_dept",
-    "L4_rationale": "T3_rationale_only",  # ★ 숫자는 건드리지 않는다
+    "L4_rationale": "T3_rationale_only",  # 숫자는 건드리지 않는다
 }
 
 
@@ -1388,9 +1311,7 @@ class CriticVerdict:
 # ---------------------------------------------------------------------------
 # 10.5 하루 종료 판정 (§5.0 · §5.1)
 #
-# ★ v1.2.1 — 이 블록(EndCode · BacktestEnd · resolve_end_code)이 아래 '11. cycle_log'
-#   절에 통째로 한 번 더 정의돼 있었다. 본문 로직은 같고 docstring 만 달라
-#   동작에는 영향이 없었으나, **한쪽만 고치면 반영되지 않는 함정**이라 중복을 걷어냈다.
+# 이 어휘는 여기 한 곳에만 정의한다. 두 곳에 두면 한쪽만 고쳐 반영되지 않는다.
 # ---------------------------------------------------------------------------
 
 EndCode = Literal[
@@ -1398,12 +1319,12 @@ EndCode = Literal[
     "E2_HELD",
     "E3_REJECTED",
     "E4_NOT_STARTED",
-    "E5_NO_FEASIBLE_PLAN",  # v0.3 — 계약 납품 의무를 채울 방법이 0 (§5.0)
+    "E5_NO_FEASIBLE_PLAN",  # 계약 납품 의무를 채울 방법이 0 (§5.0)
 ]
 BacktestEnd = Literal["COMPLETED", "BANKRUPT", "DEADLOCKED", "MANUAL_STOP"]
 
 # 판정 함수(`compute_has_unmet_obligation` · `is_bankrupt` · `resolve_end_code`)는
-# `rules.py` 에 있다 (2026-09-29 분리).
+# `rules.py` 에 있다.
 
 
 # ---------------------------------------------------------------------------
@@ -1418,12 +1339,12 @@ EndStage = Literal["T1", "T2", "T3", "H1", "S1", "S2", "S3", "H2"]
 @dataclass(frozen=True)
 class AdjustAttempt:
     """
-    조정 1회분의 기록 (v1.2.7 신설).
+    조정 1회분의 기록.
 
-    ★ 왜 밴드가 아니라 시도를 기록하는가.
-      v1.2.6 에서 부서 회신이 하루 한 번으로 고정되면서 **밴드는 하루의 상수**가 됐다.
+    왜 밴드가 아니라 시도를 기록하는가.
+      부서 회신은 하루 한 번이라 밴드는 하루의 상수다.
       `combine_band` 는 replies 만의 순수 함수이므로 회송해도 같은 값이 나온다.
-      회송마다 달라지는 것은 밴드가 아니라 **매입 시나리오와 그 클리핑 결과**다.
+      회송마다 달라지는 것은 밴드가 아니라 매입 시나리오와 그 클리핑 결과다.
 
       그래서 밴드는 한 번만 결합해 정본으로 두고(`SubcycleLog.band`),
       회송 이력은 여기에 남긴다. 밴드를 회송 횟수만큼 덮어쓰면
@@ -1456,7 +1377,7 @@ class SubcycleLog:
     band: Band | None = None
     deadlock: Deadlock | None = None
     clip_results: tuple[ClipResult, ...] = ()
-    """★ v1.2.7 — **완료된(최종) 클리핑 결과**만 담는다. 중간 시도는 attempts 에 있다."""
+    """완료된(최종) 클리핑 결과만 담는다. 중간 시도는 attempts 에 있다."""
 
     attempts: tuple[AdjustAttempt, ...] = ()
     """조정 회차별 이력. 회송이 몇 번 돌았고 무엇이 달라졌는지 남는다."""
@@ -1466,7 +1387,7 @@ class SubcycleLog:
     llm_calls: int = 0
     recommended_id: str | None = None
     override_reason: str | None = None
-    """★ UI §5 approval — 추천 ≠ 선택일 때 **필수**. 없으면 승인 자체를 거부한다.
+    """UI §5 approval — 추천 ≠ 선택일 때 필수. 없으면 승인 자체를 거부한다.
        사람이 시스템을 뒤집은 이유가 남아야 백테스트 후 개입 패턴을 분석할 수 있다."""
     notes: list[str] = field(default_factory=list)
 
@@ -1477,9 +1398,9 @@ class SubcycleLog:
 @dataclass
 class CycleLog:
     """
-    ★ v1.2 구조 변경 — **하루에 한 행**이다 (유저플로우 v1.4 §⑧).
-      v1.1 은 사이클마다 한 행씩 두 행을 썼는데, 그러면 "그날 최종 어떻게 끝났나"가
-      두 행에 흩어져 end_code 가 두 개가 된다. a_ / b_ 컬럼군으로 합친다.
+    하루에 한 행이다 (유저플로우 v1.4 §⑧).
+      사이클마다 한 행씩 쓰면 "그날 최종 어떻게 끝났나"가 두 행에 흩어져
+      end_code 가 두 개가 된다. 그래서 a_ / b_ 컬럼군으로 합친다.
     """
 
     as_of: date  # PK
@@ -1487,7 +1408,7 @@ class CycleLog:
     end_code: EndCode | None = None
     end_reason: str = ""
     end_cycle: Literal["A", "B", "NONE"] = "NONE"
-    """★ 같은 E2 라도 조달에서 막힌 날과 판매에서 막힌 날은 원인도 대응도 완전히 다르다.
+    """같은 E2 라도 조달에서 막힌 날과 판매에서 막힌 날은 원인도 대응도 완전히 다르다.
        이 구분이 없으면 blocking_agent 분포가 무의미해진다."""
     end_stage: EndStage | None = None
 
@@ -1499,7 +1420,7 @@ class CycleLog:
     blocking_axis: str | None = None
     single_option_reason: str | None = None
     base_state_violated: bool = False
-    has_unmet_obligation: bool = False  # ★ S3 가 산출한다 (v1.2 정정)
+    has_unmet_obligation: bool = False  # S3 가 산출한다
     policy_version: str = ""
     snapshot_id: str = ""
     started_at: datetime = field(default_factory=datetime.utcnow)
@@ -1530,8 +1451,8 @@ class ApprovalDecision:
         사람이 추천과 다른 안을 고르면
           추천안 · 실제 선택 · 뒤집은 이유를 나란히 기록한다
 
-    ★ H1·H2 의 승인 규약이 동일하므로 같은 타입을 두 사이클에 쓴다.
-      approval 테이블에 cycle 컬럼이 있는 이유도 같다 (UI §5).
+    H1·H2 의 승인 규약이 동일하므로 같은 타입을 두 사이클에 쓴다.
+    approval 테이블에 cycle 컬럼이 있는 이유도 같다 (UI §5).
     """
 
     cycle: Cycle
@@ -1565,7 +1486,7 @@ class PipelineState:
     scenarios: list[Any] = field(default_factory=list)
     replies: dict[Dept, T2Reply] = field(default_factory=dict)
     band: Band | None = None
-    outbound_band: OutboundBand | None = None  # v1.2.2 — 사이클 B 전용 (S3)
+    outbound_band: OutboundBand | None = None  # 사이클 B 전용 (S3)
     deadlock: Deadlock | None = None
     clip_results: list[ClipResult] = field(default_factory=list)
     variant_collapsed: bool = False
@@ -1574,8 +1495,8 @@ class PipelineState:
     ranked_ids: list[str] = field(default_factory=list)
     critic: CriticVerdict | None = None
     approved_scenario_id: str | None = None
-    cycle_b_state: CycleBState | None = None  # v1.1 — B 사이클에서만 채워짐
-    sales_facts: SalesFacts | None = None  # v1.2.3 — S1 사실 보고 (E5 입력)
+    cycle_b_state: CycleBState | None = None  # B 사이클에서만 채워짐
+    sales_facts: SalesFacts | None = None  # S1 사실 보고 (E5 입력)
     log: CycleLog = None  # type: ignore
 
     def __post_init__(self) -> None:

@@ -1,7 +1,4 @@
-"""운영 콘솔 재무 실행이력 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_runs.py` 에서 옮겼다(문면 그대로).
-"""
+"""운영 콘솔 재무 실행이력 SQL."""
 
 from datetime import date
 from typing import Any

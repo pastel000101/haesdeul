@@ -1,27 +1,27 @@
-"""Finance Planner — **고를 뿐 실행하지 않는다.**
+"""Finance Planner — 고를 뿐 실행하지 않는다.
 
 이 파일이 소유하는 것
     Planner 프롬프트 · 출력 사후 검증 · LangChain ChatModel 어댑터 · tool-calling Planner ·
     결정론(오프라인) Planner · Provider 구성과 가용성 대체
 
-여기 **없는 것**
+여기 없는 것
     Tool 실행 · capability 판단 · 예산 · 재무 계산 · 설명 문장
     → 실행 승인은 `service/harness.py`, 계산은 `service/capabilities`,
       문장은 `domain/messages.py` 다.
     Planner/Finalizer 계약(`ToolAction` · 프로토콜 · 예외 · 종료 Tool · capability 표)은
-    `schemas/planner.py` 다 — Controller · Harness 도 같은 계약을 쓴다(2026-09-30 BL-020).
+    `schemas/planner.py` 다 — Controller · Harness 도 같은 계약을 쓴다.
     Provider 호출은 `llm/client.py` → `app.core.llm` 이다.
 
-★ **LangChain 이 Tool 을 실행하지 않는다.** 모델의 tool call 은 *실행 요청*으로만
-  쓰이고, 실제 실행은 Harness 승인을 지난 뒤 같은 어댑터를 통해 일어난다. 에이전트
-  실행기(AgentExecutor 류)를 쓰면 그 승인 자리가 사라진다.
+LangChain 이 Tool 을 실행하지 않는다. 모델의 tool call 은 실행 요청으로만 쓰이고, 실제 실행은
+Harness 승인을 지난 뒤 같은 어댑터를 통해 일어난다. 에이전트 실행기(AgentExecutor 류)를 쓰면
+그 승인 자리가 사라진다.
 
-★ 종료도 Tool 이다. 남은 capability 가 있으면 종료 Tool 이 애초에 바인딩되지 않아서,
-  모델이 "재무 검토 완료" 라고 답할 자리가 형식적으로 존재하지 않는다.
+종료도 Tool 이다. 남은 capability 가 있으면 종료 Tool 이 애초에 바인딩되지 않아서, 모델이
+"재무 검토 완료" 라고 답할 자리가 형식적으로 존재하지 않는다.
 
-★ **Provider 대체는 LLM 실패가 아니다.** Gemini 가 못 받아 Gemma 가 답했어도 LLM 은
-  답한 것이다. 대체 사실은 observation 으로 따로 남긴다 — 두 개념을 섞으면
-  *"모델이 틀렸다"* 와 *"모델을 못 불렀다"* 를 구분할 수 없다.
+Provider 대체는 LLM 실패가 아니다. Gemini 가 못 받아 Gemma 가 답했어도 LLM 은 답한 것이다.
+대체 사실은 observation 으로 따로 남긴다 — 두 개념을 섞으면 "모델이 틀렸다" 와 "모델을 못
+불렀다" 를 구분할 수 없다.
 """
 
 from __future__ import annotations
@@ -92,10 +92,10 @@ def _planner_prompt(
     observations: tuple[dict[str, Any], ...],
     missing_capabilities: tuple[str, ...],
 ) -> dict[str, Any]:
-    """Provider 와 무관하게 **같은 입력**을 만든다.
+    """Provider 와 무관하게 같은 입력을 만든다.
 
     직전 반려 사유는 루프가 ``observations`` 에 남긴 GUARD 항목에서 뽑는다 — Planner
-    계약에 인자를 더하지 않고도 **왜 반려됐는지**를 모델에게 되돌려준다.
+    계약에 인자를 더하지 않고도 왜 반려됐는지를 모델에게 되돌려준다.
     """
     rejected = [
         {key: value for key, value in observation.items() if key != "branch_id"}
@@ -146,8 +146,8 @@ def _validate_planner_action(
 class FinanceChatModel(BaseChatModel):
     """재무 Provider 한 곳을 감싼 LangChain ChatModel.
 
-    ★ Provider 별로 클래스를 두 벌 만들지 않는다. 갈라 두면 *"Gemini 만 tool 을
-      제한한다"* 같은 비대칭이 조용히 생긴다 — 차이는 전송 함수 하나뿐이다.
+    Provider 별로 클래스를 두 벌 만들지 않는다. 갈라 두면 "Gemini 만 tool 을 제한한다" 같은
+    비대칭이 조용히 생긴다 — 차이는 전송 함수 하나뿐이다.
     """
 
     provider: str = "gemini"
@@ -169,7 +169,7 @@ class FinanceChatModel(BaseChatModel):
         tool_choice: str | None = None,
         **kwargs: Any,
     ) -> Runnable[Any, AIMessage]:
-        """이번 호출에서 **부를 수 있는 Tool 만** 바인딩한다.
+        """이번 호출에서 부를 수 있는 Tool 만 바인딩한다.
 
         Harness 가 정한 실행 가능 Tool 이 그대로 들어온다. 여기서 목록을 넓히지 않는다.
         """
@@ -215,10 +215,10 @@ class FinanceChatModel(BaseChatModel):
 
 
 def _split_prompt(messages: list[BaseMessage]) -> tuple[str, dict[str, Any]]:
-    """LangChain 메시지를 기존 재무 Provider 호출 형태로 되돌린다.
+    """LangChain 메시지를 재무 Provider 호출 형태로 되돌린다.
 
-    ★ Planner 입력은 예전과 **같은 JSON** 이다. 프롬프트를 새로 쓰지 않는다 — 재무
-      규칙이 프롬프트로 새어 들어갈 자리를 만들지 않기 위해서다.
+    Planner 입력은 Provider 와 무관하게 같은 JSON(`_planner_prompt`)이다. 프롬프트를 따로 쓰지
+    않는다 — 재무 규칙이 프롬프트로 새어 들어갈 자리를 만들지 않기 위해서다.
     """
     system_prompt = "".join(
         str(message.content) for message in messages if isinstance(message, SystemMessage)
@@ -267,7 +267,7 @@ class LangChainFinancePlanner:
         self.attempts += 1
         if not langchain_tools:
             # Harness 가 Tool 을 하나도 노출하지 않았다면 고를 것이 없다. 자유 문장
-            # 답을 받아 해석하는 대신 **계약 위반으로 되묻는다.**
+            # 답을 받아 해석하는 대신 계약 위반으로 되묻는다.
             raise FinancePlannerContractViolation(
                 "Finance Harness exposed no executable tool for this step"
             )
@@ -290,7 +290,7 @@ class LangChainFinancePlanner:
 
 
 def _action_from_message(message: AIMessage) -> ToolAction:
-    """모델 응답에서 **정확히 하나의** Tool 호출을 읽는다.
+    """모델 응답에서 정확히 하나의 Tool 호출을 읽는다.
 
     0 개는 자유 문장 답이고 2 개 이상은 이번 단계의 계약이 아니다. 둘 다 회복 가능한
     잘못이라 `FinancePlannerContractViolation` 으로 올려 bounded replan 에 태운다 —
@@ -315,11 +315,11 @@ def _action_from_message(message: AIMessage) -> ToolAction:
 # ---------------------------------------------------------------------------
 
 class DeterministicFinancePlanner:
-    """LLM 이 꺼졌을 때 쓰는 Planner. **선택만** 결정론으로 대신한다.
+    """LLM 이 꺼졌을 때 쓰는 Planner. 선택만 결정론으로 대신한다.
 
-    ★ 새 재무 정책을 만들지 않는다. 고를 수 있는 Tool 집합과 남은 capability 는
-      Harness 가 이미 정해서 넘긴다 — 여기서 하는 일은 그중 하나를 정해진 순서로
-      집는 것뿐이다. 숫자·판정은 여전히 Tool 과 Rule 이 만든다.
+    새 재무 정책을 만들지 않는다. 고를 수 있는 Tool 집합과 남은 capability 는 Harness 가 이미
+    정해서 넘긴다 — 여기서 하는 일은 그중 하나를 정해진 순서로 집는 것뿐이다. 숫자·판정은
+    여전히 Tool 과 Rule 이 만든다.
     """
 
     model = "deterministic-finance-planner"
@@ -335,8 +335,7 @@ class DeterministicFinancePlanner:
         **_kwargs: Any,
     ) -> ToolAction:
         # capability 소유표(`schemas/planner.py`)의 순서대로 고른다 — 순서가 바뀌면 결정론
-        # 실행의 Tool 순서가 달라진다. (2026-09-30 BL-020 전에는 표가 Harness 에 있어 순환을
-        # 피하려고 이 자리에서 함수 안 import 로 읽었다.)
+        # 실행의 Tool 순서가 달라진다.
         self.attempts += 1
         if not missing_capabilities:
             return ToolAction(finalize=True, reason="capabilities complete")
@@ -382,8 +381,8 @@ class _AvailabilityFallbackFinancePlanner:
         return self.primary.attempts + self.fallback.attempts
 
     def decide(self, **kwargs: Any) -> ToolAction:
-        # ★ 인자를 **그대로 흘린다.** 여기서 목록을 다시 적으면 Harness 가 넘긴
-        #   실행 가능 Tool 같은 새 인자가 대체 경로에서만 조용히 사라진다.
+        # 인자를 그대로 흘린다. 여기서 목록을 다시 적으면 Harness 가 넘긴 실행 가능 Tool
+        # 같은 새 인자가 대체 경로에서만 조용히 사라진다.
         if self.state.active:
             return self._fallback_decide(**kwargs)
         try:
@@ -436,8 +435,8 @@ class _AvailabilityFallbackFinanceFinalizer:
         evidences: tuple[Evidence, ...],
         has_verified_adjustment: bool = False,
     ) -> str:
-        # ★ Provider 가 갈려도 **같은 사실**을 넘긴다. 한쪽만 조정 여부를 못 받으면
-        #   같은 결과가 Provider 에 따라 다른 문장을 고르게 된다.
+        # Provider 가 갈려도 같은 사실을 넘긴다. 한쪽만 조정 여부를 못 받으면 같은 결과가
+        # Provider 에 따라 다른 문장을 고르게 된다.
         kwargs = {
             "mode": mode,
             "business_status": business_status,
@@ -457,10 +456,10 @@ class _AvailabilityFallbackFinanceFinalizer:
 
 
 def _langchain_planner(provider: str, *, model: str | None = None) -> LangChainFinancePlanner:
-    """재무 Planner 는 **LangChain tool calling** 으로 돈다.
+    """재무 Planner 는 LangChain tool calling 으로 돈다.
 
-    ★ Finalizer 는 바꾸지 않는다. 설명은 검증된 Evidence 에서 고정 문장 키를 고르는
-      일이라 Tool 계층이 아니고, 그 제약을 tool calling 으로 옮길 이유가 없다.
+    Finalizer 는 tool calling 을 쓰지 않는다. 설명은 검증된 Evidence 에서 고정 문장 키를 고르는
+    일이라 Tool 계층이 아니고, 그 제약을 tool calling 으로 옮길 이유가 없다.
     """
     return LangChainFinancePlanner(
         finance_chat_model(provider, model=model or finance_planner_model(provider))
@@ -486,9 +485,9 @@ def configured_finance_llms(
     return (
         _AvailabilityFallbackFinancePlanner(
             _langchain_planner("gemini"),
-            # ★ 대체 Planner 의 모델은 **재무 설정을 물려받지 않는다.** 설정값은
-            #   Gemini 모델 이름이고, Ollama 로 옮겨 갈 때 그대로 쓰면 없는 모델을
-            #   부른다. 여기서 고르는 것은 tool 을 부를 수 있는 기본값이다.
+            # 대체 Planner 의 모델은 재무 설정을 물려받지 않는다. 설정값은 Gemini 모델
+            # 이름이고, Ollama 로 옮겨 갈 때 그대로 쓰면 없는 모델을 부른다. 여기서 고르는
+            # 것은 tool 을 부를 수 있는 기본값이다.
             _langchain_planner("ollama", model=ollama_tool_calling_model()),
             state,
         ),

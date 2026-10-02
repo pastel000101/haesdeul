@@ -1,9 +1,7 @@
 """재무 데이터 경계 계약 — `FinanceAsOfDataPort` 와 «준비되지 않음».
 
-★ **경계는 폴더가 아니라 규율이다.** DataPort 계약은 구현을 알지 못한다 — 구현은
-  `readmodel/as_of_data_port.py`(DB 조회)와 `service/agent_run.py`(고정된 런타임 컨텍스트)다.
-
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다.
+경계는 폴더가 아니라 규율이다. DataPort 계약은 구현을 알지 못한다 — 구현은
+`readmodel/as_of_data_port.py`(DB 조회)와 `service/agent_run.py`(고정된 런타임 컨텍스트)다.
 """
 
 from datetime import date
@@ -39,7 +37,7 @@ class FinanceAsOfDataPort(Protocol):
     def load_partner_receivables(
         self, as_of: date, partner_id: str
     ) -> list[PartnerReceivable]: ...
-    #: 그날 유효한 거래처 여신한도. **`None` 은 미확정이고 `0` 은 0원이다.**
+    #: 그날 유효한 거래처 여신한도. `None` 은 미확정이고 `0` 은 0원이다.
     def load_partner_credit_limit(
         self, as_of: date, partner_id: str
     ) -> Decimal | None: ...

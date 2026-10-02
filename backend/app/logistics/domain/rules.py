@@ -1,7 +1,4 @@
-"""재고·물류 Agent의 Runtime 및 Hard Constraint 규칙.
-
-★ 2026-09-30 재구성 BL-015: `logistics/rules.py` 에서 자리만 옮겼다(내용 그대로).
-"""
+"""재고·물류 Agent의 Runtime 및 Hard Constraint 규칙."""
 
 from datetime import date
 from decimal import Decimal
@@ -27,10 +24,10 @@ from app.logistics.schemas.snapshot import InventoryLogisticsSnapshot
 # 업무 위험 Signal (LLM 정책 결정서 §3)
 # ---------------------------------------------------------------------------
 #
-# ★ 이름에 숫자를 넣지 않는다 — LLM 출력 검증기의 숫자 금지 검사와 충돌하지 않기
-#   위한 명명 규칙이다 (`LOG-H02` 같은 내부 코드가 겪은 함정).
-# ★ 데이터/정책 미확정 코드는 여기 넣지 않는다 — signals 와 missing_data 는
-#   저장 위치가 아니라 **코드의 의미**로 분류한다.
+# 이름에 숫자를 넣지 않는다 — LLM 출력 검증기의 숫자 금지 검사와 충돌하지 않기
+# 위한 명명 규칙이다 (`LOG-H02` 같은 숫자 포함 내부 코드는 그 검사에 걸린다).
+# 데이터/정책 미확정 코드는 여기 넣지 않는다 — signals 와 missing_data 는
+# 저장 위치가 아니라 코드의 의미로 분류한다.
 
 CAPACITY_TIGHT = "CAPACITY_TIGHT"
 INVENTORY_FRESHNESS_PRESSURE = "INVENTORY_FRESHNESS_PRESSURE"
@@ -58,12 +55,12 @@ LOT_FRESHNESS_UNRESOLVED = "LOT_FRESHNESS_UNRESOLVED"
 #: 사이클 어휘를 섞지 않는다 (결정서 §5).
 SALES_PRIORITY_ADJUSTMENT = "우선 출고 대상으로 검토합니다."
 
-#: Rule 이 `soft_warnings` 로 내는 **미확정 계열** 코드의 전체 집합 (#121 ⑤).
+#: Rule 이 `soft_warnings` 로 내는 미확정 계열 코드의 전체 집합 (#121 ⑤).
 #:
-#: ★ 이 코드들은 `interpretation._MISSING_DATA_NAMES` 가 사람용 이름으로 옮긴다.
-#:   발행처(여기)와 번역표가 따로 자라면 새 코드가 generic 이름으로 뭉개져
-#:   **무엇이 없는지가 사라진다** — 목록을 명시해 테스트가 대조할 수 있게 한다.
-#: ★ 업무 위험(BUSINESS_SIGNALS)은 여기 넣지 않는다. 미확정이 아니라 판정 결과다.
+#: 이 코드들은 `llm/interpretation._MISSING_DATA_NAMES` 가 사람용 이름으로 옮긴다.
+#: 발행처(여기)와 번역표가 따로 자라면 새 코드가 generic 이름으로 뭉개져
+#: 무엇이 없는지가 사라진다 — 목록을 명시해 테스트가 대조할 수 있게 한다.
+#: 업무 위험(BUSINESS_SIGNALS)은 여기 넣지 않는다. 미확정이 아니라 판정 결과다.
 UNRESOLVED_WARNING_CODES = frozenset(
     {
         # `_snapshot_warnings` 가 내는 스냅샷 계열
@@ -155,8 +152,8 @@ def evaluate_sales_business_signals(
 ) -> BusinessSignalResult:
     """SALES 신선도 위험을 비율 Rule 로 판정한다.
 
-    기존에는 Lot `status = NEEDS_PRIORITY_SHIPMENT` 에 의존했는데, 그 상태를 만드는
-    코드가 물류에 없고 DB 생성 주체도 확인되지 않아 실데이터에서 트리거가 죽는다 —
+    Lot `status = NEEDS_PRIORITY_SHIPMENT` 에 기대지 않는다. 그 상태를 만드는 코드가
+    물류에 없고 DB 생성 주체도 확인되지 않아 실데이터에서 트리거가 죽는다 —
     매입 전과 같은 비율 계산을 쓰되 사이클 업무 의미에 따라 이름만 달리 붙인다.
     """
     signals: list[str] = []
@@ -175,13 +172,13 @@ def evaluate_sales_business_signals(
 
 
 def count_freshness_risk_lots(ratios: list[Decimal], threshold: Decimal) -> int:
-    """잔여 비율이 임계 **이하**인 Lot 수. 이 비교식의 유일한 주인이다.
+    """잔여 비율이 임계 이하인 Lot 수. 이 비교식의 유일한 주인이다.
 
-    ★ signal 판정(`evaluate_*_business_signals`)과 운영 Fact(`measure_freshness_facts`)가
-      같은 함수를 쓴다 — 비교가 두 곳에 있으면 *"위험 Lot 3개"* 라고 답한 회신과
-      signal 이 서로 다른 수를 세는 날이 온다.
-    ★ 경계는 `<=` 다. `any(ratio <= threshold)` 로 signal 을 세우는 자리와 같아야
-      *"signal 은 섰는데 위험 Lot 이 0건"* 이 성립하지 않는다.
+    signal 판정(`evaluate_*_business_signals`)과 운영 Fact(`measure_freshness_facts`)가
+    같은 함수를 쓴다 — 비교가 두 곳에 있으면 "위험 Lot 3개" 라고 답한 회신과
+    signal 이 서로 다른 수를 세는 날이 온다.
+    경계는 `<=` 다. `any(ratio <= threshold)` 로 signal 을 세우는 자리와 같아야
+    "signal 은 섰는데 위험 Lot 이 0건" 이 성립하지 않는다.
     """
     return sum(1 for ratio in ratios if ratio <= threshold)
 
@@ -198,23 +195,23 @@ def _record_freshness_measurements(
 
 
 class _FreshnessLotCounts(TypedDict):
-    """ACTIVE Lot 을 훑으면 **언제나** 나오는 건수 둘. 없을 수 없으므로 필수다."""
+    """ACTIVE Lot 을 훑으면 언제나 나오는 건수 둘. 없을 수 없으므로 필수다."""
 
     freshness_unresolved_lot_count: int
     freshness_expired_lot_count: int
 
 
 class FreshnessOperationalFacts(_FreshnessLotCounts, total=False):
-    """신선도 운영 Fact — **signal 발화와 무관하게** 측정만 담는다 (#396).
+    """신선도 운영 Fact — signal 발화와 무관하게 측정만 담는다 (#396).
 
-    `SignalMeasurements` 와 키 이름이 겹치는 것은 의도다. 저쪽은 *"판정에 실제 쓰인
-    수치"* 라 signal 이 섰을 때만 채워지고, 이쪽은 *"지금 재면 이렇다"* 라 상태 조회가
-    쓴다. **같은 값을 두 식으로 재지 않도록** 둘 다 같은 Tool·같은 비교 함수를 지난다.
+    `SignalMeasurements` 와 키 이름이 겹치는 것은 의도다. 저쪽은 "판정에 실제 쓰인
+    수치" 라 signal 이 섰을 때만 채워지고, 이쪽은 "지금 재면 이렇다" 라 상태 조회가
+    쓴다. 같은 값을 두 식으로 재지 않도록 둘 다 같은 Tool·같은 비교 함수를 지난다.
 
-    ★ **필수와 선택을 타입으로 가른다.** 건수 둘은 훑으면 나오므로 항상 있고, 아래 둘은
-      조건이 있어 없을 수 있다 — 키가 없는 것은 0 이 아니라 **못 잰 것**이다 (§1.2-10).
-      임계 정책이 없으면 `freshness_risk_lot_count` 가 없고, 비율을 셈할 Lot 이 하나도
-      없으면 `freshness_min_remaining_ratio` 가 없다.
+    필수와 선택을 타입으로 가른다. 건수 둘은 훑으면 나오므로 항상 있고, 아래 둘은
+    조건이 있어 없을 수 있다 — 키가 없는 것은 0 이 아니라 못 잰 것이다 (§1.2-10).
+    임계 정책이 없으면 `freshness_risk_lot_count` 가 없고, 비율을 셈할 Lot 이 하나도
+    없으면 `freshness_min_remaining_ratio` 가 없다.
     """
 
     freshness_min_remaining_ratio: Decimal
@@ -225,7 +222,7 @@ def measure_freshness_facts(
     *,
     snapshot: InventoryLogisticsSnapshot,
 ) -> FreshnessOperationalFacts:
-    """가용 Lot 신선도의 운영 측정치. **signal 도 verdict 도 만들지 않는다** (#396).
+    """가용 Lot 신선도의 운영 측정치. signal 도 verdict 도 만들지 않는다 (#396).
 
     ```text
     freshness_unresolved_lot_count  항상 — ACTIVE Lot 을 훑으면 나오는 건수다
@@ -234,12 +231,12 @@ def measure_freshness_facts(
     freshness_risk_lot_count        임계 정책이 등록돼 있을 때
     ```
 
-    🔴 **새 임계도 새 분류도 만들지 않는다.** 모집단 분류는
-      `tools.collect_freshness_lot_census`, 임계 비교는 `count_freshness_risk_lots` 로
-      둘 다 signal 판정이 쓰는 그 함수다. 여기서 하는 일은 **골라 담는 것**뿐이다.
+    새 임계도 새 분류도 만들지 않는다. 모집단 분류는
+    `tools.collect_freshness_lot_census`, 임계 비교는 `count_freshness_risk_lots` 로
+    둘 다 signal 판정이 쓰는 그 함수다. 여기서 하는 일은 골라 담는 것뿐이다.
 
-    🔴 **`freshness_expired_lot_count` 를 폐기 판정으로 읽지 않는다.** 잔여가 0 이하로
-      확인된 ACTIVE Lot 의 **측정값일 뿐이고, 이 건수가 폐기를 실행하지 않는다.**
+    `freshness_expired_lot_count` 를 폐기 판정으로 읽지 않는다. 잔여가 0 이하로
+    확인된 ACTIVE Lot 의 측정값일 뿐이고, 이 건수가 폐기를 실행하지 않는다.
 
     ```text
     expired count       측정값 — 여기(rules)
@@ -249,10 +246,10 @@ def measure_freshness_facts(
                         (폐기대기 · 살아있는 할당 없음 · 잔량 전량)
     ```
 
-    ★ **`snapshot` 은 필수다.** `evaluate_*_business_signals` 가 `None` 을 받는 것은
-      독립 Service 가 스냅샷 부재에도 회신을 조립해야 해서인데, 이 함수의 호출자는
-      스냅샷을 이미 확인한 뒤다 — `None` 을 받아 빈 dict 를 돌려주면 *"측정했더니
-      아무것도 없었다"* 와 *"측정할 것이 없었다"* 가 같아진다.
+    `snapshot` 은 필수다. `evaluate_*_business_signals` 가 `None` 을 받는 것은
+    독립 Service 가 스냅샷 부재에도 회신을 조립해야 해서인데, 이 함수의 호출자는
+    스냅샷을 이미 확인한 뒤다 — `None` 을 받아 빈 dict 를 돌려주면 "측정했더니
+    아무것도 없었다" 와 "측정할 것이 없었다" 가 같아진다.
     """
     census = collect_freshness_lot_census(snapshot)
     facts: FreshnessOperationalFacts = {
@@ -320,21 +317,21 @@ def derive_procurement_verdict(
     result: LogisticsRuleResult,
     scenario_results: list[ScenarioValidationResult],
 ) -> FinalVerdict | None:
-    """시나리오 집계와 하드 제약 판정의 **최악값 결합** (2026-09-01 마스터 확정 · #121 3단계).
+    """시나리오 집계와 하드 제약 판정의 최악값 결합 (2026-09-01 마스터 확정 · #121 3단계).
 
     확정 문구:
 
     ```text
     SCENARIO_VALIDATION 의 business_status 는 그 부서가 검증한 시나리오 전체의 집계다.
       하나라도 reject → reject / 아니고 하나라도 conditional → conditional / 전부 ok → ok
-    ★ 조정안의 유무는 이 값을 바꾸지 않는다.
-    ★ 하드 제약 상태(PASS/UNRESOLVED)는 이 값을 낮출 수는 있어도 올릴 수 없다.
+    - 조정안의 유무는 이 값을 바꾸지 않는다.
+    - 하드 제약 상태(PASS/UNRESOLVED)는 이 값을 낮출 수는 있어도 올릴 수 없다.
     ```
 
-    최악값 결합이 두 별표를 그대로 구현한다 — 하드 UNRESOLVED 는 전-ok 를
+    최악값 결합이 위 두 줄을 그대로 구현한다 — 하드 UNRESOLVED 는 전-ok 를
     REVIEW_REQUIRED 로 낮출 수 있지만, 하드 전부 PASS 가 시나리오 reject 를
-    되살리지는 못한다. 종전 `derive_logistics_verdict`(하드만)는 판매 경로와
-    이 결합의 하드 축으로 계속 쓰인다.
+    되살리지는 못한다. `derive_logistics_verdict`(하드만)는 판매 경로와
+    이 결합의 하드 축으로 쓰인다.
     """
     hard = derive_logistics_verdict(result)
     if hard is None:
@@ -523,9 +520,9 @@ def _known_constraint(
 
 def _snapshot_warnings(snapshot: InventoryLogisticsSnapshot) -> list[str]:
     warnings: list[str] = []
-    # ★ 이 경고는 **상시 발동한다** — Repository 가 `snapshot_id` 를 채우지 않기
-    #   때문이다(폐지된 T0 스냅샷의 유산). 없앨지 실제 ID 를 줄지는 계약 결정이라
-    #   여기서 조용히 끄지 않는다 — 끄면 "검사했더니 문제 없음"으로 위장된다.
+    # 이 경고는 상시 발동한다 — 스냅샷 조립(`readmodel/current.py`)이 `snapshot_id` 를
+    # 채우지 않기 때문이다(폐지된 T0 스냅샷의 유산). 없앨지 실제 ID 를 줄지는 계약
+    # 결정이라 여기서 조용히 끄지 않는다 — 끄면 "검사했더니 문제 없음"으로 위장된다.
     if snapshot.snapshot_id is None:
         warnings.append("SNAPSHOT_ID_UNRESOLVED")
     # 정규화 근거가 없어 등급 어휘를 해석하지 못한 Lot이 있다는 사실만 드러낸다 —

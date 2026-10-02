@@ -1,6 +1,6 @@
-"""판매 확정분 → 재무 매출채권 — 마스터 채권 발행 단계가 넘긴 연결로. **commit 하지 않는다.**
+"""판매 확정분 → 재무 매출채권 — 마스터 채권 발행 단계가 넘긴 연결로. commit 하지 않는다.
 
-★ 2026-09-29 재구성 BL-014: `finance/receivables.py` 를 판정 · 순서 · SQL 로 나눴다.
+판정은 `domain/receivables.py`, SQL 은 `repository/receivables.py`.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def confirm_receivable(conn: Any, request: ReceivableCreateInput) -> ReceivableW
 
 
 def load_sale_row(conn: Any, sale_id: str) -> dict[str, Any]:
-    """확정된 판매 헤더 한 행. **정확히 한 행**이 아니면 막는다."""
+    """확정된 판매 헤더 한 행. 정확히 한 행이 아니면 막는다."""
     return one_sale_row(select_sale_rows(conn, sale_id=sale_id), sale_id=sale_id)
 
 

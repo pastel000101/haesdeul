@@ -1,7 +1,4 @@
-"""재무 active policy 행 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다.
-"""
+"""재무 active policy 행 SQL."""
 
 from typing import Any
 

@@ -1,7 +1,4 @@
-"""LLM 실행 순서와 설정 해석 — 부서 LLM 이 함께 쓰는 **골격**.
-
-2026-09-30 재구성 BL-020 에 부서 런타임 여섯 벌에 복제돼 있던 것을 모았다. 옮기기 전과
-값 · 순서 · 예외가 같다.
+"""LLM 실행 순서와 설정 해석 — 부서 LLM 이 함께 쓰는 골격.
 
 ```text
 run_with_fallback       켜짐 → 부를 조건 → 호출 · 검증 → 재시도 → 기본안
@@ -13,8 +10,8 @@ resolve_provider_model  provider 와 모델 고르기                        (�
 gemini_api_key          `<PREFIX>_GEMINI_API_KEY` → `GEMINI_API_KEY`
 ```
 
-★ **정책은 부서가 고른다.** 여기 있는 것은 여러 부서가 **글자까지 같게** 쓰던 규칙뿐이다.
-  같지 않은 것은 부서에 남겼다(2026-09-30):
+정책은 부서가 고른다. 여기 있는 것은 여러 부서가 글자까지 같게 쓰는 규칙뿐이다.
+같지 않은 것은 부서에 있다:
 
 ```text
 재시도        물류는 전송 재시도와 검증 재시도를 따로 센다(자기 루프)
@@ -69,22 +66,22 @@ ENV_FILES: tuple[Path, ...] = (ENV_FILE, ENV_FILE.parent.parent / ".env")
 def load_env_files(paths: Iterable[Path], *, override: bool = False) -> None:
     """`.env` 파일들을 차례로 적재한다. 이미 있는 환경변수는 덮지 않는다(`override=False`).
 
-    ★ **부르는 시점은 부서가 고른다** — 설정을 읽을 때마다 부른다(옮기기 전과 같다).
+    부르는 시점은 부서가 고른다 — 설정을 읽을 때마다 부른다.
     """
     for path in paths:
         load_dotenv(path, override=override)
 
 
 def scoped_env(prefix: str, key: str, default: str) -> str:
-    """`<PREFIX><KEY>` → `<KEY>` → `default`. **빈 문자열은 없는 것으로 본다**(다음 자리로 간다)."""
+    """`<PREFIX><KEY>` → `<KEY>` → `default`. 빈 문자열은 없는 것으로 본다(다음 자리로 간다)."""
     return os.getenv(f"{prefix}{key}") or os.getenv(key) or default
 
 
 def read_bool(key: str, *, prefix: str = "", default: bool) -> bool:
     """`<PREFIX><KEY>` → `<KEY>` 를 참 · 거짓으로. 둘 다 없으면 `default`.
 
-    ⚠️ 전용 값이 빈 문자열이면 공용 값으로 넘어간다(`or`). 공용 값이 빈 문자열이면 거짓이다.
-      재무 · 판매는 뜻이 달라 `read_optional_bool` 을 쓴다.
+    주의: 전용 값이 빈 문자열이면 공용 값으로 넘어간다(`or`). 공용 값이 빈 문자열이면 거짓이다.
+    재무 · 판매는 뜻이 달라 `read_optional_bool` 을 쓴다.
     """
     value = os.getenv(f"{prefix}{key}") or os.getenv(key)
     if value is None:
@@ -93,10 +90,10 @@ def read_bool(key: str, *, prefix: str = "", default: bool) -> bool:
 
 
 def read_optional_bool(key: str) -> bool | None:
-    """설정된 경우에만 참 · 거짓을 돌려준다. **미설정(`None`)과 거짓을 섞지 않는다.**
+    """설정된 경우에만 참 · 거짓을 돌려준다. 미설정(`None`)과 거짓을 섞지 않는다.
 
     재무(`FINANCE_LLM_ENABLED` → `LLM_ENABLED` → 켬) · 판매(`SALES_LLM_ENABLED` →
-    `LLM_ENABLED` → 끔)가 사슬을 직접 잇는다. 빈 문자열은 **거짓**이다(없는 것이 아니다).
+    `LLM_ENABLED` → 끔)가 사슬을 직접 잇는다. 빈 문자열은 거짓이다(없는 것이 아니다).
     """
     value = os.getenv(key)
     if value is None:
@@ -105,7 +102,7 @@ def read_optional_bool(key: str) -> bool | None:
 
 
 def int_env(prefix: str, key: str, default: str, *, minimum: int) -> int:
-    """정수 설정. **파싱 실패는 기본값으로 되돌린다** — `.env` 오타 하나로 앱이 죽으면 안 된다."""
+    """정수 설정. 파싱 실패는 기본값으로 되돌린다 — `.env` 오타 하나로 앱이 멈추면 안 된다."""
     try:
         return max(minimum, int(scoped_env(prefix, key, default)))
     except (TypeError, ValueError):
@@ -127,13 +124,13 @@ def resolve_provider_model(
 
     provider 는 `<PREFIX>LLM_PROVIDER` → `LLM_PROVIDER` → `default_provider` (소문자).
 
-    🔴 **모델은 프로바이더에 종속된 값이다.** 부서가 전역과 **다른** 프로바이더를 쓸 때 전역
-       `LLM_MODEL`(예: Ollama 의 `gemma3:4b`)을 물려받으면 Gemini 에 없는 모델을 요청해 400 · 404 가
-       난다(물류 #95 · 마스터 실측). 그때만 전역 모델을 건너뛰고 기본값을 쓴다. 전용 모델이
-       **직접 지정돼 있으면 그것이 이긴다.** 프로바이더가 같으면 전역 모델은 정당한 상속이다.
+    모델은 프로바이더에 종속된 값이다. 부서가 전역과 다른 프로바이더를 쓸 때 전역
+    `LLM_MODEL`(예: Ollama 의 `gemma3:4b`)을 물려받으면 Gemini 에 없는 모델을 요청해 400 · 404 가
+    난다(물류 #95 · 마스터 실측). 그때만 전역 모델을 건너뛰고 기본값을 쓴다. 전용 모델이
+    직접 지정돼 있으면 그것이 이긴다. 프로바이더가 같으면 전역 모델은 정당한 상속이다.
 
-    ★ 마스터 · Critic · 물류가 글자까지 같게 쓰던 규칙이다. 매입(전역 모델을 그대로 상속) ·
-      재무 · 판매(전역 provider 를 상속하지 않음)는 규칙이 달라 부서에 남겼다.
+    마스터 · Critic · 물류가 같게 쓰는 규칙이다. 매입(전역 모델을 그대로 상속) ·
+    재무 · 판매(전역 provider 를 상속하지 않음)는 규칙이 달라 부서에 있다.
     """
     scoped_provider = os.getenv(f"{prefix}LLM_PROVIDER")
     global_provider = (os.getenv("LLM_PROVIDER") or default_provider).strip().lower()
@@ -146,10 +143,10 @@ def resolve_provider_model(
 
 
 def gemini_api_key(prefix: str) -> str | None:
-    """`<PREFIX>GEMINI_API_KEY` → `GEMINI_API_KEY`. **값을 설정 객체에 싣지 않는다** —
+    """`<PREFIX>GEMINI_API_KEY` → `GEMINI_API_KEY`. 값을 설정 객체에 싣지 않는다 —
     설정 객체는 로그 · 예외에 통째로 실릴 수 있다. 부르는 쪽이 호출 직전에 읽는다.
 
-    🔴 공용 키로 떨어지면 팀 공용 한도를 같이 쓴다 — 전용 키를 넣는 것이 기본이다.
+    주의: 공용 키로 떨어지면 팀 공용 한도를 같이 쓴다 — 전용 키를 넣는 것이 기본이다.
     """
     return os.getenv(f"{prefix}GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 
@@ -164,7 +161,7 @@ def run_with_fallback[Interpretation](
     template: Interpretation,
     guidance_for: Callable[[Exception], list[str] | None],
 ) -> tuple[Interpretation, str, int, bool]:
-    """**재시도 · fallback 골격.** `(해석, 상태, 시도 수, fallback 썼나)` 를 돌려준다.
+    """재시도 · fallback 골격. `(해석, 상태, 시도 수, fallback 썼나)` 를 돌려준다.
 
     상태는 봉투 계약의 네 값(`app/contracts/envelope.py` 의 `LLMStatus`) 가운데 하나다. core 는
     contracts 를 import 하지 않으므로 같은 문자열을 낸다 — 어긋나지 않는지는 검사가 본다.
@@ -177,19 +174,18 @@ def run_with_fallback[Interpretation](
     다 실패                → (template, FALLBACK, 시도, True)
     ```
 
-    :param call: 안내(`None` 이면 첫 시도)를 받아 프로바이더에 묻고 **글자를 돌려준다.**
-    :param guidance_for: 실패한 시도마다 **한 번** 불린다. `None` 을 돌려주면 더 묻지 않는다 —
+    :param call: 안내(`None` 이면 첫 시도)를 받아 프로바이더에 묻고 글자를 돌려준다.
+    :param guidance_for: 실패한 시도마다 한 번 불린다. `None` 을 돌려주면 더 묻지 않는다 —
         마스터가 전송 실패를 재시도하지 않을 때 쓴다(검증 실패만 다시 묻는다).
 
-    🔴 **역할 로직이 여기 없다.** 무엇을 묻는지(`call`) · 무엇이 옳은지(`validate`) · 실패하면
-       무엇으로 돌아갈지(`template`)는 전부 부르는 쪽이 준다.
+    역할 로직이 여기 없다. 무엇을 묻는지(`call`) · 무엇이 옳은지(`validate`) · 실패하면
+    무엇으로 돌아갈지(`template`)는 전부 부르는 쪽이 준다.
 
-    ⚠️ **모든 실패가 같은 자리로 떨어진다.** 키 없음 · 서버 없음 · 타임아웃 · SDK 예외를 전부
-      받는다 — 키 · 서버 없이도 그래프가 도는 것이 이 한 줄에 걸려 있다.
+    모든 실패가 같은 자리로 떨어진다. 키 없음 · 서버 없음 · 타임아웃 · SDK 예외를 전부
+    받는다 — 키 · 서버 없이도 그래프가 도는 것이 이 한 줄에 걸려 있다.
 
-    ★ 2026-09-30 BL-020: 매입 `run_with_fallback` 을 옮겼다. Critic `JudgeService` 의 루프가
-      글자까지 같았고, 마스터 분류 · 응답 문장의 루프는 «전송 실패면 멈춤» 만 달라
-      `guidance_for` 가 `None` 을 돌려주는 것으로 옮겼다.
+    매입 · Critic `JudgeService` · 마스터 분류 · 응답 문장이 이 골격을 쓴다. 마스터는
+    «전송 실패면 멈춤» 을 `guidance_for` 가 `None` 을 돌려주는 것으로 표현한다.
     """
     if not enabled:
         return template, "DISABLED", 0, False

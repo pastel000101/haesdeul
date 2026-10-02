@@ -1,18 +1,18 @@
 """의도 분류 — 프로바이더 · 검증 · 재시도 · fallback.
 
-팀 규약(finance·logistics·orchestrator·critic·purchase 5벌)과 같은 배치다.
-프로바이더는 3종이고 `LLM_PROVIDER` 로 고른다. 에이전트 접두사는 `MASTER_`.
+다른 파트의 LLM 런타임과 같은 배치다. 프로바이더는 `LLM_PROVIDER` 로 고르고
+(`_PROVIDERS`: anthropic · openai · ollama · gemini), 에이전트 접두사는 `MASTER_` 다.
 
-★ **검증 체인은 프로바이더 밖에 있다.** 프로바이더는 "문자열을 받아온다"까지만 하고,
-  닫힌 열거 대조·숫자 출처 검사·재시도는 `IntentService` 가 소유한다.
+검증 체인은 프로바이더 밖에 있다. 프로바이더는 "문자열을 받아온다"까지만 하고, 닫힌
+열거 대조·숫자 출처 검사·재시도는 `IntentService` 가 소유한다.
 
-★ **API 키는 `.env` 에서만 읽는다.** `LLMSettings` 에 싣지 않는다 — 설정 객체는 로그·
-  예외에 실릴 수 있다. 키가 없으면 예외를 던지고 **fallback 으로 간다.**
+API 키는 `.env` 에서만 읽는다. `LLMSettings` 에 싣지 않는다 — 설정 객체는 로그·예외에
+실릴 수 있다. 키가 없으면 예외를 던지고 fallback 으로 간다.
 
-★ **프로바이더 호출은 `app.core.llm` 이 한다** (2026-09-30 재구성 BL-020). 이 파일에 남은 것은
-  마스터의 몫이다 — 지시문 · 응답 스키마 · 검증 체인 · `MASTER_` 설정값과 오류 문장 · 재시도
-  규칙(검증 실패만 다시 묻고 전송 실패는 곧바로 되묻기로 간다). 프로바이더는 도메인 타입을
-  모르는 형태(`generate(system, user, schema) -> str`) 그대로다.
+프로바이더 호출은 `app.core.llm` 이 한다. 이 파일에 있는 것은 마스터의 몫이다 —
+지시문 · 응답 스키마 · 검증 체인 · `MASTER_` 설정값과 오류 문장 · 재시도 규칙(검증
+실패만 다시 묻고 전송 실패는 곧바로 되묻기로 간다). 프로바이더는 도메인 타입을 모르는
+형태(`generate(system, user, schema) -> str`)다.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ from app.core.llm.runtime import (
 )
 from app.master.llm.schemas import Intent, IntentResult
 
-#: 🔴 **분류가 왜 실패했는지를 남기는 자리다** (2026-09-16). `day_opening_repository`
-#:    와 같은 형식이다 — 모듈 이름으로 받아 두고 삼킨 예외의 **종류와 문장**을 적는다.
+#: 분류가 왜 실패했는지를 남기는 자리다. 모듈 이름으로 받아 두고 삼킨 예외의 종류와
+#: 문장을 적는다.
 logger = logging.getLogger(__name__)
 
 _ENV_PREFIX = "MASTER_"
@@ -66,23 +66,21 @@ _ENV_PREFIX = "MASTER_"
 _DEFAULT_MODELS = {
     "anthropic": "claude-haiku-4-5-20251001",
     "ollama": "gemma3:4b",
-    #: 🔴 stable 을 pin 한다 — `latest`·`preview` 같은 자동 갱신 별칭은 출력 성향이
+    #: stable 을 고정한다 — `latest`·`preview` 같은 자동 갱신 별칭은 출력 성향이
     #: 예고 없이 바뀐다. 물류가 #95 에서 고른 것과 같은 모델이다 (팀 안에서 두 파트가
     #: 다른 모델을 쓰면 "모델이 달라서 그런가" 가 모든 조사에 끼어든다).
     "gemini": "gemini-3.5-flash-lite",
 }
 
 #: 발화문에 없던 숫자를 조건에 지어넣는 것을 막는다. 매입 ⑤의 "숫자 금지"와 다르다 —
-#: 여기서는 **사용자가 말한 숫자는 허용**하고, 출처 없는 숫자만 거부한다.
+#: 여기서는 사용자가 말한 숫자는 허용하고, 출처 없는 숫자만 거부한다.
 _DIGITS = re.compile(r"\d")
 
-#: 🔴 「부서 이름 (agents)」 절의 ml 갈래를 셋으로 늘렸다 (2026-09-16 · ML `#746`).
-#: ML 이 질의응답에 **배치/데이터 처리**와 **모델 성능/재학습** 갈래를 더했고, 품목 이름이
-#: 없어도 가격 질문에 답하게 됐다. 지시문이 「품목 이름이 ml 을 가른다」로 남아 있으면
-#: *"오늘 데이터 처리 잘 됐어?"* · *"모델 성능 어때?"* · *"오늘 가격 알려줘"* 셋이 ml 로
-#: 오지 않는다 — **답할 수 있게 된 것을 지시문이 막고 있던 것**이다.
-#: 보내는 payload 는 그대로다 (`STATUS_QUERY` · agent `"ml"` · `{"question", "item"}`).
-#: 주석이 문자열 안으로 못 들어가서 여기 둔다 — 고친 자리는 아래 「부서 이름」 절이다.
+#: 아래 「부서 이름 (agents)」 절의 ml 은 세 갈래다(ML `#746`) — 가격, 배치/데이터 처리,
+#: 모델 성능/재학습. ML 은 품목 이름이 없어도 가격 질문에 답하므로, 지시문이 「품목
+#: 이름이 ml 을 가른다」로 적혀 있으면 "오늘 데이터 처리 잘 됐어?" · "모델 성능 어때?" ·
+#: "오늘 가격 알려줘" 가 ml 로 오지 않는다. 보내는 payload 는 같다(`STATUS_QUERY` ·
+#: agent `"ml"` · `{"question", "item"}`). 주석이 문자열 안으로 못 들어가서 여기 둔다.
 SYSTEM_PROMPT = """당신은 햇들농산 매입 의사결정 시스템의 요청 해석 레이어다.
 사용자의 한국어 발화문을 정해진 종류 중 하나로 분류하는 것이 전부다.
 
@@ -230,7 +228,7 @@ UNKNOWN — 위 어디에도 속하지 않거나 무엇을 원하는지 알 수 
 
 @dataclass(frozen=True)
 class LLMSettings:
-    """설정. **API 키를 담지 않는다.**"""
+    """설정. API 키를 담지 않는다."""
 
     enabled: bool
     provider: str
@@ -245,8 +243,8 @@ class LLMSettings:
 class TextProvider(Protocol):
     """문자열을 받아오는 것까지가 프로바이더의 일이다.
 
-    ★ **도메인 타입을 모른다.** 매입 런타임의 프로바이더는 `SanitizedLLMContext` 를
-      받는데, 그러면 공용 층으로 들어낼 수 없다. 여기는 문자열 셋만 받는다.
+    도메인 타입을 모른다. 도메인 타입(예: `SanitizedLLMContext`)을 받는 프로바이더는
+    공용 층으로 들어낼 수 없다. 여기는 문자열 셋만 받는다.
     """
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str: ...
@@ -255,10 +253,10 @@ class TextProvider(Protocol):
 def get_llm_settings() -> LLMSettings:
     """`MASTER_` → 공용 → 기본값. `.env` 는 부를 때마다 적재한다(이미 있는 값은 덮지 않는다).
 
-    🔴 **모델은 프로바이더에 종속된 값이다.** 마스터가 전역과 다른 프로바이더를 쓸 때 전역
-       `LLM_MODEL`(재무 · Critic 이 같이 보는 `gemma3:4b`)을 상속하면 Gemini 에 없는 모델을
-       요청해 404 가 난다 — 그 경우에만 전역 모델을 건너뛴다(`resolve_provider_model` ·
-       물류 · Critic 과 같은 규칙).
+    모델은 프로바이더에 종속된 값이다. 마스터가 전역과 다른 프로바이더를 쓸 때 전역
+    `LLM_MODEL`(예: 재무 · Critic 이 같이 보는 `gemma3:4b`)을 상속하면 Gemini 에 없는
+    모델을 요청해 404 가 난다 — 그 경우에만 전역 모델을 건너뛴다(`resolve_provider_model` ·
+    물류 · Critic 과 같은 규칙).
     """
     load_env_files(ENV_FILES)
     provider, model = resolve_provider_model(
@@ -279,22 +277,21 @@ def get_llm_settings() -> LLMSettings:
 def _intent_schema() -> dict[str, Any]:
     """구조화 출력에 넘길 JSON Schema.
 
-    🔴 **기본값이 있는 칸을 `required` 로 올린다 — 안 그러면 모델이 그 칸을 안 쓴다.**
+    기본값이 있는 칸을 `required` 로 올린다 — 안 그러면 모델이 그 칸을 안 쓴다.
 
     파이썬 쪽 기본값(`agents=[]` · `item=None`)이 스키마의 `required` 에서 그 칸을 빼고,
-    빠진 칸은 모델에게 **없는 칸처럼 보인다.**
+    빠진 칸은 모델에게 없는 칸처럼 보인다. 관측:
 
     ```text
     "재고 어때?"              {"action":"STATUS_QUERY","confidence":"HIGH"}   agents 없음
     "오늘 배추 얼마나 사야 해?"  item 이 3/3 으로 null          발화문에 배추가 있는데도
     ```
 
-    `agents` 는 8/28 에 올렸는데 `item` 을 빠뜨렸다. 채점표가 `action` 과 `agents` 만
-    보고 있어 **드러나지 않았다** — 8/29 에 관통을 돌려 보고서야 나왔다(품목이 없으면
-    마스터가 입력을 못 싣고 매입이 `E4` 로 멈춘다). 채점 항목에 `item` 을 넣었다.
+    `item` 이 비면 마스터가 입력을 못 싣고 매입이 `E4` 로 멈추므로 `agents` 와 함께
+    올린다.
 
-    ★ **`null` 을 못 쓰게 만드는 것이 아니다.** `item` 은 `anyOf[..., null]` 이라
-      required 여도 *"모르겠다"* 를 쓸 수 있다. 바뀌는 것은 **매번 판단하게 되는 것**뿐이다.
+    `null` 을 못 쓰게 만드는 것이 아니다. `item` 은 `anyOf[..., null]` 이라 required 여도
+    "모르겠다" 를 쓸 수 있다. 바뀌는 것은 매번 판단하게 되는 것뿐이다.
     """
     schema = Intent.model_json_schema()
     schema["required"] = sorted({*schema.get("required", ()), "agents", "item"})
@@ -365,18 +362,21 @@ class OllamaProvider:
 class GeminiProvider:
     """Gemini REST 호출.
 
-    ★ **API 키는 호출 시점에 환경에서 읽는다** (`MASTER_GEMINI_API_KEY` → `GEMINI_API_KEY`).
-      `LLMSettings` 에 담지 않는다 — 설정 객체는 로그·예외에 통째로 실릴 수 있다.
-    ★ 자체 재시도가 없다. 재시도는 `IntentService` 가 소유한다.
-    🔴 **`HTTPError` 는 감싸지 않는다** — 감싸면 상태 코드가 사라져 429(quota)와 서버 다운이
-       로그에서 같아 보였다(실측). 나머지 전송 실패만 마스터 문장으로 감싼다.
-    🔴 **`parts[0]` 이 아니다 — 사고 조각이 앞에 오는 모델이 있다.** `gemini-3.5-flash-lite` 는
-       `thought: true` 조각을 앞에 붙인다. 첫 조각만 보면 **호출은 성공했는데 FALLBACK** 으로
-       떨어진다 — 실측에서 `SELECT_SCENARIO` 가 12번 중 11번 이렇게 죽었다. 사고 조각은 건너뛰고
-       빈 문자열이 아닌 첫 글자를 쓴다(공백뿐인 글자도 받는다 — 검증이 되묻는다).
-    ★ 응답 스키마는 `gemini_strict_schema` 로 낮춘다 — `X | null` 이 아닌 anyOf 는 조용히 흘리지
-      않고 터뜨린다(Gemini 400 이 호출 실패로만 보인다). 길이 제약은 남기고, 못 편 참조는
-      `TypeError` 다(옮기기 전 마스터 변환 그대로 — 매입 변환과 다르다).
+    API 키는 호출 시점에 환경에서 읽는다(`MASTER_GEMINI_API_KEY` → `GEMINI_API_KEY`).
+    `LLMSettings` 에 담지 않는다 — 설정 객체는 로그·예외에 통째로 실릴 수 있다.
+    자체 재시도가 없다. 재시도는 `IntentService` 가 소유한다.
+
+    `HTTPError` 는 감싸지 않는다 — 감싸면 상태 코드가 사라져 429(quota)와 서버 다운이
+    로그에서 같아 보인다. 나머지 전송 실패만 마스터 문장으로 감싼다.
+
+    `parts[0]` 만 보지 않는다 — 사고 조각이 앞에 오는 모델이 있다.
+    `gemini-3.5-flash-lite` 는 `thought: true` 조각을 앞에 붙이므로, 첫 조각만 보면 호출은
+    성공했는데 FALLBACK 으로 떨어진다(관측: `SELECT_SCENARIO` 12번 중 11번). 사고 조각은
+    건너뛰고 빈 문자열이 아닌 첫 글자를 쓴다(공백뿐인 글자도 받는다 — 검증이 되묻는다).
+
+    응답 스키마는 `gemini_strict_schema` 로 낮춘다 — `X | null` 이 아닌 anyOf 는 조용히
+    흘리지 않고 터뜨린다(Gemini 400 이 호출 실패로만 보인다). 길이 제약은 남기고, 못 편
+    참조는 `TypeError` 다(매입 변환과 다르다).
     """
 
     def __init__(self, settings: LLMSettings) -> None:
@@ -412,7 +412,7 @@ class GeminiProvider:
 
 
 class UnavailableProvider:
-    """미지원 `LLM_PROVIDER` 값. 조용히 무시하지 않고 **터뜨려 fallback 으로 보낸다**."""
+    """미지원 `LLM_PROVIDER` 값. 조용히 무시하지 않고 예외를 내 fallback 으로 보낸다."""
 
     def generate(self, system: str, user: str, schema: dict[str, Any]) -> str:
         del system, user, schema
@@ -431,14 +431,13 @@ _PROVIDERS: dict[str, type] = {
 
 
 class IntentIssue(StrEnum):
-    """🔴 **행동을 바꾸는 것만 거부한다.**
+    """행동을 바꾸는 것만 거부한다.
 
-    처음에는 "`agents` 는 `STATUS_QUERY` 일 때만" 처럼 **쓰이지도 않는 칸이 차 있는
-    것**까지 거부했다. 실측에서 그 엄격함이 손해였다 — 모델이 `PROCUREMENT_RUN` 에
-    `agents` 를 곁들이면 거부 → 재시도 → **분류를 UNKNOWN 으로 무르는** 일이 반복됐다.
-    쓰지 않는 값이 붙어 있다고 답을 통째로 버리는 셈이었다.
+    쓰이지도 않는 칸이 차 있는 것까지 거부하면 손해다 — 모델이 `PROCUREMENT_RUN` 에
+    `agents` 를 곁들이면 거부 → 재시도 → 분류를 UNKNOWN 으로 무르는 일이 반복된다(관측).
+    쓰지 않는 값이 붙어 있다고 답을 통째로 버리는 셈이다.
 
-    그래서 셋으로 나눴다.
+    그래서 셋으로 나눈다.
 
     ```text
     안 쓰는 칸이 차 있다   →  지운다 (normalize)   — 해가 없다
@@ -463,12 +462,11 @@ class IntentValidationError(ValueError):
         self.issues = issues
 
 
-#: 🔴 교정 문구는 **"빠진 칸을 채워라"** 여야 한다.
+#: 교정 문구는 "빠진 칸을 채워라" 여야 한다.
 #:
-#: 처음엔 "STATUS_QUERY 면 agents 를 넣는다" 로만 썼는데, 모델이 그 말을 듣고
-#: **분류 자체를 UNKNOWN 으로 바꿔** 회피하는 일이 실측에서 나왔다 ("재고 어때?").
-#: 빈 칸을 지적받으면 그 칸을 채우는 대신 **답을 무르는 쪽이 더 쉽기 때문**이다.
-#: 그래서 고칠 곳을 짚을 때 **분류를 바꾸지 말라**고 함께 못박는다.
+#: "STATUS_QUERY 면 agents 를 넣는다" 로만 쓰면 모델이 분류 자체를 UNKNOWN 으로 바꿔
+#: 회피한다(관측: "재고 어때?"). 빈 칸을 지적받으면 그 칸을 채우는 대신 답을 무르는
+#: 쪽이 더 쉽기 때문이다. 그래서 고칠 곳을 짚을 때 분류를 바꾸지 말라고 함께 적는다.
 _GUIDANCE: dict[IntentIssue, str] = {
     IntentIssue.NOT_JSON: "JSON 만 출력한다. 설명 문장을 붙이지 않는다.",
     IntentIssue.SCHEMA: "지정된 JSON Schema 의 필드와 허용값만 쓴다.",
@@ -501,10 +499,10 @@ def retry_guidance(issues: list[IntentIssue]) -> list[str]:
 
 
 def normalize_intent(intent: Intent) -> Intent:
-    """그 action 에서 **쓰이지 않는 칸을 지운다.**
+    """그 action 에서 쓰이지 않는 칸을 지운다.
 
     모델은 스키마에 있는 칸을 곧잘 곁들여 채운다 — `PROCUREMENT_RUN` 에 `agents`,
-    `UNKNOWN` 에 `item` 같은 식으로. 그 값은 **아무도 읽지 않으므로 해가 없다.**
+    `UNKNOWN` 에 `item` 같은 식으로. 그 값은 아무도 읽지 않으므로 해가 없다.
     거부하면 재시도가 돌고, 재시도에서 모델이 답을 무르는 쪽이 훨씬 비싸다.
     """
     action = intent.action
@@ -521,9 +519,9 @@ def normalize_intent(intent: Intent) -> Intent:
 
 
 def validate_intent(raw_output: str, utterance: str) -> Intent:
-    """LLM 출력을 검사한다. **닫힌 열거가 대부분을 막고, 나머지를 여기서 막는다.**
+    """LLM 출력을 검사한다. 닫힌 열거가 대부분을 막고, 나머지를 여기서 막는다.
 
-    순서가 중요하다 — **먼저 지우고 나서 검사한다.** 안 쓰는 칸 때문에 답이 버려지지
+    순서가 중요하다 — 먼저 지우고 나서 검사한다. 안 쓰는 칸 때문에 답이 버려지지
     않게 하되, 필요한 칸이 빈 것과 지어낸 내용은 그대로 잡는다.
     """
     try:
@@ -540,7 +538,7 @@ def validate_intent(raw_output: str, utterance: str) -> Intent:
 
 
 def _issues(intent: Intent, utterance: str) -> list[IntentIssue]:
-    """**정규화 뒤에** 남는 문제만 본다 — 빈 필수 칸과 지어낸 내용."""
+    """정규화 뒤에 남는 문제만 본다 — 빈 필수 칸과 지어낸 내용."""
     out: list[IntentIssue] = []
     action = intent.action
 
@@ -571,9 +569,9 @@ def _issues(intent: Intent, utterance: str) -> list[IntentIssue]:
 def _invents_digits(condition: str, utterance: str) -> bool:
     """조건의 숫자가 발화문에 없는 숫자인가.
 
-    ★ 매입 ⑤의 "숫자 금지"와 다르다. 여기서는 **사용자가 말한 숫자는 그대로 옮겨야**
-      하고, 출처 없는 숫자만 거부한다. 자릿수 단위로 비교하면 "2000"과 "2천"을 구분
-      못 하므로 **등장한 숫자 문자의 집합**으로 본다 — 느슨하지만 지어낸 금액은 잡는다.
+    매입 ⑤의 "숫자 금지"와 다르다. 여기서는 사용자가 말한 숫자는 그대로 옮겨야 하고,
+    출처 없는 숫자만 거부한다. 자릿수 단위로 비교하면 "2000"과 "2천"을 구분 못 하므로
+    등장한 숫자 문자의 집합으로 본다 — 느슨하지만 지어낸 금액은 잡는다.
     """
     return not set(_DIGITS.findall(condition)) <= set(_DIGITS.findall(utterance))
 
@@ -597,9 +595,9 @@ _DEPT_LABEL = {
 
 
 class IntentService:
-    """검증과 재시도 규칙(무엇을 다시 묻나)을 정한다. **프로바이더가 바뀌어도 이 층은 그대로다.**
+    """검증과 재시도 규칙(무엇을 다시 묻나)을 정한다. 프로바이더가 바뀌어도 이 층은 그대로다.
 
-    재시도 · fallback 골격은 `app.core.llm.runtime.run_with_fallback` 이다(2026-09-30 BL-020).
+    재시도 · fallback 골격은 `app.core.llm.runtime.run_with_fallback` 이다.
     """
 
     def __init__(self, settings: LLMSettings, provider: TextProvider) -> None:
@@ -607,17 +605,17 @@ class IntentService:
         self.provider = provider
 
     def classify(self, utterance: str) -> IntentResult:
-        """발화문 하나를 분류한다. **실패하면 UNKNOWN 으로 되묻는다.**
+        """발화문 하나를 분류한다. 실패하면 UNKNOWN 으로 되묻는다.
 
-        ★ 실패를 "가장 그럴듯한 것"으로 메우지 않는다. 잘못 분류한 실행은 예산을 태우고,
-          사용자는 자기가 안 시킨 일이 도는 것을 본다.
+        실패를 "가장 그럴듯한 것"으로 메우지 않는다. 잘못 분류한 실행은 예산을 태우고,
+        사용자는 자기가 안 시킨 일이 도는 것을 본다.
         """
         text = utterance.strip()
         # 빈 발화문이면 부르지 않는다(SKIPPED_TEMPLATE) — 이름 붙일 것이 없다.
         failed_attempts = 0
 
         def next_guidance(error: Exception) -> list[str] | None:
-            """검증 실패는 고칠 곳을 짚어 다시 묻고, 그 밖의 실패는 **다시 묻지 않는다.**
+            """검증 실패는 고칠 곳을 짚어 다시 묻고, 그 밖의 실패는 다시 묻지 않는다.
 
             `run_with_fallback` 은 실패한 시도마다 이것을 한 번 부른다 — 성공 전의 시도는
             모두 실패이므로 여기서 센 횟수가 곧 그때까지의 시도 수다.
@@ -626,15 +624,15 @@ class IntentService:
             failed_attempts += 1
             if isinstance(error, IntentValidationError):
                 return retry_guidance(error.issues)
-            # 🔴 **사유를 버리지 않는다** (2026-09-16). 이 줄이 없어서 **죽은 Gemini 키(403)를
-            #    「복수 topic 분류 결함」으로 잘못 짚고 몇 시간을 팠다.** 화면에는 `FALLBACK` 만
-            #    떠서 403 인지 429 인지 타임아웃인지 스키마 오류인지 구분이 안 됐다.
+            # 사유를 버리지 않는다. 화면에는 `FALLBACK` 만 뜨므로, 로그가 없으면 403(죽은
+            # 키)인지 429 인지 타임아웃인지 스키마 오류인지 구분이 안 되고 원인을 엉뚱한
+            # 곳(분류 결함)에서 찾게 된다.
             #
-            # 🔴 **발화문 원문은 안 싣는다.** 사용자가 친 문장이라 로그에 남길 것이 아니다 —
-            #    길이만 적는다.
+            # 발화문 원문은 싣지 않는다. 사용자가 친 문장이라 로그에 남길 것이 아니다 —
+            # 길이만 적는다.
             #
-            # ⚠️ **다시 묻지 않는 것은 그대로다.** 분류 실패가 API 를 죽이면 안 된다는 판단은
-            #   맞다. 여기서 하는 일은 **드러내는 것뿐**이다.
+            # 다시 묻지 않는 것은 그대로다. 분류 실패가 API 를 멈추면 안 된다. 여기서 하는
+            # 일은 드러내는 것뿐이다.
             logger.warning(
                 "분류 프로바이더 실패 - FALLBACK 으로 되묻는다"
                 " (provider=%s · model=%s · 시도 %d회 · 발화문 %d자): %s: %s",
@@ -671,10 +669,10 @@ class IntentService:
         fallback: bool,
         utterance: str = "",
     ) -> IntentResult:
-        """`utterance` 는 **되물을 말을 고르는 데만** 쓴다.
+        """`utterance` 는 되물을 말을 고르는 데만 쓴다.
 
         분류에는 안 쓴다 — 분류는 이미 끝났고, 여기서 발화문을 다시 보면 규칙이
-        모델의 판정을 덮게 된다. 여기서 하는 일은 *"없는 것을 없다고 이름 붙이는 것"*
+        모델의 판정을 덮게 된다. 여기서 하는 일은 "없는 것을 없다고 이름 붙이는 것"
         뿐이다.
         """
         confirm = _needs_confirmation(intent)
@@ -698,26 +696,20 @@ def _needs_confirmation(intent: Intent) -> bool:
     return intent.action not in _NO_CONFIRM_ACTIONS
 
 
-#: 🔴 **물어볼 만한데 답할 자리가 없는 것.** 이름을 붙여 준다.
+#: 물어볼 만한데 답할 자리가 없는 것. 이름을 붙여 준다.
 #:
-#: *"못 알아들었습니다"* 만 적으면 물어본 사람은 **자기가 말을 잘못했다고 생각하고**
-#: 표현을 바꿔 다시 묻는다. 그래도 안 된다 — 없는 것이기 때문이다. 없는 것은
-#: **없다고 말해야** 그 사람이 다른 길을 찾는다.
+#: "못 알아들었습니다" 만 적으면 물어본 사람은 자기가 말을 잘못했다고 생각하고 표현을
+#: 바꿔 다시 묻는다. 그래도 안 된다 — 없는 것이기 때문이다. 없는 것은 없다고 말해야
+#: 그 사람이 다른 길을 찾는다.
 #:
-#: ★ 여기 없는 말은 종전대로 일반 안내로 간다. 목록을 늘려 가며 맞히는 것이 아니라,
-#:   **자주 묻는데 답이 없는 것**만 이름을 준다.
+#: 여기 없는 말은 일반 안내로 간다. 목록을 늘려 가며 맞히는 것이 아니라, 자주 묻는데
+#: 답이 없는 것만 이름을 준다. 품목 가격은 ML 이 상태 조회로 답하므로 여기 두지 않는다.
 #:
-#: ★ **가격·시세 항목을 뺐다** (2026-09-15). ML 이 상태 조회로 품목 가격에 답하게 되어
-#:   더 이상 *"답할 자리가 없는 것"* 이 아니다. 분류 지시문의 UNKNOWN 가격 예시와
-#:   **같은 커밋에서** 뺐다 — 한쪽만 남으면 지시문은 ml 로 보내는데 되묻는 말은
-#:   *"자리가 없다"* 고 말한다. 목록이 비어도 구조는 남긴다.
-#:
-#: ★ **제외 품목을 넣었다** (2026-09-16). 피마늘·건고추는 *"기능이 없는 것"* 이 아니라
-#:   **이 프로젝트가 다루지 않는 품목**이다. 둘은 다른 사실이므로 *"지원하지 않습니다"*
-#:   로 쓰지 않는다. 분류 지시문의 제외 품목 규칙과 **같은 커밋에서** 넣었다 —
-#:   한쪽만 있으면 지시문은 부서를 부르는데 되묻는 말은 대상이 아니라고 한다.
-#:   근거: 물류 「재고·물류 STATUS_QUERY 기능 정의서」 §3.2 · §3.3 · §16 · §18 · §19 ·
-#:   물류 확정 2026-09-16.
+#: 피마늘·건고추는 "기능이 없는 것" 이 아니라 이 프로젝트가 다루지 않는 품목이다. 둘은
+#: 다른 사실이므로 "지원하지 않습니다" 로 쓰지 않는다. 이 목록은 분류 지시문의 제외 품목
+#: 규칙과 짝이다 — 한쪽만 있으면 지시문은 부서를 부르는데 되묻는 말은 대상이 아니라고
+#: 하거나, 그 반대가 된다. 근거: 물류 「재고·물류 STATUS_QUERY 기능 정의서」 §3.2 ·
+#: §3.3 · §16 · §18 · §19.
 _KNOWN_GAPS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("피마늘", "건고추"), "피마늘·건고추는 현재 프로젝트의 대상 품목이 아닙니다."),
 )
@@ -731,7 +723,7 @@ def _known_gap(utterance: str) -> str | None:
 
 
 def _clarification(intent: Intent, utterance: str = "") -> str:
-    """되물을 말. **규칙이 만든다** — LLM 이 쓰면 사용자 응답 생성(⑥)이 되고, 그건 아직 없다."""
+    """되물을 말. 규칙이 만든다 — LLM 이 쓰는 문장은 사용자 응답 생성(⑥)의 몫이다."""
     if intent.action == "UNKNOWN":
         gap = _known_gap(utterance)
         if gap:
@@ -744,11 +736,11 @@ def _clarification(intent: Intent, utterance: str = "") -> str:
         item = intent.item or "품목"
         return f"{item} 매입안을 새로 만들까요? (부서 호출이 일어납니다)"
     if intent.action == "STATUS_QUERY":
-        # 확신이 낮아 확인받는 경우다. **어느 부서에 물을 것인지** 되읽어 준다.
+        # 확신이 낮아 확인받는 경우다. 어느 부서에 물을 것인지 되읽어 준다.
         names = ", ".join(_DEPT_LABEL.get(a, a) for a in intent.agents) or "부서"
         return f"{names} 상태를 조회할까요?"
     if intent.action == "SELECT_SCENARIO":
-        # **무엇을 고른 것으로 알아들었는지 되읽어 준다.** 승인은 되돌리기 어려우므로
+        # 무엇을 고른 것으로 알아들었는지 되읽어 준다. 승인은 되돌리기 어려우므로
         # "진행할까요?" 만 물으면 사용자가 무엇에 동의하는지 모른 채 누른다.
         return f"'{intent.scenario_label}' 안을 고르신 것으로 승인 기록할까요?"
     if intent.action == "RERUN_WITH_CONDITION":
@@ -764,11 +756,11 @@ def _user_payload(utterance: str, guidance: list[str] | None) -> str:
 
 
 def build_provider(settings: LLMSettings) -> TextProvider:
-    """설정에 맞는 프로바이더. **모르는 값이면 터뜨리는 것을 돌려준다.**
+    """설정에 맞는 프로바이더. 모르는 값이면 호출 때 예외를 내는 것을 돌려준다.
 
-    ★ 역할(①분류 · ⑥응답 생성)마다 프로바이더를 새로 고르게 하지 않는다. 지금은 둘이
-      같은 `.env` 를 보지만, **역할마다 모델 등급이 달라지는 것이 예정된 변화**라
-      (분류는 소형 · 판정 검증은 상위 모델) 고르는 자리를 한 곳으로 모아 둔다.
+    역할(①분류 · ⑥응답 생성)마다 프로바이더를 따로 고르게 하지 않는다. 지금은 둘이
+    같은 `.env` 를 보지만, 역할마다 모델 등급이 달라질 수 있어(분류는 소형 · 판정
+    검증은 상위 모델) 고르는 자리를 한 곳으로 모아 둔다.
     """
     factory = _PROVIDERS.get(settings.provider)
     return factory(settings) if factory else UnavailableProvider()

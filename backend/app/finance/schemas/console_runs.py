@@ -1,7 +1,4 @@
-"""운영 콘솔 재무 실행이력 응답.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_runs.py` 에서 응답 모델만 옮겼다(필드 그대로).
-"""
+"""운영 콘솔 재무 실행이력 응답."""
 
 from datetime import date, datetime
 from typing import Any

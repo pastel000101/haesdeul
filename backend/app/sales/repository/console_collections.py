@@ -1,7 +1,4 @@
-"""판매 운영 콘솔의 수금 SQL — 실행 하나의 채권과 그 판매의 거래처.
-
-★ 2026-09-29 BL-013: `sales/console_collections.py` 에서 SQL 을 옮겼다.
-"""
+"""판매 운영 콘솔의 수금 SQL — 실행 하나의 채권과 그 판매의 거래처."""
 
 from datetime import date
 
@@ -40,5 +37,5 @@ def load_collection_rows(
         """
         )
     )
-    #  ⚠️ `%s` 는 세 개다 — LATERAL 의 기준일이 WHERE 보다 **먼저** 온다.
+    # 주의: `%s` 는 세 개다 — LATERAL 의 기준일이 WHERE 보다 먼저 온다.
     return fetch_all(conn, statement, [as_of, sim_run_id, as_of])

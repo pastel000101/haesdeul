@@ -2,11 +2,9 @@
 
 경락가·중도매가·소매가를 품목별로 1~18일 앞까지 예측해 매입 판단에 넘긴다.
 
-2026-09-29 재구성 BL-017 에 계층으로 나눴다 (설계서 대응표 `ml/` 행).
-
     adapter.py        마스터 봉투 ↔ 질의응답 번역 (`ml_port`)
-    (HTTP `/ml/qa` · `/ml/console/*` 라우트는 2026-09-30 BL-019 부터 `app/api/ml/qa.py` ·
-     `app/api/ml/console.py` 에 있다 — 이 패키지에는 FastAPI 코드가 없다)
+    (HTTP `/ml/qa` · `/ml/console/*` 라우트는 `app/api/ml/qa.py` · `app/api/ml/console.py`
+     에 있다 — 이 패키지에는 FastAPI 코드가 없다)
     ml_backend.py     ML 백엔드 HTTP 호출 (콘솔 전달 · 재학습 대기)
     config.py         운영 모델 이름 · 봉인 개봉 성능표 · 라벨 · KST
     schemas/          예측 설정 · 질의응답 요청·응답 · 그래프 상태

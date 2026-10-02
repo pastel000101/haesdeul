@@ -1,16 +1,14 @@
 """
 ports.py — 에이전트 호출 접점과 레지스트리 (마스터 본체 1/3)
 
-마스터는 **에이전트를 부르고, 어떤 Tool 을 쓸지는 에이전트가 정한다** (정의서 §2.3 2단 호출).
+마스터는 에이전트를 부르고, 어떤 Tool 을 쓸지는 에이전트가 정한다(정의서 §2.3 2단 호출).
 따라서 마스터가 아는 것은 `AgentPort` 하나뿐이다 — 그 안에서 무엇이 일어나는지 모른다.
 
     AgentPort = (AgentRequest) -> (AgentReply, ExecutionMetadata)
 
-★ 실패를 예외가 아니라 **값**으로 다룬다 (정의서 §7.1 · M-1 §5).
-  에이전트 호출이 터져도 마스터는 계속 판단할 수 있어야 한다. 예외를 위로 던지면
-  **에이전트 하나의 실패가 사이클 전체를 죽인다.**
-
-★ 2026-09-30 재구성 BL-018: `master/ports.py` 에서 자리만 옮겼다(내용 그대로).
+실패 처리: 실패를 예외가 아니라 값으로 다룬다(정의서 §7.1 · M-1 §5). 에이전트 호출이
+실패해도 마스터는 계속 판단할 수 있어야 한다. 예외를 위로 던지면 에이전트 하나의 실패가
+사이클 전체를 멈춘다.
 """
 
 from __future__ import annotations
@@ -32,8 +30,8 @@ class AgentNotRegistered(MasterError):
 class AgentPort(Protocol):
     """도메인 에이전트 호출 접점.
 
-    ★ 구현체는 **자기 도메인 Tool 을 선택·호출**한 뒤 결과를 봉투에 담아 돌려준다.
-      마스터는 그 선택에 관여하지 않는다.
+    구현체는 자기 도메인 Tool 을 선택·호출한 뒤 결과를 봉투에 담아 돌려준다. 마스터는
+    그 선택에 관여하지 않는다.
     """
 
     def __call__(self, request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]: ...
@@ -70,16 +68,14 @@ class AgentRegistry:
 
 
 def error_reply(request: AgentRequest, reason: str) -> AgentReply:
-    """호출이 터졌을 때 마스터가 대신 만드는 회신.
+    """호출이 실패했을 때 마스터가 대신 만드는 회신.
 
-    ★ `ERROR` 를 쓴다 — `RUNTIME_NOT_READY` 가 아니다.
-      둘 다 밴드에 기여하지 않으므로 **fail-safe 는 동일**하지만, 갈리는 것은 재시도다.
-      실행이 실패한 것(예외·타임아웃)은 다시 불러 볼 가치가 있고,
-      입력이 없어서 못 낸 답은 다시 불러도 같다 (M-1 §5.1).
+    `ERROR` 를 쓴다 — `RUNTIME_NOT_READY` 가 아니다. 둘 다 밴드에 기여하지 않으므로
+    fail-safe 는 같지만, 갈리는 것은 재시도다. 실행이 실패한 것(예외·타임아웃)은 다시
+    불러 볼 가치가 있고, 입력이 없어서 못 낸 답은 다시 불러도 같다(M-1 §5.1).
 
-    > 이슈 초안에는 "타임아웃 → RUNTIME_NOT_READY" 로 적었으나 구현하며 바꿨다.
-      타임아웃은 **입력이 없는 상태가 아니라 실행 실패**이고, 어느 쪽이든 밴드 기여는
-      막히므로 fail-safe 를 잃지 않는다. 재시도 여지를 남기는 편이 낫다.
+    타임아웃도 `ERROR` 다. 타임아웃은 입력이 없는 상태가 아니라 실행 실패이고, 어느
+    쪽이든 밴드 기여는 막히므로 fail-safe 를 잃지 않는다. 재시도 여지를 남기는 편이 낫다.
     """
     return AgentReply(
         request_id=request.context.request_id,
@@ -94,9 +90,9 @@ def error_reply(request: AgentRequest, reason: str) -> AgentReply:
 
 
 def empty_metadata(request: AgentRequest, run_id: str) -> ExecutionMetadata:
-    """호출이 터져 메타데이터를 못 받았을 때의 빈 기록.
+    """호출이 실패해 메타데이터를 못 받았을 때의 빈 기록.
 
-    **빈 채로라도 남긴다.** 실행 계획에 구멍이 생기면 "부르긴 했는데 기록이 없다"와
+    빈 채로라도 남긴다. 실행 계획에 구멍이 생기면 "부르긴 했는데 기록이 없다"와
     "아예 안 불렀다"를 구분할 수 없다 (§1.2-11).
     """
     return ExecutionMetadata(

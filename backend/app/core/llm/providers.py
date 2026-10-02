@@ -1,7 +1,6 @@
-"""LLM 프로바이더 호출 — 외부 LLM 에 요청을 보내는 코드가 사는 **유일한 자리**.
+"""LLM 프로바이더 호출 — 외부 LLM 에 요청을 보내는 코드가 사는 유일한 자리.
 
-2026-09-30 재구성 BL-020 에 부서 일곱 곳(재무 · 물류 · 마스터 · Critic · 매입 · 판매 · ML)의
-전송 코드를 모았다. 요청 모양 · 응답 읽기 · 오류 감싸기가 옮기기 전과 같다.
+부서 일곱 곳(재무 · 물류 · 마스터 · Critic · 매입 · 판매 · ML)이 이 전송 코드를 쓴다.
 
 ```text
 보내기      json_request · ollama_chat_request · gemini_request   요청 만들기(보내지 않는다)
@@ -13,18 +12,18 @@
             gemini_safe_schema (판매 · 재무는 inline_refs=False)
 ```
 
-★ **여기는 부서를 모른다.** 무엇을 묻는지(지시문 · 응답 스키마) · 무엇이 옳은지(검증) ·
-  실패하면 무엇을 할지(재시도 · 대체)는 부서가 정해 인자로 넘긴다. 오류 문장도 부서가 준다 —
-  옮기기 전 문장이 부서마다 달랐고, 부르는 쪽 검사 · 분류가 그 문장을 본다.
+여기는 부서를 모른다. 무엇을 묻는지(지시문 · 응답 스키마) · 무엇이 옳은지(검증) ·
+실패하면 무엇을 할지(재시도 · 대체)는 부서가 정해 인자로 넘긴다. 오류 문장도 부서가 준다 —
+문장이 부서마다 다르고, 부르는 쪽 검사 · 분류가 그 문장을 본다.
 
-🔴 **재시도하지 않는다.** SDK 도 `max_retries=0` 이다. 재시도는 부서 실행 순서(`runtime.py` 의
-   `run_with_fallback` 또는 부서 자체 루프)가 소유한다 — 두 층이 각자 세면 상한이 곱해진다.
+재시도하지 않는다. SDK 도 `max_retries=0` 이다. 재시도는 부서 실행 순서(`runtime.py` 의
+`run_with_fallback` 또는 부서 자체 루프)가 소유한다 — 두 층이 각자 세면 상한이 곱해진다.
 
-★ **요청 만들기와 보내기를 나눈다.** 주소가 잘못되면 `Request` 를 만들 때 `ValueError` 가
-  난다. 옮기기 전 부서 대부분은 그 줄이 예외를 삼키는 자리 **밖**에 있었다(ML 은 그래서
-  잘못된 주소가 삼켜지지 않고 올라간다). 나눠 두어야 부서가 그 경계를 그대로 둘 수 있다.
+요청 만들기와 보내기를 나눈다. 주소가 잘못되면 `Request` 를 만들 때 `ValueError` 가
+난다. 부서 대부분은 그 줄을 예외를 삼키는 자리 밖에 둔다(ML 은 그래서 잘못된 주소가
+삼켜지지 않고 올라간다). 나눠 두어야 부서가 그 경계를 그대로 둘 수 있다.
 
-★ **부서마다 다른 것은 인자로 받는다** — 그 차이를 여기서 없애지 않는다(2026-09-30 기준):
+부서마다 다른 것은 인자로 받는다 — 그 차이를 여기서 없애지 않는다:
 
 ```text
 오류 감싸기     Gemini 는 HTTPError 를 감싸지 않고(상태 코드 보존) 나머지만 감싼다.
@@ -69,7 +68,7 @@ __all__ = [
     "send_json",
 ]
 
-#: Gemini REST 기본 주소. 🔴 `LLM_BASE_URL` 에서 읽지 않는다 — 그 값의 기본이 Ollama
+#: Gemini REST 기본 주소. `LLM_BASE_URL` 에서 읽지 않는다 — 그 값의 기본이 Ollama
 #: (`127.0.0.1:11434`)라 provider 만 바꾼 사람이 로컬 포트로 쏘고 연결 실패로만 본다.
 #: 덮는 환경변수는 부서마다 다르다(부서 `llm/`).
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
@@ -86,9 +85,9 @@ def json_request(
     ensure_ascii: bool = True,
     json_default: Callable[[Any], Any] | None = None,
 ) -> urllib.request.Request:
-    """JSON 본문을 실은 POST 요청을 만든다. **보내지 않는다.**
+    """JSON 본문을 실은 POST 요청을 만든다. 보내지 않는다.
 
-    머리글은 `Content-Type` 뒤에 `headers` 순서로 붙는다(옮기기 전과 같은 순서).
+    머리글은 `Content-Type` 뒤에 `headers` 순서로 붙는다.
     """
     return urllib.request.Request(
         url,
@@ -113,7 +112,7 @@ def gemini_request(
 ) -> urllib.request.Request:
     """Gemini `generateContent` 요청.
 
-    ★ **키는 머리글로만 간다.** URL 에 실으면 예외 메시지 · 로그에 그대로 남는다.
+    키는 머리글로만 간다. URL 에 실으면 예외 메시지 · 로그에 그대로 남는다.
     """
     return json_request(
         f"{base_url.rstrip('/')}/models/{model}:generateContent",
@@ -130,15 +129,15 @@ def send_json(
     failure_message: str | None = None,
     keep_http_errors: bool = False,
 ) -> Any:
-    """요청을 보내고 응답 본문을 JSON 으로 읽는다. **외부 LLM HTTP 호출은 여기 한 곳이다.**
+    """요청을 보내고 응답 본문을 JSON 으로 읽는다. 외부 LLM HTTP 호출은 여기 한 곳이다.
 
     :param failure_message: 주면 시간 초과 · 연결 실패 · 깨진 JSON 을
         `RuntimeError(failure_message)` 로 감싼다(원래 예외는 `__cause__`). 안 주면 그대로 올린다.
     :param keep_http_errors: `failure_message` 를 줬을 때 `HTTPError` 만은 감싸지 않는다.
 
-    🔴 `HTTPError` 는 `URLError` 의 하위라 감싸는 자리가 같이 먹는다. 감싸면 **상태 코드가
-       사라진다** — 429(한도)와 서버 다운이 로그에서 같아 보였다(마스터 실측). Gemini 를 부르는
-       부서는 그래서 `keep_http_errors=True` 로 부른다.
+    `HTTPError` 는 `URLError` 의 하위라 감싸는 자리가 같이 잡는다. 감싸면 상태 코드가
+    사라진다 — 429(한도)와 서버 다운이 로그에서 같아 보였다(마스터 실측). Gemini 를 부르는
+    부서는 그래서 `keep_http_errors=True` 로 부른다.
     """
     if failure_message is None:
         return _read_json(request, timeout)
@@ -176,10 +175,10 @@ def anthropic_json(
 ) -> str:
     """Anthropic Messages API + 구조화 출력(`output_config.format`). 첫 text 블록을 돌려준다.
 
-    ★ 키는 호출 시점에 `ANTHROPIC_API_KEY` 에서 읽는다(설정 객체에 싣지 않는다). 키 확인 →
+    - 키는 호출 시점에 `ANTHROPIC_API_KEY` 에서 읽는다(설정 객체에 싣지 않는다). 키 확인 →
       모델 확인 → 호출 순서다. `provider` 는 모델이 빌 때의 오류 문장에만 쓴다.
-    ★ `effort` 는 **설정했을 때만** 싣는다 — 지원하지 않는 모델에 실으면 호출이 통째로 실패한다.
-    ⚠️ `content[0]` 이 아니다 — 사고(thinking) 블록이 앞에 오는 모델이 있다.
+    - `effort` 는 설정했을 때만 싣는다 — 지원하지 않는 모델에 실으면 호출이 통째로 실패한다.
+    - 주의: `content[0]` 이 아니다 — 사고(thinking) 블록이 앞에 오는 모델이 있다.
     """
     import anthropic  # 지연 import — 키 없는 환경에서 import 비용을 안 낸다
 
@@ -217,8 +216,8 @@ def openai_json(
 ) -> str:
     """OpenAI Chat Completions + `response_format` json_schema(strict). 메시지 본문을 돌려준다.
 
-    ★ 키는 호출 시점에 `OPENAI_API_KEY` 에서 읽는다. 출력 토큰 상한의 OpenAI 이름은
-      `max_completion_tokens` 다. `schema_name` 은 부서가 준다(옮기기 전 이름 그대로).
+    키는 호출 시점에 `OPENAI_API_KEY` 에서 읽는다. 출력 토큰 상한의 OpenAI 이름은
+    `max_completion_tokens` 다. `schema_name` 은 부서가 준다.
     """
     import openai
 
@@ -260,9 +259,9 @@ def ollama_request(
 ) -> dict[str, Any]:
     """Ollama `/api/chat` 본문. `format`(구조화 출력) 또는 `tools`(tool calling)를 싣는다.
 
-    ★ `think: False` · `stream: False` 는 모든 부서가 같다. `options` 는 부서마다 다르다
-      (마스터 · 매입은 `num_predict` 로 출력 상한을 싣고, 재무 · 물류 status_chat 은
-      `temperature` 만 싣는다).
+    `think: False` · `stream: False` 는 모든 부서가 같다. `options` 는 부서마다 다르다
+    (마스터 · 매입은 `num_predict` 로 출력 상한을 싣고, 재무 · 물류 status_chat 은
+    `temperature` 만 싣는다).
     """
     body: dict[str, Any] = {"model": model, "stream": False, "think": False}
     if response_format is not None:
@@ -345,14 +344,14 @@ def first_text(
     skip_thoughts: bool = False,
     allow_whitespace: bool = False,
 ) -> str | None:
-    """조각들 가운데 **처음 나오는 글자**. 없으면 `None` — 없을 때 무엇을 할지는 부서가 정한다.
+    """조각들 가운데 처음 나오는 글자. 없으면 `None` — 없을 때 무엇을 할지는 부서가 정한다.
 
-    :param skip_thoughts: `thought: true` 조각을 건너뛴다. 🔴 `parts[0]` 만 보면 사고 조각에
-        글자가 없어 터지고, **호출은 성공했는데 FALLBACK** 으로 떨어진다(마스터 실측 12번 중 11번).
+    :param skip_thoughts: `thought: true` 조각을 건너뛴다. `parts[0]` 만 보면 사고 조각에
+        글자가 없어 실패하고, 호출은 성공했는데 FALLBACK 으로 떨어진다(마스터 실측 12번 중 11번).
     :param allow_whitespace: 공백뿐인 글자도 받는다(빈 문자열은 늘 건너뛴다).
 
-    ⚠️ 조각을 `.get` 으로 읽는다 — dict 가 아닌 조각은 `AttributeError` 다. 그런 조각을
-      건너뛰는 부서(매입)는 거른 목록을 넘긴다.
+    주의: 조각을 `.get` 으로 읽는다 — dict 가 아닌 조각은 `AttributeError` 다. 그런 조각을
+    건너뛰는 부서(매입)는 거른 목록을 넘긴다.
     """
     for part in parts:
         if skip_thoughts and part.get("thought"):
@@ -366,7 +365,7 @@ def first_text(
 
 
 def gemini_first_part_text(document: Mapping[str, Any]) -> Any:
-    """`candidates[0].content.parts[0].text` 를 **그대로** 꺼낸다(물류 해석기 · ML).
+    """`candidates[0].content.parts[0].text` 를 그대로 꺼낸다(물류 해석기 · ML).
 
     빠진 칸은 `KeyError` · `IndexError` · `TypeError` 로 그대로 올린다 — 부르는 쪽이 감싼다.
     """
@@ -375,17 +374,16 @@ def gemini_first_part_text(document: Mapping[str, Any]) -> Any:
 
 # ── Gemini 스키마 변환 ───────────────────────────────────────────────────────
 #
-# 옮기기 전 부서마다 한 벌씩(마스터 · 매입 · 판매 · 재무) 있던 변환을 **결과 · 예외가 같게** 셋으로
-# 둔다. 네 벌은 참조 펴기 · anyOf · 버리는 칸 · 예외가 서로 달랐다 — 지금 보내는 스키마에서 결과가
-# 같다고 다른 입력에서도 같지는 않다(2026-09-30 BL-020 보완: 두 벌로 합쳤던 판이 마스터 · 재무의
-# 동작을 바꿔 되돌렸다).
+# 부서(마스터 · 매입 · 판매 · 재무)마다 결과 · 예외가 다른 변환을 셋으로 둔다. 참조 펴기 · anyOf ·
+# 버리는 칸 · 예외가 서로 다르다 — 지금 보내는 스키마에서 결과가 같다고 다른 입력에서도 같지는
+# 않으므로, 하나로 합치면 어느 부서의 동작이 바뀐다.
 #
 #   gemini_strict_schema    마스터  최상위 $defs 만 · X | null 이 아닌 anyOf 거부 · 길이 제약 남김
 #   gemini_response_schema  매입    만나는 $defs 를 모음 · 다른 anyOf 는 그대로 · 길이 제약 버림
 #   gemini_safe_schema      판매    표현만 낮춘다(title · default 남김 · const → enum) · 참조를 편다
 #                           재무    같은 함수에 inline_refs=False — $ref · $defs 를 그대로 둔다
 
-#: 마스터 변환이 버리는 칸. 길이 제약(`minLength` · `maxLength`)은 **남긴다** — 매입과 다르다.
+#: 마스터 변환이 버리는 칸. 길이 제약(`minLength` · `maxLength`)은 남긴다 — 매입과 다르다.
 _STRICT_SCHEMA_DROP = frozenset({"title", "default", "additionalProperties", "$schema", "examples"})
 
 
@@ -398,15 +396,17 @@ def gemini_strict_schema(node: Any, defs: dict[str, Any] | None = None) -> Any:
     편다     $ref → 최상위 $defs 의 정의 ($ref 옆 칸이 정의를 덮는다)
     ```
 
-    🔴 **모르는 anyOf 는 터뜨린다.** 조용히 흘리면 Gemini 400 이 호출 실패로만 보인다 — 부르는
-       쪽(`IntentService` · `NarrativeService`)이 예외를 FALLBACK 으로 받는다.
-    ★ 옮기기 전 마스터 `_to_gemini_schema` 그대로다(2026-09-30 BL-020 보완에서 되돌림):
-      - 참조는 **최상위** `$defs` 에서만 찾는다(안쪽 `$defs` 는 버린다). 못 찾거나 정의가 dict 가
+    모르는 anyOf 는 예외로 올린다. 조용히 흘리면 Gemini 400 이 호출 실패로만 보인다 — 부르는
+    쪽(`IntentService` · `NarrativeService`)이 예외를 FALLBACK 으로 받는다.
+
+    세부 규칙:
+      - 참조는 최상위 `$defs` 에서만 찾는다(안쪽 `$defs` 는 버린다). 못 찾거나 정의가 dict 가
         아니면 `TypeError("cannot resolve schema reference: …")`.
-      - anyOf 는 다른 칸보다 먼저 본다. 남은 갈래를 먼저 옮기고 **옆 칸이 그 위를 덮는다**
+      - anyOf 는 다른 칸보다 먼저 본다. 남은 갈래를 먼저 옮기고 옆 칸이 그 위를 덮는다
         (`nullable` 은 맨 뒤). dict 가 아닌 갈래는 갈래로 세지 않는다.
       - 문자열이 아닌 `$ref` 칸은 버린다.
-    ⚠️ 재귀 참조는 무한히 펴진다. 지금 쓰는 스키마에는 없다.
+
+    주의: 재귀 참조는 무한히 펴진다. 지금 쓰는 스키마에는 없다.
     """
     if defs is None and isinstance(node, dict):
         defs = node.get("$defs") or {}
@@ -447,9 +447,9 @@ def gemini_strict_schema(node: Any, defs: dict[str, Any] | None = None) -> Any:
     }
 
 
-#: 매입 변환이 버리는 칸 — Gemini `responseSchema` 가 **거부하거나 무시하는** 키.
+#: 매입 변환이 버리는 칸 — Gemini `responseSchema` 가 거부하거나 무시하는 키.
 #:
-#: ⚠️ `minLength`/`maxLength` 도 뺀다 — 매입 응답 계약이 두 제약을 안 쓰는 이유(Anthropic ·
+#: `minLength`/`maxLength` 도 뺀다 — 매입 응답 계약이 두 제약을 안 쓰는 이유(Anthropic ·
 #: OpenAI 가 지원하지 않는다)와 같은 자리이고, 빈 문자열 검사는 프로바이더 밖 검증이 한다.
 _RESPONSE_SCHEMA_DROP = frozenset(
     {"title", "default", "additionalProperties", "$schema", "examples", "minLength", "maxLength"}
@@ -457,7 +457,7 @@ _RESPONSE_SCHEMA_DROP = frozenset(
 
 
 def gemini_response_schema(node: Any, defs: dict[str, Any] | None = None) -> Any:
-    """JSON Schema → Gemini `responseSchema`. **버리고 · 바꾸고 · 편다** (매입).
+    """JSON Schema → Gemini `responseSchema`. 버리고 · 바꾸고 · 편다 (매입).
 
     ```text
     버린다   title · default · additionalProperties · $schema · examples · minLength · maxLength
@@ -466,14 +466,13 @@ def gemini_response_schema(node: Any, defs: dict[str, Any] | None = None) -> Any
     남긴다   description — 빼면 provider 를 바꾼 것만으로 모델에게 보이는 지시가 달라진다
     ```
 
-    🔴 못 편 참조는 `KeyError` 다 — 조용히 넘기면 Gemini 400 이 fallback 에 삼켜진다.
-    ★ `$defs` 는 만나는 자리마다 모은다(안쪽 `$defs` 도 쓴다). 칸은 순서대로 옮긴다 — anyOf
+    - 못 편 참조는 `KeyError` 다 — 조용히 넘기면 Gemini 400 이 fallback 에 삼켜진다.
+    - `$defs` 는 만나는 자리마다 모은다(안쪽 `$defs` 도 쓴다). 칸은 순서대로 옮긴다 — anyOf
       앞의 칸은 갈래가 덮고, 뒤의 칸은 갈래를 덮는다.
-    ⚠️ 재귀 참조는 무한히 펴진다. 지금 쓰는 스키마에는 없다.
+    - 주의: 재귀 참조는 무한히 펴진다. 지금 쓰는 스키마에는 없다.
 
-    ★ 2026-09-30 BL-020: 매입 `_to_gemini_schema` 를 옮겼다(동작 그대로). 마스터도 이것을 쓰게
-      했다가 같은 날 보완에서 `gemini_strict_schema` 로 되돌렸다 — 길이 제약 · 못 편 참조의
-      예외 · 참조를 찾는 범위 · anyOf 옆 칸의 우선이 마스터 판과 달랐다.
+    마스터는 이 변환을 쓰지 않는다(`gemini_strict_schema`) — 길이 제약 · 못 편 참조의
+    예외 · 참조를 찾는 범위 · anyOf 옆 칸의 우선이 다르다.
     """
     if isinstance(node, list):
         return [gemini_response_schema(item, defs) for item in node]
@@ -514,7 +513,7 @@ def gemini_response_schema(node: Any, defs: dict[str, Any] | None = None) -> Any
 def gemini_safe_schema(
     node: Any, defs: Mapping[str, Any] | None = None, *, inline_refs: bool = True
 ) -> Any:
-    """Pydantic 스키마를 Gemini 가 받는 표현으로만 **낮춘다** (판매 · 재무). 계약 의미는 그대로다.
+    """Pydantic 스키마를 Gemini 가 받는 표현으로만 낮춘다 (판매 · 재무). 계약 의미는 그대로다.
 
     ```text
     const                    → type string + 한 값짜리 enum
@@ -525,17 +524,14 @@ def gemini_safe_schema(
     ```
 
     :param inline_refs: `False` 면 `$ref` 를 펴지 않고 `$defs` 도 지우지 않는다 — 재무 Tool 인자
-        스키마. 옮기기 전 재무 `_gemini_safe_schema` 에는 참조 펴기가 없었다(재무 Tool 인자에는
-        참조가 없다). 판매는 편다(기본값).
+        스키마(`finance/llm/client.py`)가 이렇게 부른다. 재무 Tool 인자에는 참조가 없고, 재무
+        변환은 참조를 펴지 않는 동작이다. 판매는 편다(기본값).
 
-    🔴 **중첩 모델의 `$defs` · `$ref` 를 펴 넣는다** — Gemini 는 그 둘을 모르고 요청 자체를
-       거부한다(판매 전략 Planner 가 그래서 한 번도 안 돌았다 · 2026-09-16 실측).
-    ★ 참조는 최상위 `$defs` 에서만 찾는다. 못 편 참조는 `TypeError` 다 — 없는 정의를 지어내면
+    - 중첩 모델의 `$defs` · `$ref` 를 펴 넣는다 — Gemini 는 그 둘을 모르고 요청 자체를
+      거부한다(펴지 않으면 판매 전략 Planner 가 한 번도 돌지 않았다 · 2026-09-16 실측).
+    - 참조는 최상위 `$defs` 에서만 찾는다. 못 편 참조는 `TypeError` 다 — 없는 정의를 지어내면
       계약이 달라진다.
-    ⚠️ 자기 자신을 참조하는 모델은 못 편다(무한히 돈다). 지금 두 계약에는 없다.
-
-    ★ 2026-09-30 BL-020: 판매 `_gemini_safe_schema` 를 옮겼다. 재무 판(`finance/llm/client.py`)도
-      이것으로 바꾸면서 참조 펴기까지 켜졌던 것을 같은 날 보완에서 `inline_refs=False` 로 되돌렸다.
+    - 주의: 자기 자신을 참조하는 모델은 못 편다(무한히 돈다). 지금 두 계약에는 없다.
     """
     if defs is None and isinstance(node, dict):
         defs = node.get("$defs") or {}

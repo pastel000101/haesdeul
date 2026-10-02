@@ -1,14 +1,13 @@
 """Sales operations-console partner read models; aggregates are run-scoped.
 
-★ A partner master row is run-independent — the same customer exists in every
-  simulation.  What that customer *did* is not: sales, receivables and the latest
-  sale date all belong to one run, and this module keeps that split explicit so a
-  screen never shows run A's turnover next to run B's partner list.
+A partner master row is run-independent — the same customer exists in every
+simulation.  What that customer did is not: sales, receivables and the latest
+sale date all belong to one run, and this module keeps that split explicit so a
+screen never shows run A's turnover next to run B's partner list.
 
-★ 2026-09-29 BL-013: `sales/console_partners.py` 에서 옮겼다. SQL 은
-  `repository/console_partners.py`, 채권 상태 규칙은 계약 `app/contracts/receivable_history.py`
-  다(2026-09-29 재구성 BL-014 전에는 `domain/receivable_history.py`). 상세 조회는 다섯 조회를 한 번
-  빌린 조회 연결로 종전과 같은 순서로 읽는다.
+SQL 은 `repository/console_partners.py`, 채권 상태 규칙은 계약
+`app/contracts/receivable_history.py` 다. 상세 조회는 여러 조회를 한 번 빌린 조회 연결로
+읽는다.
 """
 
 from datetime import date
@@ -83,7 +82,7 @@ def get_console_partner_detail(
 ) -> ConsolePartnerDetailResponse | None:
     """One partner seen through one run.  Returns null when the partner is unknown.
 
-    🔴 Aging comes from Finance's `classify_receivable_aging`.  Sales owning a second
+    Aging comes from Finance's `classify_receivable_aging`.  Sales owning a second
     aging rule would let the two screens disagree about the same receivable.
     """
     with core_db.read_connection() as conn:
@@ -127,7 +126,7 @@ def get_console_partner_detail(
                     outstanding_amount_krw=amount,
                     days_overdue=overdue,
                     aging_bucket=bucket,
-                    #  🔴 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
+                    # 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
                     status=projected_status(
                         original_amount_krw=decimal_or_zero(raw["original_amount_krw"]),
                         received_amount_krw=decimal_or_zero(raw["received_amount_krw"]),

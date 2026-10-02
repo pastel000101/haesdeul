@@ -1,30 +1,27 @@
-"""거래처 기본정보 쓰기 — **스키마가 가진 칸만.**
+"""거래처 기본정보 쓰기 — 스키마가 가진 칸만.
 
-★ 판매가 소유한다. 거래처는 판매가 관계를 맺는 상대이고, 그 기본정보를 고치는 일은
-  판매 업무다. 실행(`sim_run_id`)과 무관한 **원장 행**이라 실행 축을 받지 않는다 —
-  받으면 «A 실행의 거래처 이름» 같은 없는 개념이 생긴다.
+판매가 소유한다. 거래처는 판매가 관계를 맺는 상대이고, 그 기본정보를 고치는 일은 판매
+업무다. 실행(`sim_run_id`)과 무관한 원장 행이라 실행 축을 받지 않는다 — 받으면 «A 실행의
+거래처 이름» 같은 없는 개념이 생긴다.
 
-🔴 **여신 한도를 여기서 고치지 않는다.** 그 정본은 재무의 `partner_credit_limits` 이고
-   유효기간·근거등급·승인자를 가진 계약 행이다. 거래처 기본정보에 `credit_limit` 칸을
-   하나 더 두면 **두 곳이 서로 다른 한도를 말하는 날**이 오고, 그때 어느 쪽으로 판정이
-   났는지 아무도 답할 수 없다.
+여신 한도를 여기서 고치지 않는다. 그 정본은 재무의 `partner_credit_limits` 이고
+유효기간·근거등급·승인자를 가진 계약 행이다. 거래처 기본정보에 `credit_limit` 칸을 하나 더
+두면 두 곳이 서로 다른 한도를 말하는 날이 오고, 그때 어느 쪽으로 판정이 났는지 아무도
+답할 수 없다.
 
-🔴 **없는 칸을 만들지 않는다.** 프로토타입이 요구한 담당자·전화·이메일은 `partners` 에
-   없다. 여기서 `note` 에 밀어 넣으면 그 값은 검색도 검증도 안 되는 문자열이 된다 —
-   필요하면 마이그레이션으로 칸을 내는 것이 맞고, 그것은 이 판의 일이 아니다.
+없는 칸을 만들지 않는다. 프로토타입이 요구한 담당자·전화·이메일은 `partners` 에 없다.
+여기서 `note` 에 밀어 넣으면 그 값은 검색도 검증도 안 되는 문자열이 된다 — 필요하면
+마이그레이션으로 칸을 내는 것이 맞다.
 
-★ 2026-09-29 BL-013: 쓰기 두 유스케이스를 여기 모았다 — 판매 라우터(`POST /sales/partners` ·
-  `PATCH /sales/partners/{id}/profile`)와 마스터 ask(`PARTNER_CREATE` · `PARTNER_UPDATE`)가 같은
-  함수를 부른다. 전에는 입력 검사가 라우터 핸들러 안에 있어 마스터가 **핸들러를 함수로**
-  불렀고, 핸들러의 `HTTPException` 이 ask 경로로 새어 나왔다. 이제 이 파일은 HTTP 를 모르고
-  업무 예외(`schemas/partners.py`)를 낸다.
+쓰기 두 유스케이스가 여기 있다 — 판매 라우터(`POST /sales/partners` ·
+`PATCH /sales/partners/{id}/profile`)와 마스터 ask(`PARTNER_CREATE` · `PARTNER_UPDATE`)가 같은
+함수를 부른다. 이 파일은 HTTP 를 모르고 업무 예외(`schemas/partners.py`)를 낸다 — 라우터
+핸들러의 `HTTPException` 이 ask 경로로 새어 나가지 않게 하려는 것이다.
 
-  한 쓰기 = 풀에서 빌린 연결 하나 · 트랜잭션 하나(종전 `execute_returning_one` 과 같은 경계).
-  순서와 오류 읽기도 종전 그대로다: SQL 을 먼저 짓고(여기서 `DB_SCHEMA` 를 읽는다 — 비었으면
-  그 오류가 그대로 올라간다), 연결을 빌려 실행하는 동안 난 `RuntimeError` 를 «이미 있다» ·
-  «없다» 로 읽는다. 그 `RuntimeError` 에는 «행이 안 나왔다» 말고 **연결을 열다 난 설정 누락**
-  (`MissingDatabaseEnvironment`)도 들어간다 — 종전 동작을 지키려고 그대로 뒀고, 좁힐지는
-  설계서 §변경 제안에 적었다.
+한 쓰기 = 풀에서 빌린 연결 하나 · 트랜잭션 하나. SQL 을 먼저 짓고(여기서 `DB_SCHEMA` 를
+읽는다 — 비었으면 그 오류가 그대로 올라간다), 연결을 빌려 실행하는 동안 난 `RuntimeError` 를
+«이미 있다» · «없다» 로 읽는다. 주의: 그 `RuntimeError` 에는 «행이 안 나왔다» 말고 연결을 열다
+난 설정 누락(`MissingDatabaseEnvironment`)도 들어간다. 좁힐지는 설계서 §변경 제안에 적혀 있다.
 """
 
 from pydantic import ValidationError
@@ -49,16 +46,16 @@ from app.sales.schemas.partners import (
 
 
 def create_partner(body: dict[str, object]) -> PartnerProfile:
-    """새 거래처를 만들고 **저장된 행**을 돌려준다.
+    """새 거래처를 만들고 저장된 행을 돌려준다.
 
-    ★ 실행 축(`sim_run_id`)을 받지 않는다. 거래처는 실행과 무관한 원장 행이라
-      «A 실행의 거래처» 라는 개념이 없다 — `update_partner` 와 같은 규율이다.
+    실행 축(`sim_run_id`)을 받지 않는다. 거래처는 실행과 무관한 원장 행이라
+    «A 실행의 거래처» 라는 개념이 없다 — `update_partner` 와 같은 규율이다.
 
-    🔴 **여신 한도는 여기서 만들지 않는다.** 정본은 재무의 `partner_credit_limits`
-       이고, 같은 이름의 칸을 거래처 행에 두면 두 곳이 다른 한도를 말하는 날이 온다.
+    여신 한도는 여기서 만들지 않는다. 정본은 재무의 `partner_credit_limits` 이고,
+    같은 이름의 칸을 거래처 행에 두면 두 곳이 다른 한도를 말하는 날이 온다.
 
     :raises PartnerInputRejected: 남의 도메인 칸이거나 칸 검증에 걸렸다.
-    :raises PartnerAlreadyExists: 같은 거래처 코드가 이미 있다. **덮어쓰지 않는다.**
+    :raises PartnerAlreadyExists: 같은 거래처 코드가 이미 있다. 덮어쓰지 않는다.
     """
     problem = foreign_field_problem(body)
     if problem is not None:
@@ -78,14 +75,13 @@ def create_partner(body: dict[str, object]) -> PartnerProfile:
 
 
 def update_partner(partner_id: str, body: dict[str, object]) -> PartnerProfile:
-    """준 칸만 고치고 **저장된 결과**를 돌려준다.
+    """준 칸만 고치고 저장된 결과를 돌려준다.
 
-    🔴 **남의 도메인 값은 조용히 무시하지 않고 거절한다.** 무시하면 사용자는 고쳐진
-       줄 알고 화면을 닫는다 — 여신 한도가 특히 그렇다.
+    남의 도메인 값은 조용히 무시하지 않고 거절한다. 무시하면 사용자는 고쳐진 줄 알고
+    화면을 닫는다 — 여신 한도가 특히 그렇다.
 
-    ⚠️ 칸 검증 오류는 **생성과 문장 모양이 다르다** — 생성은 칸 이름을 사람 말로 옮기고
-      (`readable_validation_error`), 수정은 검증 오류 원문(`str(error)`)을 싣는다. 종전
-      라우터의 두 핸들러가 그렇게 달랐고, 이번 이동은 그 차이를 바꾸지 않는다.
+    주의: 칸 검증 오류는 생성과 문장 모양이 다르다 — 생성은 칸 이름을 사람 말로 바꾸고
+    (`readable_validation_error`), 수정은 검증 오류 원문(`str(error)`)을 싣는다.
 
     :raises PartnerInputRejected: 남의 도메인 칸이거나 칸 검증에 걸렸다.
     :raises PartnerNotFound: 그 거래처가 없다.

@@ -1,10 +1,7 @@
 """문제 탐지 → `logistics_exceptions` open · touch · resolve 의 순서.
 
-★ 2026-09-30 재구성 BL-015: `logistics/monitoring/detect.py` 의 `detect_logistics_exceptions` 와
-  반영 도우미를 옮겼다.
-  탐지기는 `domain/monitoring.py`, 관측은 `readmodel/observation.py`, SQL 은
-  `repository/exceptions.py`.
-  commit 은 마스터(`master/service/inspection.py`)다.
+탐지기는 `domain/monitoring.py`, 관측은 `readmodel/observation.py`, SQL 은
+`repository/exceptions.py` 다. commit 은 마스터(`master/service/inspection.py`)가 한다.
 """
 
 from __future__ import annotations
@@ -38,7 +35,7 @@ from app.logistics.schemas.monitoring import (
 )
 
 # ---------------------------------------------------------------------------
-# 탐지 한 번 — 표에 옮긴다
+# 탐지 한 번 — 표에 적는다
 # ---------------------------------------------------------------------------
 
 
@@ -50,19 +47,19 @@ def detect_logistics_exceptions(
     phase: DetectPhase,
     observe_fn: Callable[..., WarehouseObservation] = observe,
 ) -> DetectOut:
-    """물류 점검 한 칸. 🔴 **커밋도 롤백도 안 한다 — 트랜잭션 주인은 마스터다.**
+    """물류 점검 한 칸. 커밋도 롤백도 하지 않는다 — 트랜잭션 주인은 마스터다.
 
     ```text
     AFTER_INBOUND    입고로 점유가 뛴 직후 · 하루 경과 반영 → 열거나 갱신한다
-    AFTER_OUTBOUND   그날 출고·할당·폐기가 끝난 뒤        → 열고 갱신하고 **닫는다**
+    AFTER_OUTBOUND   그날 출고·할당·폐기가 끝난 뒤        → 열고 갱신하고 닫는다
     ```
 
-    ★ **왜 닫는 자리가 출고 뒤 하나인가.** 그날 조건을 없앤 사건(예약·출고 OUT·폐기)이
-      다 끝난 뒤에 닫아야 *"N일째"* 가 정확하다. 입고 직후에 닫으면 그날 나갈 재고를
-      보기도 전에 «해결됐다» 고 적게 된다.
+    닫는 자리가 출고 뒤 하나인 이유: 그날 조건을 없앤 사건(예약·출고 OUT·폐기)이 다 끝난
+    뒤에 닫아야 "N일째" 가 정확하다. 입고 직후에 닫으면 그날 나갈 재고를 보기도 전에
+    «해결됐다» 고 적게 된다.
 
     :raises Exception: 그대로 올린다. 하루를 계속 살리는 것은 `master/service/inspection.py`
-        의 일이고, 여기서 삼키면 **반쯤 쓴 트랜잭션이 커밋된다.**
+        의 일이고, 여기서 삼키면 반쯤 쓴 트랜잭션이 커밋된다.
     """
     observation = observe_fn(conn, sim_run_id=sim_run_id, as_of=as_of)
     outcomes = [detector(observation) for detector in DETECTORS]
@@ -96,8 +93,8 @@ def detect_logistics_exceptions(
     if phase == "AFTER_OUTBOUND":
         for key, row in live_rows.items():
             if key in conditions or row.code not in ran_codes:
-                # 🔴 **못 잰 코드는 닫지 않는다.** 기준이 없어 안 본 것을
-                #    *"해결됐다"* 로 적으면 그 문제는 아무도 다시 못 찾는다.
+                # 못 잰 코드는 닫지 않는다. 기준이 없어 안 본 것을 "해결됐다" 로 적으면 그
+                # 문제는 아무도 다시 못 찾는다.
                 continue
             reason, note = _resolution(row, observation)
             resolve_exception(
@@ -124,7 +121,7 @@ def detect_logistics_exceptions(
 
 
 def _open(conn: Any, *, sim_run_id: str, as_of: date, condition: DetectedCondition) -> str:
-    """새 문제 한 줄. **재발이면 이전 행을 가리킨다** (재오픈하지 않는다)."""
+    """새 문제 한 줄. 재발이면 이전 행을 가리킨다 (재오픈하지 않는다)."""
     previous_id = previous_exception_id_for(
         conn,
         sim_run_id=sim_run_id,
@@ -162,7 +159,7 @@ def _open(conn: Any, *, sim_run_id: str, as_of: date, condition: DetectedConditi
 
 
 def _resolution(row: ExceptionRow, observation: WarehouseObservation) -> tuple[str, str | None]:
-    """**무엇이 닫았나.** 🔴 원장 이동 ID 를 지어내지 않는다 — 갈래만 적는다.
+    """무엇이 닫았나. 원장 이동 ID 를 지어내지 않는다 — 갈래만 적는다.
 
     ```text
     LOT_EMPTY                     그 Lot 이 관측에서 사라졌다 (출고 · 폐기로 잔량 0)
@@ -171,9 +168,9 @@ def _resolution(row: ExceptionRow, observation: WarehouseObservation) -> tuple[s
     REDETECT                      그 밖 (용량 회복 등 · 조건이 그냥 거짓이 됐다)
     ```
 
-    ⚠️ **`ESCALATED:` 가 후속 Exception 을 만들지 않는다.** `FRESHNESS_EXPIRED` 탐지기는
-       Commit 2 에 없다 — 넘어갔다는 **사실만** 남기고, 잔량이 남은 만료 재고를 실제로
-       다루는 것은 기존 자동 유지보수(`service/maintenance`)와 사람의 폐기 확정이다.
+    `ESCALATED:` 가 후속 Exception 을 만들지 않는다. `FRESHNESS_EXPIRED` 탐지기는
+    `DETECTORS` 에 없다 — 넘어갔다는 사실만 남기고, 잔량이 남은 만료 재고를 실제로 다루는
+    것은 자동 유지보수(`service/maintenance`)와 사람의 폐기 확정이다.
     """
     if row.code != FRESHNESS_PRESSURE:
         return REDETECT, None

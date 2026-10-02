@@ -1,7 +1,4 @@
-"""Finance P0의 결정론적 재무 판정 규칙.
-
-★ 2026-09-29 재구성 BL-014: `finance/rules.py` 에서 자리만 옮겼다(내용 그대로).
-"""
+"""Finance P0의 결정론적 재무 판정 규칙."""
 
 from collections.abc import Mapping, Sequence
 from datetime import date
@@ -210,21 +207,20 @@ def evaluate_finance_sales_rules(
 # ---------------------------------------------------------------------------
 # Sales Core Phase 4 — 판매 재무 판정 규칙
 #
-# ★ 계산과 판정을 갈라 둔다. 계산(`tools`)은 사실만 만들고, PASS·REVIEW_REQUIRED·
-#   FAIL 은 여기서만 나온다.
+# 계산과 판정을 갈라 둔다. 계산(`domain/tools.py`)은 사실만 만들고, PASS·REVIEW_REQUIRED·
+# FAIL 은 여기서만 나온다.
 #
-# ★ **정책 숫자를 여기서 만들지 않는다.** 판매 마진 임계값과 Finance 최대 허용
-#   결제일수는 현재 저장소 어디에도 권위 있는 값이 없다 — `FinancePolicy` 의 닫힌
-#   키 목록에도, `agent_policy_config` 의 finance domain 에도 없다. 값이 없으면
-#   추측하지 않고 RUNTIME_NOT_READY 로 닫는다. **없는 정책은 FAIL 이 아니다.**
+# 정책 숫자를 여기서 만들지 않는다. 판매 마진 임계값과 Finance 최대 허용 결제일수는
+# `domain/sales_policy.py`(Finance/Sales MVP Policy v0.1)가 소유하고, 규칙은 인자로 받는다.
+# 값이 없으면 추측하지 않고 RUNTIME_NOT_READY 로 닫는다. 없는 정책은 FAIL 이 아니다.
 #
-# ★ Purchase 의 `margin_defense_floor_rate` 를 판매 마진 임계값으로 쓰지 않는다 —
-#   매입 방어선과 판매 수익성 기준은 같은 숫자가 아니다.
+# Purchase 의 `margin_defense_floor_rate` 를 판매 마진 임계값으로 쓰지 않는다 — 매입 방어선과
+# 판매 수익성 기준은 같은 숫자가 아니다.
 # ---------------------------------------------------------------------------
 
 #: 규칙 결과 모양(`SalesRuleId` · `SalesRuleResult` · `SalesAggregateResult`)은
-#: `schemas/sales_validation.py` 에 산다 — 판정 결과를 담는 모델이 그 모양을 쓴다
-#: (2026-09-29 재구성 BL-014: schemas 가 domain 을 들이지 않게 옮겼다. 글자 그대로).
+#: `schemas/sales_validation.py` 에 산다 — 판정 결과를 담는 모델이 그 모양을 쓰고, schemas 는
+#: domain 을 들이지 않는다.
 
 
 def _sales_rule(
@@ -379,20 +375,19 @@ def evaluate_sales_cashflow_rule(
 ) -> SalesRuleResult:
     """BASE 와 SCENARIO 를 각각 최소 현금 정책에 견준다.
 
-    ★ `depends_on_projected_inflow` 는 **사실이지 판정이 아니다.**
+    `depends_on_projected_inflow` 는 사실이지 판정이 아니다.
 
-      🔴 예전에는 이 값이 True 면 PASS 를 REVIEW_REQUIRED 로 낮췄다. 뜻은 그럴듯하지만
-        그렇게 정한 **권위 있는 근거가 없다.** 저장소의 BASE/STRESS 규칙
-        (설계서 v2.2.2 §9 · 검증설계 §Case B)은 *매입 STRESS 오버레이가 기준을 밑돌 때*
-        conditional 이라는 규칙이고, *유입에 기대는가* 를 다루지 않는다. 근거 없이
-        판정을 낮추면 그것이 곧 아무도 합의하지 않은 정책이 된다.
+      이 값이 True 라고 PASS 를 REVIEW_REQUIRED 로 낮추지 않는다. 뜻은 그럴듯하지만 그렇게
+      정한 권위 있는 근거가 없다. 저장소의 BASE/STRESS 규칙(설계서 v2.2.2 §9 · 검증설계
+      §Case B)은 매입 STRESS 오버레이가 기준을 밑돌 때 conditional 이라는 규칙이고, 유입에
+      기대는가를 다루지 않는다. 근거 없이 판정을 낮추면 그것이 곧 아무도 합의하지 않은
+      정책이 된다.
 
-      그래서 지금은 reason code 로만 남긴다 — 사실은 잃지 않고, 종합 판정은 권위 있는
-      규칙(최소 현금 정책)만 움직인다. 판매 현금흐름 판정 기준이 정해지면 그때 이
-      자리에 근거와 함께 넣는다.
+      그래서 reason code 로만 남긴다 — 사실은 잃지 않고, 종합 판정은 권위 있는 규칙(최소 현금
+      정책)만 움직인다. 판매 현금흐름 판정 기준이 정해지면 그때 이 자리에 근거와 함께 넣는다.
 
-    ★ BASE/SCENARIO 구분 자체는 그대로다. 제안 유입은 여전히 확정 현금이 아니고,
-      BASE 가 기준을 밑돌면 SCENARIO 가 안전해도 FAIL 이다.
+    BASE/SCENARIO 구분 자체는 그대로다. 제안 유입은 확정 현금이 아니고, BASE 가 기준을 밑돌면
+    SCENARIO 가 안전해도 FAIL 이다.
     """
     reasons: list[str] = []
     if not collection_within_horizon:
@@ -473,12 +468,12 @@ def aggregate_sales_finance_rules(
 # ---------------------------------------------------------------------------
 # Sales Core Phase 5 — 여신 여력 · 회수 위험
 #
-# ★ **여신한도는 저장소에 없다.** `partners` 에도 `agent_policy_config` 에도
-#   credit_limit 컬럼이 없다. 그래서 아래 두 규칙은 오늘 항상 닫힌다.
-#   닫히는 것과 FAIL 은 다르다 — 한도를 모르는 것은 거래처 잘못이 아니다.
+# 여신한도는 정책이 아니라 거래처가 소유한 사실이고 `partner_credit_limits` 에서 온다. 그날
+# 유효한 한도가 없으면 여신 여력 규칙은 닫힌다. 닫히는 것과 FAIL 은 다르다 — 한도를 모르는
+# 것은 거래처 잘못이 아니다.
 #
-# ★ 거래이력이 없다는 이유만으로 신규 거래처를 FAIL 로 만들지 않는다. 채권 0원은
-#   **사실**이고, 판정을 막는 것은 언제나 없는 정책 쪽이다.
+# 거래이력이 없다는 이유만으로 신규 거래처를 FAIL 로 만들지 않는다. 채권 0원은 사실이고,
+# 판정을 막는 것은 언제나 없는 정책 쪽이다.
 # ---------------------------------------------------------------------------
 
 
@@ -526,20 +521,20 @@ def evaluate_collection_risk_rule(
     overdue_ar_krw: Decimal,
     collection_risk_mode: str | None = None,
 ) -> SalesRuleResult:
-    """회수 위험 판정 — 연체 **사실**만 보고 사람이 볼지 말지를 정한다.
+    """회수 위험 판정 — 연체 사실만 보고 사람이 볼지 말지를 정한다.
 
-    ★ 연체 금액 같은 사실은 이미 `summarize_partner_receivables` 가 계산해 두었고
-      그대로 밖으로 나간다. 여기서 막는 것은 그 사실을 등급·점수로 바꾸는 일이다.
-      가중치 없는 점수는 숫자처럼 보이는 추측이다.
+    연체 금액 같은 사실은 이미 `summarize_partner_receivables` 가 계산해 두었고 그대로 밖으로
+    나간다. 여기서 막는 것은 그 사실을 등급·점수로 바꾸는 일이다. 가중치 없는 점수는 숫자처럼
+    보이는 추측이다.
 
     ANY_OVERDUE_REVIEW (MVP v0.1):
 
         연체 0원   PASS
         연체 > 0   REVIEW_REQUIRED
 
-    ★ **연체가 있다는 이유로 FAIL 하지 않는다.** 거래를 막는 판단은 여신 한도를
-      가진 `FIN-SALES-CREDIT` 이 소유한다. 여기서도 FAIL 을 내면 같은 사실로 두 번
-      막게 되고, 어느 규칙이 막았는지도 흐려진다.
+    연체가 있다는 이유로 FAIL 하지 않는다. 거래를 막는 판단은 여신 한도를 가진
+    `FIN-SALES-CREDIT` 이 소유한다. 여기서도 FAIL 을 내면 같은 사실로 두 번 막게 되고, 어느
+    규칙이 막았는지도 흐려진다.
     """
     if overdue_ar_krw < 0:
         raise ValueError("overdue_ar_krw must not be negative")

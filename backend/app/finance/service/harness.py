@@ -1,29 +1,27 @@
-"""Finance Harness — **합법 행동공간을 정하고 강제한다.**
+"""Finance Harness — 합법 행동공간을 정하고 강제한다.
 
 이 파일이 소유하는 것
     capability 선행 의존 계약 · mode 별 필수 capability
-    (capability → Tool 소유 표 `CAPABILITY_OWNER` 는 Planner 계약이라 `schemas/planner.py` —
-    2026-09-30 BL-020 에 옮겼다. 이 파일은 그 표를 읽는다)
+    (capability → Tool 소유 표 `CAPABILITY_OWNER` 는 Planner 계약이라 `schemas/planner.py` 에
+    있고, 이 파일은 그 표를 읽는다)
     지금 실행 가능한 Tool 집합 · Planner 요청의 승인/반려와 사유
     Tool 예산 · 중복 호출 차단 · Registry 실행 직전 재검증 · 실행 흔적(Trace)
     LangChain Tool 선언(이름 · 설명 · 인자 스키마) · Tool 디스패치(Registry)
     실행 계약 guard (payload 검증 · 재계획 상한 · 인자 원천 · 설명 규율)
 
-여기 **없는 것**
+여기 없는 것
     Finance Cap · 현금흐름 · BASE/STRESS · 압박도 · 판정 · 조정 금액
-    → 전부 `capabilities` · `tools` · `rules` 결정론 코드 소유다. Harness 는 숫자를
-      **하나도** 만들지 않는다.
+    → 전부 `service/capabilities/` · `domain/tools.py` · `domain/rules.py` 결정론 코드
+      소유다. Harness 는 숫자를 하나도 만들지 않는다.
 
-★ LLM 의 Tool 호출은 **실행 요청**이지 실행 권한이 아니다. 승인은 여기서 난다.
+LLM 의 Tool 호출은 실행 요청이지 실행 권한이 아니다. 승인은 여기서 난다.
 
-★ 노출 제한(동적 Tool 노출)은 방어가 아니라 **편의**다. 모델이 못 보게 하는 것과
-  못 하게 하는 것은 다르다 — 그래서 실행 직전에 같은 검사를 한 번 더 하고,
-  Registry 가 mode 검사를 또 한 번 한다. 층이 겹치는 것은 의도다.
+노출 제한(동적 Tool 노출)은 방어가 아니라 편의다. 모델이 못 보게 하는 것과 못 하게 하는 것은
+다르다 — 그래서 실행 직전에 같은 검사를 한 번 더 하고, Registry 가 mode 검사를 또 한 번 한다.
+층이 겹치는 것은 의도다.
 
-★ 네 조각(capability 정책 · Tool 선언 · 승인 · guard)이 한 파일에 있는 이유는
-  **늘 같이 열리기 때문**이다. 하나를 고치면 나머지가 따라 바뀐다.
-
-★ 2026-09-29 재구성 BL-014: `finance/application/harness.py` 에서 자리만 옮겼다(내용 그대로).
+네 조각(capability 정책 · Tool 선언 · 승인 · guard)이 한 파일에 있는 이유는 늘 같이 열리기
+때문이다. 하나를 고치면 나머지가 따라 바뀐다.
 """
 
 from __future__ import annotations
@@ -60,10 +58,10 @@ from app.finance.service.capabilities import scenario as _scn
 # capability 의존 계약 (소유 표 `CAPABILITY_OWNER` 는 `schemas/planner.py`)
 # ---------------------------------------------------------------------------
 
-#: Tool 이 실행되기 전에 **이미 채워져 있어야 하는** capability.
+#: Tool 이 실행되기 전에 이미 채워져 있어야 하는 capability.
 #:
-#: ★ Tool 이름 순서가 아니라 capability 조건이다. 조건만 맞으면 어느 것을 먼저
-#:   골라도 된다 — Planner 의 선택 여지는 여기서 나온다.
+#: Tool 이름 순서가 아니라 capability 조건이다. 조건만 맞으면 어느 것을 먼저 골라도 된다 —
+#: Planner 의 선택 여지는 여기서 나온다.
 TOOL_DEPENDENCIES: dict[str, frozenset[str]] = {
     "assess_finance_position": frozenset(),
     "project_cashflow": frozenset(),
@@ -81,8 +79,8 @@ SCENARIO_REQUIRED_CAPABILITIES = frozenset({"scenario_evaluation"})
 
 #: 금액 대안 검증까지 마쳐야 결과가 완성되는 판정.
 #:
-#: ★ 원안대로 진행할 수 없다고 나온 판정은 전부 여기 있다. `ok` 만 빠진다 —
-#:   조정할 이유가 없는 결과에 조정 검증을 요구하면 없는 일을 시키는 것이다.
+#: 원안대로 진행할 수 없다고 나온 판정은 전부 여기 있다. `ok` 만 빠진다 — 조정할 이유가
+#: 없는 결과에 조정 검증을 요구하면 없는 일을 시키는 것이다.
 _ADJUSTMENT_REQUIRED_VERDICTS = frozenset({"reject", "conditional"})
 SALES_REQUIRED_CAPABILITIES = frozenset({"sales_scenario_evaluation"})
 
@@ -103,9 +101,9 @@ def required_capabilities(mode: str) -> frozenset[str]:
 def completed_capabilities(executed_tools: Iterable[str]) -> set[str]:
     """실행된 Tool 이 채운 capability.
 
-    ★ 결과 키를 보지 않는다. 소유가 1:1 이고 선행 실행을 Harness 가 강제하므로
-      **실행 = capability** 가 그대로 성립한다. `tool_order` 에는 성공한 실행만 담기니
-      실패한 Tool 이 capability 를 채우는 일도 없다.
+    결과 키를 보지 않는다. 소유가 1:1 이고 선행 실행을 Harness 가 강제하므로 실행 =
+    capability 가 그대로 성립한다. `tool_order` 에는 성공한 실행만 담기니 실패한 Tool 이
+    capability 를 채우는 일도 없다.
     """
     executed = set(executed_tools)
     return {
@@ -116,7 +114,7 @@ def completed_capabilities(executed_tools: Iterable[str]) -> set[str]:
 
 
 def dependencies_of(tool: str) -> frozenset[str]:
-    """★ 계약이 없는 Tool 을 **의존 없음으로 읽지 않는다.**
+    """계약이 없는 Tool 을 의존 없음으로 읽지 않는다.
 
     빈 집합으로 조용히 넘기면 새 Tool 이 아무 선행 조건 없이 실행 가능해진다 —
     모르는 것이 통과가 되는 구조다.
@@ -131,10 +129,10 @@ def dependencies_of(tool: str) -> frozenset[str]:
 # ---------------------------------------------------------------------------
 
 class _NoArguments(BaseModel):
-    """인자를 받지 않는 Finance Tool. **모델이 숫자를 실을 자리가 없다.**
+    """인자를 받지 않는 Finance Tool. 모델이 숫자를 실을 자리가 없다.
 
-    ★ `extra="forbid"` 다. 모르는 인자를 조용히 버리면 *"모델이 무엇을 보냈는지"* 가
-      기록에서 사라진다 — 값을 안 받는 Tool 에 값이 왔다는 사실 자체가 신호다.
+    `extra="forbid"` 다. 모르는 인자를 조용히 버리면 "모델이 무엇을 보냈는지" 가 기록에서
+    사라진다 — 값을 안 받는 Tool 에 값이 왔다는 사실 자체가 신호다.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -143,13 +141,13 @@ class _NoArguments(BaseModel):
 class _AmountAdjustmentArguments(BaseModel):
     """유일하게 값을 받는 Tool 의 인자.
 
-    ★ Planner에는 금액을 노출하지 않는다. 실제로 실행에 들어가는 금액은
-      `source_owned_arguments` 가 원천(payload · 결정론 Tool 결과)에서 다시 고른다.
-      Planner가 숫자를 복사하거나 만들 자리를 주지 않는다.
+    Planner에는 금액을 노출하지 않는다. 실제로 실행에 들어가는 금액은
+    `source_owned_arguments` 가 원천(payload · 결정론 Tool 결과)에서 다시 고른다. Planner가
+    숫자를 복사하거나 만들 자리를 주지 않는다.
 
-    ★ `axis` 는 `Literal["amount"]` 다. 재무가 금액 축만 조정한다는 것은 이미
-      `source_owned_arguments` 와 capability 양쪽이 막는 불변식이고, 여기서는 그것을
-      **모델이 보는 스키마에도** 적어 둘 뿐이다.
+    `axis` 는 `Literal["amount"]` 다. 재무가 금액 축만 조정한다는 것은 이미
+    `source_owned_arguments` 와 capability 양쪽이 막는 불변식이고, 여기서는 그것을 모델이 보는
+    스키마에도 적어 둘 뿐이다.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -176,8 +174,8 @@ _ARGUMENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "analyze_payment_pressure": _NoArguments,
     "evaluate_purchase_scenario": _NoArguments,
     "validate_amount_adjustment": _AmountAdjustmentArguments,
-    # ★ 판매 검증도 인자를 받지 않는다. 수량·단가·원가·결제일수·여신은 전부
-    #   request payload 와 Finance 정책이 소유한다 — Planner 가 숫자를 실을 자리가 없다.
+    # 판매 검증도 인자를 받지 않는다. 수량·단가·원가·결제일수·여신은 전부 request payload 와
+    # Finance 정책이 소유한다 — Planner 가 숫자를 실을 자리가 없다.
     "evaluate_sales_scenario": _NoArguments,
 }
 
@@ -186,8 +184,8 @@ _EXECUTION_ARGUMENT_SCHEMAS: dict[str, type[BaseModel]] = {
     "validate_amount_adjustment": _AmountAdjustmentCompatibilityArguments,
 }
 
-#: 모델이 읽는 설명. **업무 규칙을 여기 적지 않는다** — 계산과 판정은 결정론 코드가
-#: 하고, 여기 있는 것은 *"이 Tool 이 어느 사실을 만든다"* 뿐이다.
+#: 모델이 읽는 설명. 업무 규칙을 여기 적지 않는다 — 계산과 판정은 결정론 코드가 하고, 여기
+#: 있는 것은 "이 Tool 이 어느 사실을 만든다" 뿐이다.
 _TOOL_DESCRIPTIONS: dict[str, str] = {
     "assess_finance_position": (
         "Read the deterministic Finance position: available cash, payroll day and "
@@ -288,11 +286,11 @@ PRE_PURCHASE_TOOLS = frozenset(
 )
 SCENARIO_VALIDATION_TOOLS = frozenset({"evaluate_purchase_scenario", "validate_amount_adjustment"})
 
-#: ★ 판매 Tool 은 매입 두 mode 어디에서도 보이지 않는다. 반대도 같다 — 매입 Tool 이
-#:   SALES_VALIDATION 에서 실행 가능해지면 매입 판정 공식이 판매 회신에 실린다.
+#: 판매 Tool 은 매입 두 mode 어디에서도 보이지 않는다. 반대도 같다 — 매입 Tool 이
+#: SALES_VALIDATION 에서 실행 가능해지면 매입 판정 공식이 판매 회신에 실린다.
 SALES_VALIDATION_TOOLS = frozenset({"evaluate_sales_scenario"})
 
-#: Tool 이름 → 구현. **이름은 Planner 계약이라 바뀌지 않는다.**
+#: Tool 이름 → 구현. 이름은 Planner 계약이라 바뀌지 않는다.
 _CAPABILITIES = {
     "assess_finance_position": _pre.assess_finance_position,
     "project_cashflow": _pre.project_cashflow,
@@ -319,7 +317,7 @@ class FinanceToolRegistry:
     def execute(
         self, name: str, arguments: dict[str, Any], state: FinanceAgentState
     ) -> dict[str, Any]:
-        """★ mode 밖의 Tool 은 실행하지 않는다 — Planner 사후 검증과 겹치는 마지막 방어다."""
+        """mode 밖의 Tool 은 실행하지 않는다 — Planner 사후 검증과 겹치는 마지막 방어다."""
         if name not in self.names_for(state.request.mode):
             raise ValueError(f"Tool {name} is not allowed for {state.request.mode}")
         return _CAPABILITIES[name](self.data_port, arguments, state)
@@ -343,14 +341,14 @@ def validate_ready_reasoning(reasoning: str) -> None:
 
 
 def _validate_sales_payload(request: AgentRequest) -> None:
-    """판매 batch 요청의 **모양**만 본다. 업무 사실의 유무는 안에서 판정한다.
+    """판매 batch 요청의 모양만 본다. 업무 사실의 유무는 안에서 판정한다.
 
-    ★ 매입 검사를 재사용하지 않는다. `total_amount_krw` · `label` 은 매입 계약이라
-      판매 제안에 요구하면 판매가 매입 모양을 흉내내야 한다.
+    매입 검사를 재사용하지 않는다. `total_amount_krw` · `label` 은 매입 계약이라 판매 제안에
+    요구하면 판매가 매입 모양을 흉내내야 한다.
 
-    ★ 여기서 막는 것은 **결과를 안과 짝지을 수 없게 만드는 것**뿐이다 — 개수가
-      1~3 을 벗어나거나, 같은 `scenario_id` 가 두 번 오는 경우다. 빠진 업무 사실은
-      오류가 아니라 안별 `INPUT_INCOMPLETE` 로 나간다.
+    여기서 막는 것은 결과를 안과 짝지을 수 없게 만드는 것뿐이다 — 개수가 1~3 을 벗어나거나,
+    같은 `scenario_id` 가 두 번 오는 경우다. 빠진 업무 사실은 오류가 아니라 안별
+    `INPUT_INCOMPLETE` 로 나간다.
     """
     scenarios = request.payload.get("scenarios")
     if scenarios is None:
@@ -565,7 +563,7 @@ def validate_planner_tool_arguments(action: ToolAction) -> dict[str, Any]:
 # Harness — 승인과 강제
 # ---------------------------------------------------------------------------
 
-#: 반려 사유. **기술적 사유이지 업무 판정이 아니다** — 여기서 나온 값이 회신의
+#: 반려 사유. 기술적 사유이지 업무 판정이 아니다 — 여기서 나온 값이 회신의
 #: `business_status` 가 되는 일은 없다.
 TOOL_NOT_EXECUTABLE = "TOOL_NOT_EXECUTABLE"
 DEPENDENCY_NOT_SATISFIED = "DEPENDENCY_NOT_SATISFIED"
@@ -576,7 +574,7 @@ UNKNOWN_TOOL = "UNKNOWN_TOOL"
 
 
 class FinanceToolDenied(RuntimeError):
-    """Harness 가 Tool 실행을 막았다. **사유를 값으로 들고 다닌다.**"""
+    """Harness 가 Tool 실행을 막았다. 사유를 값으로 들고 다닌다."""
 
     def __init__(self, reason: str, tool: str | None, detail: str = "") -> None:
         self.reason = reason
@@ -586,7 +584,7 @@ class FinanceToolDenied(RuntimeError):
 
 @dataclass(frozen=True)
 class CapabilityState:
-    """지금 이 분기의 capability 지형. **Planner 입력이자 Trace 항목이다.**"""
+    """지금 이 분기의 capability 지형. Planner 입력이자 Trace 항목이다."""
 
     required: tuple[str, ...] = ()
     completed: tuple[str, ...] = ()
@@ -596,7 +594,7 @@ class CapabilityState:
 
 
 class FinanceHarness:
-    """Finance 실행 통제. **계산은 하지 않는다.**
+    """Finance 실행 통제. 계산은 하지 않는다.
 
     상한은 한 실행 전체에서 공유한다 — 분기(시나리오)가 늘어난다고 예산이 늘지 않는다.
     """
@@ -614,7 +612,7 @@ class FinanceHarness:
         self.tool_calls = 0
         self.replans = 0
         self.llm_calls = 0
-        #: **이번 단계에서** Tool 을 누가 골랐는가. 다음 Trace 항목이 이것을 싣고
+        #: 이번 단계에서 Tool 을 누가 골랐는가. 다음 Trace 항목이 이것을 싣고
         #: 실으면서 비운다 — 한 단계에 한 번만 뜻을 갖는 값이다.
         #: 성능 관측용이라 업무 판단에 쓰지 않는다.
         self.selection_source: str | None = None
@@ -634,20 +632,19 @@ class FinanceHarness:
     # ── capability 지형 ─────────────────────────────────────────
 
     def capability_state(self, state: FinanceAgentState) -> CapabilityState:
-        """무엇이 찼고 무엇이 남았고 **지금 무엇을 부를 수 있는가.**"""
+        """무엇이 찼고 무엇이 남았고 지금 무엇을 부를 수 있는가."""
         mode = state.request.mode
         required = set(required_capabilities(mode))
         # 원안대로 못 가는 시나리오는 금액 대안 검증까지가 한 벌이다. 이 조건은 업무
-        # 규칙을 만드는 것이 아니라 **이미 나온 결정론 판정을 읽는 것**이다.
+        # 규칙을 만드는 것이 아니라 이미 나온 결정론 판정을 읽는 것이다.
         #
-        # 🔴 예전에는 `reject` 만 걸었다. 그래서 `conditional` 은 Planner 가 금액 대안
-        #    Tool 을 고르지 않아도 그대로 종료됐고, 검증을 **안 한 것**이 결과에서는
-        #    `NOT_ADJUSTABLE`(= 검증했는데 대안이 없음) 로 나갔다. 같은 입력이라도
-        #    모델이 Tool 을 고르느냐에 따라 기계 계약이 달라지는 상태였다.
+        # `reject` 만 걸면 `conditional` 은 Planner 가 금액 대안 Tool 을 고르지 않아도 그대로
+        # 종료되고, 검증을 안 한 것이 결과에서는 `NOT_ADJUSTABLE`(= 검증했는데 대안이 없음) 로
+        # 나간다. 같은 입력이라도 모델이 Tool 을 고르느냐에 따라 기계 계약이 달라진다.
         #
-        # ★ `base_state_violated` 는 예외로 남긴다. 평소 흐름 자체가 최소 현금을 밑돌면
-        #   상한이 0 으로 확정되어 **어떤 금액도 안전하지 않다** — 결정론 판정이 이미
-        #   답을 냈으므로 Tool 을 부를 이유가 없다.
+        # `base_state_violated` 는 예외로 남긴다. 평소 흐름 자체가 최소 현금을 밑돌면 상한이
+        # 0 으로 확정되어 어떤 금액도 안전하지 않다 — 결정론 판정이 이미 답을 냈으므로 Tool 을
+        # 부를 이유가 없다.
         if latest_scenario_verdict(state) in _ADJUSTMENT_REQUIRED_VERDICTS and (
             not state.base_state_violated
         ):
@@ -680,7 +677,7 @@ class FinanceHarness:
         )
 
     def langchain_tools(self, capability_state: CapabilityState) -> tuple[BaseTool, ...]:
-        """이번 호출에서 **모델에게 실제로 보여 줄** Tool 객체.
+        """이번 호출에서 모델에게 실제로 보여 줄 Tool 객체.
 
         남은 capability 가 없을 때만 종료 Tool 이 보인다 — 필수 capability 를 건너뛴
         "재무 검토 완료" 는 고를 수 있는 선택지 자체가 아니다.
@@ -703,7 +700,7 @@ class FinanceHarness:
     ) -> str:
         """Planner 요청을 검사한다. 통과하면 실행 서명을, 아니면 `FinanceToolDenied`.
 
-        순서에 뜻이 있다. **중복을 먼저 본다** — 같은 요청을 반복하는 Planner 는
+        순서에 뜻이 있다. 중복을 먼저 본다 — 같은 요청을 반복하는 Planner 는
         노출 밖 Tool 을 고른 것과 다른 문제이고, 되물어도 같은 답이 온다.
         """
         if tool_name not in self._adapters:
@@ -729,7 +726,7 @@ class FinanceHarness:
         state: FinanceAgentState,
         capability_state: CapabilityState,
     ) -> None:
-        """mode 권한 · 선행 capability · 필요 여부. **실행 직전에도 이것을 다시 본다.**"""
+        """mode 권한 · 선행 capability · 필요 여부. 실행 직전에도 이것을 다시 본다."""
         if tool_name not in self.registry.names_for(state.request.mode):
             raise FinanceToolDenied(TOOL_PERMISSION_DENIED, tool_name)
         unmet = sorted(dependencies_of(tool_name) - set(capability_state.completed))
@@ -751,7 +748,7 @@ class FinanceHarness:
         state: FinanceAgentState,
         capability_state: CapabilityState,
     ) -> dict[str, Any]:
-        """승인된 Tool 을 **LangChain 어댑터를 통해** 돌린다.
+        """승인된 Tool 을 LangChain 어댑터를 통해 돌린다.
 
         어댑터가 다시 `_execute_validated` 로 들어오고, 거기서 Harness 검사가 한 번 더
         돈다 — 노출 제한을 뚫고 들어온 호출이 Registry 에 닿지 않게 하는 마지막 문이다.
@@ -765,7 +762,7 @@ class FinanceHarness:
         return observation
 
     def _execute_validated(self, tool_name: str, arguments: dict[str, Any]) -> Any:
-        """LangChain 어댑터가 부르는 자리. **Registry 직전의 재검증.**"""
+        """LangChain 어댑터가 부르는 자리. Registry 직전의 재검증."""
         if self._pending is None:
             raise FinanceToolDenied(
                 TOOL_NOT_EXECUTABLE,
@@ -782,11 +779,11 @@ class FinanceHarness:
         self.llm_calls += 1
 
     def note_selection(self, source: str) -> None:
-        """이번 단계의 선택 출처를 적어 둔다. **다음 Trace 항목이 이것을 싣고 비운다.**
+        """이번 단계의 선택 출처를 적어 둔다. 다음 Trace 항목이 이것을 싣고 비운다.
 
-        🔴 고르는 자리를 지나지 않고 접히는 단계가 있다 — 예산이 다해 `_decide` 앞에서
-           멈추는 자리가 그렇다. 남겨 두면 그 단계에 **앞 단계의 선택**이 실려서, 부르지도
-           않은 선택이 일어난 것처럼 읽힌다. 업무 결과는 그대로라 더 늦게 들킨다.
+        고르는 자리를 지나지 않고 접히는 단계가 있다 — 예산이 다해 `_decide` 앞에서 멈추는
+        자리가 그렇다. 남겨 두면 그 단계에 앞 단계의 선택이 실려서, 부르지도 않은 선택이
+        일어난 것처럼 읽힌다. 업무 결과는 그대로라 더 늦게 들킨다.
         """
         self.selection_source = source
 
@@ -808,12 +805,12 @@ class FinanceHarness:
         denied_reason: str | None = None,
         finalize_requested: bool = False,
     ) -> None:
-        """**LLM 이 무엇을 요청했고 Harness 가 무엇을 허락했고 무엇이 실제로 돌았는가.**
+        """LLM 이 무엇을 요청했고 Harness 가 무엇을 허락했고 무엇이 실제로 돌았는가.
 
         셋을 한 항목에 같이 적는다. 따로 적으면 어느 것이 어느 것인지 나중에 붙일 수
         없고, 그때 사라지는 것이 이 계층의 존재 이유다.
         """
-        #  실으면서 비운다. 다음 단계가 스스로 고르지 않았다면 그 자리는 비어야 한다.
+        # 실으면서 비운다. 다음 단계가 스스로 고르지 않았다면 그 자리는 비어야 한다.
         selection_source = self.selection_source
         self.selection_source = None
         state.trace.append(
@@ -827,7 +824,7 @@ class FinanceHarness:
                 "requested_tool": requested_tool,
                 "finalize_requested": finalize_requested,
                 # 승인된 선택과 실제 실행을 나눠 둔다. 지금은 승인 직후에 실행하므로
-                # 늘 같지만, **어긋나는 날을 읽을 수 있어야** 이 계층이 뜻을 갖는다.
+                # 늘 같지만, 어긋나는 날을 읽을 수 있어야 이 계층이 뜻을 갖는다.
                 # 반려된 단계에서는 둘 다 비고 `denied_*` 만 남는다.
                 "selected_tool": executed_tool,
                 "executed_tool": executed_tool,
@@ -839,7 +836,7 @@ class FinanceHarness:
                 # LLM / DETERMINISTIC_SINGLE / DETERMINISTIC_FINALIZE / None.
                 #
                 # 어느 단계에서 provider 왕복이 실제로 일어났는지 읽는 자리다.
-                # `None` 은 **이 단계에서 아무도 Tool 을 고르지 않았다**는 뜻이다 —
+                # `None` 은 이 단계에서 아무도 Tool 을 고르지 않았다는 뜻이다 —
                 # 선택 앞에서 접힌 자리(예산 소진 · terminal guard)가 그렇다.
                 "selection_source": selection_source,
             }
@@ -850,6 +847,6 @@ def _signature(branch_id: str, tool_name: str, arguments: dict[str, Any]) -> str
     return json.dumps([branch_id, tool_name, arguments], sort_keys=True, default=str)
 
 
-# ★ 기동 시점 확인. Tool 을 새로 만들고 입력 계보를 안 적으면 **import 실패**로 즉시
-#   드러난다 — 조용한 `inputs_used` 누락은 Critic 검사를 통과로 바꾼다.
+# 기동 시점 확인. Tool 을 새로 만들고 입력 계보를 안 적으면 import 실패로 즉시 드러난다 —
+# 조용한 `inputs_used` 누락은 Critic 검사를 통과로 바꾼다.
 assert_dependency_contract_is_complete(PRE_PURCHASE_TOOLS)

@@ -1,7 +1,4 @@
-"""매입대금 실제 지급 — 채무별 지급 · 결과 · 충돌.
-
-★ 2026-09-29 재구성 BL-014: `finance/settlement.py` 에서 옮겼다.
-"""
+"""매입대금 실제 지급 — 채무별 지급 · 결과 · 충돌."""
 
 from __future__ import annotations
 
@@ -34,4 +31,4 @@ class SettlementResult:
 
 
 class FinanceSettlementConflict(RuntimeError):
-    """잠근 행이 한 행이 아니었다. **조용히 넘어가지 않는다.**"""
+    """잠근 행이 한 행이 아니었다. 조용히 넘어가지 않는다."""

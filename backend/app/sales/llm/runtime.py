@@ -1,8 +1,8 @@
-"""Sales 후보 해석을 Gemini 구조화 출력으로 연결한다.
+"""Sales 후보 해석과 전략 자세 계획을 Gemini 구조화 출력으로 연결한다.
 
-★ 요청 만들기 · 보내기 · 응답 읽기 · 스키마 낮추기는 `app.core.llm` 이 한다 (2026-09-30 재구성
-  BL-020). 여기 남은 것은 판매의 몫이다 — 지시문 · 입출력 계약 · 검증 · `SALES_` 설정과 오류
-  문장 · 한 번만 묻고 실패하면 템플릿으로 가는 규칙(재시도 없음).
+요청 만들기 · 보내기 · 응답 읽기 · 스키마 낮추기는 `app.core.llm` 이 한다. 여기 있는 것은
+판매의 몫이다 — 지시문 · 입출력 계약 · 검증 · `SALES_` 설정과 오류 문장 · 한 번만 묻고
+실패하면 템플릿으로 가는 규칙(재시도 없음).
 """
 
 from __future__ import annotations
@@ -44,28 +44,27 @@ DEPLETION 자세는 소진 신호가 실제로 있을 때만 고르세요."""
 
 
 class StrategyPlanningInput(BaseModel):
-    """Planner 가 보는 **사실**. 재무·물류·ML 이 실제로 보낸 값이다.
+    """Planner 가 보는 사실. 재무·물류·ML 이 실제로 보낸 값이다.
 
-    ★ **숫자를 보여 준다. 숫자를 받지는 않는다.**
+    숫자를 보여 주지만 숫자를 받지는 않는다.
 
-      ```text
-      입력   현금·채무·채권·여신·재고·시장 밴드 — 판단에 필요하니 준다
-      출력   닫힌 어휘의 자세뿐 — 숫자가 섞이면 계획을 통째로 버린다
-      ```
+    ```text
+    입력   현금·채무·채권·여신·재고·시장 밴드 — 판단에 필요하니 준다
+    출력   닫힌 어휘의 자세뿐 — 숫자가 섞이면 계획을 통째로 버린다
+    ```
 
-      모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `domain/proposal.py` 의
-      결정론 계산이 **자세만 읽고** 만들고, 모델 출력에는 숫자를 담을 칸이 없다.
+    모델이 본 숫자가 가격이 될 길이 없다. 단가·수량·금액은 `domain/proposal.py` 의
+    결정론 계산이 자세만 읽고 만들고, 모델 출력에는 숫자를 담을 칸이 없다.
 
-    🔴 **판정 라벨을 주지 않는다.** `finance_verdict` 같은 값은 여기 없다 — 후보가
-      아직 없으므로 판정도 없고, 있다 해도 모델이 판정을 따라 적을 자리를 만들지
-      않는다.
+    판정 라벨을 주지 않는다. `finance_verdict` 같은 값은 여기 없다 — 후보가 아직
+    없으므로 판정도 없고, 있다 해도 모델이 판정을 따라 적을 자리를 만들지 않는다.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     #: 사용자
     business_mode: str | None = None
-    #: 사용자가 말로 남긴 의도. **해석은 모델이 하고 숫자는 여기서 안 나온다** (§16).
+    #: 사용자가 말로 남긴 의도. 해석은 모델이 하고 숫자는 여기서 안 나온다 (§16).
     user_intent_text: str | None = None
     #: 물류
     depletion_pressure: bool
@@ -121,33 +120,33 @@ class LlmStrategyPlanOutput(BaseModel):
 
 @dataclass(frozen=True)
 class StrategyPlanOutcome:
-    """자세 셋과 **그것을 누가 만들었는가.** 실패를 숨기지 않는다 (§10)."""
+    """자세 셋과 그것을 누가 만들었는가. 실패를 숨기지 않는다 (§10)."""
 
     source: str
     llm_status: str
     profiles: list[Any]
     llm_provider: str | None = None
     llm_model: str | None = None
-    #: 🔴 **왜 템플릿으로 떨어졌나.** 성공했으면 `None`.
+    #: 왜 템플릿으로 떨어졌나. 성공했으면 `None`.
     #:
-    #:   `FALLBACK` 하나로는 **우리가 틀린 날과 저쪽이 막은 날**이 같아 보인다.
-    #:   실제로 그 둘이 한 주에 다 일어났다 (2026-09-16).
+    #: `FALLBACK` 하나로는 우리가 틀린 날과 저쪽이 막은 날이 같아 보인다.
+    #: 실제로 그 둘이 한 주에 다 일어났다 (2026-09-16).
     #:
-    #:   ```text
-    #:   HTTP_400   우리 스키마가 틀렸다        고칠 것이 여기 있다. 영구적이다
-    #:   HTTP_429   저쪽이 쿼터로 막았다        고칠 것이 없다. 기다리면 풀린다
-    #:   ```
+    #: ```text
+    #: HTTP_400   우리 스키마가 틀렸다        고칠 것이 여기 있다. 영구적이다
+    #: HTTP_429   저쪽이 쿼터로 막았다        고칠 것이 없다. 기다리면 풀린다
+    #: ```
     #:
-    #: ★ **라벨이다.** 응답 본문을 넣지 않는다 — 거기에는 키·요청 내용이 섞일 수
-    #:   있고, 이 값은 실행 이력에 그대로 남는다.
+    #: 라벨이다. 응답 본문을 넣지 않는다 — 거기에는 키·요청 내용이 섞일 수 있고,
+    #: 이 값은 실행 이력에 그대로 남는다.
     failure_reason: str | None = None
 
 
 def _failure_label(error: BaseException) -> str:
-    """실패를 **한 라벨로** 줄인다. 본문도 URL 도 남기지 않는다.
+    """실패를 한 라벨로 줄인다. 본문도 URL 도 남기지 않는다.
 
-    ★ 네 갈래면 충분하다 — 고칠 것이 우리에게 있나(계약·요청), 저쪽에 있나(상태
-      코드), 아니면 길이 막혔나(연결).
+    네 갈래면 충분하다 — 고칠 것이 우리에게 있나(계약·요청), 저쪽에 있나(상태 코드),
+    아니면 길이 막혔나(연결).
     """
     if isinstance(error, urllib.error.HTTPError):
         return f"HTTP_{error.code}"
@@ -160,7 +159,7 @@ def _failure_label(error: BaseException) -> str:
 
 
 def plan_strategy_profiles(*, signals: Any, template: list[Any]) -> StrategyPlanOutcome:
-    """후보를 만들기 **전에** 세 전략의 자세를 정한다.
+    """후보를 만들기 전에 세 전략의 자세를 정한다.
 
     ```text
     설정 꺼짐          DISABLED   → 템플릿
@@ -168,13 +167,12 @@ def plan_strategy_profiles(*, signals: Any, template: list[Any]) -> StrategyPlan
     성공              SUCCESS    → 모델 자세 (호출부가 사실로 한 번 더 깎는다)
     ```
 
-    🔴 **템플릿으로 떨어져도 세 전략은 선다.** 외부 모델 하나 때문에 판매안이
-      안 나오면, 그 모델이 없는 날 사업이 멈춘다.
+    템플릿으로 떨어져도 세 전략은 선다. 외부 모델 하나 때문에 판매안이 안 나오면,
+    그 모델이 없는 날 사업이 멈춘다.
 
-    🔴 **왜 떨어졌는지를 같이 남긴다** (2026-09-16). 전에는 사유 없이 `FALLBACK` 만
-      남겼고, 그래서 **우리 스키마 버그(`HTTP_400`)가 이 자리에 숨어 실환경에서
-      Planner 가 한 번도 안 돈 채로 지나갔다** — 화면에는 *"모델이 실패했다"* 만
-      보였고 그것은 쿼터가 막힌 날과 구별되지 않았다.
+    왜 떨어졌는지를 같이 남긴다(`failure_reason`). 사유 없이 `FALLBACK` 만 남기면 우리
+    스키마 버그(`HTTP_400`)가 이 자리에 숨는다 — 화면에는 "모델이 실패했다" 만 보이고,
+    그것은 쿼터가 막힌 날과 구별되지 않는다.
     """
     settings = load_settings()
     if not settings.enabled:
@@ -195,7 +193,7 @@ def plan_strategy_profiles(*, signals: Any, template: list[Any]) -> StrategyPlan
 
 
 def _planner_context(signals: Any) -> StrategyPlanningInput:
-    """모델에 나가는 것 전부. **여기 없는 것은 모델이 못 본다.**"""
+    """모델에 나가는 것 전부. 여기 없는 것은 모델이 못 본다."""
     if signals.credit_available_krw is None:
         credit_state = "UNKNOWN"
     else:
@@ -238,7 +236,7 @@ def _planner_context(signals: Any) -> StrategyPlanningInput:
 
 
 def _call_gemini_planner(context: StrategyPlanningInput, settings: LLMSettings):
-    """해석 호출과 **같은 전선, 다른 계약**이다 — 스키마와 지시문만 다르다."""
+    """해석 호출과 같은 전선, 다른 계약이다 — 스키마와 지시문만 다르다."""
     return _gemini_structured(
         system_prompt=_PLANNER_SYSTEM_PROMPT,
         user_json=json.dumps(context.model_dump(), ensure_ascii=False),
@@ -248,14 +246,14 @@ def _call_gemini_planner(context: StrategyPlanningInput, settings: LLMSettings):
 
 
 def _validated_profiles(output: LlmStrategyPlanOutput, template: list[Any]) -> list[Any]:
-    """모델 자세를 받아들일지 정한다. **어긋나면 통째로 버린다.**
+    """모델 자세를 받아들일지 정한다. 어긋나면 통째로 버린다.
 
-    ★ 일부만 고쳐 쓰지 않는다. 세 전략 중 하나가 빠졌거나 두 번 왔으면 모델이 계약을
-      이해하지 못한 것이고, 그런 계획에서 한 줄만 건져 쓰면 **어디까지가 모델의
-      판단인지** 아무도 말할 수 없다.
+    일부만 고쳐 쓰지 않는다. 세 전략 중 하나가 빠졌거나 두 번 왔으면 모델이 계약을
+    이해하지 못한 것이고, 그런 계획에서 한 줄만 건져 쓰면 어디까지가 모델의 판단인지
+    아무도 말할 수 없다.
 
-    🔴 **사유에 숫자가 있으면 버린다.** 자세는 라벨이고, 라벨에 숫자가 섞이는 순간
-      모델이 값을 말하기 시작한 것이다.
+    사유에 숫자가 있으면 버린다. 자세는 라벨이고, 라벨에 숫자가 섞이는 순간 모델이
+    값을 말하기 시작한 것이다.
     """
     names = [item.strategy for item in output.strategies]
     if sorted(names) != ["AGGRESSIVE", "BALANCED", "CONSERVATIVE"]:
@@ -301,9 +299,9 @@ class LLMSettings:
 def load_settings() -> LLMSettings:
     """Sales 전용 설정을 우선하고 전역 Ollama 설정이 모델로 섞이지 않게 한다.
 
-    ⚠️ 켜짐 기본값은 **꺼짐**이다(`SALES_LLM_ENABLED` → `LLM_ENABLED` → 끔 · 빈 값은 끔) —
-      다른 부서(기본 켬)와 다르다. provider 는 `SALES_LLM_PROVIDER` 만 보고(기본 gemini), timeout 은
-      공용 `LLM_TIMEOUT_SECONDS` 만 본다(잘못된 값이면 예외). 옮기기 전 그대로다.
+    주의: 켜짐 기본값은 꺼짐이다(`SALES_LLM_ENABLED` → `LLM_ENABLED` → 끔 · 빈 값은 끔) —
+    다른 부서(기본 켬)와 다르다. provider 는 `SALES_LLM_PROVIDER` 만 보고(기본 gemini),
+    timeout 은 공용 `LLM_TIMEOUT_SECONDS` 만 본다(잘못된 값이면 예외).
     """
     _load_environment()
     enabled = read_optional_bool("SALES_LLM_ENABLED")
@@ -370,13 +368,14 @@ def _call_gemini(context: list[CandidateInterpretationInput], settings: LLMSetti
 def _gemini_structured(
     *, system_prompt: str, user_json: str, schema_model: type[BaseModel], settings: LLMSettings
 ):
-    """구조화 출력 한 번. **두 호출(해석·전략)이 같은 전선을 쓴다.**
+    """구조화 출력 한 번. 두 호출(해석·전략)이 같은 전선을 쓴다.
 
-    ★ 전선을 두 벌로 두면 타임아웃·키·스키마 낮추기가 두 곳에서 갈린다 — 한쪽만
-      고치는 날이 오고, 그날 한쪽 호출만 조용히 다른 규칙으로 돈다.
-    ★ 전송 예외(`HTTPError` · `URLError` · 깨진 JSON)를 감싸지 않는다 — 실패 라벨
-      (`_failure_label`)이 종류로 가른다. 주소는 기본 주소 하나다(환경변수로 바꾸지 않는다).
-    ★ 스키마는 `gemini_safe_schema` 로 낮춘다 — 중첩 모델의 `$defs` · `$ref` 를 펴 넣는다.
+    전선을 두 벌로 두면 타임아웃·키·스키마 낮추기가 두 곳에서 갈린다 — 한쪽만 고치는
+    날이 오고, 그날 한쪽 호출만 조용히 다른 규칙으로 돈다.
+
+    전송 예외(`HTTPError` · `URLError` · 깨진 JSON)를 감싸지 않는다 — 실패 라벨
+    (`_failure_label`)이 종류로 가른다. 주소는 기본 주소 하나다(환경변수로 바꾸지 않는다).
+    스키마는 `gemini_safe_schema` 로 낮춘다 — 중첩 모델의 `$defs` · `$ref` 를 펴 넣는다.
     """
     if settings.provider != "gemini":
         raise RuntimeError("unsupported Sales LLM provider")
@@ -394,8 +393,7 @@ def _gemini_structured(
 def _gemini_response_text(document: dict[str, Any]) -> str:
     """공백이 아닌 첫 글자 조각을 앞뒤 공백을 떼어 돌려준다. 없으면 `ValueError`.
 
-    ⚠️ 사고(`thought`) 조각을 따로 건너뛰지 않는다 — 마스터 · Critic · 재무와 다르다
-      (2026-09-30 BL-020 확인 — 바꾸지 않았다).
+    주의: 사고(`thought`) 조각을 따로 건너뛰지 않는다 — 마스터 · Critic · 재무와 다르다.
     """
     text = first_text(gemini_parts(document))
     if text is None:

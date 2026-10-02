@@ -1,8 +1,6 @@
 """미지급 매입채무 취소의 판정 — 대상 정규화 · 잠근 행 검사 · 취소 금액 대조.
 
-★ 2026-09-29 재구성 BL-014: `finance/cancellation.py` 를 판정 · 순서 · SQL 로 나눴다. 순서는
-  `service/cancellation.py`,
-  SQL 은 `repository/cancellation.py`.
+순서는 `service/cancellation.py`, SQL 은 `repository/cancellation.py`.
 """
 
 from __future__ import annotations
@@ -98,7 +96,7 @@ def validate_complete_target_set(
 
 
 def state_fact(rows: list, *, financing_mode: str) -> StateFact | None:
-    """잠근 그날 상태 행에서 취소가 쓸 사실. **없으면 `None`, 둘이면 막는다.**"""
+    """잠근 그날 상태 행에서 취소가 쓸 사실. 없으면 `None`, 둘이면 막는다."""
     if len(rows) > 1:
         raise FinanceCancellationConflict("finance_runtime_axis_ambiguous")
     if not rows:
@@ -133,7 +131,7 @@ def checked_cancelled_amount(
     eligible_ids: tuple[str, ...],
     expected_amount: Decimal,
 ) -> Decimal:
-    """잠그고 확인한 대상이 **그대로** 취소됐는지 보고 취소 금액 합을 돌려준다."""
+    """잠그고 확인한 대상이 그대로 취소됐는지 보고 취소 금액 합을 돌려준다."""
     if {purchase_id for purchase_id, _ in changed} != set(eligible_ids):
         # Rows were locked and validated above. A mismatch is a ledger race or contract
         # violation, never a partial success; the caller must roll the transaction back.
@@ -146,7 +144,7 @@ def checked_cancelled_amount(
 
 
 def returned_state_id(rows: list) -> str:
-    """상태 갱신이 돌려준 행은 **정확히 하나**여야 한다 — 아니면 미지급이 모자랐다."""
+    """상태 갱신이 돌려준 행은 정확히 하나여야 한다 — 아니면 미지급이 모자랐다."""
     if len(rows) != 1:
         raise FinanceCancellationConflict("finance_unsettled_underflow")
     return str(_value(rows[0], "finance_state_id", 0))

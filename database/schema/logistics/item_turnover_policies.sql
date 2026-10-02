@@ -1,8 +1,6 @@
 -- item_turnover_policies — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 

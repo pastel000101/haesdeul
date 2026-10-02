@@ -1,7 +1,4 @@
-"""질문형 조회 SQL — 품목명 → `item_id`.
-
-★ 2026-09-30 재구성 BL-015: `logistics/query/status_query.py` 에서 옮겼다.
-"""
+"""질문형 조회 SQL — 품목명 → `item_id`."""
 
 from __future__ import annotations
 

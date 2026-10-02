@@ -1,52 +1,52 @@
 """
-day_gate.py — **그날이 열렸는가.** 요청 진입 뒤 첫 관문.
+day_gate.py — 그날이 열렸는가. 요청 진입 뒤 첫 관문.
 
-🔴 **두 Gate 는 다른 물음이다** (계약 `260904_마스터_통보_개장Gate_응답모양_next_action`).
+두 Gate 는 다른 물음이다(계약 `260904_마스터_통보_개장Gate_응답모양_next_action`).
 
 ```text
 요청 진입
   → open_day Gate       "그날 장부가 열렸는가"     ← 이 모듈
-  → execution day Gate  "그날 판단을 도는가"       execution_day.py
+  → execution day Gate  "그날 판단을 도는가"       domain/execution_day.py
   → Purchase Flow
 ```
 
-★ **토요일은 첫 관문을 통과하고 둘째에서 막힌다.** 개장은 달력일 전부이고 매입 판단은
-  평일만이다 — `#240` 의 *"실행일은 평일만, 경과일수는 달력일"* 이 여기서 두 관문으로
-  나타난다.
+토요일은 첫 관문을 통과하고 둘째에서 막힌다. 개장은 달력일 전부이고 매입 판단은
+평일만이다 — `#240` 의 "실행일은 평일만, 경과일수는 달력일" 이 여기서 두 관문으로
+나타난다.
 
-🔴 **`gate` 를 `result` 와 따로 둔다** (판매 요청).
+`gate` 를 `result` 와 따로 둔다(판매 요청).
 
 ```text
 gate = PASS      OPENED · ALREADY_OPENED
 gate = BLOCKED   NOT_OPENED · REJECTED_GAP · NEVER_OPENED
 ```
 
-  ★ **화면은 `gate` 만 보고 막을지 정한다.** `result` 다섯 중 어느 것이 통과인지를
-    화면이 알아야 한다면 **그건 값 파싱과 같다.**
+  화면은 `gate` 만 보고 막을지 정한다. `result` 다섯 중 어느 것이 통과인지를 화면이
+  알아야 한다면 그건 값 파싱과 같다.
 
-★ **이 모듈은 열지 않는다. 물어보기만 한다.** 여는 것은 `open_day` 이고 별도
-  진입점이다 — 판단이 지나가는 길에 장부를 만들면, *"조회했을 뿐인데 행이 생겼다"* 가
-  된다.
+이 모듈은 열지 않고 물어보기만 한다. 여는 것은 `open_day` 이고 별도 진입점이다 —
+판단이 지나가는 길에 장부를 만들면 "조회했을 뿐인데 행이 생겼다" 가 된다.
 
-⚠️ **미등록은 통과다.** 하루 넘김 구현이 없는 파트에 대고 *"안 열렸다"* 고 말할 수
-  없다. `apply_approval` 이 미등록을 오류로 안 보는 것과 같은 태도이고, 이것이 없으면
-  개장 구현이 붙기 전까지 **모든 판단이 막힌다.**
+미등록은 통과다. 하루 넘김 구현이 등록되지 않은 파트에 대고 "안 열렸다" 고 말할 수
+없다. `apply_approval` 이 미등록을 오류로 보지 않는 것과 같은 태도이고, 이것이 없으면
+하루 넘김 등록소가 빈 실행에서는 모든 판단이 막힌다. 앱과 CLI 는 기동할 때
+`registry/bootstrap.py` 가 재무·물류 하루 넘김을 등록한다.
 
-🟢 **`RETRY_OPEN_DAY` / `CONTACT_OPERATOR` 를 이제 횟수로 가른다** (정본 표가 섰다).
+`RETRY_OPEN_DAY` / `CONTACT_OPERATOR` 는 개장 정본(`master_day_openings`)의 연속 실패
+횟수로 가른다.
 
   ```text
   연속 실패 0~1회   → RETRY_OPEN_DAY      다시 부르면 풀릴 수 있다
   연속 실패 2회 이상 → CONTACT_OPERATOR    재시도로 안 풀린다
   ```
 
-  ★ **`attempt_count` 가 아니라 `failure_count`(연속 실패)를 본다.** 어제 성공하고
-    오늘 처음 실패한 것을 *"2번째"* 로 세면 **재시도 한 번 없이 사람을 부른다.**
+  `attempt_count` 가 아니라 `failure_count`(연속 실패)를 본다. 어제 성공하고 오늘 처음
+  실패한 것을 "2번째" 로 세면 재시도 한 번 없이 사람을 부른다.
 
-  ⚠️ **정본을 못 읽으면 근사한다.** 그때는 `RETRY_OPEN_DAY` 를 내고 **근사라는 것을
-    사유에 적는다** — 못 읽었다고 판단을 멈추지 않는다.
+  정본을 못 읽으면 근사한다. 그때는 `RETRY_OPEN_DAY` 를 내고 근사라는 것을 사유에
+  적는다 — 못 읽었다고 판단을 멈추지 않는다.
 
-★ 2026-09-30 재구성 BL-018: `master/day_gate.py` 에서 옮겼다. 역할이 다른 부분은 갈랐다 —
-  `schemas/day_gate.py`. 무엇이 어디로 갔는지는 설계서 대응표 `master/` 절.
+응답 모양은 `schemas/day_gate.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -63,22 +63,21 @@ from app.master.schemas.day_gate import DayGate, FailedPart
 
 #: 366일을 넘기면 관리자 강제 개장으로도 못 연다 — 합의된 절대 상한이다.
 #:
-#: ★ `ADMIN_FORCE_OPEN_REQUIRED` 로 보내면 관리자가 눌렀는데 안 열리고, 화면은 왜인지
-#:   못 말한다. 그래서 `SPLIT_FORCE_OPEN_REQUIRED` 를 따로 둔다.
+#: `ADMIN_FORCE_OPEN_REQUIRED` 로 보내면 관리자가 눌렀는데 안 열리고, 화면은 왜인지
+#: 말하지 못한다. 그래서 `SPLIT_FORCE_OPEN_REQUIRED` 를 따로 둔다.
 SPLIT_THRESHOLD_DAYS = 366
 
-#: 마지막 개장을 **뒤로 몇 날까지 찾을 것인가.**
+#: 마지막 개장을 뒤로 몇 날까지 찾을 것인가.
 #:
-#: 🔴 `SPLIT_THRESHOLD_DAYS` 보다 커야 한다. 366 에서 멈추면 *"366일 넘게 밀렸다"* 와
-#:    *"한 번도 안 열었다"* 가 **같아 보이고**, 둘은 다음 걸음이 다르다
-#:    (`SPLIT_FORCE_OPEN_REQUIRED` vs `OPEN_DAY_REQUIRED`).
+#: `SPLIT_THRESHOLD_DAYS` 보다 커야 한다. 366 에서 멈추면 "366일 넘게 밀렸다" 와
+#: "한 번도 안 열었다" 가 같아 보이고, 둘은 다음 걸음이 다르다
+#: (`SPLIT_FORCE_OPEN_REQUIRED` vs `OPEN_DAY_REQUIRED`).
 #:
-#: ⚠️ **이 너머는 못 가른다.** 2년을 걸어도 못 찾으면 `NEVER_OPENED` 로 적고, 그것이
-#:    *"정말 처음"* 인지 *"2년 넘게 밀림"* 인지는 이 Protocol 로 알 수 없다 —
-#:    `is_open(day)` 하나로는 *"마지막으로 열린 날"* 을 물을 수 없기 때문이다.
-#:    **그 한계를 사유에 적는다.**
+#: 제약: 이 너머는 가르지 못한다. 2년을 걸어도 못 찾으면 `NEVER_OPENED` 로 적고, 그것이
+#: "정말 처음" 인지 "2년 넘게 밀림" 인지는 이 Protocol 로 알 수 없다 — `is_open(day)`
+#: 하나로는 "마지막으로 열린 날" 을 물을 수 없기 때문이다. 그 한계를 사유에 적는다.
 #:
-#: 🟡 막힌 날에만 걷는다. 통과하는 날은 하루만 묻고 끝난다.
+#: 막힌 날에만 걷는다. 통과하는 날은 하루만 묻고 끝난다.
 SEARCH_LIMIT_DAYS = 730
 
 
@@ -92,35 +91,34 @@ def check_day_gate(
     borrow: core_db.Borrow | None = None,
     sim_run_id: str,
 ) -> DayGate:
-    """그날이 열렸는지 **물어보기만** 한다. 열지 않는다.
+    """그날이 열렸는지 물어보기만 한다. 열지 않는다.
 
-    ★ **등록된 파트 전부가 열려 있어야 통과다.** 하나라도 안 열렸으면 그 날 장부는
-      온전하지 않고, 그 위에서 판단하면 **없는 상태를 읽거나 남의 날 상태를 읽는다.**
+    등록된 파트 전부가 열려 있어야 통과다. 하나라도 안 열렸으면 그 날 장부는 온전하지
+    않고, 그 위에서 판단하면 없는 상태를 읽거나 남의 날 상태를 읽는다.
 
-    ⚠️ **예외를 밖으로 내지 않는다.** 관문이 500 을 내면 판단이 아예 안 도는데, 못 물어본
-      것과 안 열린 것은 다르다 — 못 물어보면 `BLOCKED` + `CONTACT_OPERATOR` 다.
+    실패 처리: 예외를 밖으로 내지 않는다. 관문이 500 을 내면 판단이 아예 안 도는데, 못
+    물어본 것과 안 열린 것은 다르다 — 못 물어보면 `BLOCKED` + `CONTACT_OPERATOR` 다.
 
-    :param sim_run_id: 어느 실행의 장부를 묻는가 (`#531` 후속). 🔴 **기본값이 없다**
-                    (2026-09-14). 번인 상수로 메우면 축을 안 준 호출이 번인
-                    장부를 묻는다. 부르는 쪽이 자기 축을 싣는다.
+    :param sim_run_id: 어느 실행의 장부를 묻는가(`#531`). 기본값이 없다. 번인 상수로
+                    메우면 축을 안 준 호출이 번인 장부를 묻는다. 부르는 쪽이 자기 축을
+                    싣는다.
     """
     present = [part for part in PARTS if part in registered()]
     if not present:
-        # ⚠️ 물어볼 데가 없다. **없는 구현에 대고 "안 열렸다" 고 말하지 않는다.**
+        # 물어볼 데가 없다. 없는 구현에 대고 "안 열렸다" 고 말하지 않는다.
         return _passed(as_of)
 
     open_connection = core_db.connection if borrow is None else borrow
     with open_connection() as conn:
         try:
-            # 🔴 **등록소가 든 표시가 아니라 이번 물음의 축으로 묶는다** (`#539` 후속).
-            #    `registered()` 에 앉아 있는 것은 `SimRunBound` — 공장을 든 **표시**이고
-            #    어댑터가 아니다. 안 묶고 `is_open` 을 부르면 `AttributeError` 가 나고,
-            #    이 함수는 예외를 값으로 바꾸므로 **에러 없이 사유 문자열로만** 나타난다.
-            #    실제로 그랬다: 걷기 `SIM-WALK-2026-FULL` 이 아흐레 내내
-            #    *"개장 여부를 못 읽었다: AttributeError"* 로 한 건도 판단을 못 세웠다.
+            # 등록소가 든 표시가 아니라 이번 물음의 축으로 묶는다(`#539`). `registered()`
+            # 에 앉아 있는 것은 `SimRunBound` — 공장을 든 표시이고 어댑터가 아니다. 묶지
+            # 않고 `is_open` 을 부르면 `AttributeError` 가 나고, 이 함수는 예외를 값으로
+            # 바꾸므로 오류 없이 사유 문자열("개장 여부를 못 읽었다: AttributeError")로만
+            # 나타나 그날 판단이 하나도 서지 않는다.
             #
-            # ★ **`_last_opened` 도 이 사전을 받는다.** 묶는 자리가 둘이면 한쪽만 고치는
-            #   날이 오고, 그 날 뒤로 걷는 쪽만 다시 표시 객체에 묻는다.
+            # `_last_opened` 도 이 사전을 받는다. 묶는 자리가 둘이면 한쪽만 고치는 날이
+            # 오고, 그 날 뒤로 걷는 쪽만 다시 표시 객체에 묻는다.
             adapters = {
                 part: bind_sim_run(impl, sim_run_id) for part, impl in registered().items()
             }
@@ -145,16 +143,16 @@ def check_day_gate(
 def _last_opened(
     adapters: Any, present: list[str], conn: Any, *, as_of: date
 ) -> tuple[date | None, int | None]:
-    """마지막으로 열린 날과 그 간격. **모든 파트가 열려 있던 가장 최근 날이다.**
+    """마지막으로 열린 날과 그 간격. 모든 파트가 열려 있던 가장 최근 날이다.
 
-    ★ 한 파트만 열려 있던 날은 *"그 날이 열렸다"* 가 아니다 — 전체 어휘의 기준과 같다.
+    한 파트만 열려 있던 날은 "그 날이 열렸다" 가 아니다 — 전체 어휘의 기준과 같다.
 
-    ⚠️ `SEARCH_LIMIT_DAYS` 까지만 걷는다. 못 찾으면 `(None, None)` 이고 그것이
-      `NEVER_OPENED` 다 — 그 너머는 이 Protocol 로 못 가른다.
+    `SEARCH_LIMIT_DAYS` 까지만 걷는다. 못 찾으면 `(None, None)` 이고 그것이
+    `NEVER_OPENED` 다 — 그 너머는 이 Protocol 로 가르지 못한다.
 
-    🔴 **`adapters` 는 이미 축으로 묶인 것이다.** 여기서 `registered()` 를 다시 부르면
-       표시 객체(`SimRunBound`)에 `is_open` 을 묻게 되고, 막힌 날에만 도는 경로라
-       **통과하는 날에는 아무 티도 안 난다.**
+    `adapters` 는 이미 축으로 묶인 것이다. 여기서 `registered()` 를 다시 부르면 표시
+    객체(`SimRunBound`)에 `is_open` 을 묻게 되고, 막힌 날에만 도는 경로라 통과하는 날에는
+    아무 티도 나지 않는다.
     """
     for back in range(1, SEARCH_LIMIT_DAYS + 1):
         day = as_of - timedelta(days=back)
@@ -172,13 +170,13 @@ def _blocked(
     borrow: core_db.Borrow | None = None,
     sim_run_id: str,
 ) -> DayGate:
-    """막힌 이유와 다음 걸음. **판정 규칙은 계약 §2 그대로다.**
+    """막힌 이유와 다음 걸음. 판정 규칙은 계약 §2 그대로다.
 
     ```text
     NEVER_OPENED  · gap 없음          → OPEN_DAY_REQUIRED
     REJECTED_GAP  · 31 < gap ≤ 366    → ADMIN_FORCE_OPEN_REQUIRED
     REJECTED_GAP  · gap > 366         → SPLIT_FORCE_OPEN_REQUIRED
-    NOT_OPENED    · gap ≤ 31          → RETRY_OPEN_DAY  🟡 횟수를 아직 안 센다
+    NOT_OPENED    · gap ≤ 31          → 연속 실패 0~1회 RETRY_OPEN_DAY · 2회 이상 CONTACT_OPERATOR
     ```
     """
     failed = [FailedPart(part=part, reason="그 날짜 상태가 없다") for part in closed]
@@ -202,17 +200,14 @@ def _blocked(
         action = "ADMIN_FORCE_OPEN_REQUIRED"
         why = f"{gap}일이 밀려 상한({MAX_WALK_DAYS}일)을 넘었다 — 관리자 강제 개장이 필요하다"
     else:
-        # 🟢 **연속 실패 횟수로 가른다** (계약 §2 · 정본 표가 섰다).
-        # 🔴 **`borrow` 를 넘긴다.** 안 넘기면 호출자가 대역을 줘도 이 한 줄만
-        #    실 DB 로 샌다 — 그 사이 표가 생기면 검사가 조용히 다른 것을 잰다.
-        #    실제로 그랬다: `master_day_openings` 를 공유 DB 에 적용한 날
-        #    (2026-09-07) 대역을 쓰던 검사가 빨간불이 됐다. **안 터지던 이유가
-        #    '표가 없다' 였고, 그 이유가 사라진 것이다.**
-        # 🔴 **받은 축으로 읽는다** (2026-09-14). 전에는 번인 상수를 박아, 걷기
-        #    실행의 연속 실패 횟수를 번인 개장 기록에서 셌다.
+        # 연속 실패 횟수로 가른다(계약 §2).
+        # `borrow` 를 넘긴다. 안 넘기면 호출자가 대역을 줘도 이 한 줄만 실 DB 로 샌다 —
+        # 실 DB 에 표가 있느냐에 따라 검사가 조용히 다른 것을 잰다.
+        # 받은 축으로 읽는다. 번인 상수로 읽으면 걷기 실행의 연속 실패 횟수를 번인 개장
+        # 기록에서 센다.
         record = read_day_opening(as_of=as_of, sim_run_id=sim_run_id, borrow=borrow)
         if record is None:
-            # ⚠️ 못 읽었거나 한 번도 안 불렀다. **근사하되 근사라고 적는다.**
+            # 못 읽었거나 한 번도 안 불렀다. 근사하되 근사라고 적는다.
             꼬리 = " 개장 정본이 없어 첫 실패로 본다"
             action = "RETRY_OPEN_DAY"
         elif record.failure_count >= 2:

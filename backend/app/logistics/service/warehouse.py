@@ -1,4 +1,4 @@
-"""warehouse.py — Pallet · Location · Zone Capacity (3-E1).
+"""Pallet · Location · Zone Capacity (3-E1).
 
 ```text
 Lot  → place_lot_on_pallet   Pallet 한 장을 만들어 자리에 앉힌다   CREATED
@@ -8,23 +8,23 @@ Lot  → place_lot_on_pallet   Pallet 한 장을 만들어 자리에 앉힌다  
      → get_zone_capacity     Zone 에 자리가 몇 개 남았나
 ```
 
-★ **사실 하나에 함수 하나다.** `pallet_events` 어휘를 아무 함수나 쓰지 못하게 나눴다 —
-  `move_pallet` 에 `CREATED` 를 주면 거절한다. 한 함수가 남의 사실을 대신 적으면
-  이력만 보고는 무슨 일이 있었는지 알 수 없게 된다.
+사실 하나에 함수 하나다. `pallet_events` 어휘를 아무 함수나 쓰지 못하게 나눴다 —
+`move_pallet` 에 `CREATED` 를 주면 거절한다. 한 함수가 남의 사실을 대신 적으면
+이력만 보고는 무슨 일이 있었는지 알 수 없게 된다.
 
-🔴 **재고 수량의 정본은 여기가 아니다.**
+재고 수량의 정본은 여기가 아니다.
 
 ```text
 수량 정본   inventory_lots.remaining_qty_kg + inventory_moves    ← ledger.py
 물리 배치   pallets · storage_locations · pallet_events          ← 이 파일
 ```
 
-  ⚠️ 그래서 이 파일은 **원장 Move 를 만들지 않고 `remaining_qty_kg` 도 바꾸지 않는다.**
-     Pallet 을 만들거나 옮기는 것은 *"같은 물건이 어디 있나"* 이지 *"물건이 늘거나
-     줄었나"* 가 아니다. `pallet_events` 주석이 그렇게 못박고 있다 —
-     *"수량변동 없는 Pallet 위치이동 이력. 수량이 바뀌는 것은 inventory_moves 쪽이다."*
+  그래서 이 파일은 원장 Move 를 만들지 않고 `remaining_qty_kg` 도 바꾸지 않는다.
+  Pallet 을 만들거나 옮기는 것은 "같은 물건이 어디 있나" 이지 "물건이 늘거나
+  줄었나" 가 아니다. `pallet_events` 주석이 그렇게 못박고 있다 —
+  "수량변동 없는 Pallet 위치이동 이력. 수량이 바뀌는 것은 inventory_moves 쪽이다."
 
-🔴 **Zone Capacity 의 단위는 kg 이 아니라 Pallet Position 이다.**
+Zone Capacity 의 단위는 kg 이 아니라 Pallet Position 이다.
 
 ```text
 storage_locations  한 행 = Pallet 한 자리   (DDL 주석: "한 행 = Pallet 한 자리다")
@@ -34,15 +34,15 @@ Zone 정원   = 그 Zone 의 is_active 자리 수
 Zone 점유   = 그 자리에 앉은 ACTIVE·HOLD Pallet 수
 ```
 
-  ★ **kg 을 자리 수로 바꾸는 정본은 `item_packaging_specs.default_kg_per_pallet` 이다**
-    (DDL 주석: *"kg → Pallet Position 환산의 정본이다"*). 코드에 *"1 Pallet = 500kg"*
-    같은 숫자를 만들지 않는다.
+  kg 을 자리 수로 바꾸는 정본은 `item_packaging_specs.default_kg_per_pallet` 이다
+  (DDL 주석: "kg → Pallet Position 환산의 정본이다"). 코드에 "1 Pallet = 500kg"
+  같은 숫자를 만들지 않는다.
 
-  ⚠️ **`pallets` 에 수량 칸이 없다.** DDL 주석: *"Pallet 별 현재 수량은 저장하지 않고
-     Move Line 에서 계산한다."* 그래서 *"이 Pallet 에 60kg"* 을 적을 자리가 없고,
-     Lot 의 과다 배치는 **자리 수**로 막는다 — 스키마가 세는 단위 그대로다.
+  `pallets` 에 수량 칸이 없다. DDL 주석: "Pallet 별 현재 수량은 저장하지 않고
+  Move Line 에서 계산한다." 그래서 "이 Pallet 에 60kg" 을 적을 자리가 없고,
+  Lot 의 과다 배치는 자리 수로 막는다 — 스키마가 세는 단위 그대로다.
 
-🔴 **두 Zone 축을 섞지 않는다.** 실측(2026-09-05)이 둘이 다른 축임을 보인다.
+두 Zone 축을 섞지 않는다. 실측(2026-09-05)이 둘이 다른 축임을 보인다.
 
 ```text
 inventory_lots.storage_zone  ← item_storage_policies.storage_zone
@@ -53,15 +53,15 @@ warehouse_zones.zone_id      ← item_zone_assignments.zone_id
    · OUTBOUND_STAGING · RECEIVING_INSPECTION                                     (3품목)
 ```
 
-  ⚠️ 둘을 잇는 표가 **없다.** 이름이 비슷해 보여도(`COLD_*` ↔ `*_COLD`) 5:5 로 맞지도
-     않고 품목 커버리지도 다르다. 그래서 **문자열로 `zone_id` 를 추측하지 않는다** —
-     허용 Zone 은 `item_zone_assignments` 가 명시할 때만 안다.
+  둘을 잇는 표가 없다. 이름이 비슷해 보여도(`COLD_*` ↔ `*_COLD`) 5:5 로 맞지도
+  않고 품목 커버리지도 다르다. 그래서 문자열로 `zone_id` 를 추측하지 않는다 —
+  허용 Zone 은 `item_zone_assignments` 가 명시할 때만 안다.
 
-  ⚠️ **정책 없는 품목을 아무 Zone 에나 넣지 않는다.** `ITEM-GEONGOCHU` ·
-     `ITEM-PIMANUL` 은 배정이 아예 없다(실측). 그런 품목은 `ZonePolicyUnresolved`
-     로 멈춘다 — 기본 Zone 을 지어내면 온습도가 틀린 자리에 물건이 들어간다.
+  정책 없는 품목을 아무 Zone 에나 넣지 않는다. `ITEM-GEONGOCHU` ·
+  `ITEM-PIMANUL` 은 배정이 아예 없다(실측). 그런 품목은 `ZonePolicyUnresolved`
+  로 멈춘다 — 기본 Zone 을 지어내면 온습도가 틀린 자리에 물건이 들어간다.
 
-🔴 **잠금 순서 계약.** 배치 전용 전역 키 하나를 더한다.
+잠금 순서 계약. 배치 전용 전역 키 하나를 더한다 (키는 `repository/locks.py`).
 
 ```text
 (20260905, 1)  재고 원장 쓰기      ledger.py
@@ -72,38 +72,37 @@ warehouse_zones.zone_id      ← item_zone_assignments.zone_id
 
 ```text
 ① 배치 전역 (20260905, 4)   ← 가장 먼저
-② 자리·정원 **재계산**        잠금 밖에서 본 값을 믿지 않는다
+② 자리·정원 재계산        잠금 밖에서 본 값을 믿지 않는다
 ③ pallets / pallet_events 쓰기
 ④ 커밋은 호출자가 한 번
 ```
 
-  ★ **원장 키 `(…,1)` 을 잡지 않는다.** 이 파일은 Move 를 안 만들어서 잡을 일이 없고,
-    그래서 다른 경로와 교착할 자원이 아예 없다.
+  원장 키 `(…,1)` 을 잡지 않는다. 이 파일은 Move 를 안 만들어서 잡을 일이 없고,
+  그래서 다른 경로와 교착할 자원이 아예 없다.
 
-🔴 **재고가 0 이 돼도 같은 함수 안에서 자리가 비지 않는다.**
+재고가 0 이 돼도 같은 함수 안에서 자리가 비지 않는다.
 
 ```text
 OUT · DISPOSE   →  remaining_qty_kg 를 0 으로 만든다      (원장이 하는 일)
 empty_pallet    →  자리를 돌려준다                        (별도 단계가 부르는 일)
 ```
 
-  ⚠️ `confirm_disposal` 도 `ship_allocated_stock` 도 `empty_pallet` 을 부르지 않는다.
-     한 Lot 이 여러 장에 나뉘어 있으면 **어느 장을 실제로 치웠는지** 원장이 알지 못한다.
-     🔴 **수량 함수가 자리까지 건드리는 길은 여전히 없다.**
+  `confirm_disposal` 도 `ship_allocated_stock` 도 `empty_pallet` 을 부르지 않는다.
+  한 Lot 이 여러 장에 나뉘어 있으면 어느 장을 실제로 치웠는지 원장이 알지 못한다.
+  수량 함수가 자리까지 건드리는 길은 없다.
 
-  ★ **비우는 쪽은 사람이거나 `service/maintenance` 다** (2026-09-09). 뒤엣것은 수량을 안
-    움직이는 조립 계층이라, `Lot.remaining_qty_kg == 0` 을 **먼저 확인한 뒤** 그 Lot 의
-    `ACTIVE` · `HOLD` Pallet 을 이 함수로 넘긴다 — 그래도 아래 ④ 근거를 다시 통과해야
-    하므로 *"어느 장에 남았는지 모른다"* 는 상황에서는 아무것도 안 비운다.
+  비우는 쪽은 사람이거나 `service/maintenance` 다. 뒤엣것은 수량을 움직이지 않는
+  조립 계층이라, `Lot.remaining_qty_kg == 0` 을 먼저 확인한 뒤 그 Lot 의
+  `ACTIVE` · `HOLD` Pallet 을 이 함수로 넘긴다 — 그래도 아래 ④ 근거를 다시 통과해야
+  하므로 "어느 장에 남았는지 모른다" 는 상황에서는 아무것도 안 비운다.
 
-⚠️ **기존 입고·출고를 강제하지 않는다.** 입고는 지금도 Pallet 없이
-   `Receipt → Inspection → Lot → Ledger IN → PUTAWAY_DONE` 로 끝나고, 할당의
-   `pallet_id` 는 여전히 NULL 로 둔다. 배치는 **뒤따르는 별도 단계**다.
+기존 입고·출고를 강제하지 않는다. 입고는 지금도 Pallet 없이
+`Receipt → Inspection → Lot → Ledger IN → PUTAWAY_DONE` 로 끝나고, 할당의
+`pallet_id` 는 여전히 NULL 로 둔다. 배치는 뒤따르는 별도 단계다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/warehouse.py` 을 계층별로 나눴다. 이 파일에는 배치 · 이동 ·
-  비우기의 **순서**와 조회가 필요한 검사가
-  남았다. 값 검사는 `domain/warehouse.py`, SQL 은 `repository/warehouse.py`, 배치 잠금은
-  `repository/locks.py`.
+이 파일에는 배치 · 이동 · 비우기의 순서와 조회가 필요한 검사가 있다. 값 검사는
+`domain/warehouse.py`, SQL 은 `repository/warehouse.py`, 배치 잠금은
+`repository/locks.py` 다.
 """
 
 from __future__ import annotations
@@ -155,7 +154,7 @@ from app.logistics.schemas.warehouse import (
 def _check_zone(
     conn: Any, *, item_id: str, zone_id: str, location_id: str
 ) -> None:
-    """이 자리의 Zone 이 이 품목에 허용되는지 본다. **모르면 멈춘다.**"""
+    """이 자리의 Zone 이 이 품목에 허용되는지 본다. 모르면 멈춘다."""
     허용 = select_zone_allowed(conn, item_id=item_id, zone_id=zone_id)
     if 허용 is None:
         raise ZonePolicyUnresolved(
@@ -176,17 +175,17 @@ def _check_zone(
 def _check_packaging_spec(
     conn: Any, *, packaging_spec_id: str, item_id: str, lot_id: str
 ) -> None:
-    """건네받은 포장규격이 **이 Lot 의 품목 것**인지 본다. DML 전에 막는다.
+    """건네받은 포장규격이 이 Lot 의 품목 것인지 본다. DML 전에 막는다.
 
-    🔴 **FK 는 존재만 보장한다.** `pallets.packaging_spec_id → item_packaging_specs` 는
-       그 규격이 있느냐만 볼 뿐, 그것이 **누구의 규격인지**는 안 본다. 그래서 배추 Lot 에
-       양파 규격(450kg/PLT)이 붙을 수 있고, 그러면 자리 수 환산이 조용히 틀린다.
+    FK 는 존재만 보장한다. `pallets.packaging_spec_id → item_packaging_specs` 는
+    그 규격이 있느냐만 볼 뿐, 그것이 누구의 규격인지는 안 본다. 그래서 배추 Lot 에
+    양파 규격(450kg/PLT)이 붙을 수 있고, 그러면 자리 수 환산이 조용히 틀린다.
 
-    ⚠️ **규격을 임의로 바꾸거나 기본값으로 대체하지 않는다.** 호출자가 잘못 준 것을
-       말없이 고치면 다음에 같은 실수가 또 온다.
+    규격을 임의로 바꾸거나 기본값으로 대체하지 않는다. 호출자가 잘못 준 것을
+    말없이 고치면 다음에 같은 실수가 또 온다.
 
-    ★ `packaging_spec_id=None` 은 스키마가 허용하는 상태라 그대로 둔다 — 규격을 아직
-      안 정한 것과 틀린 규격을 준 것은 다르다.
+    `packaging_spec_id=None` 은 스키마가 허용하는 상태라 그대로 둔다 — 규격을 아직
+    안 정한 것과 틀린 규격을 준 것은 다르다.
     """
     규격 = select_packaging_spec(conn, packaging_spec_id=packaging_spec_id)
     if 규격 is None:
@@ -203,10 +202,10 @@ def _check_packaging_spec(
 
 
 def _check_free_position(conn: Any, *, location_id: str) -> None:
-    """그 자리가 비어 있나. **`uq_pallets_location` 이 터지기 전에 막는다.**
+    """그 자리가 비어 있나. `uq_pallets_location` 이 터지기 전에 막는다.
 
-    🔴 UniqueViolation 을 정상 흐름으로 쓰지 않는다 — 잡아서 흐름을 만들면 어떤 제약이
-       터졌는지 구분하지 못하고 트랜잭션도 이미 더러워진다.
+    UniqueViolation 을 정상 흐름으로 쓰지 않는다 — 잡아서 흐름을 만들면 어떤 제약이
+    터졌는지 구분하지 못하고 트랜잭션도 이미 더러워진다.
     """
     앉은것 = select_pallet_at_location(conn, location_id=location_id)
     if 앉은것 is not None:
@@ -246,7 +245,7 @@ def place_lot_on_pallet(
     packaging_spec_id: str | None = None,
     note: str | None = None,
 ) -> PlacementResult:
-    """Lot 을 Pallet 한 장에 올려 자리에 앉힌다. **재고는 1g 도 움직이지 않는다.**
+    """Lot 을 Pallet 한 장에 올려 자리에 앉힌다. 재고는 1g 도 움직이지 않는다.
 
     ```text
     ① 입력 검증                       DB 를 안 만진다
@@ -257,23 +256,23 @@ def place_lot_on_pallet(
     ⑥ pallets INSERT + pallet_events CREATED
     ```
 
-    🔴 **`INSERT ... pallets` 는 자리를 반드시 함께 받는다.** 스키마의
-       `ck_pallets_location_matches_status` 가 *"살아 있는 Pallet 은 자리가 있다"* 를
-       강제한다 — 그래서 *"Pallet 만 만들고 나중에 앉히기"* 라는 중간 상태가 없다.
-       두 단계로 나누면 DB 가 거절한다.
+    `INSERT ... pallets` 는 자리를 반드시 함께 받는다. 스키마의
+    `ck_pallets_location_matches_status` 가 "살아 있는 Pallet 은 자리가 있다" 를
+    강제한다 — 그래서 "Pallet 만 만들고 나중에 앉히기" 라는 중간 상태가 없다.
+    두 단계로 나누면 DB 가 거절한다.
 
-    ⚠️ **원장을 만들지 않는다.** `inventory_moves` · `inventory_move_lines` ·
-       `remaining_qty_kg` 어느 것도 건드리지 않는다.
+    원장을 만들지 않는다. `inventory_moves` · `inventory_move_lines` ·
+    `remaining_qty_kg` 어느 것도 건드리지 않는다.
 
     ```text
     Lot remaining 100kg  →  Pallet A · Pallet B 에 나눠 앉힘
                         →  Lot remaining 여전히 100kg
     ```
 
-    ★ **부분 Pallet 은 허용이다.** 한 Lot 이 여러 Pallet 에 나뉠 수 있다. 반대로 한
-      Pallet 에 두 Lot 을 섞는 것은 `pallets.lot_id` 가 단일 값이라 스키마가 막는다.
+    부분 Pallet 은 허용이다. 한 Lot 이 여러 Pallet 에 나뉠 수 있다. 반대로 한
+    Pallet 에 두 Lot 을 섞는 것은 `pallets.lot_id` 가 단일 값이라 스키마가 막는다.
 
-    :param pallet_id: 배치의 정체성. **호출자가 준다** — 한 Lot 이 여러 장으로 나뉘어
+    :param pallet_id: 배치의 정체성. 호출자가 준다 — 한 Lot 이 여러 장으로 나뉘어
         `lot_id` 로는 가를 수 없다.
     :param recorded_by: `pallet_events.recorded_by` 가 NOT NULL 이다. 물류가 지어내지 않는다.
     :raises ZonePolicyUnresolved: 이 품목의 허용 Zone 을 모를 때.
@@ -378,20 +377,20 @@ def _check_pallet_budget(
     한도 = ceil(remaining_qty_kg / default_kg_per_pallet)
     ```
 
-    🔴 **kg 이 아니라 자리 수로 잰다.** `pallets` 에 수량 칸이 없어서(DDL 주석:
-       *"Pallet 별 현재 수량은 저장하지 않고 Move Line 에서 계산한다"*) *"이 Pallet 에
-       60kg"* 을 적을 데가 없다. 그래서 과다 배치는 스키마가 세는 단위 —
-       **Pallet Position** — 으로 막는다.
+    kg 이 아니라 자리 수로 잰다. `pallets` 에 수량 칸이 없어서(DDL 주석:
+    "Pallet 별 현재 수량은 저장하지 않고 Move Line 에서 계산한다") "이 Pallet 에
+    60kg" 을 적을 데가 없다. 그래서 과다 배치는 스키마가 세는 단위 —
+    Pallet Position — 으로 막는다.
 
-    🔴 **빈 Lot 은 포장규격과 무관하게 먼저 막는다.** 잔량 0 은 *"창고에 없는 물건"*
-       이라 몇 kg 씩 쌓는지와 상관없이 앉힐 자리가 없다. 이 검사를 환산 정본 뒤에 두면
-       **규격이 없는 품목만 빈 Lot 을 자리에 다시 올릴 수 있게 된다** — 없는 재고가
-       Capacity 를 먹는다.
+    빈 Lot 은 포장규격과 무관하게 먼저 막는다. 잔량 0 은 "창고에 없는 물건"
+    이라 몇 kg 씩 쌓는지와 상관없이 앉힐 자리가 없다. 이 검사를 환산 정본 뒤에 두면
+    규격이 없는 품목만 빈 Lot 을 자리에 다시 올릴 수 있게 된다 — 없는 재고가
+    Capacity 를 먹는다.
 
-    ⚠️ **환산 정본이 없으면 한도만 안 센다.** `item_packaging_specs` 에 기본 규격이
-       없는 품목은 *"1 Pallet = 몇 kg"* 을 아무도 정하지 않았다는 뜻이다. 숫자를
-       지어내는 대신 자리 수 상한을 건너뛴다 — 없는 근거로 배치를 막지도, 지어낸
-       근거로 통과시키지도 않는다. 위의 잔량 검사는 그래도 지나야 한다.
+    환산 정본이 없으면 한도만 안 센다. `item_packaging_specs` 에 기본 규격이
+    없는 품목은 "1 Pallet = 몇 kg" 을 아무도 정하지 않았다는 뜻이다. 숫자를
+    지어내는 대신 자리 수 상한을 건너뛴다 — 없는 근거로 배치를 막지도, 지어낸
+    근거로 통과시키지도 않는다. 위의 잔량 검사는 그래도 지나야 한다.
     """
     if remaining <= 0:
         raise InvalidPlacementRequest(
@@ -421,7 +420,7 @@ def move_pallet(
     event_type: MoveEventType = "RELOCATED",
     note: str | None = None,
 ) -> PlacementResult:
-    """Pallet 을 다른 자리로 옮긴다. **수량도 원장도 건드리지 않는다.**
+    """Pallet 을 다른 자리로 옮긴다. 수량도 원장도 건드리지 않는다.
 
     ```text
     ① 입력 검증
@@ -431,11 +430,11 @@ def move_pallet(
     ⑤ pallets.current_location_id UPDATE + pallet_events
     ```
 
-    ⚠️ **Zone 을 넘는 이동도 여기서 한다.** 목적지 Zone 이 이 품목에 허용인지 다시
-       본다 — 출발지에서 허용이었다고 목적지에서도 허용인 것은 아니다.
+    Zone 을 넘는 이동도 여기서 한다. 목적지 Zone 이 이 품목에 허용인지 다시
+    본다 — 출발지에서 허용이었다고 목적지에서도 허용인 것은 아니다.
 
-    ⚠️ **자리를 비우는(`EMPTIED`) 경로는 여기 없다.** 그것은 잔량이 0 이 된 뒤의
-       일이라 원장 쪽 사실과 맞물린다. 이번 판에서는 옮기기만 한다.
+    자리를 비우는(`EMPTIED`) 경로는 여기 없다. 그것은 잔량이 0 이 된 뒤의
+    일이라 원장 쪽 사실과 맞물리고, `empty_pallet` 이 맡는다. 이 함수는 옮기기만 한다.
 
     :raises InvalidPlacementRequest: 없는 Pallet·자리, 찬 자리, 금지 Zone 일 때.
     :raises ZonePolicyUnresolved: 목적지 Zone 정책을 모를 때.
@@ -523,7 +522,7 @@ def empty_pallet(
     recorded_by: str,
     note: str | None = None,
 ) -> EmptyResult:
-    """다 나간 Pallet 을 비워 **자리를 돌려준다.** 수량은 1g 도 건드리지 않는다.
+    """다 나간 Pallet 을 비워 자리를 돌려준다. 수량은 1g 도 건드리지 않는다.
 
     ```text
     ① 입력 검증
@@ -534,22 +533,22 @@ def empty_pallet(
        pallet_events EMPTIED (from=옛 자리 · to=NULL)
     ```
 
-    🔴 **수량을 움직인 함수가 이 함수를 부르지 않는다.** `confirm_disposal` 도
-       `ship_allocated_stock` 도 여기를 부르지 않는다. *"재고가 0 이 됐다"* 와
-       *"Pallet 을 치웠다"* 는 다른 사실이고, 한 Lot 이 여러 Pallet 에 나뉘어 있으면
-       **어느 장을 치웠는지** 원장이 알지 못한다.
+    수량을 움직인 함수가 이 함수를 부르지 않는다. `confirm_disposal` 도
+    `ship_allocated_stock` 도 여기를 부르지 않는다. "재고가 0 이 됐다" 와
+    "Pallet 을 치웠다" 는 다른 사실이고, 한 Lot 이 여러 Pallet 에 나뉘어 있으면
+    어느 장을 치웠는지 원장이 알지 못한다.
 
     ```text
     재고 0            ≠  같은 함수 안에서 자동 자리 비움
-    DISPOSE/OUT       →  empty_pallet 직접 호출   🔴 여전히 금지
-    service/maintenance  →  잔량 0 확인 → empty_pallet   ★ 별도 단계로만 허용
+    DISPOSE/OUT       →  empty_pallet 직접 호출   금지
+    service/maintenance  →  잔량 0 확인 → empty_pallet   별도 단계로만 허용
     ```
 
-       ★ `service/maintenance` 는 수량을 안 만지는 조립 계층이다. 잔량이 0 임을 먼저
-         확인한 Lot 의 `ACTIVE` · `HOLD` Pallet 만 넘기고, 그래도 아래 ④ 근거를 다시
-         통과해야 한다 — 판정의 주인은 끝까지 이 함수다.
+       `service/maintenance` 는 수량을 안 만지는 조립 계층이다. 잔량이 0 임을 먼저
+       확인한 Lot 의 `ACTIVE` · `HOLD` Pallet 만 넘기고, 그래도 아래 ④ 근거를 다시
+       통과해야 한다 — 판정의 주인은 끝까지 이 함수다.
 
-    🔴 **수량 근거는 Lot 전체 잔량이다 — 추측하지 않는다.**
+    수량 근거는 Lot 전체 잔량이다 — 추측하지 않는다.
 
     ```text
     실측 (2026-09-05 · 실 DB)
@@ -558,20 +557,20 @@ def empty_pallet(
       살아 있는 Pallet 3장의 Lot 잔량  286.92 · 61.76 · 5.72 kg
     ```
 
-      ⚠️ 스키마 주석은 Pallet 별 수량을 *"Move Line 에서 계산한다"* 고 하지만, **어떤
-         코드도 Line 을 쓴 적이 없다.** 그래서 Line 으로 재면 저 3장이 전부 *"0kg"* 으로
-         보여 **물건이 실려 있는 Pallet 을 비워도 된다고 답한다.** 그 축은 아직 정본이
-         아니다.
+      스키마 주석은 Pallet 별 수량을 "Move Line 에서 계산한다" 고 하지만, 어떤
+      코드도 Line 을 쓴 적이 없다. 그래서 Line 으로 재면 저 3장이 전부 "0kg" 으로
+      보여 물건이 실려 있는 Pallet 을 비워도 된다고 답한다. 그 축은 아직 정본이
+      아니다.
 
-      ★ 그래서 이번 판은 증명 가능한 쪽만 쓴다 — `remaining_qty_kg == 0` 이면 그 Lot 의
-        어떤 Pallet 에도 남은 것이 없다는 것이 **확실하다.** 일부라도 남아 있으면
-        어느 장에 남았는지 알 수 없으므로 `PalletNotEmptyable` 로 멈춘다.
+      그래서 증명 가능한 쪽만 쓴다 — `remaining_qty_kg == 0` 이면 그 Lot 의
+      어떤 Pallet 에도 남은 것이 없다는 것이 확실하다. 일부라도 남아 있으면
+      어느 장에 남았는지 알 수 없으므로 `PalletNotEmptyable` 로 멈춘다.
 
-      ⚠️ Move Line 을 실제로 쓰기 시작하면 이 규칙을 Line 축으로 좁힐 수 있다. 그때까지
-         **덜 비우는 쪽**으로 틀린다 — 자리는 늦게 돌아와도 되지만, 있는 물건의 자리를
-         남에게 내주면 안 된다.
+      Move Line 을 실제로 쓰기 시작하면 이 규칙을 Line 축으로 좁힐 수 있다. 그때까지
+      덜 비우는 쪽으로 틀린다 — 자리는 늦게 돌아와도 되지만, 있는 물건의 자리를
+      남에게 내주면 안 된다.
 
-    ⚠️ **원장을 만들지 않는다.** 수량 변화는 이미 `OUT`·`DISPOSE` 가 끝낸 뒤다.
+    원장을 만들지 않는다. 수량 변화는 이미 `OUT`·`DISPOSE` 가 끝낸 뒤다.
 
     :param recorded_by: `pallet_events.recorded_by` 가 NOT NULL 이다. 물류가 지어내지 않는다.
     :raises InvalidPlacementRequest: 없는 Pallet 이거나 이미 폐기된 Pallet 일 때.

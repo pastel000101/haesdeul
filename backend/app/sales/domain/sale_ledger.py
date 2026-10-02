@@ -1,8 +1,7 @@
 """판매 원장 기록 규칙 — 승인된 안을 원장 계획으로 고정하고, 납품 완료가 겹칠 때를 가른다.
 
-★ 2026-09-29 BL-013: `sales/persistence.py` 에서 검증 · 수금기일 · ID 규칙을 옮겼다. SQL 은
-  `repository/sale_ledger.py`, 마스터가 넘긴 연결로 두 단계를 잇는 순서는
-  `service/sale_ledger.py` 다.
+여기는 검증 · 수금기일 · ID 규칙이다. SQL 은 `repository/sale_ledger.py`, 마스터가 넘긴
+연결로 두 단계를 잇는 순서는 `service/sale_ledger.py` 다.
 """
 
 from datetime import timedelta
@@ -112,7 +111,7 @@ def _decimal_or_none(value: Decimal | None) -> Decimal | None:
 
 
 def check_already_delivered(order_statuses: list[object], *, sale_id: str) -> None:
-    """완료 표시가 먹지 않은 판매가 **이미 납품 완료**인지 가른다. 아니면 충돌이다.
+    """완료 표시가 먹지 않은 판매가 이미 납품 완료인지 가른다. 아니면 충돌이다.
 
     ```text
     행이 하나가 아니다     없는 판매다          → 충돌
@@ -120,8 +119,7 @@ def check_already_delivered(order_statuses: list[object], *, sale_id: str) -> No
     그 밖                 완료로 갈 수 없다     → 충돌
     ```
 
-    ★ 2026-09-29 BL-013: `persistence.mark_sale_delivered` 의 되읽기 판정을 옮겼다. 문구는
-      그대로다.
+    `service/sale_ledger.py` 의 `mark_sale_delivered` 가 되읽은 상태로 이 판정을 부른다.
     """
     if len(order_statuses) != 1:
         raise SalesPersistenceConflict(f"sale was not found: {sale_id}")

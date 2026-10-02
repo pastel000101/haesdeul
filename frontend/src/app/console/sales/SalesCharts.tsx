@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * 판매 시각화 — 기간별 · 품목별 · 거래처별 · 미수 구간.
+ * 판매 시각화 — 기간별 · 품목별 · 거래처별 매출.
  *
- * 🔴 **화면이 접지 않는다.** 날짜별 합계는 `/console/sales/trend` 가, 품목별은
- *    `/console/sales/summary` 가, 거래처별은 `/console/sales/partners` 가 이미 접어서
- *    준다. 목록을 받아 프론트에서 더하면 `limit` 이 걸린 일부만 더해 **합계가 조용히
- *    틀린다.**
+ * 화면이 접지 않는다. 날짜별 합계는 `/console/sales/trend` 가, 품목별은
+ * `/console/sales/summary` 가, 거래처별은 `/console/sales/partners` 가 이미 접어서
+ * 준다. 목록을 받아 프론트에서 더하면 `limit` 이 걸린 일부만 더해 합계가 조용히
+ * 틀린다.
  *
- * ⚠️ **`null` 은 0 이 아니다.** 값이 없는 항목은 막대에서 빼고 그 사실을 적는다.
+ * `null` 은 0 이 아니다. 값이 없는 항목은 막대에서 빼고 그 사실을 적는다.
  */
 
 import {
@@ -90,7 +90,7 @@ export function SalesTrendChart({ data }: { data: SalesTrendResponse }) {
       </div>
       <p className="mb-0 mt-2 text-[16px] leading-relaxed text-ink2">
         판매가 있었던 {points.length}일만 표시합니다 — 판 날이 없는 날을 0원으로 채우지 않습니다.
-        {/* ⚠️ 가로축은 날짜가 아니라 «판매가 있었던 날» 의 차례다. 칸 간격을 실제 날짜
+        {/* 가로축은 날짜가 아니라 «판매가 있었던 날» 의 차례다. 칸 간격을 실제 날짜
             간격으로 읽으면 하루 차이와 열흘 차이가 같아 보인다. */}{" "}
         칸 간격은 실제 날짜 간격을 뜻하지 않습니다.
       </p>
@@ -160,7 +160,7 @@ export function SalesItemChart({ data }: { data: SalesSummaryResponse }) {
 
 type PartnerPoint = { name: string; 매출: number; 미수: number; 건수: number };
 
-/** 화면에 담는 거래처 수. 잘린 것은 아래 문장이 **사실대로** 말한다. */
+/** 화면에 담는 거래처 수. 잘린 것은 아래 문장이 사실대로 말한다. */
 const PARTNER_TOP_N = 8;
 
 export function SalesPartnerChart({ rows }: { rows: PartnerRow[] }) {

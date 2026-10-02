@@ -1,113 +1,102 @@
 """
-outbound_flow.py — **하루의 출고를 조립한다. 순서만 정하고 Lot 을 고르지 않는다.**
+outbound_flow.py — 하루의 출고를 조립한다. 순서만 정하고 Lot 을 고르지 않는다.
 
-🔴 **물류가 순서를 마스터에 넘겼다** (물류 회신 2026-09-08).
+역할 분담(물류 회신 2026-09-08): 호출 순서는 마스터가 소유하고, Lot 선택 loop 는 물류
+내부가 소유한다.
 
-  > Allocation 과 Shipment 함수 자체는 분리해서 유지하고, **실제 호출 순서는
-  > Master 가 소유**하는 것으로 보겠습니다.
+  > Allocation 과 Shipment 함수 자체는 분리해서 유지하고, 실제 호출 순서는
+  > Master 가 소유하는 것으로 보겠습니다.
   > Master 는 어느 Reservation 을 실행할지만 정하고, Lot 선택 loop 는 Logistics
   > 내부에서 소유하겠습니다.
 
-  ★ 엔진(`reserve_available_stock` · `allocate_reserved_stock_fefo` ·
-    `ship_allocated_stock`) · 어휘(`app/contracts/sales_logistics.py`) · 시각
-    (`app/master/sim_time.py`) 이 다 서 있는데 **부르는 곳이 0곳이었다.**
-    이 파일이 그 자리다.
-
----
+엔진(`app/logistics/service/outbound.py` · `fefo_allocation.py`) · 어휘
+(`app/contracts/sales_logistics.py`) · 시각(`app/master/domain/sim_time.py`)은 각자의
+자리에 있고, 이 파일은 그것들을 하루 순서로 부르는 자리다.
 
 ## 다섯 걸음
 
 ```text
 ① 그날 sale_date 인 판매의 sale_item 을 고른다
-② reservation_id_for_sale_item(sale_item_id) 으로 예약 이름을 **계산**한다
-③ reserve_confirmed_sale_available 로 **확보되는 만큼** 잡는다
+② reservation_id_for_sale_item(sale_item_id) 으로 예약 이름을 계산한다
+③ reserve_confirmed_sale_available 로 확보되는 만큼 잡는다
 ④ allocate_reserved_stock_fefo(decided_at=phase_instant(as_of, "ALLOCATE"))
 ⑤ ship_allocated_stock(shipped_at=as_of, sale_item_id=…)
-   그리고 그 판매의 **모든 품목**이 나갔으면 mark_sale_delivered
+   그리고 그 판매의 모든 품목이 나갔으면 mark_sale_delivered
 ```
 
-🔴 **`sales.sale_date` 가 납품일의 정본이다.** DDL 주석이 그렇게 정의한다.
+`sales.sale_date` 가 납품일의 정본이다. DDL 주석이 그렇게 정의한다.
 
 ```text
 database/schema/sales/sales.sql
   COMMENT ON COLUMN haetdeul.sales.sale_date IS '판매/납품 기준일.';
 ```
 
-  ⚠️ **봉투에 납품일 칸을 두지 않기로 했다** (2026-09-08 · 물류·판매 합의 ·
-    `app/contracts/sales_logistics.py` 가 그 결정을 적어 뒀다). 같은 날짜를
-    복사해 두면 두 값이 갈리는 날이 온다. 그래서 여기서도 날짜를 저장하지 않고
-    **읽어서 비교만** 한다.
+봉투에 납품일 칸을 두지 않는다(물류·판매 합의 · `app/contracts/sales_logistics.py` 가
+그 결정을 적어 둔다). 같은 날짜를 복사해 두면 두 값이 갈리는 날이 온다. 그래서 여기서도
+날짜를 저장하지 않고 읽어서 비교만 한다.
 
-🔴 **예약 이름은 저장하지 않고 계산한다.** `reservation_id_for_sale_item` 이
-   결정론이라 적어 둘 이유가 없다 — 적어 두면 그 값이 두 번째 정본이 된다.
+예약 이름은 저장하지 않고 계산한다. `reservation_id_for_sale_item` 이 결정론이라 적어 둘
+이유가 없다 — 적어 두면 그 값이 두 번째 정본이 된다.
 
-🔴 **`reserve_confirmed_sale` 이 아니라 `reserve_confirmed_sale_available` 이다.**
-   앞엣것은 전량 아니면 예외를 던지는 사람 경로이고, 여기는 시뮬레이션 경로다.
-   **부분 예약은 정상이다** — 물류가 그렇게 설계했고, 확보된 만큼만 나간다.
+`reserve_confirmed_sale` 이 아니라 `reserve_confirmed_sale_available` 이다. 앞엣것은
+전량 아니면 예외를 던지는 사람 경로이고, 여기는 시뮬레이션 경로다. 부분 예약은
+정상이다 — 물류가 그렇게 설계했고, 확보된 만큼만 나간다.
 
-🔴 **`decided_at` 은 `sim_time.phase_instant(as_of, "ALLOCATE")` 다. 벽시계를
-   읽지 않는다.** `clock.seoul_now` 도 부르지 않는다 — 같은 `as_of` 를 다시
-   돌리면 장부에 같은 값이 적혀야 한다
-   (`tests/core/test_clock_is_the_only_wall_clock.py` 가 AST 로도 지킨다).
+`decided_at` 은 `sim_time.phase_instant(as_of, "ALLOCATE")` 다. 벽시계를 읽지 않는다.
+`core/clock.py` 의 `seoul_now` 도 부르지 않는다 — 같은 `as_of` 를 다시 돌리면 장부에
+같은 값이 적혀야 한다(`tests/core/test_clock_is_the_only_wall_clock.py` 가 AST 로도
+지킨다).
 
----
-
-## 🔴 실패 규율
+## 실패 처리
 
 ```text
-한 판매가 터져도 **나머지 판매는 계속 돈다** — 터진 것은 `items` 에 FAILED 로 남는다
-그날 나갈 것이 없으면 **NOTHING_DUE** — BLOCKED 도 FAILED 도 아니다
-예약이 부분만 확보되면 **그만큼만 나간다**
+한 판매가 실패해도 나머지 판매는 계속 돈다 — 실패한 것은 `items` 에 FAILED 로 남는다
+그날 나갈 것이 없으면 NOTHING_DUE — BLOCKED 도 FAILED 도 아니다
+예약이 부분만 확보되면 그만큼만 나간다
 ```
 
-⚠️ **`ship` 이 실패해도 `allocate` 를 되돌리지 않는다.**
+`ship` 이 실패해도 `allocate` 를 되돌리지 않는다.
 
 ```text
 할당   "어느 Lot 에서 뺄지 정했다"
 출고   "나갔다"
 ```
 
-  두 개는 **다른 사실**이다. 그래서 이 파일은 할당 뒤에 **커밋을 하나 둔다** —
-  그래야 뒤이은 출고가 터져도 롤백이 할당까지 걷어 가지 않는다. 되돌리는 함수
-  (`cancel_allocation`) 를 여기서 부르지도 않는다.
+두 개는 다른 사실이다. 그래서 이 파일은 할당 뒤에 커밋을 하나 둔다 — 그래야 뒤이은
+출고가 실패해도 롤백이 할당까지 걷어 가지 않는다. 되돌리는 함수(`cancel_allocation`)를
+여기서 부르지도 않는다.
 
-🔴 **한 판매에 품목이 여럿이면 그 판매의 모든 품목이 나간 뒤에만
-   `mark_sale_delivered` 를 부른다.** 일부만 나갔는데 `DELIVERED` 로 적으면
-   *"다 갔다"* 가 거짓으로 서고, 판매가 오늘 고친 그 문제가 되살아난다.
+한 판매에 품목이 여럿이면 그 판매의 모든 품목이 나간 뒤에만 `mark_sale_delivered` 를
+부른다. 일부만 나갔는데 `DELIVERED` 로 적으면 "다 갔다" 가 거짓으로 서고, 판매가 막아
+둔 그 문제가 되살아난다.
 
----
-
-## 어휘 — 새로 만들지 않았다
+## 어휘 — 새로 만들지 않는다
 
 ```text
-RAN           출고 단계를 **탔다**       `ItemRunOutcome.status` · `procurement_status`
-FAILED        해 보고 터졌다             같은 곳
-NOTHING_DUE   확인했고 나갈 것이 없다     `InboundOut` · `CollectionOut` — **날 단위**
+RAN           출고 단계를 탔다             `ItemRunOutcome.status` · `procurement_status`
+FAILED        해 보고 실패했다             같은 곳
+NOTHING_DUE   확인했고 나갈 것이 없다       `InboundOut` · `CollectionOut` — 날 단위
 SHORT         확보가 0kg 이라 나간 것이 없다   ← 여기서 새로 둔다 (품목 단위)
 ```
 
-🔴 **`SHORT` 를 `NOTHING_DUE` 로 접지 않는다** (물류 PR #484 수신요청 §5.1).
+`SHORT` 를 `NOTHING_DUE` 로 접지 않는다(물류 PR #484 수신요청 §5.1).
 
 ```text
-NOTHING_DUE   그날 나갈 판매가 **없다**
-SHORT         나갈 판매가 **있었는데** 확보가 0이었다
+NOTHING_DUE   그날 나갈 판매가 없다
+SHORT         나갈 판매가 있었는데 확보가 0이었다
 ```
 
-  **없는 것과 해 봤는데 0인 것은 다른 사실이다.** 접으면 재고가 모자란 날과 주문이
-  없는 날이 장부에서 같아 보인다.
+없는 것과 해 봤는데 0인 것은 다른 사실이다. 접으면 재고가 모자란 날과 주문이 없는 날이
+장부에서 같아 보인다.
 
-★ **`SHIPPED` 를 상태 어휘로 만들지 않았다.** 그것은 물류가 이미
-  `inventory_allocations.status` 에 쓰는 말이라, 단계 결과에 같은 낱말을 쓰면
-  *"SHIP 단계"* 와 *"SHIPPED 상태"* 가 로그에서 구별이 안 된다
-  (`sim_time.py` 가 단계 이름을 동사형으로 둔 것과 같은 이유다).
+`SHIPPED` 를 상태 어휘로 만들지 않는다. 그것은 물류가 이미
+`inventory_allocations.status` 에 쓰는 말이라, 단계 결과에 같은 낱말을 쓰면 "SHIP 단계"
+와 "SHIPPED 상태" 가 로그에서 구별되지 않는다(`sim_time.py` 가 단계 이름을 동사형으로
+둔 것과 같은 이유다).
 
-⚠️ **아직 예약이 0행이라 실물로는 안 돈다.** 판매가 확정 판매를 물류 경계로
-   넘기기 시작하면 그날부터 이 자리가 돈다 — 그때까지 이 함수는 매일
-   `NOTHING_DUE` 를 낸다.
-
-★ 2026-09-30 재구성 BL-018: `master/outbound_flow.py` 에서 옮겼다. 역할이 다른 부분은 갈랐다 —
-  `domain/outbound_flow.py`; `repository/outbound_flow.py`; `schemas/outbound_flow.py`. 무엇이
-  어디로 갔는지는 설계서 대응표 `master/` 절.
+언제 도는가: 판매 승인(`sales_approval.py`)이 `confirm_sale` 로 확정 판매를 적고 확정분을
+예약해 두면, 그 판매의 `sale_date` 에 이 단계가 예약(같은 이름이라 멱등) → 할당 → 출고를
+태운다. 그날 확정 판매가 없으면 `NOTHING_DUE` 다.
 """
 
 from __future__ import annotations
@@ -137,10 +126,10 @@ from app.master.repository.outbound_flow import due_sale_items
 from app.master.schemas.outbound_flow import DueSaleItem, OutboundOut, SaleItemOutcome
 from app.sales.service.sale_ledger import mark_sale_delivered
 
-#: 🔴 **할당 시각을 파생하는 단계 이름.** `sim_time.PHASES` 의 것을 그대로 쓴다.
+#: 할당 시각을 파생하는 단계 이름. `sim_time.PHASES` 의 것을 그대로 쓴다.
 #:
-#: ★ 문자열을 상수로 둔 이유는 검사가 이 값을 찾기 때문이다. 손으로 다시 적으면
-#:   철자가 갈리고, `phase_instant` 가 `ValueError` 를 내는 날까지 아무도 모른다.
+#: 문자열을 상수로 둔 이유는 검사가 이 값을 찾기 때문이다. 손으로 다시 적으면
+#: 철자가 갈리고, `phase_instant` 가 `ValueError` 를 내는 날까지 아무도 모른다.
 ALLOCATE_PHASE: SimPhase = "ALLOCATE"
 
 
@@ -160,24 +149,23 @@ def ship_due_sales(
     release_fn: Callable[..., Any] = release_reservation,
     candidates_fn: Callable[..., Any] = recommend_fefo_candidates,
 ) -> OutboundOut:
-    """`as_of` 에 나갈 판매를 **순서대로 내보낸다. Lot 은 안 고른다.**
+    """`as_of` 에 나갈 판매를 순서대로 내보낸다. Lot 은 고르지 않는다.
 
-    :param release_fn: 할당이 터진 예약을 **그날 놓아주는** 자리 (`_ship_one` 참조).
-    :param candidates_fn: 터진 순간의 FEFO 후보를 **읽기만** 하는 자리 (`_ship_one` 참조).
+    :param release_fn: 할당이 실패한 예약을 그날 놓아주는 자리(`_ship_one` 참조).
+    :param candidates_fn: 실패한 순간의 FEFO 후보를 읽기만 하는 자리(`_ship_one` 참조).
 
-    ★ **`receive_arrivals` · `collect_receipts` 와 같은 모양이다** — `as_of` 하나를
-      받고, 예외를 밖으로 안 내고, 상태를 값으로 돌려준다.
+    `receive_arrivals` · `collect_receipts` 와 같은 모양이다 — `as_of` 하나를 받고,
+    예외를 밖으로 내지 않고, 상태를 값으로 돌려준다.
 
-    🔴 **Lot 선택 loop 가 여기 없다.** 그것은 `allocate_reserved_stock_fefo` 안에서
-       잠금과 함께 돈다 (그 파일이 *"마스터가 밖에서 for 루프를 돌면 ②를 지킬 자리가
-       없다"* 고 적어 뒀다). 이 함수가 정하는 것은 **어느 예약을 실행할지**뿐이다.
+    Lot 선택 loop 가 여기 없다. 그것은 `allocate_reserved_stock_fefo` 안에서 잠금과
+    함께 돈다(그 파일이 "마스터가 밖에서 for 루프를 돌면 ②를 지킬 자리가 없다" 고
+    적어 둔다). 이 함수가 정하는 것은 어느 예약을 실행할지뿐이다.
 
-    🔴 **`sim_run_id` 는 기본값 없는 키워드다.** 기본값을 두면 그 값이 곧 업무
-       규칙이 되고, 안 넘긴 자리가 조용히 번인 장부의 판매를 내보낸다. 안 넘기면
-       **`TypeError` 로 터져야** 그 자리를 그날 안다
-       (`revalidation.revalidate_scenario` 와 같은 모양이다).
+    `sim_run_id` 는 기본값 없는 키워드다. 기본값을 두면 그 값이 곧 업무 규칙이 되고,
+    안 넘긴 자리가 조용히 번인 장부의 판매를 내보낸다. 안 넘기면 `TypeError` 로
+    실패해야 그 자리를 그날 안다(`revalidation.revalidate_scenario` 와 같은 모양이다).
 
-    :param due_fn: 그날 나갈 것을 읽는 자리. **검사가 대역을 끼우는 곳**이다.
+    :param due_fn: 그날 나갈 것을 읽는 자리. 검사가 대역을 끼우는 곳이다.
     """
     open_connection = core_db.connection if borrow is None else borrow
     with ExitStack() as stack:
@@ -200,13 +188,13 @@ def ship_due_sales(
                 reason=f"{as_of.isoformat()} 이 납품 기준일인 확정 판매가 없다",
             )
 
-        # 🔴 **시각을 여기서 한 번 파생한다.** 같은 하루의 할당은 같은 시각으로 적힌다.
+        # 시각을 여기서 한 번 파생한다. 같은 하루의 할당은 같은 시각으로 적힌다.
         decided_at = phase_instant(as_of, ALLOCATE_PHASE)
 
         results: list[SaleItemOutcome] = []
         for row in due:
-            # 🔴 **한 판매가 터져도 여기서 안 멈춘다.** `_ship_one` 이 예외를 값으로
-            #    옮기고, 다음 판매가 그대로 이어 돈다.
+            # 한 판매가 실패해도 여기서 멈추지 않는다. `_ship_one` 이 예외를 값으로
+            # 옮기고, 다음 판매가 그대로 이어 돈다.
             results.append(
                 _ship_one(
                     conn,
@@ -225,8 +213,8 @@ def ship_due_sales(
         delivered = _mark_delivered(conn, results, deliver_fn=deliver_fn, notes=notes)
         failed = tuple(one.sale_item_id for one in results if one.status == "FAILED")
         short = tuple(one.sale_item_id for one in results if one.status == "SHORT")
-        # 🔴 **두 사실을 한 문장에 합치지 않는다.** 터진 것과 확보 0kg 은 다른 일이라
-        #    수를 더하면 읽는 사람이 왜 그랬는지 되짚을 수 없다.
+        # 두 사실을 한 문장에 합치지 않는다. 실패한 것과 확보 0kg 은 다른 일이라
+        # 수를 더하면 읽는 사람이 왜 그랬는지 되짚을 수 없다.
         parts = [f"{len(failed)}건이 터졌다"] if failed else []
         if short:
             parts.append(f"{len(short)}건이 확보 0kg 이라 못 나갔다")
@@ -255,30 +243,30 @@ def _ship_one(
 ) -> SaleItemOutcome:
     """판매 품목 하나를 예약 → 할당 → 출고까지 태운다.
 
-    🔴 **할당 뒤에 커밋이 하나 선다.** `ship` 이 터졌을 때 롤백이 할당까지 걷어 가면
-       *"어느 Lot 에서 뺄지 정했다"* 는 사실이 사라진다 — 출고가 실패한 것과 할당이
-       없던 것은 다른 사실이다.
+    할당 뒤에 커밋이 하나 선다. `ship` 이 실패했을 때 롤백이 할당까지 걷어 가면 "어느
+    Lot 에서 뺄지 정했다" 는 사실이 사라진다 — 출고가 실패한 것과 할당이 없던 것은
+    다른 사실이다.
 
-    ★ **할당을 되돌리는 함수는 안 부른다.** `cancel_allocation` 은 이 파일에 임포트조차
-      없다 — 할당을 물리는 것은 물류의 판단이지 출고 실패의 자동 결과가 아니다.
+    할당을 되돌리는 함수는 부르지 않는다. `cancel_allocation` 은 이 파일에 임포트조차
+    없다 — 할당을 물리는 것은 물류의 판단이지 출고 실패의 자동 결과가 아니다.
 
-    🔴 **예약 뒤 커밋이 하나 더 있어서, 할당이 터지면 예약만 남는다.** 그 예약은
-       처리한 날 뒤로는 다시 안 잡히고(`due_sale_items`), 놓아주는 길도
-       없어 **영원히 그 품목의 가용재고를 잡는다** — REH-0914 실측 7건 · 6,436kg 이
-       판매가능량을 0 으로 깔았다 (2026-09-15). 그래서 **할당이 안 선 예약은 그날
-       놓아준다** (`release_fn` · `released_as_of = as_of`). WP-3 는 `released_as_of`
-       로 «그날 있다가 사라진 예약» 을 그대로 되살리므로 과거 장부가 안 어긋난다.
+    예약 뒤에도 커밋이 하나 있어서, 할당이 실패하면 예약만 남는다. 그 예약은 처리한 날
+    뒤로는 다시 잡히지 않으므로(`due_sale_items`) 그대로 두면 영원히 그 품목의
+    가용재고를 잡는다 — REH-0914 실측(2026-09-15)에서 7건 · 6,436kg 이 판매가능량을 0
+    으로 깔았다. 그래서 할당이 안 선 예약은 그날 놓아준다(`release_fn` ·
+    `released_as_of = as_of`). WP-3 는 `released_as_of` 로 «그날 있다가 사라진 예약» 을
+    그대로 되살리므로 과거 장부가 어긋나지 않는다.
 
-       ⚠️ **출고가 터진 것은 안 놓아준다.** 할당이 서 있으면 재실행이 멱등하게 이어
-          나간다 — 놓아주면 그 할당까지 `CANCELLED` 로 내려간다.
+    출고가 실패한 것은 놓아주지 않는다. 할당이 서 있으면 재실행이 멱등하게 이어
+    나간다 — 놓아주면 그 할당까지 `CANCELLED` 로 내려간다.
 
-    🟡 **터지면 그날 후보를 읽어 값으로 남긴다** (2026-09-15 · 관측). `candidates_fn` 은
-       **읽기만** 한다 — 결과의 `status` · `reason` 을 안 바꾸고 칸만 채운다.
+    실패하면 그날 후보를 읽어 값으로 남긴다(관측). `candidates_fn` 은 읽기만 한다 —
+    결과의 `status` · `reason` 을 바꾸지 않고 칸만 채운다.
     """
     reservation_id = reservation_id_for_sale_item(row.sale_item_id)
     예약_섰다 = False
     할당_섰다 = False
-    # ★ 확보량을 기억해 둔다 — 터진 가지에서도 얼마를 잡고 있었는지가 보여야 한다.
+    # 확보량을 기억해 둔다 — 실패한 가지에서도 얼마를 잡고 있었는지가 보여야 한다.
     확보량: Decimal | None = None
     try:
         reserved = reserve_fn(
@@ -289,21 +277,21 @@ def _ship_one(
                 sale_id=row.sale_id,
                 sale_item_id=row.sale_item_id,
                 item_id=row.item_id,
-                # 🔴 **판매 요구량 그대로다.** 모자라면 물류가 확보한 만큼만 잡고,
-                #    못 잡은 몫은 `ReservationResult` 에 보이게 남는다.
+                # 판매 요구량 그대로다. 모자라면 물류가 확보한 만큼만 잡고,
+                # 못 잡은 몫은 `ReservationResult` 에 보이게 남는다.
                 quantity_kg=row.quantity_kg,
                 as_of=as_of,
             ),
         )
         conn.commit()
         확보량 = reserved_qty_of(reserved)
-        # ★ 확보량을 못 읽은 것(None)도 «섰다» 로 본다 — 행이 있을 수 있어서다.
+        # 확보량을 못 읽은 것(None)도 «섰다» 로 본다 — 행이 있을 수 있어서다.
         예약_섰다 = 확보량 != 0
 
         if 확보량 == 0:
-            # 🔴 **없는 예약을 할당하지 않는다** (물류 §5.1). 예전에는 그대로
-            #    `allocate` 로 가서 `OutboundIntegrityError` 가 났고, 그것이 `FAILED`
-            #    로 적혔다 — **정상 사업 결과가 장애로 기록됐다.**
+            # 없는 예약을 할당하지 않는다(물류 §5.1). 그대로 `allocate` 로 가면
+            # `OutboundIntegrityError` 가 나서 `FAILED` 로 적힌다 — 정상 사업
+            # 결과가 장애로 기록된다.
             return SaleItemOutcome(
                 sale_id=row.sale_id,
                 sale_item_id=row.sale_item_id,
@@ -319,10 +307,10 @@ def _ship_one(
             conn,
             reservation_id=reservation_id,
             as_of=as_of,
-            # 🔴 **벽시계가 아니다.** `sim_time` 이 `as_of` 에서 파생한 값이다.
+            # 벽시계가 아니다. `sim_time` 이 `as_of` 에서 파생한 값이다.
             decided_at=decided_at,
         )
-        # 🔴 **여기가 그 커밋이다.** 아래 출고가 터져도 할당은 남는다.
+        # 여기가 그 커밋이다. 아래 출고가 실패해도 할당은 남는다.
         conn.commit()
         할당_섰다 = True
 
@@ -336,14 +324,14 @@ def _ship_one(
     except Exception as exc:  # noqa: BLE001 - 한 판매가 하루를 세우면 안 된다.
         conn.rollback()
         reason = f"{type(exc).__name__}: {exc}"
-        # 🟡 **후보는 놓아주기 전에 읽는다.** 알고 싶은 것은 «터진 순간의 후보» 다 —
-        #    놓아준 뒤에 읽으면 그 예약이 사라진 세상을 본다. Lot 후보(`_available_lots`)는
-        #    지금 예약이 아니라 할당만 빼므로 값이 같지만, 순서를 뒤로 두면 그 전제가
-        #    바뀌는 날 칸이 조용히 틀린다.
+        # 후보는 놓아주기 전에 읽는다. 알고 싶은 것은 «실패한 순간의 후보» 다 —
+        # 놓아준 뒤에 읽으면 그 예약이 사라진 세상을 본다. Lot 후보(`_available_lots`)는
+        # 지금 예약이 아니라 할당만 빼므로 값이 같지만, 순서를 뒤로 두면 그 전제가
+        # 바뀌는 날 칸이 조용히 틀린다.
         #
-        # ⚠️ **할당이 선 뒤(출고가 터진 것)는 안 읽는다.** 그때는 Lot 이 이미 정해져 후보가
-        #    답이 아니고, 출고 실패 뒤 트랜잭션 순서(`reserve · commit · allocate · commit ·
-        #    ship · rollback`)를 그대로 둔다.
+        # 할당이 선 뒤(출고가 실패한 것)는 읽지 않는다. 그때는 Lot 이 이미 정해져 후보가
+        # 답이 아니고, 출고 실패 뒤 트랜잭션 순서(`reserve · commit · allocate · commit ·
+        # ship · rollback`)를 그대로 둔다.
         후보수: int | None = None
         후보합: Decimal | None = None
         if not 할당_섰다:
@@ -384,13 +372,13 @@ def _ship_one(
 def _candidates_at(
     conn: Any, row: DueSaleItem, *, as_of: date, candidates_fn: Callable[..., Any]
 ) -> tuple[int | None, Decimal | None]:
-    """터진 순간 **그날의 FEFO 후보** 수 · 가용합. 🔴 **읽기만 한다.**
+    """실패한 순간 그날의 FEFO 후보 수 · 가용합. 읽기만 한다.
 
-    🔴 **여기서 터져도 결과를 안 바꾼다.** 관측이 판정을 흔들면 안 된다 — 칸만 `None`
-       이고 `status` · `reason` 은 부르는 쪽이 정한 그대로다.
+    여기서 실패해도 결과를 바꾸지 않는다. 관측이 판정을 흔들면 안 된다 — 칸만 `None`
+    이고 `status` · `reason` 은 부르는 쪽이 정한 그대로다.
 
-    ★ **읽은 뒤 롤백한다.** 읽기라도 트랜잭션을 열어 두면 뒤따르는 놓아주기가 그 안에서
-      돈다 — 깨끗한 트랜잭션에서 시작하게 둔다.
+    읽은 뒤 롤백한다. 읽기라도 트랜잭션을 열어 두면 뒤따르는 놓아주기가 그 안에서
+    돈다 — 깨끗한 트랜잭션에서 시작하게 둔다.
     """
     try:
         후보 = tuple(
@@ -402,7 +390,7 @@ def _candidates_at(
         )
     except Exception:  # noqa: BLE001 - 관측 실패가 출고 결과를 바꾸면 안 된다.
         수, 합 = None, None
-    # ★ 롤백 실패도 관측의 일이다 — 결과는 그대로 나간다.
+    # 롤백 실패도 관측의 일이다 — 결과는 그대로 나간다.
     with contextlib.suppress(Exception):
         conn.rollback()
     return 수, 합
@@ -411,13 +399,13 @@ def _candidates_at(
 def _release_stranded(
     conn: Any, *, reservation_id: str, as_of: date, release_fn: Callable[..., Any]
 ) -> tuple[str, Literal["RELEASED", "RELEASE_FAILED"]]:
-    """할당이 안 선 예약을 **그날** 놓아준다. 🔴 예약은 이미 커밋됐다 — 롤백이 못 걷는다.
+    """할당이 안 선 예약을 그날 놓아준다. 예약은 이미 커밋됐다 — 롤백이 걷지 못한다.
 
-    ★ 여기서 터져도 하루는 계속 간다. 못 놓아준 사실은 사유에 남긴다 — 그래야 다음
-      사람이 «왜 아직 잡고 있나» 를 되짚을 수 있다.
+    여기서 실패해도 하루는 계속 간다. 못 놓아준 사실은 사유에 남긴다 — 그래야 다음
+    사람이 «왜 아직 잡고 있나» 를 되짚을 수 있다.
 
-    :returns: `(사유에 붙일 문장, 놓아주기 결과)`. 🔴 **결과를 문장에서 뽑지 않게 값으로
-        같이 돌려준다** (2026-09-15) — 문장을 고치는 날 칸이 조용히 틀리지 않도록.
+    :returns: `(사유에 붙일 문장, 놓아주기 결과)`. 결과를 문장에서 뽑지 않게 값으로
+        같이 돌려준다 — 문장을 고치는 날 칸이 조용히 틀리지 않도록.
     """
     try:
         release_fn(conn, reservation_id=reservation_id, released_as_of=as_of)
@@ -437,12 +425,12 @@ def _mark_delivered(
 ) -> tuple[str, ...]:
     """모든 품목이 나간 판매만 `DELIVERED` 로 옮긴다.
 
-    ⚠️ **판매 lifecycle 은 판매 것이다.** 이 함수는 판매가 내준 훅
-      (`mark_sale_delivered` — *"caller-owned completion hook"*) 을 부르기만 하고,
-      `sales.order_status` 를 직접 쓰지 않는다.
+    판매 lifecycle 은 판매 것이다. 이 함수는 판매가 내준 훅(`mark_sale_delivered` —
+    "caller-owned completion hook")을 부르기만 하고, `sales.order_status` 를 직접 쓰지
+    않는다.
 
-    ★ **여기서 터져도 출고를 되돌리지 않는다.** 물건은 이미 나갔다 — 나간 사실과
-      판매 상태가 못 따라온 사실은 다르고, 뒤엣것은 `notes` 에 남는다.
+    여기서 실패해도 출고를 되돌리지 않는다. 물건은 이미 나갔다 — 나간 사실과 판매
+    상태가 못 따라온 사실은 다르고, 뒤엣것은 `notes` 에 남는다.
     """
     delivered: list[str] = []
     for sale_id in fully_shipped_sales(results):

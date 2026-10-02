@@ -1,12 +1,12 @@
 /**
  * 화면용 API 클라이언트 — 여섯 탭이 쓰는 값.
  *
- * ★ **에이전트 API(`lib/api.ts`)와 다른 것입니다.** 저쪽은 마스터를 돌리고,
- *   이쪽은 저장된 값을 읽기만 합니다. 주소로 갈라 둡니다 —
- *   `/master/ask` 는 돌리는 것, `/api/…` 는 보는 것.
+ * 에이전트 API(`lib/api.ts`)와 다른 것입니다. 저쪽은 마스터를 돌리고,
+ * 이쪽은 저장된 값을 읽기만 합니다. 주소로 갈라 둡니다 —
+ * `/master/ask` 는 돌리는 것, `/api/…` 는 보는 것.
  *
- * ★ **여기 있는 타입은 백엔드 `app/api/primitives.py` 를 그대로 옮긴 것입니다.**
- *   한쪽만 고치면 화면이 조용히 빈 칸이 됩니다. 둘을 같이 고치세요.
+ * 여기 있는 타입은 백엔드 `app/api/primitives.py`(부품)와 `app/api/<탭>/schema.py`(탭)를
+ * 그대로 옮긴 것입니다. 한쪽만 고치면 화면이 조용히 빈 칸이 됩니다. 둘을 같이 고치세요.
  */
 
 const BASE = process.env.NEXT_PUBLIC_SCREEN_BASE ?? "/api/screen";
@@ -21,31 +21,26 @@ export class ScreenError extends Error {
 }
 
 /**
- * 응답 상한. **이 파일은 읽기 전용**이라 걸리는 곳이 뻔하고, 그래서 값을 잴 수 있었다.
+ * 응답 상한. 이 파일은 읽기 전용이라 걸리는 곳이 뻔하고, 그래서 값을 잴 수 있었다.
  *
  * 2026-09-11 실측 (걷기가 도는 중 · 같은 LAN 의 DB) —
  *
  *     /dashboard  2.14s   ← 여섯 중 제일 느리다
  *     /logistics  0.73s
- *     /purchase   0.97s   🔴 낡았다 — 아래 09-17 줄
  *     /sales      0.17s
  *
- * 🔵 2026-09-17 `/purchase` 다시 잼 (프록시 경유 3회 중앙값 · as_of 08-31) —
+ * `/purchase` 는 2026-09-17 실측 0.18s (프록시 경유 3회 중앙값 · as_of 08-31).
  *
- *     /purchase   1.39s → 0.18s   도착일 조회에 걷기 축을 SQL 로 걸었다 (`2c292726`)
- *
- *   ⚠️ 나머지 셋은 09-11 값 그대로 둔다 — 이 판에서 다시 재지 않은 수를 고치지 않는다.
- *
- * ★ 20초는 그 최대의 **약 10배**다. 넉넉한 쪽으로 골랐다 — 이 상한이 하려는 일은
- *   *"느린 요청을 빨리 자르는 것"* 이 아니라 *"영영 안 끝나는 요청을 끝내는 것"* 이다
- *   (`#81`). 백엔드는 **접속**이 5초에 끊기지만, **붙은 뒤 안 끝나는 것**은 안 막는다.
+ * 20초는 그 최대의 약 10배다. 넉넉한 쪽으로 골랐다 — 이 상한이 하려는 일은
+ * "느린 요청을 빨리 자르는 것" 이 아니라 "영영 안 끝나는 요청을 끝내는 것" 이다
+ * (`#81`). 백엔드는 접속이 5초에 끊기지만, 붙은 뒤 안 끝나는 것은 안 막는다.
  */
 const TIMEOUT_MS = 20_000;
 
 async function get<T>(path: string, params: Record<string, string>): Promise<T> {
   const qs = new URLSearchParams(params).toString();
-  // 🔴 **본문까지 같은 상한 안에 둔다.** 헤더만 먼저 오고 본문이 안 끝나는 경우가 있어
-  //    ``res.text()`` 를 마친 뒤에야 타이머를 끈다.
+  // 본문까지 같은 상한 안에 둔다. 헤더만 먼저 오고 본문이 안 끝나는 경우가 있어
+  // ``res.text()`` 를 마친 뒤에야 타이머를 끈다.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -63,8 +58,8 @@ async function read<T>(url: string, controller: AbortController): Promise<T> {
       signal: controller.signal,
     });
   } catch {
-    // ⚠️ **끊은 것과 못 닿은 것은 다른 사고다.** 한 문장으로 뭉치면 화면을 보는 사람이
-    //    "서버를 켜라" 는 엉뚱한 조치를 한다 — 서버는 떠 있고 느린 것이다.
+    // 끊은 것과 못 닿은 것은 다른 사고다. 한 문장으로 뭉치면 화면을 보는 사람이
+    // "서버를 켜라" 는 엉뚱한 조치를 한다 — 서버는 떠 있고 느린 것이다.
     throw controller.signal.aborted
       ? new ScreenError(0, `${TIMEOUT_MS / 1000}초 안에 응답이 오지 않아 끊었습니다 — 서버가 떠 있으나 느립니다.`)
       : new ScreenError(0, "백엔드에 닿지 못했습니다 — 서버가 떠 있는지 확인해 주세요.");
@@ -116,7 +111,7 @@ export interface Column {
   label: string;
   align: Align;
   mono: boolean;
-  /** 칸 너비(CSS `12%` · `120px`). `null` 이면 균등 배분. **표마다 따로 정한다** (`#812`). */
+  /** 칸 너비(CSS `12%` · `120px`). `null` 이면 균등 배분. 표마다 따로 정한다 (`#812`). */
   width: string | null;
 }
 export type Cell = string | number | null;
@@ -289,16 +284,16 @@ export interface Plan {
   amount_krw: number;
   unit_price: number;
   grade: string;
-  /** 재무 STRESS 로 나가는 수 (amount_max_krw = qty × 이것). **컷이 아니다.** */
+  /** 재무 STRESS 로 나가는 수 (amount_max_krw = qty × 이것). 컷이 아니다. */
   max_price: number;
   /**
-   * 🔴 컷 기준 — 이보다 비싼 안은 실제로 죽는다.
+   * 컷 기준 — 이보다 비싼 안은 실제로 죽는다.
    *
    * `max_price` 와 방향이 반대라 한 수가 둘을 대신할 수 없다 — 밴드가 좁아지면 컷은
    * 엄격해지고 재무 STRESS 는 느슨해진다. 지금은 두 값이 같아 화면이 안 틀리지만
    * 컷 산식을 바꾸는 날 갈라진다.
    *
-   * ⚠️ `null` 이면 **그 실행에 칸이 없던 것**이다. `max_price` 로 메우지 않는다 —
+   * `null` 이면 그 실행에 칸이 없던 것이다. `max_price` 로 메우지 않는다 —
    * 없는 값을 그럴듯한 값으로 채우면 없었다는 사실이 지워진다.
    */
   cut_unit_price: number | null;
@@ -307,38 +302,38 @@ export interface Plan {
   reasons: Reason[];
   risks: string[];
   /**
-   * 이 안의 **요청(품목·날)** 에 아직 결정이 없나 (2026-09-17 · 요청 단위).
+   * 이 안의 요청(품목·날)에 아직 결정이 없나. 안 단위가 아니라 요청 단위다.
    *
-   * 🔴 같은 요청에서 다른 안이 결정되면 이 안도 `false` 다 — 「승인 대기」 수와 요청 틀의
-   *    초록 테두리가 이 칸을 본다. 낱말(`state`)은 「후보」 그대로다.
+   * 같은 요청에서 다른 안이 결정되면 이 안도 `false` 다 — 「승인 대기」 수와 요청 틀의
+   * 초록 테두리가 이 칸을 본다. 낱말(`state`)은 「후보」 그대로다.
    */
   pending: boolean;
   /** 이미 승인된 안인가. 화면은 `state` 를 쓰고, 이 칸은 대시보드 서버가 읽는다. */
   approved: boolean;
   /**
-   * 이 안이 **실제로 어느 상태인가** — 「후보」·「승인됨」·「매입 기록됨」·「반려」.
+   * 이 안이 실제로 어느 상태인가 — 「후보」·「승인됨」·「매입 기록됨」·「반려」.
    *
-   * 🔴 `approved` 하나로는 못 가른다. 승인만 된 안과 실매입까지 적은 안이 **둘 다
-   * 참**이라, 참/거짓 한 칸으로는 같은 말이 된다.
+   * `approved` 하나로는 못 가른다. 승인만 된 안과 실매입까지 적은 안이 둘 다
+   * 참이라, 참/거짓 한 칸으로는 같은 말이 된다.
    *
-   * ★ 낱말의 주인은 서버다 (`app/master/domain/plan_state.py`). 화면은 받은 말을 그대로 쓰고,
+   * 낱말의 주인은 서버다 (`app/master/domain/plan_state.py`). 화면은 받은 말을 그대로 쓰고,
    * 여기서 새 낱말을 만들지 않는다 — 만드는 순간 대시보드와 매입 화면이 같은 안을
    * 다른 이름으로 부른다.
    */
   state: string;
   /**
-   * 이 안을 낸 실행의 업무 키. **말로 한 승인이 이것을 짚는다.**
+   * 이 안을 낸 실행의 업무 키. 말로 한 승인이 이것을 짚는다.
    *
-   * ⚠️ `null` 이면 못 읽은 것이다. 그 안은 말로 승인할 수 없고, 화면은 그 사실을
+   * `null` 이면 못 읽은 것이다. 그 안은 말로 승인할 수 없고, 화면은 그 사실을
    * 사람 말로 적고 멈춘다 — 지어내면 엉뚱한 실행이 승인된다.
    */
   request_id: string | null;
-  /** 그 실행의 이력 행 id. 업무 키 하나에 실행이 여럿이라 **짝으로** 들고 다닌다. */
+  /** 그 실행의 이력 행 id. 업무 키 하나에 실행이 여럿이라 짝으로 들고 다닌다. */
   history_run_id: string | null;
   /**
-   * 어느 걷기의 실행인가. 🔴 `null` 은 «못 읽었다» 가 아니라 **걷기 밖**(손 실행·축이
-   * 생기기 전)이다. 백엔드 `api/purchase/schema.py` `Plan.sim_run_id` 에 있던 칸인데
-   * 이 타입에 빠져 있었다 (2026-09-17). 지금 화면은 이 칸을 안 그린다.
+   * 어느 걷기의 실행인가. `null` 은 «못 읽었다» 가 아니라 걷기 밖(손 실행·축이
+   * 생기기 전)이다. 백엔드 `api/purchase/schema.py` `Plan.sim_run_id` 의 거울이다.
+   * 지금 화면은 이 칸을 안 그린다.
    */
   sim_run_id: string | null;
 }

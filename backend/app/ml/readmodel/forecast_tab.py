@@ -1,11 +1,10 @@
 """가격 예측 탭(화면 `GET /api/forecast`)이 읽는 원본 창고 조회 — 조회 한 번에 연결 하나.
 
-★ 네 조회가 **따로 실패할 수 있다.** 화면(`app/api/forecast/presenter.py::_fetch`)이 조회마다
-  예외를 받아 «예시값» 으로 떨어뜨린다 — 그래서 한 연결로 묶지 않고 조회마다 원본 창고 풀에서
-  빌리고 돌려준다(종전 `app/ml/db.py::fetch_all(source=True)` 와 같은 대여 단위).
+네 조회가 따로 실패할 수 있다. 화면(`app/api/forecast/presenter.py::_fetch`)이 조회마다
+예외를 받아 «예시값» 으로 떨어뜨린다 — 그래서 한 연결로 묶지 않고 조회마다 원본 창고 풀에서
+빌리고 돌려준다.
 
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 화면 파일이 SQL 을 들고 `app/ml/db.py` 로
-  실행했다. SQL 은 `repository/forecast_tab.py`, 화면에는 표 · 차트 조립만 남았다.
+SQL 은 `repository/forecast_tab.py` 에 있고, 화면은 표 · 차트 조립만 한다.
 """
 
 from __future__ import annotations

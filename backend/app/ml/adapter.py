@@ -2,35 +2,35 @@
 
 ## 무엇인가
 
-**마스터가 우리를 부르는 유일한 문**이다. 다른 파트와 같은 모양으로 맞췄다
+마스터가 우리를 부르는 유일한 문이다. 다른 파트와 같은 모양이다
 (`logistics/adapter.py::logistics_port` · `purchase_agent/adapter.py::purchase_port`).
 
 ```text
 AgentPort = (AgentRequest) -> (AgentReply, ExecutionMetadata)
 ```
 
-★ **HTTP 를 안 쓴다.** `app/api/ml/qa.py` 의 `/ml/qa` 는 **시험용 입구**이고 연결에
-  쓰지 않는다. 같은 프로세스 안에서 함수로 부른다 — 다른 파트가 전부 그렇고,
-  그래야 마스터의 호출 예산·이력·봉투 검증이 한 줄기로 이어진다.
+HTTP 를 안 쓴다. `app/api/ml/qa.py` 의 `/ml/qa` 는 시험용 입구이고 연결에
+쓰지 않는다. 같은 프로세스 안에서 함수로 부른다 — 다른 파트가 전부 그렇고,
+그래야 마스터의 호출 예산·이력·봉투 검증이 한 줄기로 이어진다.
 
-## 두 갈래인 이유 — 지금 마스터는 질문을 안 실어 보낸다
+## 두 갈래 — 질문이 있을 때와 없을 때
 
-`master/service/status_flow.py` 가 `runner.call(agent, "STATUS_QUERY")` 만 부른다.
-**`payload` 가 비어서 온다.** 그래서 두 경우를 다 받는다.
+마스터 상태 조회(`master/service/status_flow.py::_payload_for`)는 `STATUS_QUERY` 에
+`{"question": 원문, "item": 품목}` 을 싣고, 원문이 없으면 ML 을 부르지 않는다.
+그래도 빈 payload 가 올 수 있으므로 두 경우를 다 받는다.
 
 ```text
 payload 에 question 이 있다    질문을 해석해 답한다 (우리 Q&A 그대로)
 payload 가 비어 있다           오늘 예측 요약을 답한다 — 되묻지 않는다
 ```
 
-🔴 **빈 요청에 되묻지 않는다.** 마스터가 사람 말을 그대로 넘겨주게 되기 전까지는
-  «무엇을 물었는지» 를 알 길이 없는데, 그 상태에서 `NEEDS_CLARIFICATION` 을 내면
-  **조회할 때마다 되묻는 부서**가 된다. 오늘 값을 요약해 주는 편이 답이다.
+빈 요청에 되묻지 않는다. 질문이 없으면 «무엇을 물었는지» 를 알 길이 없는데, 그 상태에서
+`NEEDS_CLARIFICATION` 을 내면 조회할 때마다 되묻는 부서가 된다. 오늘 값을 요약해 주는
+편이 답이다.
 
-## 마스터가 「ml」을 알아야 부를 수 있다 — 저쪽 3줄
+## 마스터가 「ml」을 알아야 부를 수 있다 — 저쪽 세 자리
 
-우리 쪽은 이 파일로 끝이고, 마스터 저장소에 세 자리가 필요하다. 우리는
-`app/ml/` 밖을 고치지 않으므로 **문서로 넘긴다** (`app/ml/README.md`).
+마스터 쪽에 필요한 자리는 셋이고, 셋 다 들어가 있다.
 
 ```python
 # app/contracts/envelope.py  AgentName
@@ -43,39 +43,34 @@ AgentName = Literal["finance", "inventory", "purchase", "sales", "ml"]
 register_agent("ml", ml_port)
 ```
 
-🟢 **2026-09-29 자리가 바뀌었다** (재구성 BL-011). 봉투가 `app/contracts/envelope.py` 로
-  올라왔고, 등록은 다른 파트와 같이 마스터 조립 루트가 `ml_port` 를 직접 건다. 전에는
-  `app/ml/wiring.py` 의 `register_ml_agent` 가 마스터 등록소를 import 해 스스로 붙었다 —
-  부서가 마스터를 import 하는 역방향이라 지웠다.
+등록은 다른 파트와 같이 마스터 조립 루트가 `ml_port` 를 직접 건다. 부서가 마스터
+등록소를 import 하지 않는다 — 그러면 부서가 마스터를 import 하는 역방향이 된다.
 
-★ **모드를 새로 만들지 않았다.** `STATUS_QUERY` 는 *"묻기만 하는 요청"* 이고
-  우리가 하는 일이 정확히 그것이다. 새 모드를 요구하면 저쪽이 고칠 자리가 는다.
+모드를 새로 만들지 않는다. `STATUS_QUERY` 는 "묻기만 하는 요청" 이고
+우리가 하는 일이 정확히 그것이다. 새 모드를 요구하면 저쪽이 고칠 자리가 는다.
 
-🔴 **`suggested_adjustments` 를 절대 싣지 않는다.** 봉투가 `_AGENT_DEPT` 에 없는
-  에이전트의 조정안을 `ContractViolation` 으로 막는다. 우리는 조언자가 아니라
-  **답하는 쪽**이다 — 밴드에 기여하지 않는다.
+`suggested_adjustments` 를 싣지 않는다. 봉투가 `_AGENT_DEPT` 에 없는
+에이전트의 조정안을 `ContractViolation` 으로 막는다. 우리는 조언자가 아니라
+답하는 쪽이다 — 밴드에 기여하지 않는다.
 
-## payload 를 어떻게 짜나 — 마스터가 한 줄씩 펼쳐 쓴다
+## payload 를 어떻게 짜나
 
-`master/domain/answer.py::facts_from_status` 가 payload 의 **키마다 한 줄**을 만든다.
-아는 키는 라벨을 붙이고, 모르는 키는 **이름 그대로** 나간다.
-
-그래서 마크다운 한 덩어리를 payload 에 그냥 넣으면 **표가 한 줄로 뭉개진다.**
-둘로 나눠 싣는다.
+`master/domain/answer.py::facts_from_status` 는 payload 의 키마다 한 줄을 만든다.
+아는 키는 라벨을 붙이고, 모르는 키는 이름 그대로 나간다. 마크다운 한 덩어리를 그렇게
+펼치면 표가 한 줄로 뭉개지므로 둘로 나눠 싣는다.
 
 ```text
 answer_markdown   사람에게 그대로 보여줄 글. 마스터가 통째로 실으면 된다
 나머지 칸          기계가 읽는 값 — 품목·가격종류·기준일·대상일·예측값·오차율
 ```
 
-⚠️ **마스터가 `answer_markdown` 을 그대로 실을지는 저쪽 결정이다.** 지금 규칙대로면
-  한 줄로 펼쳐진다. 그래서 `app/ml/README.md` 에 *"이 칸은 펼치지 말고
-  그대로 붙여 달라"* 를 적었고, 그때까지도 **나머지 칸만으로 답이 성립**하도록
-  값을 같이 싣는다.
+마스터는 `answer_markdown` 을 펼치지 않고 본문에 그대로 붙인다
+(`master/domain/answer.py` 의 `_MARKDOWN_AGENTS`). 그래도 나머지 칸만으로 답이 성립하도록
+값을 같이 싣는다.
 
-## 계층 (2026-09-29 · 재구성 BL-017)
+## 계층
 
-이 파일은 **번역만** 한다 — 모드 분기, 질문 뽑기, Q&A 결과 → payload · 근거 · 실행 흔적.
+이 파일은 번역만 한다 — 모드 분기, 질문 뽑기, Q&A 결과 → payload · 근거 · 실행 흔적.
 질의응답 실행은 `service/qa_graph.py::answer`(화면 `/ml/qa` 도 같은 함수), 질문 없는 상태
 조회가 읽는 최신 기준일은 `readmodel/qa_reads.py`, 봉인 개봉 조건 문구는 `config.py`,
 LLM 설정은 `llm/qa.py` 에 있다. 이 파일을 import 하는 곳은 마스터 등록소 조립
@@ -84,7 +79,7 @@ LLM 설정은 `llm/qa.py` 에 있다. 이 파일을 import 하는 곳은 마스�
 ## Evidence 등급을 ASSUMED 로 두는 이유
 
 `contracts/core.py` 의 `HARD_ALLOWED_GRADES` 는 `OFFICIAL · VENDOR · SIM_FIXED` 다.
-**예측은 관측이 아니다.** 우리 값으로 하드 제약을 세우면 «모델이 틀리면 제약도
+예측은 관측이 아니다. 우리 값으로 하드 제약을 세우면 «모델이 틀리면 제약도
 틀리는» 제약이 된다. 그래서 `ASSUMED` 로 내보내 하드 제약에 못 쓰게 한다.
 """
 
@@ -106,7 +101,7 @@ from app.ml.readmodel import qa_reads
 from app.ml.schemas.qa import QaRequest
 from app.ml.service.qa_graph import answer as qa_answer
 
-#: 마스터가 우리를 부르는 이름. **저쪽 `AgentName` 에 같은 값이 있어야 한다.**
+#: 마스터가 우리를 부르는 이름. 저쪽 `AgentName` 에 같은 값이 있어야 한다.
 AGENT_NAME = "ml"
 
 #: 우리가 받는 모드. 늘리려면 저쪽 `_AGENT_MODES` 도 같이 늘어야 한다.
@@ -114,26 +109,25 @@ SUPPORTED_MODES: tuple[str, ...] = ("STATUS_QUERY",)
 
 #: 쓴 도구 이름. 실제로 부른 것만 적는다 — 안 부른 것을 적으면 실행 계획이 거짓이 된다.
 #:
-#: ★ **이름은 실행 이력에 저장되는 어휘다** (`ExecutionMetadata.used_tools` → 마스터 이력).
-#:   2026-09-29 재구성 BL-017 에 함수가 `service/qa_graph.py` · `readmodel/qa_reads.py` 로 옮겨
-#:   갔지만 글자는 그대로 둔다 — 바꾸면 옛 이력과 새 이력의 같은 도구가 다른 이름이 된다.
+#: 이름은 실행 이력에 저장되는 어휘다(`ExecutionMetadata.used_tools` → 마스터 이력).
+#: 실제 함수는 `service/qa_graph.py` · `readmodel/qa_reads.py` 에 있지만 글자는 옛 모듈
+#: 이름(`qa_tools`)을 그대로 쓴다 — 바꾸면 옛 이력과 새 이력의 같은 도구가 다른 이름이 된다.
 _T_QA = "ml.qa_graph.answer"
 _T_LATEST = "ml.qa_tools.latest_base_date"
 _T_ROWS = "ml.qa_tools.forecast_rows"
-#: 갈래를 둘 더하면서 붙은 도구 (2026-09-16). **그 갈래를 실제로 답했을 때만 적는다.**
+#: 배치 · 성능 갈래의 도구. 그 갈래를 실제로 답했을 때만 적는다.
 _T_BATCH = "ml.qa_tools.batch_run"
 _T_REPORT = "ml.qa_tools.agent_report"
 
-#: 질문이 실려 오는 칸. **하나뿐이다** (마스터 확정 · 2026-09-15).
+#: 질문이 실려 오는 칸. 하나뿐이다(마스터 확정).
 #:
-#: 처음에는 `question` · `utterance` · `q` 셋을 다 받았다. 어느 이름으로 올지 몰라서였다.
-#: 마스터가 `question` 으로 정했으므로 **나머지를 닫는다** — 열어 두면 나중에 어느 것이
-#: 정본인지 아무도 못 정하고, 두 이름으로 다른 값이 오는 날 조용히 한쪽만 읽힌다.
+#: 다른 이름(`utterance` · `q` 등)은 받지 않는다 — 열어 두면 어느 것이 기준인지 아무도
+#: 못 정하고, 두 이름으로 다른 값이 오는 날 조용히 한쪽만 읽힌다.
 _QUESTION_KEYS = ("question",)
 
 
 def _run_id(request: AgentRequest) -> str:
-    """회신과 메타데이터가 **같은 값**을 써야 한다 (E-BIND-RUN-ID)."""
+    """회신과 메타데이터가 같은 값을 써야 한다 (E-BIND-RUN-ID)."""
     return f"{request.context.request_id}:{AGENT_NAME}:{request.call_seq}"
 
 
@@ -159,9 +153,10 @@ def _metadata(
     elapsed_ms: int,
     llm_called: bool,
 ) -> ExecutionMetadata:
-    """실행 흔적. **업무 결과와 섞지 않는다** (M-1 §6).
+    """실행 흔적. 업무 결과와 섞지 않는다 (M-1 §6).
 
-    `llm_status` 는 네 값의 뜻이 서로 다르다 (`master/llm/schemas.py`).
+    `llm_status` 는 네 값의 뜻이 서로 다르다 (`app/contracts/envelope.py` 의 `LLMStatus`).
+    여기서 쓰는 것은 셋이다.
 
     ```text
     DISABLED          설정이 꺼져 있다 (`ML_LLM_ENABLED=0` 또는 키 없음)
@@ -169,8 +164,8 @@ def _metadata(
     SUCCESS           불렀고 답을 받았다
     ```
 
-    🔴 «안 켰다» 와 «켰는데 이번엔 안 썼다» 를 한 값으로 적으면 사람이 없는 문제를
-      찾는다. 매입이 같은 자리에서 같은 이유로 갈라 적는다.
+    «안 켰다» 와 «켰는데 이번엔 안 썼다» 를 한 값으로 적으면 사람이 없는 문제를
+    찾는다. 매입이 같은 자리에서 같은 이유로 갈라 적는다.
     """
     if not qa_llm.enabled():
         llm_status = "DISABLED"
@@ -199,12 +194,12 @@ def _reply(
     missing_data: tuple[str, ...] = (),
     observed_at: date | None = None,
 ) -> AgentReply:
-    """봉투 4종(request_id·as_of·agent·mode)을 **한 곳에서** 채운다.
+    """봉투 4종(request_id·as_of·agent·mode)을 한 곳에서 채운다.
 
     호출부마다 적으면 한 경로만 어긋나도 검증이 잡는데 원인은 흩어진다.
 
-    🔴 `observed_at` 기본값은 `None` 이고 그것이 **「안 쟀다」** 다. 예측을 실제로
-      읽은 경로만 값을 넘긴다 — `as_of` 로 메우면 안 잰 호출이 잰 호출로 세어진다.
+    `observed_at` 기본값은 `None` 이고 그것이 「안 쟀다」 다. 예측을 실제로
+    읽은 경로만 값을 넘긴다 — `as_of` 로 메우면 안 잰 호출이 잰 호출로 세어진다.
     """
     return AgentReply(
         request_id=request.context.request_id,
@@ -222,7 +217,7 @@ def _reply(
     )
 
 
-#: 근거 하나가 가리키는 값. `claim` 은 **payload 의 주소와 글자까지 같아야** 한다
+#: 근거 하나가 가리키는 값. `claim` 은 payload 의 주소와 글자까지 같아야 한다
 #: (`envelope.canonical_claim`). 다르면 «무엇을 뒷받침하는지 불명» 으로 고아가 된다.
 _EVIDENCE_FIELDS = ("predicted", "lower", "upper")
 
@@ -235,14 +230,14 @@ def _evidence(
     kind: str,
     base_dt: date,
 ) -> Evidence:
-    """예측 한 칸의 근거. **ref 를 지어내지 않는다** — 읽은 표와 키를 그대로 적는다.
+    """예측 한 칸의 근거. ref 를 지어내지 않는다 — 읽은 표와 키를 그대로 적는다.
 
     등급은 `ASSUMED` 다. 예측은 관측이 아니라서 하드 제약을 세울 자격이 없다
     (`HARD_ALLOWED_GRADES` 에 없다).
 
-    🔴 `claim` 을 사람 말로 적으면 안 된다. 처음에 *"배추 AUC 2026-09-16 예측"* 으로
-      적었더니 payload 어디와도 안 맞아 **고아 근거**가 됐다 (2026-09-15 실측).
-      주소는 `forecasts[0].predicted` 처럼 **payload 를 그대로 가리키는 경로**다.
+    `claim` 을 사람 말로 적으면 안 된다. "배추 AUC 2026-09-16 예측" 같은 글은
+    payload 어디와도 안 맞아 고아 근거가 된다(2026-09-15 실측). 주소는
+    `forecasts[0].predicted` 처럼 payload 를 그대로 가리키는 경로다.
     """
     return Evidence(
         claim=f"forecasts[{index}].{field_name}",
@@ -267,13 +262,13 @@ def evidences_for(
     kind: str | None,
     base_dt: date,
 ) -> tuple:
-    """`forecasts[]` 의 숫자 칸마다 근거 하나. **행 하나에 셋이다.**
+    """`forecasts[]` 의 숫자 칸마다 근거 하나. 행 하나에 셋이다.
 
-    봉투가 배열 항목 안의 **숫자**에 근거를 요구한다 (`required_claims`). 라벨은
+    봉투가 배열 항목 안의 숫자에 근거를 요구한다 (`required_claims`). 라벨은
     면제라 `target_dt` · `kind` · `is_filled` 는 안 단다.
 
-    ★ 품목·가격 종류는 **행에 적힌 것**을 먼저 쓴다 (2026-09-15). 조합이 여럿이면
-      행마다 다르고, 그때 하나로 뭉뚱그리면 근거가 엉뚱한 조합을 가리킨다.
+    품목·가격 종류는 행에 적힌 것을 먼저 쓴다. 조합이 여럿이면 행마다 다르고,
+    그때 하나로 뭉뚱그리면 근거가 엉뚱한 조합을 가리킨다.
     """
     return tuple(
         _evidence(
@@ -298,10 +293,10 @@ _BATCH_FIELDS = ("run_id", "n_ok", "n_fail")
 
 
 def batch_evidences(seen: dict[str, Any] | None) -> tuple[Evidence, ...]:
-    """배치 갈래의 근거. **주소는 payload 를 그대로 가리킨다** (`batch.n_ok`).
+    """배치 갈래의 근거. 주소는 payload 를 그대로 가리킨다 (`batch.n_ok`).
 
     등급은 `ASSUMED` 다 — 이 문으로 나가는 값은 전부 그렇다. 배치 기록이 약한
-    출처라서가 아니라, **우리는 하드 제약을 세우는 쪽이 아니기 때문**이다.
+    출처라서가 아니라, 우리는 하드 제약을 세우는 쪽이 아니기 때문이다.
     """
     if not seen or seen.get("run_id") is None:
         return ()
@@ -321,10 +316,10 @@ def batch_evidences(seen: dict[str, Any] | None) -> tuple[Evidence, ...]:
 
 
 def performance_evidences(rows: list[dict[str, Any]]) -> tuple[Evidence, ...]:
-    """성능표의 근거. **오차율마다 하나**, 조건은 `evidence_detail` 에 같이 간다.
+    """성능표의 근거. 오차율마다 하나, 조건은 `evidence_detail` 에 같이 간다.
 
-    🔴 조건 없는 수치는 어디에도 안 남긴다 (CLAUDE.md §11). 「19.7%」만 떨어져 나가면
-      **언제 · 무엇으로 잰 값인지** 아무도 모른 채 돌아다닌다.
+    조건 없는 수치는 어디에도 안 남긴다 (CLAUDE.md §11). 「19.7%」만 떨어져 나가면
+    언제 · 무엇으로 잰 값인지 아무도 모른 채 돌아다닌다.
     """
     return tuple(
         Evidence(
@@ -343,10 +338,10 @@ def performance_evidences(rows: list[dict[str, Any]]) -> tuple[Evidence, ...]:
 
 
 def _read_note(out: Any) -> str:
-    """무엇을 읽었는지 한 줄. **조합이 여럿이면 다 적는다.**
+    """무엇을 읽었는지 한 줄. 조합이 여럿이면 다 적는다.
 
-    🔴 `check_reasoning` 이 세 자리 이상 숫자를 막는다 (§1.2-3). 숫자를 적고 싶으면
-      `Evidence` 로 낸다 — 여기에는 **무엇을 읽었는지만** 적는다.
+    `check_reasoning` 이 세 자리 이상 숫자를 막는다 (§1.2-3). 숫자를 적고 싶으면
+    `Evidence` 로 낸다 — 여기에는 무엇을 읽었는지만 적는다.
     """
     routes = list(out.meta.routes or ["forecast"])
     pairs = list(zip(out.meta.items or [], out.meta.kinds or [], strict=False))
@@ -364,10 +359,10 @@ def _read_note(out: Any) -> str:
 
 
 def _forecast_rows(out: Any) -> list[dict[str, Any]]:
-    """예측 행을 payload 모양으로. **날짜는 문자열로** 내보낸다 (JSON 으로 나간다).
+    """예측 행을 payload 모양으로. 날짜는 문자열로 내보낸다 (JSON 으로 나간다).
 
-    ★ **행마다 품목·가격 종류를 적는다** (2026-09-15). 「배추 경락가랑 도매가」처럼
-      조합이 여럿이면 `meta.kind` 하나로는 어느 행이 어느 것인지 못 가린다.
+    행마다 품목·가격 종류를 적는다. 「배추 경락가랑 도매가」처럼 조합이 여럿이면
+    `meta.kind` 하나로는 어느 행이 어느 것인지 못 가린다.
     """
     return [
         {
@@ -377,8 +372,8 @@ def _forecast_rows(out: Any) -> list[dict[str, Any]]:
             "upper": row["upper"],
             "item": row.get("item") or out.meta.item,
             "kind": row.get("kind") or out.meta.kind,
-            #   ★ 복사값이라는 것은 **답의 일부**다. 감추면 그날 조사가 있었던 것으로
-            #     읽힌다. 다만 «시장이 쉬었다» 는 뜻은 아니다 — 우리 조사 축이다.
+            #   복사값이라는 것은 답의 일부다. 감추면 그날 조사가 있었던 것으로
+            #   읽힌다. 다만 «시장이 쉬었다» 는 뜻은 아니다 — 우리 조사 축이다.
             "is_filled": bool(row.get("is_filled")),
         }
         for row in out.rows_for_evidence
@@ -386,12 +381,12 @@ def _forecast_rows(out: Any) -> list[dict[str, Any]]:
 
 
 def _answer_payload(out: Any) -> dict[str, Any]:
-    """Q&A 결과를 payload 로. **마크다운과 기계용 값을 나눠 싣는다.**
+    """Q&A 결과를 payload 로. 마크다운과 기계용 값을 나눠 싣는다.
 
     마스터가 `answer_markdown` 을 그대로 쓰지 못하더라도 나머지 칸만으로 답이
     성립해야 한다 — 한쪽이 안 되면 답이 통째로 비는 모양을 만들지 않는다.
 
-    ★ **모양을 봉투 규칙에 맞춘다** (2026-09-15 실측으로 고침).
+    모양을 봉투 규칙에 맞춘다.
 
       ```text
       최상위 숫자·대문자 라벨      근거 필요 — 없으면 E-EVIDENCE-MISSING
@@ -400,8 +395,8 @@ def _answer_payload(out: Any) -> dict[str, Any]:
       as_of 등 봉투 어휘           면제
       ```
 
-      그래서 `qa_status`(`"OK"`) · `target_kind`(`"AUC"`) 같은 **근거를 달 수 없는
-      대문자 라벨**을 최상위에 두지 않는다. 억지로 근거를 만들면 *"세어 본 것"* 을
+      그래서 `qa_status`(`"OK"`) · `target_kind`(`"AUC"`) 같은 근거를 달 수 없는
+      대문자 라벨을 최상위에 두지 않는다. 억지로 근거를 만들면 "세어 본 것" 을
       근거라고 적게 된다 — 봉투 주석이 그것을 결함이라고 부른다.
 
       같은 사실은 `forecasts[]` 안에 들어간다. 사람에게는 `answer_markdown` 이,
@@ -411,8 +406,8 @@ def _answer_payload(out: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "answer_markdown": out.markdown,
         "as_of": meta.base_dt.isoformat() if meta.base_dt else None,
-        #   ★ 소문자라 «판정 라벨» 로 안 걸린다. 상태를 감추지 않으면서 근거도
-        #     요구되지 않는 모양이다.
+        #   소문자라 «판정 라벨» 로 안 걸린다. 상태를 감추지 않으면서 근거도
+        #   요구되지 않는 모양이다.
         "answer_status": meta.status.lower(),
     }
     if meta.item:
@@ -433,8 +428,8 @@ def _answer_payload(out: Any) -> dict[str, Any]:
             "예측 범위 밖: " + ", ".join(d.isoformat() for d in meta.out_of_range)
         )
     if meta.routes:
-        #   ★ 소문자 문자열로 싣는다. 배열로 실으면 «스칼라 배열» 이라 통째로 근거를
-        #     요구받는데(`required_claims`), 갈래 이름에 댈 수치가 없다.
+        #   소문자 문자열로 싣는다. 배열로 실으면 «스칼라 배열» 이라 통째로 근거를
+        #   요구받는데(`required_claims`), 갈래 이름에 댈 수치가 없다.
         payload["answer_routes"] = ",".join(meta.routes)
     payload.update(_batch_payload(out))
     perf = list(out.performance_for_evidence or [])
@@ -442,25 +437,25 @@ def _answer_payload(out: Any) -> dict[str, Any]:
         payload["performance"] = perf
     models = list(out.models_for_payload or [])
     if models:
-        #   ★ **지금 무엇이 도나.** 이름은 교체해도 안 바뀌므로 만든 날·학습 끝이
-        #     같이 가야 한다 (2026-09-16).
+        #   지금 무엇이 도나. 이름은 교체해도 안 바뀌므로 만든 날·학습 끝이
+        #   같이 가야 한다.
         #
-        #   🔴 여기에는 **숫자가 없다.** 근거를 억지로 달지 않는다 — 배열 항목 안의
-        #     라벨은 봉투가 근거를 요구하지 않고, 억지로 달면 «세어 본 것» 을
-        #     근거라고 적게 된다 (§1.2-3).
+        #   여기에는 숫자가 없다. 근거를 억지로 달지 않는다 — 배열 항목 안의
+        #   라벨은 봉투가 근거를 요구하지 않고, 억지로 달면 «세어 본 것» 을
+        #   근거라고 적게 된다 (§1.2-3).
         payload["models"] = models
     return payload
 
 
 def _batch_payload(out: Any) -> dict[str, Any]:
-    """배치 갈래의 칸. **읽은 것만 싣는다.**
+    """배치 갈래의 칸. 읽은 것만 싣는다.
 
-    🔴 «못 읽었다» 와 «없다» 를 한 칸으로 적지 않는다. 뭉치면 마스터 이력에서
-      창고가 죽은 날과 배치가 안 돈 날이 같아 보인다.
+    «못 읽었다» 와 «없다» 를 한 칸으로 적지 않는다. 뭉치면 마스터 이력에서
+    창고가 죽은 날과 배치가 안 돈 날이 같아 보인다.
 
-    ★ 중첩 매핑이라 봉투가 근거를 **요구하지는** 않는다 (`required_claims` 는 최상위와
-      배열 항목만 본다). 그래도 숫자 칸에는 근거를 단다 — 요구가 없다고 출처 없는
-      숫자를 싣는 것은 §1.2-3 의 뜻과 어긋난다.
+    중첩 매핑이라 봉투가 근거를 요구하지는 않는다 (`required_claims` 는 최상위와
+    배열 항목만 본다). 그래도 숫자 칸에는 근거를 단다 — 요구가 없다고 출처 없는
+    숫자를 싣는 것은 §1.2-3 의 뜻과 어긋난다.
     """
     seen = out.batch_for_evidence or {}
     if not seen:
@@ -488,7 +483,7 @@ def _batch_payload(out: Any) -> dict[str, Any]:
     return payload
 
 
-#: 답할 수 있는 범위. 질문이 안 왔을 때 **무엇을 물으면 되는지**까지 적는다.
+#: 답할 수 있는 범위. 질문이 안 왔을 때 무엇을 물으면 되는지까지 적는다.
 _CAPABILITY_NOTE = (
     "배추·무·양파의 경락가(AUC)·중도매가(WHSL)·소매가(RTL)를 "
     "오늘부터 18일 뒤까지 답합니다. 질문 문장을 payload.question 으로 보내주세요."
@@ -496,11 +491,11 @@ _CAPABILITY_NOTE = (
 
 
 def _no_question(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
-    """질문이 안 왔을 때. **되묻지 않고 오늘 예측을 요약해 답한다.**
+    """질문이 안 왔을 때. 되묻지 않고 오늘 예측을 요약해 답한다.
 
-    🔴 여기서 `RUNTIME_NOT_READY` 를 내면 안 된다. 마스터가 아직 사람 말을 안 넘겨
-      주는 구조라(`status_flow.py:110`) **매번** 그 답이 나가고, 그러면 화면에
-      *"ML 이 답하지 못했다"* 가 상시로 뜬다 — 진짜 고장과 구분이 안 된다.
+    예측이 있는데 여기서 `RUNTIME_NOT_READY` 를 내면 안 된다. 질문 없는 호출마다 화면에
+    "ML 이 답하지 못했다" 가 뜨면 진짜 고장과 구분이 안 된다.
+    예측이 아예 없을 때만 `RUNTIME_NOT_READY` 다.
     """
     started = time.perf_counter()
     tools = (_T_LATEST,)
@@ -545,7 +540,7 @@ def _error(
     started: float,
     reason: str,
 ) -> tuple[AgentReply, ExecutionMetadata]:
-    """터진 호출. **예외를 위로 던지지 않는다** — 하나의 실패가 사이클을 죽인다.
+    """실패한 호출. 예외를 위로 던지지 않는다 — 하나의 실패가 사이클을 죽인다.
 
     `ERROR` 만 재시도 가치가 있다 (`AgentReply.worth_retry`). 값이 없어서 못 낸
     답(`RUNTIME_NOT_READY`)과 갈라 적어야 마스터가 다시 부를지 정할 수 있다.
@@ -562,7 +557,7 @@ def _error(
     )
 
 
-#: 답은 나갔지만 **일부만** 된 상태. 업무 판정을 `conditional` 로 적는다.
+#: 답은 나갔지만 일부만 된 상태. 업무 판정을 `conditional` 로 적는다.
 _PARTIAL_STATUSES = frozenset({"PARTIAL", "NEED_CLARIFY"})
 
 #: 답을 못 낸 상태. 무엇이 없어서인지 이름을 같이 낸다.
@@ -576,8 +571,8 @@ _NOT_READY_MISSING: dict[str, tuple[str, ...]] = {
 def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
     """마스터가 부르는 유일한 접점.
 
-    ★ 실패를 **값으로** 다룬다 (`ports.py` §7.1). 어떤 경로로도 예외가 위로
-      올라가지 않는다 — 우리 하나가 터져서 마스터 사이클이 죽으면 안 된다.
+    실패를 값으로 다룬다 (`ports.py` §7.1). 어떤 경로로도 예외가 위로
+    올라가지 않는다 — 우리 하나가 실패해서 마스터 사이클이 죽으면 안 된다.
     """
     if request.mode not in SUPPORTED_MODES:
         started = time.perf_counter()
@@ -598,7 +593,7 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
             )
         )
     except Exception:                                        # noqa: BLE001
-        #   ★ 오류 문구를 그대로 올리지 않는다. 접속 정보가 오류에 실려 나온 적이 있다.
+        #   오류 문구를 그대로 올리지 않는다. 접속 정보가 오류에 실려 나올 수 있다.
         return _error(request, tools, started, "질의응답 처리 중 오류가 났다")
 
     elapsed = int((time.perf_counter() - started) * 1000)
@@ -620,13 +615,10 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
                 _metadata(request, tools=tools, elapsed_ms=elapsed,
                           llm_called=llm_called),
             )
-        #   ★ **기록이 없는 날은 고장이 아니다** (2026-09-16 · 사용자 결정 ①).
-        #     못 읽은 표가 하나도 없는데 `RUNTIME_NOT_READY` 로 올리면, 마스터가
-        #     우리 답을 버리고 «창고를 쓸 수 없다» 를 대신 띄운다. 화면 기준일
-        #     2026-08-03 에 «오늘 배치 상태» 를 물었을 때 실제로 그랬다 —
-        #     우리 답(«그날 배치 기록이 없습니다»)은 맞았는데 사람은 못 봤다.
-        #     `OUT_OF_SCOPE` 와 같은 길로 보낸다 — 답은 그대로 나가고, 업무
-        #     판정만 «건너뜀» 이다.
+        #   기록이 없는 날은 고장이 아니다(사용자 결정 ①). 못 읽은 표가 하나도
+        #   없는데 `RUNTIME_NOT_READY` 로 올리면, 마스터가 우리 답(«그날 배치 기록이
+        #   없습니다»)을 버리고 «창고를 쓸 수 없다» 를 대신 띄운다. `OUT_OF_SCOPE` 와
+        #   같은 길로 보낸다 — 답은 그대로 나가고, 업무 판정만 «건너뜀» 이다.
         return (
             _reply(
                 request,
@@ -639,8 +631,8 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
         )
 
     if status == "OUT_OF_SCOPE":
-        #   ★ 소관이 아닌 것은 **고장이 아니다.** READY 로 답하고 그렇게 말한다 —
-        #     RUNTIME_NOT_READY 로 내면 «ML 이 못 답했다» 로 이력에 남는다.
+        #   소관이 아닌 것은 고장이 아니다. READY 로 답하고 그렇게 말한다 —
+        #   RUNTIME_NOT_READY 로 내면 «ML 이 못 답했다» 로 이력에 남는다.
         return (
             _reply(
                 request,
@@ -655,7 +647,7 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
     base_dt = out.meta.base_dt
     evidences: tuple[Evidence, ...] = ()
     if out.rows_for_evidence and base_dt:
-        #   ★ 조합이 여럿이면 행마다 품목·가격이 다르다 — 행 것을 쓴다.
+        #   조합이 여럿이면 행마다 품목·가격이 다르다 — 행 것을 쓴다.
         evidences = evidences_for(
             out.rows_for_evidence, out.meta.item, out.meta.kind, base_dt
         )
@@ -670,8 +662,8 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
             payload=_answer_payload(out),
             evidences=evidences,
             reasoning=_read_note(out),
-            #   ★ **예측을 읽었을 때만** 관측 시점을 적는다. 배치·성능 근거가 붙었다고
-            #     채우면 «예측을 쟀다» 로 이력에 남는다 (2026-09-16 · 갈래를 늘리며 고침).
+            #   예측을 읽었을 때만 관측 시점을 적는다. 배치·성능 근거가 붙었다고
+            #   채우면 «예측을 쟀다» 로 이력에 남는다.
             observed_at=base_dt if (out.rows_for_evidence and base_dt) else None,
         ),
         _metadata(request, tools=tools, elapsed_ms=elapsed, llm_called=llm_called),
@@ -679,7 +671,7 @@ def ml_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
 
 
 def _tools_used(out: Any) -> tuple[str, ...]:
-    """실제로 부른 도구만. **안 부른 것을 적으면 실행 계획이 거짓이 된다.**"""
+    """실제로 부른 도구만. 안 부른 것을 적으면 실행 계획이 거짓이 된다."""
     tools = [_T_QA, _T_LATEST, _T_ROWS]
     routes = list(out.meta.routes or [])
     if "batch" in routes:
@@ -690,27 +682,26 @@ def _tools_used(out: Any) -> tuple[str, ...]:
 
 
 def _missing_for(out: Any) -> tuple[str, ...]:
-    """무엇이 **못 읽어서** 못 답했나. 갈래마다 다른 표를 읽으므로 이름도 다르다.
+    """무엇이 못 읽어서 못 답했나. 갈래마다 다른 표를 읽으므로 이름도 다르다.
 
-    🔴 배치를 못 읽었는데 «예측표가 없다» 고 적으면, 고치러 간 사람이 엉뚱한 표를 본다.
+    배치를 못 읽었는데 «예측표가 없다» 고 적으면, 고치러 간 사람이 엉뚱한 표를 본다.
 
-    🔴 **묻지 않은 갈래의 표 이름은 한 개도 대지 않는다** (2026-09-16 · 결정 ①).
-      예전에는 마지막 줄이 «이름이 하나도 없으면 상태표에서 가져온다» 였다. 그래서
-      배치만 물었는데 그날 기록이 없으면 `ml_price_forecasts` 가 튀어나왔고,
-      마스터가 «가격 예측는 ml_price_forecasts 를 쓸 수 없어…» 를 띄웠다.
+    묻지 않은 갈래의 표 이름은 한 개도 대지 않는다(결정 ①). 이름이 없을 때 상태표에서
+    채우면, 배치만 물었는데 그날 기록이 없을 때 `ml_price_forecasts` 가 튀어나와 마스터가
+    «가격 예측는 ml_price_forecasts 를 쓸 수 없어…» 를 띄운다.
 
-    ★ **비어 있으면 «못 읽은 것이 없다» 다** — 기록이 없는 날이지 고장이 아니다.
-      부르는 쪽이 그 값으로 두 경우를 가른다.
+    비어 있으면 «못 읽은 것이 없다» 다 — 기록이 없는 날이지 고장이 아니다.
+    부르는 쪽이 그 값으로 두 경우를 가른다.
     """
     names: list[str] = []
     routes = list(out.meta.routes or ["forecast"])
     if "forecast" in routes and out.meta.status in _NOT_READY_MISSING:
         names += list(_NOT_READY_MISSING[out.meta.status])
-    #   ★ 갈래가 스스로 «어느 표를 어떻게 읽었나» 를 적어 준다 (`QaAnswer.reads`).
+    #   갈래가 스스로 «어느 표를 어떻게 읽었나» 를 적어 준다 (`QaAnswer.reads`).
     for table, grade in (getattr(out, "reads", None) or {}).items():
         if grade == "error":
             names.append(table)
-    #   옛 길 — `reads` 가 없던 시절의 배치 근거에서도 읽는다.
+    #   `reads` 가 비어 있어도 배치 근거(`batch_for_evidence`)의 읽기 결과로 이름을 댄다.
     seen = out.batch_for_evidence or {}
     if seen.get("read") == "error":
         names.append("batch_run")

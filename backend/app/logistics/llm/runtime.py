@@ -1,10 +1,10 @@
 """Logistics-owned LLM providers (Ollama·Gemini), policy, validator, retry and fallback runtime.
 
-★ 프로바이더 호출(요청 만들기 · 보내기 · 응답 읽기)은 `app.core.llm` 이 한다 (2026-09-30 재구성
-  BL-020). 여기 남은 것은 물류의 몫이다 — 지시문 · Gemini 응답 스키마 · 검증기 · `LOGISTICS_`
-  설정값과 오류 문장 · 토큰 사용량 읽기 · **전송 재시도와 검증 재시도를 따로 세는 루프**
-  (`InterpretationService`)와 오류 분류(`classify_llm_error`). 그 루프는 다른 부서의 골격
-  (`run_with_fallback`)과 규칙이 달라 여기 둔다.
+프로바이더 호출(요청 만들기 · 보내기 · 응답 읽기)은 `app.core.llm` 이 한다. 여기 있는 것은
+물류의 몫이다 — 지시문 · Gemini 응답 스키마 · 검증기 · `LOGISTICS_` 설정값과 오류 문장 ·
+토큰 사용량 읽기 · 전송 재시도와 검증 재시도를 따로 세는 루프(`InterpretationService`)와
+오류 분류(`classify_llm_error`). 그 루프는 다른 부서의 골격(`run_with_fallback`)과 규칙이
+달라 여기 둔다.
 """
 
 import json
@@ -78,11 +78,11 @@ _QUALITATIVE_SIGNALS = {
 }
 #: 복합 위험 화이트리스트 — 2개 이상 겹치면 호출. 데이터 미확정 코드는 넣지 않는다.
 #:
-#: ★ 이 분기는 **의도적 휴면 상태다.** 현재 성립 가능한 조합에는 항상
-#:   INVENTORY_FRESHNESS_PRESSURE(Qualitative)가 끼어 단독 분기가 먼저 잡는다.
-#:   SCENARIO_ADJUSTMENT_REQUIRED 도 Qualitative 라 여기 넣어도 휴면이 안 풀린다 —
-#:   넣지 않는다. 단독 호출 대상이 아닌 업무 위험(예: 품목 재고 부족 signal)이
-#:   추가되는 날 처음으로 살아난다. 죽은 코드가 아니라 확장 자리다.
+#: 이 분기는 의도적 휴면 상태다. 현재 성립 가능한 조합에는 항상
+#: INVENTORY_FRESHNESS_PRESSURE(Qualitative)가 끼어 단독 분기가 먼저 잡는다.
+#: SCENARIO_ADJUSTMENT_REQUIRED 도 Qualitative 라 여기 넣어도 휴면이 안 풀린다 —
+#: 넣지 않는다. 단독 호출 대상이 아닌 업무 위험(예: 품목 재고 부족 signal)이
+#: 추가되는 날 처음으로 살아난다. 죽은 코드가 아니라 확장 자리다.
 _COMPOSITE_SIGNALS = {"CAPACITY_TIGHT", "INVENTORY_FRESHNESS_PRESSURE"}
 SYSTEM_PROMPT = """당신은 Inventory/Logistics Agent의 해석 레이어다.
 입력 Context는 deterministic Core와 Rule 검증을 통과했다.
@@ -121,7 +121,7 @@ class LLMSettings:
 
 @dataclass(frozen=True, slots=True)
 class ProviderUsage:
-    """한 Provider 호출이 **스스로 보고한** 토큰 사용량 (#406). 없는 값은 만들지 않는다.
+    """한 Provider 호출이 스스로 보고한 토큰 사용량 (#406). 없는 값은 만들지 않는다.
 
     두 축뿐인 것이 계약이다 — Gemini 와 Ollama 의 공식 응답에서 *의미가 같다고 확인된
     것*이 이 둘뿐이기 때문이다 (조사 결과):
@@ -131,13 +131,13 @@ class ProviderUsage:
     output  Gemini usageMetadata.candidatesTokenCount ↔ Ollama eval_count
     ```
 
-    🔴 **`total` 을 두지 않는다.** Ollama `/api/chat` 에는 공식 combined total 이 아예
-      없고, Gemini `totalTokenCount` 는 *prompt + thoughts + candidates* 라 `input +
-      output` 과 정의가 다르다. 한 칸에 담으면 Provider 마다 다른 뜻이 사는 컬럼이
-      되고, 손으로 더한 값을 *"Provider 가 준 total"* 로 위장하게 된다.
-    ★ cached · thoughts · duration 도 넣지 않는다 — 개념이 한쪽에만 있거나(cached 는
-      두 Provider 가 서로 다른 것을 센다) latency 축(`llm_provider_elapsed_ms`)과
-      섞인다.
+    `total` 을 두지 않는다. Ollama `/api/chat` 에는 공식 combined total 이 아예
+    없고, Gemini `totalTokenCount` 는 prompt + thoughts + candidates 라 `input +
+    output` 과 정의가 다르다. 한 칸에 담으면 Provider 마다 다른 뜻이 사는 컬럼이
+    되고, 손으로 더한 값을 "Provider 가 준 total" 로 위장하게 된다.
+    cached · thoughts · duration 도 넣지 않는다 — 개념이 한쪽에만 있거나(cached 는
+    두 Provider 가 서로 다른 것을 센다) latency 축(`llm_provider_elapsed_ms`)과
+    섞인다.
     """
 
     input_tokens: int | None = None
@@ -148,11 +148,11 @@ class ProviderUsage:
 class ProviderResult:
     """Provider 한 번의 반환값 — 본문 text 와 그 호출이 보고한 usage (#406).
 
-    🔴 **raw 응답을 싣지 않는다.** `raw_response` · `response_json` 같은 칸을 만들면
-      completion text · prompt metadata · Provider 식별자까지 실행이력으로 새어 나갈
-      길이 열린다. 필요한 숫자는 Provider 안에서 즉시 뽑고 문서는 그 자리에서 버린다.
-    ★ frozen 이다 — 값은 호출한 쪽의 지역 변수로만 살고, Provider 인스턴스에는 아무
-      것도 남지 않는다 (`last_usage` 금지 · #402 와 같은 규율).
+    raw 응답을 싣지 않는다. `raw_response` · `response_json` 같은 칸을 만들면
+    completion text · prompt metadata · Provider 식별자까지 실행이력으로 새어 나갈
+    길이 열린다. 필요한 숫자는 Provider 안에서 즉시 뽑고 문서는 그 자리에서 버린다.
+    frozen 이다 — 값은 호출한 쪽의 지역 변수로만 살고, Provider 인스턴스에는 아무
+    것도 남지 않는다 (`last_usage` 금지 · #402 와 같은 규율).
     """
 
     text: str
@@ -160,14 +160,14 @@ class ProviderResult:
 
 
 def _token_count(value: object) -> int | None:
-    """Provider 가 준 값이 **토큰 수로 신뢰할 수 있는가** — 아니면 `None` (fail-closed).
+    """Provider 가 준 값이 토큰 수로 신뢰할 수 있는가 — 아니면 `None` (fail-closed).
 
-    ★ `bool` 을 먼저 거른다. 파이썬에서 `isinstance(True, int)` 가 참이라 이 순서가
-      아니면 `true` 가 토큰 `1` 로 조용히 들어온다.
-    ★ `float` 도 거부한다 — 토큰은 개수이고, 소수가 왔다면 그 응답을 이해하지 못한
-      것이다. 반올림해서 아는 척하지 않는다.
-    🔴 **예외를 던지지 않는다.** usage 는 관측값이지 업무 입력이 아니다 — 여기서
-      예외가 나가면 계측 실패가 LLM 업무 결과를 FALLBACK 으로 바꾼다 (#406 §10).
+    `bool` 을 먼저 거른다. 파이썬에서 `isinstance(True, int)` 가 참이라 이 순서가
+    아니면 `true` 가 토큰 `1` 로 조용히 들어온다.
+    `float` 도 거부한다 — 토큰은 개수이고, 소수가 왔다면 그 응답을 이해하지 못한
+    것이다. 반올림해서 아는 척하지 않는다.
+    예외를 던지지 않는다. usage 는 관측값이지 업무 입력이 아니다 — 여기서
+    예외가 나가면 계측 실패가 LLM 업무 결과를 FALLBACK 으로 바꾼다 (#406 §10).
     """
     if isinstance(value, bool) or not isinstance(value, int):
         return None
@@ -177,9 +177,9 @@ def _token_count(value: object) -> int | None:
 def _provider_usage(input_value: object, output_value: object) -> ProviderUsage | None:
     """공식 필드 두 개를 최소 구조로 정규화한다.
 
-    🔴 **인식 가능한 값이 하나도 없으면 `ProviderUsage(None, None)` 이 아니라 `None`
-      이다.** 같은 사실("이 호출의 usage 를 못 봤다")의 표현이 둘이면 누적 규칙과
-      테스트가 둘 다 갈라진다 — 표현을 하나로 잠근다.
+    인식 가능한 값이 하나도 없으면 `ProviderUsage(None, None)` 이 아니라 `None`
+    이다. 같은 사실("이 호출의 usage 를 못 봤다")의 표현이 둘이면 누적 규칙과
+    테스트가 둘 다 갈라진다 — 표현을 하나로 잠근다.
     """
     input_tokens = _token_count(input_value)
     output_tokens = _token_count(output_value)
@@ -225,8 +225,8 @@ class OllamaProvider:
         # 공식 `/api/chat` 응답의 토큰 두 칸만 읽는다 (#406). `*_duration` 은 가져오지
         # 않는다 — 서버측 생성 시간(ns)이라 `llm_provider_elapsed_ms`(클라이언트 실측 ·
         # 예외로 끝난 호출까지 포함)와 다른 축이고, 섞으면 #402 가 경고한 그 실수다.
-        # ★ text 를 먼저 확정한 뒤 읽는다 — 오류 분류(`classify_llm_error`)가 보는
-        #   예외 종류와 순서를 usage 때문에 바꾸지 않는다.
+        # text 를 먼저 확정한 뒤 읽는다 — 오류 분류(`classify_llm_error`)가 보는
+        # 예외 종류와 순서를 usage 때문에 바꾸지 않는다.
         return ProviderResult(
             text=content,
             usage=_provider_usage(document.get("prompt_eval_count"), document.get("eval_count")),
@@ -250,15 +250,15 @@ _GEMINI_RESPONSE_SCHEMA = {
 class GeminiProvider:
     """Gemini REST 호출. 정책 판정은 하지 않는다 — 호출·구조화 응답·오류 전달만.
 
-    ★ API Key 는 호출 시점에 환경변수에서 읽는다 — `LLMSettings` 에 저장하지 않고
-      로그·예외 메시지에도 원문을 싣지 않는다 (결정서 §6). 키는 Auth Key 로 신규
-      발급한다 (2026-09 부터 Standard 키 전면 거부).
-    ★ 전송 예외(HTTPError · URLError · TimeoutError · 깨진 JSON)를 **감싸지 않고** 그대로
-      올린다 — 분류는 classify_llm_error 한 곳이 한다(여기서 삼키면 재시도 정책이 눈을 잃는다).
-    ★ 주소는 `LOGISTICS_GEMINI_BASE_URL` 로만 바꾼다(공용 `GEMINI_BASE_URL` 은 보지 않는다 —
-      마스터 · Critic · 매입과 다르다). `LLM_BASE_URL` 은 Ollama 로컬 주소라 뜻이 다르다.
-    ★ 응답 글자는 `parts[0].text` 를 그대로 읽는다(사고 조각을 건너뛰지 않는다 — 마스터와 다르다).
-    ★ 자체 재시도는 없다 — 재시도는 InterpretationService 가 소유한다.
+    API Key 는 호출 시점에 환경변수에서 읽는다 — `LLMSettings` 에 저장하지 않고
+    로그·예외 메시지에도 원문을 싣지 않는다 (결정서 §6). 키는 Auth Key 로 신규
+    발급한다 (2026-09 부터 Standard 키 전면 거부).
+    전송 예외(HTTPError · URLError · TimeoutError · 깨진 JSON)를 감싸지 않고 그대로
+    올린다 — 분류는 classify_llm_error 한 곳이 한다(여기서 삼키면 재시도 정책이 눈을 잃는다).
+    주소는 `LOGISTICS_GEMINI_BASE_URL` 로만 바꾼다(공용 `GEMINI_BASE_URL` 은 보지 않는다 —
+    마스터 · Critic · 매입과 다르다). `LLM_BASE_URL` 은 Ollama 로컬 주소라 뜻이 다르다.
+    응답 글자는 `parts[0].text` 를 그대로 읽는다(사고 조각을 건너뛰지 않는다 — 마스터와 다르다).
+    자체 재시도는 없다 — 재시도는 InterpretationService 가 소유한다.
     """
 
     def __init__(self, settings: LLMSettings):
@@ -289,10 +289,10 @@ class GeminiProvider:
             raise TypeError("Gemini response did not contain text content") from error
         if not isinstance(content, str):
             raise TypeError("Gemini response text content was not a string")
-        # `usageMetadata` 는 공식 레퍼런스상 **Optional 이다** — 200 인데 통째로 없을 수
+        # `usageMetadata` 는 공식 레퍼런스상 Optional 이다 — 200 인데 통째로 없을 수
         # 있다. 없으면 없는 것이지 오류가 아니므로 예외로 만들지 않는다 (#406).
-        # ★ `totalTokenCount` 는 읽지 않는다 (prompt + thoughts + candidates 라 의미가
-        #   다르다) · `cachedContentTokenCount` · `thoughtsTokenCount` 도 범위 밖이다.
+        # `totalTokenCount` 는 읽지 않는다 (prompt + thoughts + candidates 라 의미가
+        # 다르다) · `cachedContentTokenCount` · `thoughtsTokenCount` 도 범위 밖이다.
         usage_metadata = document.get("usageMetadata")
         if not isinstance(usage_metadata, dict):
             usage_metadata = {}
@@ -327,11 +327,11 @@ class UnavailableProvider:
         *,
         retry_guidance: list[str] | None = None,
     ) -> ProviderResult:
-        """★ 항상 예외다 — `ProviderResult` 를 내는 정상 경로를 만들지 않는다 (#406).
+        """항상 예외다 — `ProviderResult` 를 내는 정상 경로를 만들지 않는다 (#406).
 
         HTTP 응답 자체를 얻지 못한 호출에는 usage 가 없다. 빈 `ProviderResult` 를
-        돌려주면 *"불렀고 usage 가 0/미상이었다"* 로 읽히는데, 사실은 **부르지도 못한
-        것**이다. 예외로 두면 `classify_llm_error` 가 그대로 BAD_REQUEST 로 분류한다.
+        돌려주면 "불렀고 usage 가 0/미상이었다" 로 읽히는데, 사실은 부르지도 못한
+        것이다. 예외로 두면 `classify_llm_error` 가 그대로 BAD_REQUEST 로 분류한다.
         """
         del context, retry_guidance
         raise ProviderConfigurationError("Configured Logistics LLM provider is not supported")
@@ -388,18 +388,18 @@ class InterpretationService:
         # 여기부터는 호출 확정이다 — provider.generate(context)의 입력으로 쓰이므로
         # 전송 전에 실패(AUTH_ERROR 등)해도 llm_context_facts에 기록된다 (v1.3 §5).
         context_facts = list(context.facts)
-        # 같은 자리에서 latency 누적도 연다 (#402). **0 으로 여는 것이 계약이다** —
+        # 같은 자리에서 latency 누적도 연다 (#402). 0 으로 여는 것이 계약이다 —
         # 위 두 조기 반환(DISABLED · SKIPPED_TEMPLATE)은 이 줄에 닿지 못하므로
         # `_result` 의 기본값 None 을 그대로 받는다. "안 불렀다(None)" 와 "불렀는데
         # 0ms 였다(0)" 가 코드 구조로 갈린다 — 어느 쪽도 손으로 적지 않는다.
         provider_elapsed_ms = 0
-        # 🔴 usage 는 **0 으로 열지 않는다** (#406). latency 와 다른 점이 여기다 — 시간은
-        #    모든 호출에서 반드시 측정되지만(`finally`), usage 는 Provider 가 보고해야만
-        #    존재한다. 0 으로 열면 "한 번도 관측 못 함"이 "합이 0"으로 위장된다.
+        # usage 는 0 으로 열지 않는다 (#406). latency 와 다른 점이 여기다 — 시간은
+        # 모든 호출에서 반드시 측정되지만(`finally`), usage 는 Provider 가 보고해야만
+        # 존재한다. 0 으로 열면 "한 번도 관측 못 함"이 "합이 0"으로 위장된다.
         observed_input_tokens: int | None = None
         observed_output_tokens: int | None = None
 
-        # 전송 재시도와 검증(correction) 재시도는 **별도 예산**이다 (결정서 §6).
+        # 전송 재시도와 검증(correction) 재시도는 별도 예산이다 (결정서 §6).
         # 하나의 카운터를 공유하면 첫 호출이 timeout 일 때 검증 실패의 correction
         # 기회가 사라진다 — timeout → 잘못된 출력 → 교정 출력 순서가 성립해야 한다.
         # 최악 호출 수는 1 + 전송 1 + 검증 1 = 3회로 유한하다.
@@ -408,18 +408,18 @@ class InterpretationService:
         error_kind: LLMErrorKind | None = None
         transport_retries_left = self.settings.max_retries
         # 검증 correction 은 정책 고정 1회다 (결정서 §6). MAX_RETRIES 는 전송 재시도의
-        # 손잡이라 0 으로 꺼도 correction 경로까지 꺼지면 안 된다 — 교차 검토 지적.
+        # 손잡이라 0 으로 꺼도 correction 경로까지 꺼지면 안 된다.
         validation_retries_left = 1
         while True:
             attempts += 1
-            # 🔴 **계측은 여기 한 곳이다** (#402). Provider 구현체 안에 넣지 않는다 —
-            #    Ollama·Gemini 두 벌로 복제되고, 무엇보다 **예외로 끝난 호출의 시간을
-            #    잃는다.** timeout 10초가 곧 FALLBACK 의 원인인데 그 10초가 기록되지
-            #    않으면 가장 알아야 할 실행에서 숫자가 사라진다 — `replans` 를 지역
-            #    변수가 아니라 상태에서 세는 재무의 판단과 같은 편이다.
-            # ★ Provider 에는 아무 상태도 남기지 않는다 (`last_latency` 금지) — 한
-            #   호출의 시간은 이 루프의 지역 변수로만 산다. 동시 호출·인스턴스 재사용
-            #   에서 값이 섞일 자리가 구조적으로 없다.
+            # 계측은 여기 한 곳이다 (#402). Provider 구현체 안에 넣지 않는다 —
+            # Ollama·Gemini 두 벌로 복제되고, 무엇보다 예외로 끝난 호출의 시간을
+            # 잃는다. timeout 10초가 곧 FALLBACK 의 원인인데 그 10초가 기록되지
+            # 않으면 가장 알아야 할 실행에서 숫자가 사라진다 — `replans` 를 지역
+            # 변수가 아니라 상태에서 세는 재무의 판단과 같은 편이다.
+            # Provider 에는 아무 상태도 남기지 않는다 (`last_latency` 금지) — 한
+            # 호출의 시간은 이 루프의 지역 변수로만 산다. 동시 호출·인스턴스 재사용
+            # 에서 값이 섞일 자리가 구조적으로 없다.
             started = perf_counter()
             try:
                 provider_result = self.provider.generate(context, retry_guidance=guidance)
@@ -432,17 +432,17 @@ class InterpretationService:
                     continue
                 break
             finally:
-                # ★ `finally` 다 — 성공·예외·`continue`·`break` 어느 경로로 나가도
-                #   이 호출의 시간이 합에 들어간다. 검증(`validate_interpretation`)은
-                #   밖에 두어 Provider 시간에 검증기 시간이 섞이지 않는다.
+                # `finally` 다 — 성공·예외·`continue`·`break` 어느 경로로 나가도
+                # 이 호출의 시간이 합에 들어간다. 검증(`validate_interpretation`)은
+                # 밖에 두어 Provider 시간에 검증기 시간이 섞이지 않는다.
                 provider_elapsed_ms += int((perf_counter() - started) * 1000)
-            # 🔴 **검증보다 먼저 더한다** (#406). 이 호출은 이미 HTTP 를 왕복했고 토큰을
-            #    실제로 소비했다 — 아래 `validate_interpretation` 이 그 출력을 거절해도
-            #    소비는 취소되지 않는다. 검증 뒤로 미루면 correction 을 유발한 호출의
-            #    사용량이 통째로 사라져, 검증에 자주 걸리는 모델일수록 싸 보이는
-            #    정반대 신호가 나온다.
-            # ★ 예외로 끝난 호출(위 `except`)은 여기 닿지 못한다 — `ProviderResult` 를
-            #   받지 못했으므로 더할 값이 없다. 모르는 값을 지어내지 않는다.
+            # 검증보다 먼저 더한다 (#406). 이 호출은 이미 HTTP 를 왕복했고 토큰을
+            # 실제로 소비했다 — 아래 `validate_interpretation` 이 그 출력을 거절해도
+            # 소비는 취소되지 않는다. 검증 뒤로 미루면 correction 을 유발한 호출의
+            # 사용량이 통째로 사라져, 검증에 자주 걸리는 모델일수록 싸 보이는
+            # 정반대 신호가 나온다.
+            # 예외로 끝난 호출(위 `except`)은 여기 닿지 못한다 — `ProviderResult` 를
+            # 받지 못했으므로 더할 값이 없다. 모르는 값을 지어내지 않는다.
             if provider_result.usage is not None:
                 observed_input_tokens = _add_observed(
                     observed_input_tokens, provider_result.usage.input_tokens
@@ -478,8 +478,8 @@ class InterpretationService:
             error_kind=error_kind,
             context_facts=context_facts,
             provider_elapsed_ms=provider_elapsed_ms,
-            # ★ FALLBACK 이어도 앞선 정상 응답에서 관측한 사용량은 버리지 않는다 —
-            #   그 토큰은 실제로 쓰였고, 실패로 끝난 실행일수록 그 사실이 중요하다.
+            # FALLBACK 이어도 앞선 정상 응답에서 관측한 사용량은 버리지 않는다 —
+            # 그 토큰은 실제로 쓰였고, 실패로 끝난 실행일수록 그 사실이 중요하다.
             observed_input_tokens=observed_input_tokens,
             observed_output_tokens=observed_output_tokens,
         )
@@ -508,10 +508,10 @@ class InterpretationService:
             llm_error_kind=error_kind,
             # 호출 확정된 facts만 기록 — SKIPPED_TEMPLATE·DISABLED는 빈 목록.
             llm_context_facts=list(context_facts or []),
-            # 실제 호출들의 시간 합. 기본값 None 은 **미호출**이다 — 부르지 않은 실행을
+            # 실제 호출들의 시간 합. 기본값 None 은 미호출이다 — 부르지 않은 실행을
             # `0ms` 로 적지 않는다 (#402). `or 0` 같은 강제를 넣지 않는 이유가 그것이다.
             llm_provider_elapsed_ms=provider_elapsed_ms,
-            # 관측된 호출들의 합. 기본값 None 은 **한 번도 관측하지 못했다**는 뜻이고,
+            # 관측된 호출들의 합. 기본값 None 은 한 번도 관측하지 못했다는 뜻이고,
             # 미호출(DISABLED · SKIPPED_TEMPLATE)도 같은 자리로 온다 — 두 경우는
             # `llm_attempts` 와 관측 존재 여부가 갈라 준다 (#406).
             llm_observed_input_tokens=observed_input_tokens,
@@ -520,7 +520,7 @@ class InterpretationService:
 
 
 def _add_observed(total: int | None, observed: int | None) -> int | None:
-    """관측된 값만 더한다 — 필드별로 **독립**이다 (#406).
+    """관측된 값만 더한다 — 필드별로 독립이다 (#406).
 
     ```text
     total None · observed None   → None   아직 아무것도 못 봤다
@@ -530,11 +530,11 @@ def _add_observed(total: int | None, observed: int | None) -> int | None:
     total 100  · observed 120    → 220
     ```
 
-    🔴 **`sum(x or 0 …)` 로 쓰지 않는다.** 그 형태는 미관측(`None`)과 실제 `0` 을 같은
-      값으로 뭉개고, 그러면 *"한 번도 못 봤다"* 가 *"합이 0이다"* 로 위장된다 —
-      `llm_provider_elapsed_ms` 에서 미호출을 `0ms` 로 적지 않는 것과 같은 규율이다.
-    ★ input 이 없다고 output 까지 버리지 않는다. Provider 가 한쪽만 보고하는 것은
-      공식 계약상 정상이다 (양쪽 모두 Optional · Ollama 는 `omitempty`).
+    `sum(x or 0 …)` 로 쓰지 않는다. 그 형태는 미관측(`None`)과 실제 `0` 을 같은
+    값으로 뭉개고, 그러면 "한 번도 못 봤다" 가 "합이 0이다" 로 위장된다 —
+    `llm_provider_elapsed_ms` 에서 미호출을 `0ms` 로 적지 않는 것과 같은 규율이다.
+    input 이 없다고 output 까지 버리지 않는다. Provider 가 한쪽만 보고하는 것은
+    공식 계약상 정상이다 (양쪽 모두 Optional · Ollama 는 `omitempty`).
     """
     if observed is None:
         return total
@@ -546,7 +546,7 @@ def _add_observed(total: int | None, observed: int | None) -> int | None:
 def get_llm_settings() -> LLMSettings:
     """`LOGISTICS_` → 공용 → 기본값. `.env` 는 부를 때마다 적재한다(이미 있는 값은 덮지 않는다).
 
-    모델은 provider 에 종속된 값이다 — 물류 provider 가 전역과 **다를 때** 전역 LLM_MODEL 을
+    모델은 provider 에 종속된 값이다 — 물류 provider 가 전역과 다를 때 전역 LLM_MODEL 을
     상속하면 Gemini 가 존재하지 않는 모델로 호출돼 400 이 난다(실호출 검증 사례). 그 경우에만
     전역 모델을 건너뛴다(`resolve_provider_model` · 마스터 · Critic 과 같은 규칙).
     """
@@ -610,7 +610,7 @@ def classify_llm_error(error: Exception) -> tuple[bool, LLMErrorKind]:
         if isinstance(cause, json.JSONDecodeError | TypeError):
             return True, "INVALID_RESPONSE"
         cause = cause.__cause__
-    # 분류할 수 없는 예외 — 일시적일 수 있으므로 기존 동작(1회 재시도)을 유지한다.
+    # 분류할 수 없는 예외 — 일시적일 수 있으므로 1회 재시도한다.
     return True, "NETWORK_ERROR"
 
 
@@ -744,7 +744,7 @@ _KOREAN_PARTICLE_SUFFIXES = frozenset(
 def _allowed_numeric_tokens(context: SanitizedLLMContext) -> frozenset[str]:
     """display_value 표기에서 인용 가능한 숫자+단위 토큰 집합 (fail-closed의 기준).
 
-    출력 검사와 **같은 패턴**으로 추출한다 — 추출 규칙이 두 벌이면 화이트리스트와
+    출력 검사와 같은 패턴으로 추출한다 — 추출 규칙이 두 벌이면 화이트리스트와
     검사가 어긋난다. "91.7% (임계 90%)" 한 fact의 두 토큰이 모두 인용 가능하다.
     표기 동치("25.0%" ↔ "25%")도 허용하지 않는다 — display_value 가 곧 화이트리스트
     라는 v1.3 계약의 완전 일치를 유지한다. 표기 축약이 자주 FALLBACK 을 만들면
@@ -824,6 +824,6 @@ def build_template_interpretation(context: SanitizedLLMContext) -> AgentInterpre
         summary=summary,
         risks=list(context.signals),
         # 템플릿도 preferred 규칙을 따른다 — Rule 이 방향을 안 정했으면 추천하지
-        # 않는다. allowed[0] 자동 추천은 preferred 강제와 충돌해 폐기했다.
+        # 않는다. allowed[0] 을 자동 추천하지 않는다 — preferred 강제와 충돌한다.
         suggested_adjustment=context.preferred_adjustment,
     )

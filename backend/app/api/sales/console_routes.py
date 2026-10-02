@@ -155,7 +155,7 @@ def sale_lifecycle(
     sim_run_id: Annotated[str, Query(min_length=1)],
     as_of: date,
 ) -> ConsoleSaleLifecycle:
-    """판매 한 건의 흐름. 🔴 **저장된 연결키로만 잇는다** — 날짜·품목 추정 금지."""
+    """판매 한 건의 흐름. 저장된 연결키로만 잇고, 날짜나 품목으로 추정해 잇지 않는다."""
     lifecycle = get_console_sale_lifecycle(sim_run_id=sim_run_id, sale_id=sale_id, as_of=as_of)
     if lifecycle is None:
         raise HTTPException(status_code=404, detail="판매를 찾지 못했습니다.")

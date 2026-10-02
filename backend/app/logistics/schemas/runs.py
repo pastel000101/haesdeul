@@ -1,8 +1,6 @@
 """물류 에이전트 실행이력 한 줄 (`logistics_agent_runs`).
 
-★ 2026-09-30 재구성 BL-015: `logistics/run_repository.py` 에서 옮겼다. 저장은
-  `service/run_history.py`, 조회는
-  `readmodel/runs.py`, SQL 은 `repository/runs.py`.
+저장은 `service/run_history.py`, 조회는 `readmodel/runs.py`, SQL 은 `repository/runs.py` 에 있다.
 """
 
 from datetime import date, datetime

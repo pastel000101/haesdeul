@@ -1,8 +1,7 @@
 """Logistics Agent 실행이력 전용 PostgreSQL Repository.
 
-★ 2026-09-30 재구성 BL-015: 이 파일에는 SQL 만 남았다 — 저장의 연결 · 트랜잭션은
-  `service/run_history.py`, 조회의 연결은 `readmodel/runs.py`, 행 모양은 `schemas/runs.py`
-  (종전 `logistics/db.execute_returning_one` · `fetch_one` · `fetch_all` 을 쓰던 자리).
+이 파일에는 SQL 만 있다 — 저장의 연결 · 트랜잭션은 `service/run_history.py`, 조회의 연결은
+`readmodel/runs.py`, 행 모양은 `schemas/runs.py`.
 """
 
 from datetime import date
@@ -43,7 +42,7 @@ def insert_logistics_agent_run(
     request_payload: dict[str, object],
     response_payload: dict[str, object],
 ) -> dict[str, Any]:
-    """실행이력 한 줄 INSERT … RETURNING. 줄이 안 오면 멈춘다(종전 `execute_returning_one` 문구)."""
+    """실행이력 한 줄 INSERT … RETURNING. 줄이 안 오면 멈춘다."""
     query = sql.SQL(
         """
         INSERT INTO {}.logistics_agent_runs (

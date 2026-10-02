@@ -1,6 +1,6 @@
 """검수 SQL — 검수 읽기(한 Receipt 한 검수) · Receipt 사실 읽기 · 검수 INSERT · Receipt INSPECTED.
 
-★ 2026-09-30 재구성 BL-015: `logistics/inspections.py` 에서 옮겼다. 받은 연결로 실행만 한다.
+받은 연결로 실행만 한다.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.logistics.schemas.inspections import (
     InvalidInspectionOutcome,
 )
 
-#: 🔴 **둘까지만 읽는다.** 0 · 1 · 2+ 를 가르는 데 그 이상이 필요 없다 —
+#: 둘까지만 읽는다. 0 · 1 · 2+ 를 가르는 데 그 이상이 필요 없다 —
 #: 어차피 어느 하나도 고르지 않고 멈춘다.
 _AMBIGUITY_PROBE_LIMIT = 2
 
@@ -35,15 +35,15 @@ _INSPECTION_COLUMNS = (
 
 
 def find_inspection(conn: Any, *, receipt_id: str) -> InspectionRecord | None:
-    """그 Receipt 의 검수 한 건. **읽기만 한다.**
+    """그 Receipt 의 검수 한 건. 읽기만 한다.
 
     ```text
     0행      None
     1행      InspectionRecord
-    2행 이상  InspectionIntegrityError    ★ 첫 행을 고르지 않는다
+    2행 이상  InspectionIntegrityError    첫 행을 고르지 않는다
     ```
 
-    ⚠️ DB 에 `receipt_id` UNIQUE 가 **없다** (실측). 그래서 여기가 유일한 방어선이다.
+    주의: DB 에 `receipt_id` UNIQUE 가 없다(실측). 그래서 여기가 유일한 방어선이다.
     """
     if not receipt_id or not receipt_id.strip():
         raise InvalidInspectionOutcome(f"검수 조회에 쓸 수 없는 receipt_id 다: {receipt_id!r}")
@@ -62,7 +62,7 @@ def find_inspection(conn: Any, *, receipt_id: str) -> InspectionRecord | None:
 
     with conn.cursor() as cursor:
         cursor.execute(query, (receipt_id,))
-        # 🔴 `fetchone()` 을 쓰지 않는다 — 2행 이상을 조용히 첫 행으로 돌려준다.
+        # `fetchone()` 을 쓰지 않는다 — 2행 이상을 조용히 첫 행으로 돌려준다.
         rows = cursor.fetchall()
 
     if not rows:
@@ -88,7 +88,7 @@ def find_inspection(conn: Any, *, receipt_id: str) -> InspectionRecord | None:
 
 
 def select_receipt_for_inspection(conn: Any, *, receipt_id: str) -> dict[str, Any]:
-    """Receipt 의 상태와 수량. **PK 로 한 행을 읽는다.**"""
+    """Receipt 의 상태와 수량. PK 로 한 행을 읽는다."""
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(
         """
@@ -119,14 +119,14 @@ def mark_receipt_inspected(
 ) -> None:
     """검수 수량을 Receipt 에 옮기고 `INSPECTED` 로 넘긴다.
 
-    ⚠️ **칸 이름이 다르다** — 검수의 `reject_qty_kg` 가 Receipt 에서는
-       `rejected_qty_kg` 다 (실측).
+    주의: 칸 이름이 다르다 — 검수의 `reject_qty_kg` 가 Receipt 에서는
+    `rejected_qty_kg` 다(실측).
 
-    🔴 **위치·팔레트는 건드리지 않는다.** 그것들은 적치 단계의 사실이고,
-       `PUTAWAY_DONE` 으로도 넘기지 않는다.
+    위치·팔레트는 건드리지 않는다. 그것들은 적치 단계의 사실이고, `PUTAWAY_DONE` 으로도
+    넘기지 않는다.
 
-    ★ `updated_at = now()` 는 **DB 의 기록 시각**이다. 갱신 트리거가 없어(실측)
-      여기서 직접 적는다 — 업무 시각인 `inspected_at` 과 다른 축이다.
+    `updated_at = now()` 는 DB 의 기록 시각이다. 갱신 트리거가 없어(실측) 여기서 직접
+    적는다 — 업무 시각인 `inspected_at` 과 다른 축이다.
     """
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(

@@ -1,8 +1,8 @@
 """영업 Agent 실행이력 전용 PostgreSQL Repository — `sales_agent_runs`.
 
-★ 2026-09-29 BL-013: `sales/runs.py` 에서 SQL 과 payload 직렬화를 옮기고 연결을 인자로 받게
-  했다. 행을 응답 모델로 펴는 조회는 `readmodel/runs.py`, 저장 트랜잭션은
-  `service/proposal_generation.py` 가 연다(한 저장 = 한 트랜잭션, 종전과 같다).
+SQL 과 payload 직렬화가 여기 있고, 연결은 인자로 받는다. 행을 응답 모델로 펴는 조회는
+`readmodel/runs.py`, 저장 트랜잭션은 `service/proposal_generation.py` 가 연다(한 저장 = 한
+트랜잭션).
 """
 
 import json
@@ -20,19 +20,18 @@ from app.sales.schemas.runs import RuntimeStatus, SalesAgentRun, SalesCycle
 
 
 def _json_safe(value: Any) -> str:
-    """이력 payload 에 실을 수 없는 값을 **아는 것만** 편다.
+    """이력 payload 에 실을 수 없는 값을 아는 것만 편다.
 
-    🔴 **`date` 가 그대로 실려 이력 저장이 터지고 있었다** (2026-09-11 실측 · 걷기
-       `SIM-WALK-2026-FULL` 206일에서 **123건**). `asdict(request)` 는 `date` 를
-       그대로 두는데 `Jsonb` 는 그것을 못 싣는다.
+    `asdict(request)` 는 `date` 를 그대로 두는데 `Jsonb` 는 그것을 못 싣는다 — 펴지 않으면
+    이력 저장이 실패한다(2026-09-11 걷기 `SIM-WALK-2026-FULL` 실측: 206일에서 123건).
 
-    ★ 저장소 관례가 이미 `model_dump(mode="json")` 이다 (`app/logistics/service/cycle.py` ·
-      `app/master/service/cycle_persistence.py`). 둘 다 날짜를 ISO 문자열로 편다. 여기만
-      `dataclasses.asdict` 라 안 펴졌다 — **같은 결로 맞춘다.**
+    저장소 관례는 `model_dump(mode="json")` 이다 (`app/logistics/service/cycle.py` ·
+    `app/master/service/cycle_persistence.py`). 둘 다 날짜를 ISO 문자열로 편다. 여기는
+    `dataclasses.asdict` 라 이 함수가 같은 결로 맞춘다.
 
-    🔴 **모르는 것은 `str()` 로 뭉개지 않는다.** `default=str` 로 통째로 접으면
-       앞으로 실리는 어떤 타입이든 조용히 문자열이 되고, 그 손실이 이력에만 남아
-       아무도 안 아프다. 아는 셋만 펴고 나머지는 **터뜨린다.**
+    모르는 것은 `str()` 로 뭉개지 않는다. `default=str` 로 통째로 접으면 앞으로 실리는
+    어떤 타입이든 조용히 문자열이 되고, 그 손실이 이력에만 남아 아무도 모른다. 아는
+    타입(`date` · `datetime` · `Decimal` · `UUID`)만 펴고 나머지는 `TypeError` 로 올린다.
     """
     if isinstance(value, (date, datetime)):
         return value.isoformat()
@@ -42,7 +41,7 @@ def _json_safe(value: Any) -> str:
 
 
 def _payload(value: object) -> Jsonb:
-    """이력 payload 하나. **`Jsonb` 를 만드는 자리는 여기 하나다.**"""
+    """이력 payload 하나. `Jsonb` 를 만드는 자리는 여기 하나다."""
     return Jsonb(value, dumps=lambda obj: json.dumps(obj, default=_json_safe))
 
 

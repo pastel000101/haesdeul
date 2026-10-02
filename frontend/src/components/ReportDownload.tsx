@@ -13,13 +13,13 @@ import { filename, type ReportFacts } from "@/components/reports/reportFormat";
 /**
  * 매입안 보고서 내려받기.
  *
- * ★ **화면이 문서를 조립하지 않는다.** 서버가 낸 Markdown 을 그대로 파일로 만든다 —
- *   화면이 조립하기 시작하면 **화면과 문서가 다른 숫자**를 말하게 된다.
+ * 화면이 문서를 조립하지 않는다. 서버가 낸 Markdown 을 그대로 파일로 만든다 —
+ * 화면이 조립하기 시작하면 화면과 문서가 다른 숫자를 말하게 된다.
  *
- * ★ **문서는 실제 서비스 사용자가 읽는 매입 제안이다** (2026-09-15 결정).
- *   안별 매입량·금액·등급·이유와 부서 검토만 사람 말로 싣고, 검증 기록·종료 코드·
- *   입력 출처·참조 번호 같은 개발용 정보는 넣지 않는다. 그 기록은 실행 이력에 남는다.
- *   무엇을 싣는지는 서버 `backend/app/master/report/purchase_report.py` 가 정한다.
+ * 문서는 실제 서비스 사용자가 읽는 매입 제안이다.
+ * 안별 매입량·금액·등급·이유와 부서 검토만 사람 말로 싣고, 검증 기록·종료 코드·
+ * 입력 출처·참조 번호 같은 개발용 정보는 넣지 않는다. 그 기록은 실행 이력에 남는다.
+ * 무엇을 싣는지는 서버 `backend/app/master/report/purchase_report.py` 가 정한다.
  */
 export function ReportDownload({ requestId }: { requestId: string }) {
   const [busy, setBusy] = useState(false);
@@ -72,7 +72,7 @@ export function ReportDownload({ requestId }: { requestId: string }) {
 }
 
 
-/** 보고서 종류 하나 = 컴포넌트 하나 + PDF 이름 하나. **빠진 종류가 남의 보고서로 새지 않는다.** */
+/** 보고서 종류 하나 = 컴포넌트 하나 + PDF 이름 하나. 빠진 종류가 남의 보고서로 새지 않는다. */
 const DOMAIN_REPORTS = {
   FINANCE: { view: FinanceReport, slug: "finance" },
   SALES: { view: SalesReport, slug: "sales" },

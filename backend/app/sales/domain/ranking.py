@@ -2,8 +2,6 @@
 
 LLM은 이 모듈이 고른 ID를 설명할 뿐 바꿀 수 없다. 임계값 정책이 없으므로
 profit near-tie는 정확히 같은 값일 때만 성립한다.
-
-★ 2026-09-29 BL-013: `sales/ranking.py` 에서 옮겼다.
 """
 
 from decimal import Decimal

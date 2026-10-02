@@ -1,12 +1,10 @@
 """누적 수금 — 사용자 수금 기록(화면 · 마스터 ask)과 하루 수금 단계(마스터가 넘긴 연결).
 
-★ 사용자 수금 기록(`record_collection`)은 한 요청 = 한 트랜잭션이고, 사건 기록
-  (`master_collection_events`)과 수금 적용이 같은 트랜잭션이다. 하루 수금(`FinanceCollectionSource`)
-  은 마스터 연결로 적용만 하고 commit 하지 않는다.
+사용자 수금 기록(`record_collection`)은 한 요청 = 한 트랜잭션이고, 사건 기록
+(`master_collection_events`)과 수금 적용이 같은 트랜잭션이다. 하루 수금
+(`FinanceCollectionSource`)은 마스터 연결로 적용만 하고 commit 하지 않는다.
 
-★ 2026-09-29 재구성 BL-014: `finance/collection.py` 의 순서, `finance/collection_adapter.py` 의 사건
-  적용 순서,
-  `finance/router.py` 수금 핸들러의 순서 · 트랜잭션을 옮겼다.
+전이 계산은 `domain/collections.py`, SQL 은 `repository/collections.py`.
 """
 
 from __future__ import annotations

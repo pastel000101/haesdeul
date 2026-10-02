@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 마스터 대화에서 **판매를 끝까지 진행하는 자리.**
+ * 마스터 대화에서 판매를 끝까지 진행하는 자리.
  *
  * ```text
  * 판매 진행 상황 요약 → «판매안을 비교하고 진행하시겠어요?»
@@ -10,14 +10,14 @@
  *   → POST /master/runs/{request_id}/decision → 최종 재검증 → 판매 확정 / 확정 안 됨
  * ```
  *
- * ★ **새 업무 로직이 없다.** 판매안은 판매 화면의 금일 판매안과 같은 API 를 읽고
+ * 새 업무 로직이 없다. 판매안은 판매 화면의 금일 판매안과 같은 API 를 읽고
  *   (`salesOverview.proposals`), 카드는 판매 화면과 같은 카드(`ProposalCard`)이며, 확정은
  *   판매 화면이 쓰는 기존 결정 경로(`approveSalesScenario`)로만 보낸다.
  *
- * 🔴 **추천 · 선택 · 확정을 가른다.** 추천안을 자동으로 고르지 않는다. 선택만으로는
- *    아무것도 쓰지 않는다 — 기록은 «판매 확정» 을 눌렀을 때 한 번만 나간다.
- * 🔴 **다른 안으로 넘어가지 않는다.** 고른 안이 최종 확인에서 막히면 그 사실만 알린다.
- * 🔴 **숫자를 다시 계산하지 않는다.** 수량 · 단가 · 매출 · 이익률 · 여신은 백엔드 값이다.
+ * 추천 · 선택 · 확정을 가른다. 추천안을 자동으로 고르지 않는다. 선택만으로는
+ *   아무것도 쓰지 않는다 — 기록은 «판매 확정» 을 눌렀을 때 한 번만 나간다.
+ * 다른 안으로 넘어가지 않는다. 고른 안이 최종 확인에서 막히면 그 사실만 알린다.
+ * 숫자를 다시 계산하지 않는다. 수량 · 단가 · 매출 · 이익률 · 여신은 백엔드 값이다.
  */
 
 import { useRef, useState, useSyncExternalStore } from "react";
@@ -72,8 +72,8 @@ export function SalesConversation({ asOf, canApprove }: { asOf: string; canAppro
   const [stage, setStage] = useState<"ask" | "declined" | "cards">("ask");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  //  🔴 **즉시 잠근다.** `submitting` 상태는 다시 그려질 때까지 옛 값이라, 빠른 두 번 클릭이
-  //     같은 결정을 두 번 보냈다 (브라우저 검수에서 실제로 2건 나갔다).
+  //  즉시 잠근다. `submitting` 상태는 다시 그려질 때까지 옛 값이라, 이것만 보면 빠른
+  //  두 번 클릭이 같은 결정을 두 번 보낸다.
   const inFlight = useRef(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   //  확정 뒤 같은 카드가 «미확정» 으로 남지 않게 다시 읽는다.
@@ -91,7 +91,7 @@ export function SalesConversation({ asOf, canApprove }: { asOf: string; canAppro
       </p>
     );
   }
-  //  ⚠️ 다시 읽는 동안에도 결과 문장은 남긴다 — 사용자가 방금 무엇이 됐는지 봐야 한다.
+  //  다시 읽는 동안에도 결과 문장은 남긴다 — 사용자가 방금 무엇이 됐는지 봐야 한다.
   if (state.loading && !outcome) return <Skeleton what="판매 진행 상황" />;
   if (state.error) return <Failed what="판매 진행 상황" message="판매안을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." />;
   const data = state.data;
@@ -183,7 +183,7 @@ export function SalesConversation({ asOf, canApprove }: { asOf: string; canAppro
   );
 }
 
-/** 판매 진행 상황. **읽은 행을 세기만 한다.** 판정 문장은 백엔드와 같은 규칙이다. */
+/** 판매 진행 상황. 읽은 행을 세기만 한다. 판정 문장은 백엔드와 같은 규칙이다. */
 function Summary({ data }: { data: SalesProposalsResponse | null }) {
   if (!data) return <EmptyRows what="판매안" />;
   if (data.rows.length === 0) {
@@ -266,7 +266,7 @@ function Cards({
   );
 }
 
-/** 선택 뒤 **한 번 더** 묻는다. 기록은 여기서 «판매 확정» 을 눌렀을 때만 나간다. */
+/** 선택 뒤 한 번 더 묻는다. 기록은 여기서 «판매 확정» 을 눌렀을 때만 나간다. */
 function ConfirmSelection({
   row,
   rows,
@@ -351,7 +351,7 @@ function ConfirmSelection({
   );
 }
 
-/** 결과. **성공과 확정 안 됨을 가르고, 다른 안으로 넘어가지 않는다.** */
+/** 결과. 성공과 확정 안 됨을 가르고, 다른 안으로 넘어가지 않는다. */
 function OutcomeView({ outcome }: { outcome: Outcome }) {
   const row = outcome.row;
   const confirmed =

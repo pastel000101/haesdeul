@@ -1,28 +1,24 @@
-"""STATUS_QUERY 전용 **LLM function/tool calling 전송** (Issue #789).
+"""STATUS_QUERY 전용 LLM function/tool calling 전송 (Issue #789).
 
-🔴 이 파일은 provider 의 **실제 function calling API** 를 쓴다 — LLM 에게 tool schema 를
-   주고, LLM 이 낸 `tool_calls`(Ollama) / `functionCall`(Gemini) 를 받아 돌려준다.
-   Tool 선택은 LLM 이 한다 — 여기서 topic→tool 매핑을 하지 않는다.
+이 파일은 provider 의 실제 function calling API 를 쓴다 — LLM 에게 tool schema 를
+주고, LLM 이 낸 `tool_calls`(Ollama) / `functionCall`(Gemini) 를 받아 돌려준다.
+Tool 선택은 LLM 이 한다 — 여기서 topic→tool 매핑을 하지 않는다.
 
-🔴 **한 번 왕복 = `chat(messages, tools) -> AssistantTurn`.** 반환은 «LLM 이 부른 tool
-   목록» 이거나 «최종 자연어 답변» 이다. Tool 실행·결과 되먹임의 loop 는 부르는 쪽
-   (`status_query.answer_status_question`)이 돈다 — 이 파일은 전송만 한다.
+한 번 왕복 = `chat(messages, tools) -> AssistantTurn`. 반환은 «LLM 이 부른 tool
+목록» 이거나 «최종 자연어 답변» 이다. Tool 실행·결과 되먹임의 loop 는 부르는 쪽
+(`service/status_question.answer_status_question`)이 돈다 — 이 파일은 전송만 한다.
 
-⚠️ **해석기(`llm/runtime.py`)와 계약을 나누지 않는다.** 해석기는 한 번 묻고 JSON 을 받는
-   역할이고 여기는 여러 턴 tool calling 이다 — 설정(`get_llm_settings`)만 빌린다. 메시지 변환 ·
-   `thoughtSignature` 되돌려주기 · `AssistantTurn` 은 이 역할의 것이라 여기 둔다.
+해석기(`llm/runtime.py`)와 계약을 나누지 않는다. 해석기는 한 번 묻고 JSON 을 받는
+역할이고 여기는 여러 턴 tool calling 이다 — 설정(`get_llm_settings`)만 빌린다. 메시지 변환 ·
+`thoughtSignature` 되돌려주기 · `AssistantTurn` 은 이 역할의 것이라 여기 둔다.
 
-★ 2026-09-30 재구성 BL-020: **전송은 `app.core.llm` 이 한다.** 옛 머리말의 «provider wire 형식은
-  조사 planner(`agent/llm_client.py` — 2026-09-17 #789 에 지워졌다)의 것을 복제했다(공통화하지
-  않는다)» 는 두 가지를 뜻했다 — 다른 부서(재무) 파일을 import 하지 않는다는 **부서 경계**와,
-  해석기와 **역할이 다르다**는 것. `core/llm` 은 부서가 아니어서 앞의 이유가 없어졌고, 요청을
-  보내는 줄(`_post`)을 그리로 옮겼다. 본문 인코딩(`ensure_ascii=False` · `default=str`) ·
-  Gemini 주소(환경변수로 바꾸지 않는다) · 키 순서는 그대로다.
+요청을 만들고 보내는 일은 `app.core.llm` 이 한다. `core/llm` 은 부서가 아니어서, 다른
+부서 파일을 import 하지 않는다는 부서 경계에 걸리지 않는다. 본문 인코딩
+(`ensure_ascii=False` · `default=str`) · Gemini 주소(환경변수로 바꾸지 않는다) · 키 순서는
+이 파일의 규칙이다.
 
-🔴 **실패는 감추지 않는다.** provider 미설정·타임아웃·비활성이면 `StatusQueryLLMError`
-   를 던진다 — 결정론 파서로 조용히 fallback 하지 않는다(#789).
-
-★ 2026-09-30 재구성 BL-015: `logistics/query/llm.py` 에서 자리만 옮겼다(내용 그대로).
+실패는 감추지 않는다. provider 미설정·타임아웃·비활성이면 `StatusQueryLLMError`
+를 던진다 — 결정론 파서로 조용히 fallback 하지 않는다(#789).
 """
 
 from __future__ import annotations
@@ -60,10 +56,10 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
-    #: 🔴 **공급자가 준 원본 파트.** 되돌려줄 때 **그대로** 실어야 하는 불투명 필드가
+    #: 공급자가 준 원본 파트. 되돌려줄 때 그대로 실어야 하는 불투명 필드가
     #: 있어서다 — Gemini 3.x 는 `functionCall` 파트의 `thoughtSignature` 를 echo 하지
     #: 않으면 다음 턴을 400 으로 거절한다("Function call is missing a thought_signature").
-    #: 우리가 `name`·`arguments` 로 재구성하면 그 서명이 유실된다.
+#: 우리가 `name`·`arguments` 로 다시 만들면 그 서명이 유실된다.
     raw: dict[str, Any] | None = None
 
 
@@ -88,7 +84,7 @@ class StatusQueryLLMError(RuntimeError):
 
 
 # ---------------------------------------------------------------------------
-# 전송 — 요청 만들기 · 보내기는 `app.core.llm.providers` (2026-09-30 BL-020)
+# 전송 — 요청 만들기 · 보내기는 `app.core.llm.providers`
 # ---------------------------------------------------------------------------
 
 #: 본문 인코딩 — 한글을 그대로(`ensure_ascii=False`) · JSON 이 아닌 값은 `str` 로. 해석기와 다르다.
@@ -141,8 +137,8 @@ def _ollama_chat(
         )
         for index, item in enumerate(raw_calls)
     ]
-    # ★ Ollama 는 되돌릴 때 불투명 필드를 요구하지 않아 `raw` 를 안 싣는다 —
-    #   `_to_ollama_message` 가 name·arguments 로 재구성해도 계약이 성립한다.
+    # Ollama 는 되돌릴 때 불투명 필드를 요구하지 않아 `raw` 를 안 싣는다 —
+    # `_to_ollama_message` 가 name·arguments 로 다시 만들어도 계약이 성립한다.
     if calls:
         return AssistantTurn(tool_calls=calls, text=None)
     return AssistantTurn(tool_calls=[], text=message.get("content") or "")
@@ -151,8 +147,8 @@ def _ollama_chat(
 def _to_gemini_content(message: Mapping[str, Any]) -> dict[str, Any]:
     role = message["role"]
     if role == "assistant" and message.get("tool_calls"):
-        # 🔴 원본 파트가 있으면 **그대로** 돌려준다 — `thoughtSignature` 를 재구성으로
-        #    떨어뜨리면 Gemini 가 다음 턴을 400 으로 거절한다.
+        # 원본 파트가 있으면 그대로 돌려준다 — `thoughtSignature` 를 다시 만들며
+        # 떨어뜨리면 Gemini 가 다음 턴을 400 으로 거절한다.
         return {
             "role": "model",
             "parts": [
@@ -183,8 +179,8 @@ def _gemini_chat(
     body = gemini_tool_request(
         system,
         [_to_gemini_content(m) for m in messages if m["role"] != "system"],
-        # 🔴 tool schema 를 provider 에 그대로 전달한다 — 우리 스키마는 $ref/const/anyOf 가
-        #    없어 Gemini OpenAPI 부분집합에 이미 맞는다.
+        # tool schema 를 provider 에 그대로 전달한다 — 우리 스키마는 $ref/const/anyOf 가
+        # 없어 Gemini OpenAPI 부분집합에 이미 맞는다.
         [dict(tool) for tool in tools],
         # mode=AUTO — LLM 이 tool 을 더 부르거나 최종 답(text)을 낼 수 있게 둔다.
         function_calling={"mode": "AUTO"},
@@ -197,8 +193,8 @@ def _gemini_chat(
             id=f"call-{index}",
             name=part["functionCall"].get("name") or "",
             arguments=dict(part["functionCall"].get("args") or {}),
-            # 🔴 파트를 통째로 보존한다 — `thoughtSignature` 같은 불투명 필드를 다음 턴에
-            #    그대로 돌려줘야 한다(재구성하면 400).
+            # 파트를 통째로 보존한다 — `thoughtSignature` 같은 불투명 필드를 다음 턴에
+            # 그대로 돌려줘야 한다(새로 만들면 400).
             raw=dict(part),
         )
         for index, part in enumerate(parts)
@@ -211,9 +207,9 @@ def _gemini_chat(
 
 
 def build_chat() -> Chat:
-    """설정된 provider 에 묶인 `chat` 콜러블. 🔴 실패는 `StatusQueryLLMError` 로 올린다.
+    """설정된 provider 에 묶인 `chat` 콜러블. 실패는 `StatusQueryLLMError` 로 올린다.
 
-    ★ 테스트는 이 함수를 부르지 않고 `answer_status_question(chat=<가짜>)` 로 주입한다.
+    테스트는 이 함수를 부르지 않고 `answer_status_question(chat=<가짜>)` 로 주입한다.
     """
     settings = get_llm_settings()
     if not settings.enabled:

@@ -1,11 +1,8 @@
 """재무 에이전트 직접 실행 — `POST /finance/agent` · `GET /finance/agent/runs/{run_id}`.
 
-🔴 **예외 (2026-09-28 23시 · 사용자 결정)**: `POST /finance/agent` 는 요청 · 응답이 봉투 그 자체라
-   라우트가 마스터와 같은 입구(`finance/adapter.finance_port`)를 부른다. 어댑터를 들이는 곳은 이
-   파일과 마스터 등록소 조립 둘뿐이다. 없앨지는 나중에 정한다.
-
-★ 2026-09-30 재구성 BL-019: `app/finance/router.py` 에서 옮겼다 — 핸들러 이름 · docstring(OpenAPI
-  설명) · URL · 상태 코드 · 문구 그대로.
+예외 (사용자 결정): `POST /finance/agent` 는 요청 · 응답이 봉투 그 자체라 라우트가 마스터와
+같은 입구(`finance/adapter.finance_port`)를 부른다. 어댑터를 들이는 곳은 이 파일과 마스터 등록소
+조립 둘뿐이다. 없앨지는 아직 정하지 않았다.
 """
 
 from uuid import UUID

@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * 금일 판매안 — **매입 화면의 «금일 매입안» 과 같은 자리다.**
+ * 금일 판매안 — 매입 화면의 «금일 매입안» 과 같은 자리다.
  *
- * ★ 매입 카드가 보여 주는 것과 같은 것을 보여 준다. 얼마를 팔자고 했는지, 그 근거가
- *   무엇인지, 걸리는 것이 무엇인지다.
+ * 매입 카드가 보여 주는 것과 같은 것을 보여 준다. 얼마를 팔자고 했는지, 그 근거가
+ * 무엇인지, 걸리는 것이 무엇인지다.
  *
- * 🔴 **화면이 숫자를 만들지 않는다.** 매출액은 판매가 적어 보낸 값을 그대로 적는다 —
- *    수량×단가로 다시 만들면 저장된 값과 어긋나는 날 화면만 조용히 맞아 보인다.
+ * 화면이 숫자를 만들지 않는다. 매출액은 판매가 적어 보낸 값을 그대로 적는다 —
+ * 수량×단가로 다시 만들면 저장된 값과 어긋나는 날 화면만 조용히 맞아 보인다.
  *
- * 🔴 **재무 판정을 화면이 흉내 내지 않는다.** 통과 여부는 재무가 남긴 값이고, 없으면
- *    «검토 전» 이다 — 통과도 거절도 아니다.
+ * 재무 판정을 화면이 흉내 내지 않는다. 통과 여부는 재무가 남긴 값이고, 없으면
+ * «검토 전» 이다 — 통과도 거절도 아니다.
  */
 
 import { useRef, useState, useSyncExternalStore } from "react";
@@ -44,8 +44,8 @@ import { sessionSnapshot, serverSnapshot, subscribeSession } from "@/lib/session
 /**
  * 안의 성격. 정본은 판매의 `ScenarioType` 세 값이다.
  *
- * 🔴 **모르는 값을 지어내지 않는다.** 표에 없으면 저장값을 그대로 보여 준다 — 새 유형이
- *    생긴 날 그것이 남의 이름으로 표시되면 안 된다.
+ * 모르는 값을 지어내지 않는다. 표에 없으면 저장값을 그대로 보여 준다 — 새 유형이
+ * 생긴 날 그것이 남의 이름으로 표시되면 안 된다.
  */
 const SCENARIO_TYPES: Record<string, string> = {
   CONSERVATIVE: "안정 우선",
@@ -61,7 +61,7 @@ const OBJECTIVES: Record<string, string> = {
 };
 
 /**
- * 걸리는 점. 🔴 **코드 모양의 문장(`PRICE_CONTEXT_REQUIRED` 같은)은 원문으로 적지 않는다** —
+ * 걸리는 점. 코드 모양의 문장(`PRICE_CONTEXT_REQUIRED` 같은)은 원문으로 적지 않는다 —
  * 사용자가 읽을 수 있는 문장만 남기고, 코드는 «세부 조건» 한 줄로 알린다.
  */
 function concerns(row: SalesProposal): string[] {
@@ -87,7 +87,7 @@ export function TodayProposals({
   rows: SalesProposal[];
   requestCount: number;
   hiddenZeroQuantity: number;
-  /** 🔴 «후보가 없다» · «판정이 없다» · «다 탈락» 을 한 문구로 합치지 않는다. */
+  /** «후보가 없다» · «판정이 없다» · «다 탈락» 을 한 문구로 합치지 않는다. */
   screenState?: string;
   unresolvedCount?: number;
   rejectedCount?: number;
@@ -96,7 +96,7 @@ export function TodayProposals({
   const [selectedScenarioKey, setSelectedScenarioKey] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  //  🔴 즉시 잠근다 — 상태만으로는 빠른 두 번 클릭이 같은 결정을 두 번 보낸다.
+  //  즉시 잠근다 — 상태만으로는 빠른 두 번 클릭이 같은 결정을 두 번 보낸다.
   const inFlight = useRef(false);
   const [decision, setDecision] = useState<SalesDecisionResponse | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -139,8 +139,8 @@ export function TodayProposals({
         }}
         onCancel={() => setConfirming(false)}
         onConfirm={async () => {
-          //  🔴 **판정을 받고 통과한 안만 확정으로 간다.** 미판정 후보를 화면에
-          //     보여주는 것과 확정 요청을 보내는 것은 다른 사실이다.
+          //  판정을 받고 통과한 안만 확정으로 간다. 미판정 후보를 화면에
+          //  보여주는 것과 확정 요청을 보내는 것은 다른 사실이다.
           if (!selected || selected.approval_blocked || selected.sale_status !== null || !selected.history_run_id || !session || inFlight.current) return;
           inFlight.current = true;
           setSubmitting(true);
@@ -178,7 +178,7 @@ export function TodayProposals({
       <p className="mb-0 mt-1 text-[16px] leading-relaxed text-ink2">
         오늘 판매가 {requestCount}건의 요청을 돌아 {rows.length}개의 안을 만들었습니다
         {items.length > 0 && ` (품목 ${items.join(" · ")})`}. 추천과 선택은 다르며, 선택은 아직 판매 확정이 아닙니다.
-        {/* 🔴 지운 것이 아니라 뺀 것이다. 몇 건인지 숫자로 남긴다. */}
+        {/* 지운 것이 아니라 뺀 것이다. 몇 건인지 숫자로 남긴다. */}
         {hiddenZeroQuantity > 0 && (
           <>
             {" "}
@@ -227,7 +227,7 @@ function ApprovalPanel({
         <div className="mt-2 text-[16px] leading-relaxed text-ink2">
           <p className="m-0"><b className="text-ink">{label(SCENARIO_TYPES, selected.scenario_type)}</b> · {selected.quantity_kg === null ? "수량 정보 없음" : `${Number(selected.quantity_kg).toLocaleString("ko-KR")} kg`} · {moneyWon(selected.reported_sales_amount_krw)}</p>
           {selected.sale_status !== null && <p className="mb-0 mt-1 font-semibold text-[var(--color-t-good)]">판매 확정 완료</p>}
-          {/* ★ 왜 못 누르는지 말하지 않으면 사용자는 버튼이 고장 난 줄 안다. */}
+          {/* 왜 못 누르는지 말하지 않으면 사용자는 버튼이 고장 난 줄 안다. */}
           {selected.approval_blocked && selected.sale_status === null && (
             <p className="mb-0 mt-1" style={{ color: presentationColor(selected.presentation_state) }}>
               <b>{presentationText(selected.presentation_state)}</b> — {presentationHelp(selected.presentation_state)}
@@ -249,7 +249,7 @@ function ApprovalPanel({
             <dt>예상 매출</dt><dd className="m-0 text-ink">{moneyWon(selected.reported_sales_amount_krw)}</dd>
             <dt>납품일</dt><dd className="m-0 text-ink">{selected.delivery_date ?? "날짜 미정"}</dd>
             <dt>결제 조건</dt><dd className="m-0 text-ink">{paymentTermText(selected.payment_days)}</dd>
-            {/* ★ 세 축을 각자 적는다 — 한 칸에 섞으면 어느 축의 이야기인지 못 되짚는다. */}
+            {/* 세 축을 각자 적는다 — 한 칸에 섞으면 어느 축의 이야기인지 못 되짚는다. */}
             <dt>제시 상태</dt><dd className="m-0 text-ink">{presentationText(selected.presentation_state)}</dd>
             <dt>후보 상태</dt><dd className="m-0 text-ink">{selected.status ?? "정보 없음"}</dd>
             <dt>재무 판정</dt><dd className="m-0 text-ink">{selected.finance_verdict === null ? "재무 검토 전" : verdictText(selected.finance_verdict)}</dd>
@@ -287,8 +287,8 @@ function DecisionResult({ result }: { result: SalesDecisionResponse }) {
 /**
  * 판정이 왜 안 났는가.
  *
- * ★ **판매가 적어 둔 사실에서만 읽는다.** 없는 이유를 지어내면 사용자가 채울 수 없는
- *   것을 채우려 한다.
+ * 판매가 적어 둔 사실에서만 읽는다. 없는 이유를 지어내면 사용자가 채울 수 없는
+ * 것을 채우려 한다.
  */
 function UnresolvedReason({ row }: { row: SalesProposal }) {
   if (row.presentation_state !== "UNRESOLVED") return null;
@@ -309,7 +309,7 @@ function UnresolvedReason({ row }: { row: SalesProposal }) {
 /**
  * 전략이 어떻게 섰는가.
  *
- * 🔴 **저장된 라벨만 적는다.** HTTP 원문이나 provider 응답 본문은 계약에 없다.
+ * 저장된 라벨만 적는다. HTTP 원문이나 provider 응답 본문은 계약에 없다.
  */
 function StrategyNote({ row }: { row: SalesProposal }) {
   const lines = strategyLines(row.strategy);
@@ -327,7 +327,7 @@ function StrategyNote({ row }: { row: SalesProposal }) {
 }
 
 /**
- * 판매안 카드 한 장. **판매 화면과 마스터 대화가 같은 카드를 쓴다** — 두 자리가 다른
+ * 판매안 카드 한 장. 판매 화면과 마스터 대화가 같은 카드를 쓴다 — 두 자리가 다른
  * 숫자나 다른 추천을 말하지 않게 한 벌로 둔다.
  */
 export function ProposalCard({
@@ -339,8 +339,8 @@ export function ProposalCard({
   selected: boolean;
   onSelect: () => void;
 }) {
-  //  ★ 테두리는 **제시 상태**를 따른다 — 사용자가 먼저 알아야 하는 것은 «이 안으로 갈
-  //    수 있나» 이고, 재무 판정은 그 답의 근거다.
+  //  테두리는 제시 상태를 따른다 — 사용자가 먼저 알아야 하는 것은 «이 안으로 갈
+  //  수 있나» 이고, 재무 판정은 그 답의 근거다.
   const accent = presentationColor(row.presentation_state);
   const kind = label(SCENARIO_TYPES, row.scenario_type);
   const aim = label(OBJECTIVES, row.objective);
@@ -360,13 +360,13 @@ export function ProposalCard({
         {kind && <Tag text={kind} color="var(--color-t-info)" />}
         {row.recommended && <Tag text="추천" color="var(--color-t-good)" />}
         {selected && <Tag text="선택됨" color="var(--color-t-info)" />}
-        {/* ★ 확정은 추천·선택과 다른 사실이다 — 같은 실행에 판매 기록이 있을 때만 붙는다. */}
+        {/* 확정은 추천·선택과 다른 사실이다 — 같은 실행에 판매 기록이 있을 때만 붙는다. */}
         {row.sale_status !== null && <Tag text="판매 확정" color="var(--color-t-good)" />}
-        {/* 🔴 **제시 상태와 재무 판정을 한 배지에 섞지 않는다.** 앞은 «이 안으로 갈 수
+        {/* 제시 상태와 재무 판정을 한 배지에 섞지 않는다. 앞은 «이 안으로 갈 수
             있나» 이고 뒤는 «재무가 뭐라 했나» 다 — 미판정을 탈락으로 읽게 두지 않는다. */}
         <Tag text={presentationText(row.presentation_state)} color={accent} />
         <span className="ml-auto text-[15.5px]" style={{ color: "var(--color-mut)" }}>
-          {/* ⚠️ 재무가 아직 안 본 안과 거절된 안은 다른 사실이다. */}
+          {/* 재무가 아직 안 본 안과 거절된 안은 다른 사실이다. */}
           재무 {row.finance_verdict === null ? "검토 전" : verdictText(row.finance_verdict)}
         </span>
       </header>
@@ -378,7 +378,7 @@ export function ProposalCard({
             value={row.quantity_kg === null ? "데이터 없음" : `${Number(row.quantity_kg).toLocaleString("ko-KR")} kg`}
             hero
           />
-          {/* 🔴 판매가 적어 보낸 매출액이다. 수량×단가로 다시 만들지 않는다. */}
+          {/* 판매가 적어 보낸 매출액이다. 수량×단가로 다시 만들지 않는다. */}
           <Line label="예상 매출" value={moneyWon(row.reported_sales_amount_krw)} />
           <Line
             label="단가"
@@ -395,14 +395,14 @@ export function ProposalCard({
           {aim && <Line label="노리는 것" value={aim} />}
         </dl>
 
-        {/* 🔴 **왜 그 판정인지 말한다.** 결과만 적으면 사용자가 되짚을 수 없다. */}
+        {/* 왜 그 판정인지 말한다. 결과만 적으면 사용자가 되짚을 수 없다. */}
         <FinanceReason row={row} />
 
-        {/* 🔴 **판정이 안 났으면 무엇을 기다리는지 말한다.** 말하지 않으면 사용자가
+        {/* 판정이 안 났으면 무엇을 기다리는지 말한다. 말하지 않으면 사용자가
             할 수 있는 일이 없고, 그러면 조건을 바꾸는 엉뚱한 일을 한다. */}
         <UnresolvedReason row={row} />
 
-        {/* ★ 이 안의 자세를 무엇이 골랐나. 모델이 실패했으면 왜 실패했는지까지. */}
+        {/* 이 안의 자세를 무엇이 골랐나. 모델이 실패했으면 왜 실패했는지까지. */}
         <StrategyNote row={row} />
 
         <button
@@ -428,7 +428,7 @@ export function ProposalCard({
           </Section>
         )}
 
-        {/* ★ 근거는 펼쳐서 본다. 어떤 자료가 들어와 이 안이 섰는지가 여기 있다. */}
+        {/* 근거는 펼쳐서 본다. 어떤 자료가 들어와 이 안이 섰는지가 여기 있다. */}
         <Evidence row={row} />
       </div>
     </article>
@@ -438,8 +438,8 @@ export function ProposalCard({
 /**
  * 판정을 가른 사유.
  *
- * 🔴 **판정이 없으면 왜 없는지 말한다.** «재무 검토 전» 만 적으면 밀린 것인지 부를
- *    일이 없었던 것인지 알 수 없다 — 판매가 적어 둔 미완 검증을 그대로 보여 준다.
+ * 판정이 없으면 왜 없는지 말한다. «재무 검토 전» 만 적으면 밀린 것인지 부를
+ * 일이 없었던 것인지 알 수 없다 — 판매가 적어 둔 미완 검증을 그대로 보여 준다.
  */
 function FinanceReason({ row }: { row: SalesProposal }) {
   const rate = toNumber(row.contribution_margin_rate);
@@ -500,10 +500,10 @@ function FinanceReason({ row }: { row: SalesProposal }) {
 /**
  * 이 판매가 거래처 여신에 주는 영향.
  *
- * 🔴 **화면이 여신을 세지 않는다.** 한도·미수·남은 여신·판매 후 미수·선회수 필요액은 전부
- *    재무가 이 안을 검토하며 센 값이다. 없으면 적지 않는다 — 0 으로 채우지 않는다.
+ * 화면이 여신을 세지 않는다. 한도·미수·남은 여신·판매 후 미수·선회수 필요액은 전부
+ * 재무가 이 안을 검토하며 센 값이다. 없으면 적지 않는다 — 0 으로 채우지 않는다.
  *
- * 🔴 **선회수 필요액은 안내다.** 이 화면이 미수를 줄이거나 가격·수량을 바꾸지 않는다.
+ * 선회수 필요액은 안내다. 이 화면이 미수를 줄이거나 가격·수량을 바꾸지 않는다.
  */
 function CreditFacts({ row }: { row: SalesProposal }) {
   if (toNumber(row.credit_limit_krw) === null && toNumber(row.current_partner_ar_krw) === null) {
@@ -539,8 +539,8 @@ function CreditFacts({ row }: { row: SalesProposal }) {
         <span className="text-[15.5px] text-ink2">
           {row.expected_credit_recovery_date
             ? `예상 여신 회복일 ${longDate(row.expected_credit_recovery_date)} — 계약상 결제 예정일을 기준으로 한 예상입니다.`
-            : //  ⚠️ «모이지 않는다» 로 단정하지 않는다. 이 칸이 생기기 전에 저장된 판정에는
-              //    회복일 자체가 없고, 그 경우와 «예정 채권으로 못 채움» 을 화면이 가를 수 없다.
+            : //  «모이지 않는다» 로 단정하지 않는다. 이 칸이 생기기 전에 저장된 판정에는
+              //  회복일 자체가 없고, 그 경우와 «예정 채권으로 못 채움» 을 화면이 가를 수 없다.
               "예상 여신 회복일을 알려 줄 수금 예정 정보가 없습니다."}
         </span>
       )}
@@ -549,10 +549,10 @@ function CreditFacts({ row }: { row: SalesProposal }) {
 }
 
 /**
- * 이 안이 무엇에 기대어 섰는가. **접어 두되 지우지 않는다.**
+ * 이 안이 무엇에 기대어 섰는가. 접어 두되 지우지 않는다.
  *
- * ⚠️ 참조 문자열은 내부 키라 기본 화면에 펼쳐 두면 카드가 개발 로그가 된다. 사람이
- *   읽을 요약을 먼저 적고, 원본 참조는 열어야 보이게 한다.
+ * 참조 문자열은 내부 키라 기본 화면에 펼쳐 두면 카드가 개발 로그가 된다. 사람이
+ * 읽을 요약을 먼저 적고, 원본 참조는 열어야 보이게 한다.
  */
 function Evidence({ row }: { row: SalesProposal }) {
   const confirmed = toNumber(row.confirmed_quantity_kg);
@@ -678,7 +678,7 @@ function Tag({ text, color }: { text: string; color: string }) {
   );
 }
 
-/** 판매안 패널. **오류와 빈 것과 성공을 가른다.** */
+/** 판매안 패널. 오류와 빈 것과 성공을 가른다. */
 export function TodayProposalsPanel({
   asOf,
   state,

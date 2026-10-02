@@ -1,8 +1,6 @@
 """승인 약정 → 재무 변경 계산 — 회차 금액 · 지급기일 · 매입 ID · 다음 상태.
 
-★ 2026-09-29 재구성 BL-014: `finance/transition.py` 를 판정 · 순서 · SQL 로 나눴다. 읽기는
-  `service/transition.py`
-  가 먼저 하고 계산은 입출력 없이 한다.
+읽기는 `service/transition.py` 가 먼저 하고 계산은 입출력 없이 한다.
 """
 
 from __future__ import annotations
@@ -29,7 +27,7 @@ def transition_plan(
     target_state_date: date,
     purchase_ids: Mapping[int, str],
 ) -> FinanceTransitionPlan:
-    """승인일 상태 · 정책 N5 · 약정으로 재무 변경을 계산한다. **입출력 없음.**"""
+    """승인일 상태 · 정책 N5 · 약정으로 재무 변경을 계산한다. 입출력 없음."""
     if purchase_payment_days is None:
         raise FinanceDataNotReady("purchase_payment_days")
 
@@ -48,7 +46,7 @@ def transition_plan(
             purchase_id=_purchase_id_for_leg(purchase_ids, leg.seq),
             issued_date=commitment.as_of,
             # N5 는 계약 지급일까지의 달력일수다 (현재 0 = 매입 당일). 주말 보정은
-            # 하지 않는다. 실제 현금일만 `tools.effective_cash_date`가 옮긴다.
+            # 하지 않는다. 실제 현금일만 `domain/tools.py` 의 `effective_cash_date`가 옮긴다.
             due_date=_due_date_of(leg, payment_days=int(purchase_payment_days)),
             amount_krw=leg.amount_krw,
         )
@@ -81,11 +79,11 @@ class _PaymentLeg:
 
 
 def _due_date_of(leg: _PaymentLeg, *, payment_days: int) -> date:
-    """채무 만기일. **약정 회차에 확정 지급기일이 있으면 그 값이다** (재무 요청 2026-09-16).
+    """채무 만기일. 약정 회차에 확정 지급기일이 있으면 그 값이다.
 
-    ★ 정책 주석(`finance_policy_seed.sql` purchase_payment_days)이 *"H1에 확정 payment_date가
-      존재하면 해당 값이 authoritative"* 라고 적어 두었다. 실매입 기록의 지급기일과 채무
-      `due_date` 가 한 값이어야 한다. 없을 때만 매입일 + N5 달력일로 계산한다.
+    정책 주석(`finance_policy_seed.sql` purchase_payment_days)이 "H1에 확정 payment_date가
+    존재하면 해당 값이 authoritative" 라고 적어 두었다. 실매입 기록의 지급기일과 채무
+    `due_date` 가 한 값이어야 한다. 없을 때만 매입일 + N5 달력일로 계산한다.
     """
     if leg.payment_due_date is not None:
         return leg.payment_due_date
@@ -134,10 +132,10 @@ def _payment_legs(
 
 
 def _purchase_id_for_leg(purchase_ids: Mapping[int, str], seq: int) -> str:
-    """이 회차의 매입 ID. **없으면 다른 값으로 대신하지 않는다.**
+    """이 회차의 매입 ID. 없으면 다른 값으로 대신하지 않는다.
 
-    🔴 매핑에 값이 하나뿐이라고 그것을 집으면, 마스터가 다른 회차 ID 를 실어 준
-       날에 **엉뚱한 매입에 채무가 붙는다.** 에러 없이 원장만 어긋난다.
+    매핑에 값이 하나뿐이라고 그것을 집으면, 마스터가 다른 회차 ID 를 실어 준 날에 엉뚱한
+    매입에 채무가 붙는다. 에러 없이 원장만 어긋난다.
     """
     if seq not in purchase_ids:
         raise FinanceDataNotReady("commitment_purchase_ids")

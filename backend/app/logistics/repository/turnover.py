@@ -1,7 +1,4 @@
-"""회전 SQL — 품목 정책 한 벌 · 창고에 남은 Lot 의 회전 재료 행.
-
-★ 2026-09-30 재구성 BL-015: `logistics/turnover.py` 에서 옮겼다.
-"""
+"""회전 SQL — 품목 정책 한 벌 · 창고에 남은 Lot 의 회전 재료 행."""
 
 from __future__ import annotations
 
@@ -27,13 +24,13 @@ _LOT_TURNOVER_COLUMNS = (
 
 
 def load_item_policy(conn: Any, *, item_id: str) -> ItemPolicy | None:
-    """품목 하나의 정책. **품목 자체가 없으면 `None`.**
+    """품목 하나의 정책. 품목 자체가 없으면 `None`.
 
-    🔴 **정책 두 표를 `LEFT JOIN` 한다.** `INNER JOIN` 하면 정책이 없는 품목이
-       *"그런 품목이 없다"* 로 보인다 — `load_lot_turnover` 가 같은 이유로 같은 조인을
-       쓴다. 없는 정책은 **없다고 답하는 것**이 이 함수의 일이다.
+    정책 두 표를 `LEFT JOIN` 한다. `INNER JOIN` 하면 정책이 없는 품목이 "그런 품목이
+    없다" 로 보인다 — `load_lot_turnover` 가 같은 이유로 같은 조인을 쓴다. 없는 정책은
+    없다고 답하는 것이 이 함수의 일이다.
 
-    ⚠️ **읽기만 한다.** 커밋도 롤백도 안 하고, 없는 정책의 기본값을 지어내지 않는다.
+    읽기만 한다. 커밋도 롤백도 안 하고, 없는 정책의 기본값을 지어내지 않는다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -76,10 +73,11 @@ def load_item_policy(conn: Any, *, item_id: str) -> ItemPolicy | None:
 def select_lot_turnover_rows(
     conn: Any, *, sim_run_id: str, as_of: date, lot_id: str | None = None
 ) -> list[dict[str, Any]]:
-    """창고에 남아 있는 Lot 의 회전·신선도 계산 재료 행. **읽기만 한다.**
+    """창고에 남아 있는 Lot 의 회전·신선도 계산 재료 행. 읽기만 한다.
 
-    ★ 고르는 눈은 `load_lot_turnover` 머리말 그대로다 — `remaining_qty_kg > 0` ·
-      `received_at <= as_of`, 상태로 거르지 않고, 회전 정책 표는 `LEFT JOIN`.
+    고르는 눈은 `readmodel/turnover.py` 의 `load_lot_turnover` 머리말과 같다 —
+    `remaining_qty_kg > 0` · `received_at <= as_of`, 상태로 거르지 않고, 회전 정책 표는
+    `LEFT JOIN`.
     """
     schema = sql.Identifier(get_db_schema())
     조건 = sql.SQL("AND l.lot_id = %(lot_id)s") if lot_id else sql.SQL("")

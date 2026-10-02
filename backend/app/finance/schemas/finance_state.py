@@ -1,8 +1,7 @@
 """재무 상태(`finance_states`) 한 행과 축의 모양, 상태 종류(`state_type`) 어휘.
 
-★ 2026-09-29 재구성 BL-014: 행 · 축 모양은 `finance/db.py`, 상태 종류 상수는 그 행을 세우는 파일
-  (`day_open.py` · `transition.py` · `cancellation.py`)에서 옮겼다 — SQL 인자와 판정이 같은
-  값을 보게 한 곳에 모았다.
+상태 종류 상수는 그 행을 세우는 개장 · 전이 · 취소가 같이 쓴다 — SQL 인자와 판정이 같은 값을
+보게 한 곳에 모았다.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ class FinanceState(TypedDict):
 
 
 class FinanceRuntimeAxis(TypedDict):
-    """상태 한 건이 아니라 **어느 축 위에서 고르는가**."""
+    """상태 한 건이 아니라 어느 축 위에서 고르는가."""
 
     sim_run_id: str
     financing_mode: str

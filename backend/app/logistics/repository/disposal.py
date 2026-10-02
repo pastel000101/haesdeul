@@ -1,6 +1,6 @@
 """폐기 SQL — Lot 의 폐기 가능량 · 기존 폐기 Move · Lot 현재 잔량/상태 · DISPOSED 표시.
 
-★ 2026-09-30 재구성 BL-015: `logistics/disposal.py` 에서 옮겼다. 받은 연결로 실행만 한다.
+받은 연결로 실행만 한다.
 """
 
 from __future__ import annotations
@@ -18,14 +18,14 @@ from app.logistics.schemas.vocabulary import HOLDING_ALLOCATION, HOLDING_RESERVA
 def lot_disposable_qty(
     conn: Any, *, sim_run_id: str, lot_id: str
 ) -> tuple[Decimal, str]:
-    """이 Lot 에서 **없애도 되는 양**과 현재 상태.
+    """이 Lot 에서 없애도 되는 양과 현재 상태.
 
     ```text
     lot_disposable = remaining_qty_kg − 그 Lot 의 살아있는 할당 합
     ```
 
-    ★ `outbound._available_lots` 의 Lot 축과 **같은 뜻**이다. 저쪽은 품목 전체를
-      한 번에 훑는 목록이고 여기는 Lot 하나라, 같은 의미를 좁게 다시 적었다.
+    `service/outbound.py` 의 `_available_lots` 의 Lot 축과 같은 뜻이다. 저쪽은 품목
+    전체를 한 번에 훑는 목록이고 여기는 Lot 하나라, 같은 의미를 좁게 다시 적었다.
     """
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(
@@ -68,11 +68,11 @@ def lot_disposable_qty(
 
 
 def select_existing_disposal(conn: Any, *, move_id: str) -> dict[str, Any] | None:
-    """같은 폐기 참조가 이미 적혀 있나. **읽기만 한다.**
+    """같은 폐기 참조가 이미 적혀 있나. 읽기만 한다.
 
-    ★ **`note` 까지 읽는다.** 원장의 멱등 판정(`ledger._IDENTITY_COLUMNS`)이 `note` 를
-      포함하므로 폐기 재실행도 같은 눈으로 봐야 한다 — 여기서 빼면 같은 참조에 다른
-      설명이 붙어도 통과하고, 그 차이는 어디에도 안 남는다.
+    `note` 까지 읽는다. 원장의 멱등 판정(`schemas/ledger.py` 의 `IDENTITY_COLUMNS`)이
+    `note` 를 포함하므로 폐기 재실행도 같은 눈으로 봐야 한다 — 여기서 빼면 같은 참조에
+    다른 설명이 붙어도 통과하고, 그 차이는 어디에도 안 남는다.
     """
     schema = sql.Identifier(get_db_schema())
     이름 = ("sim_run_id", "lot_id", "move_type", "quantity_kg", "moved_at", "reason_code", "note")
@@ -97,13 +97,13 @@ def select_existing_disposal(conn: Any, *, move_id: str) -> dict[str, Any] | Non
 def mark_lot_disposed(conn: Any, *, sim_run_id: str, lot_id: str) -> None:
     """전량 폐기된 Lot 을 `DISPOSED` 로 넘긴다.
 
-    🔴 **부분 폐기에는 붙이지 않는다.** 30kg 만 버린 Lot 은 여전히 살아 있는 재고다.
+    부분 폐기에는 붙이지 않는다. 30kg 만 버린 Lot 은 여전히 살아 있는 재고다.
 
-    ★ **`OUT` 으로 0 이 된 Lot 과 뜻이 다르다.** 저쪽은 팔려 나간 것이라 `ACTIVE` 로
-      남고(원장은 상태를 안 바꾼다), 이쪽은 버려진 것이라 `DISPOSED` 다. 두 0 을 같은
-      상태로 적으면 *"왜 없어졌나"* 를 나중에 구별할 수 없다.
+    `OUT` 으로 0 이 된 Lot 과 뜻이 다르다. 저쪽은 팔려 나간 것이라 `ACTIVE` 로
+    남고(원장은 상태를 안 바꾼다), 이쪽은 버려진 것이라 `DISPOSED` 다. 두 0 을 같은
+    상태로 적으면 "왜 없어졌나" 를 나중에 구별할 수 없다.
 
-    ⚠️ 수량은 건드리지 않는다 — 그것은 원장이 이미 했다.
+    수량은 건드리지 않는다 — 그것은 원장이 이미 했다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:

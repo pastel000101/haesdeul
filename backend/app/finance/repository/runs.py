@@ -1,6 +1,6 @@
 """재무 에이전트 실행이력 SQL — v1(`finance_agent_runs`) · v2.2(`finance_agent_runs_v22`).
 
-★ 2026-09-29 재구성 BL-014: `finance/execution.py` 에서 옮겼다. 받은 연결로 실행만 한다.
+받은 연결로 실행만 한다.
 """
 
 from __future__ import annotations

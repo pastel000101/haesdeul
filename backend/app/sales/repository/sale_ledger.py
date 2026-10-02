@@ -1,9 +1,8 @@
-"""판매 원장 SQL — `sales` · `sale_items` 멱등 기록과 납품 완료 표시. **부르는 쪽 연결로.**
+"""판매 원장 SQL — `sales` · `sale_items` 멱등 기록과 납품 완료 표시. 부르는 쪽 연결로.
 
-★ 2026-09-29 BL-013: `sales/persistence.py` 에서 SQL 을 옮겼다. 마스터가 트랜잭션을 가진
-  연결을 넘기고(`sales_approval` · `outbound_flow`), 여기서는 commit · rollback 을 하지 않는다.
-  같은 판매를 다시 적을 때 저장된 행이 계획과 같은지 되읽어 보는 것(`_assert_same_*`)은
-  `ON CONFLICT DO NOTHING` 쓰기의 짝이라 SQL 과 함께 둔다.
+마스터가 트랜잭션을 가진 연결을 넘기고(`sales_approval` · `outbound_flow`), 여기서는
+commit · rollback 을 하지 않는다. 같은 판매를 다시 적을 때 저장된 행이 계획과 같은지
+되읽어 보는 것(`_assert_same_*`)은 `ON CONFLICT DO NOTHING` 쓰기의 짝이라 SQL 과 함께 둔다.
 """
 
 from typing import Any
@@ -215,7 +214,7 @@ def _row_value(row: Any, name: str, index: int = 0) -> Any:
 
 
 def set_sale_delivered(conn: Connection, *, sale_id: str) -> int:
-    """확정 · 준비 상태의 판매를 **납품 완료**로 바꾼다. 바뀐 행 수를 돌려준다."""
+    """확정 · 준비 상태의 판매를 납품 완료로 바꾼다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -233,7 +232,7 @@ def set_sale_delivered(conn: Connection, *, sale_id: str) -> int:
 
 
 def sale_order_statuses(conn: Connection, *, sale_id: str) -> list[Any]:
-    """그 판매의 주문 상태. **두 행까지만** 읽는다 — 하나가 아니면 부르는 쪽이 충돌로 본다."""
+    """그 판매의 주문 상태. 두 행까지만 읽는다 — 하나가 아니면 부르는 쪽이 충돌로 본다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

@@ -1,7 +1,4 @@
-"""운영 콘솔 거래처 여신 응답.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_credit.py` 에서 응답 모델만 옮겼다(필드 그대로).
-"""
+"""운영 콘솔 거래처 여신 응답."""
 
 from datetime import date
 from decimal import Decimal
@@ -10,7 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ConsoleCreditCollection(BaseModel):
-    """계약상 결제 예정 한 건과, **그 돈이 들어온다면** 남는 여신."""
+    """계약상 결제 예정 한 건과, 그 돈이 예정대로 들어온다면 남는 여신."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -29,7 +26,7 @@ class ConsolePartnerCredit(BaseModel):
     partner_name: str | None
     #: 거래처 계약상 결제일수. 모르면 `None` 이다 (0일 결제와 다르다).
     payment_days: int | None
-    #: 그날 유효한 여신한도. **`None` 은 한도가 정해지지 않았다는 뜻이고 0원이 아니다.**
+    #: 그날 유효한 여신한도. `None` 은 한도가 정해지지 않았다는 뜻이고 0원이 아니다.
     credit_limit_krw: Decimal | None
     credit_limit_evidence_grade: str | None
     current_ar_krw: Decimal

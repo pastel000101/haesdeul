@@ -1,9 +1,7 @@
 """재무 상태(`finance_states` · `v_current_finance_state`) SQL — 축 · as-of 행 · 현재 행 ·
 그날 행 잠금 · 현금 갱신.
 
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 의 상태 조회와, 자금 조정 · 운영비 지급이 따로 들고 있던
-  같은 잠금 ·
-  현금 갱신 SQL 을 한 벌로 옮겼다.
+그날 행 잠금 · 현금 갱신은 자금 조정과 운영비 지급이 같이 쓴다.
 """
 
 from datetime import date
@@ -92,11 +90,7 @@ def select_current_state_rows(
 def lock_state_on_date(
     conn: Any, *, sim_run_id: str, financing_mode: str, state_date: date
 ) -> list:
-    """축과 날짜가 정확히 맞는 재무 상태 행을 잠그고 읽는다 — 자금 조정 · 운영비 지급.
-
-    ★ 2026-09-29 재구성 BL-014: 자금 조정(`cash_adjustments`)과 운영비 지급(`expenses`)이
-      글자까지 같은 이 잠금 SQL 을 한 벌씩 들고 있었다. 한 벌로 모았다(문면 그대로).
-    """
+    """축과 날짜가 정확히 맞는 재무 상태 행을 잠그고 읽는다 — 자금 조정 · 운영비 지급."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -114,7 +108,7 @@ def lock_state_on_date(
 
 
 def update_state_cash(conn: Any, *, finance_state_id: object, current_cash: Decimal) -> int:
-    """재무 상태 한 행의 현금을 바꾼다. **바뀐 행 수**를 돌려준다 (자금 조정 · 운영비 지급 공용)."""
+    """재무 상태 한 행의 현금을 바꾼다. 바뀐 행 수를 돌려준다 (자금 조정 · 운영비 지급 공용)."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

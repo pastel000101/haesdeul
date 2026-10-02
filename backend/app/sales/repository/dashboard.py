@@ -1,7 +1,6 @@
 """판매 현황 SQL — 실행 하나 · 기준일 하나의 판매 · 채권 사실.
 
-★ 2026-09-29 BL-013: `sales/dashboard.py` 에서 SQL 을 옮기고 연결을 인자로 받게 했다. 응답
-  조립은 `readmodel/dashboard.py` 다.
+연결을 인자로 받는다. 응답 조립은 `readmodel/dashboard.py` 다.
 """
 
 from datetime import date
@@ -29,10 +28,10 @@ def load_sales_dashboard_meta(
 def load_sales_summary(
     conn: Connection, *, sim_run_id: str, as_of: date
 ) -> dict[str, object] | None:
-    """이 실행의 판매 합계. **미수는 기준일 시점으로 복원한다.**
+    """이 실행의 판매 합계. 미수는 기준일 시점으로 복원한다.
 
-    🔴 `receivables` 의 수금 칸을 그대로 더하면 과거 기준일 KPI 에 미래 수금이 실린다
-       (`repository/receivable_history.py`).
+    `receivables` 의 수금 칸을 그대로 더하면 과거 기준일 KPI 에 미래 수금이 실린다
+    (`repository/receivable_history.py`).
     """
     schema = get_db_schema()
     query = (
@@ -66,7 +65,7 @@ def load_sales_summary(
         """
         )
     )
-    #  ⚠️ 발행일 · 수금 복원 기준일 · 실행 축 · 판매일 순이다.
+    # 주의: 발행일 · 수금 복원 기준일 · 실행 축 · 판매일 순이다.
     return fetch_one(conn, query, [as_of, as_of, sim_run_id, as_of])
 
 
@@ -232,5 +231,5 @@ def load_sales_receivables(
         """
         )
     )
-    #  ⚠️ `%s` 는 네 개다 — LATERAL 의 기준일이 WHERE 보다 **먼저** 온다.
+    # 주의: `%s` 는 네 개다 — LATERAL 의 기준일이 WHERE 보다 먼저 온다.
     return fetch_all(conn, query, [as_of, sim_run_id, as_of, as_of])

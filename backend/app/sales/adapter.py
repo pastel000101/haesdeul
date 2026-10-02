@@ -3,12 +3,12 @@
 Master가 라우팅과 도메인 간 orchestration을 소유한다. 이 adapter는 Master envelope을
 Sales proposal core로 옮기고, typed Sales 결과를 AgentReply로 되돌리는 경계다.
 
-★ 2026-09-29 BL-013: **번역만 남겼다.** 판매 후보 생성의 실행 · 이력 저장은
-  `service/proposal_generation.py`(운영 화면 `POST /sales/console-proposal` 도 같은 함수를
-  부른다), 회신 조립은 `domain/proposal_reply.py`, 진행 상황 조회는 `readmodel/status.py`,
-  사람이 읽는 사실은 `domain/status_facts.py` 다. 여기 남은 것은 mode 분기, 조회 결과를
-  STATUS_QUERY 회신으로 옮기기, 마스터만 받는 실행 메타데이터(`ExecutionMetadata`)다.
-  이 파일을 import 하는 곳은 마스터 등록소 조립(`master/registry/bootstrap.py`) 하나다.
+여기서는 번역만 한다 — mode 분기, 조회 결과를 STATUS_QUERY 회신으로 싣기, 마스터만 받는
+실행 메타데이터(`ExecutionMetadata`). 판매 후보 생성의 실행 · 이력 저장은
+`service/proposal_generation.py`(운영 화면 `POST /sales/console-proposal` 도 같은 함수를
+부른다), 회신 조립은 `domain/proposal_reply.py`, 진행 상황 조회는 `readmodel/status.py`,
+사람이 읽는 사실은 `domain/status_facts.py` 다. 이 파일을 import 하는 곳은 마스터 등록소
+조립(`master/registry/bootstrap.py`) 하나다.
 """
 
 from __future__ import annotations
@@ -35,9 +35,9 @@ def sales_port(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
 
 
 def _generate(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
-    """판매 후보 생성. **실행과 이력 저장은 service 가 한다** — 여기서는 메타데이터만 붙인다.
+    """판매 후보 생성. 실행과 이력 저장은 service 가 한다 — 여기서는 메타데이터만 붙인다.
 
-    ★ 계약 오류로 끝나 이력을 쓰지 않은 회신은 도구를 쓰지 않은 것으로 적는다(종전 그대로).
+    계약 오류로 끝나 이력을 쓰지 않은 회신은 도구를 쓰지 않은 것으로 적는다.
     """
     generation = generate_sales_proposal(request)
     if generation.recorded is None:

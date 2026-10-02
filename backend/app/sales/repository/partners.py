@@ -1,13 +1,12 @@
-"""거래처 SQL — `partners` 한 건 읽기 · 만들기 · 고치기. **표에 있는 칸만.**
+"""거래처 SQL — `partners` 한 건 읽기 · 만들기 · 고치기. 표에 있는 칸만.
 
-★ 2026-09-29 BL-013: `sales/partner_profile.py` 에서 SQL 을 옮기고 연결을 인자로 받게 했다.
-  입력 검증과 트랜잭션은 `service/partners.py`, 한 건 조회는 `readmodel/partners.py` 다.
+연결을 인자로 받는다. 입력 검증과 트랜잭션은 `service/partners.py`, 한 건 조회는
+`readmodel/partners.py` 다.
 
-★ 쓰기는 두 걸음이다 — SQL 을 짓는 함수(`insert_partner_statement` ·
-  `update_partner_statement`)와 받은 연결로 실행하는 함수(`write_partner`). 종전
-  `partner_profile.py` 가 **연결을 빌리기 전에** SQL 을 지었고(그때 `DB_SCHEMA` 를 읽는다),
-  service 가 그 순서를 그대로 지키도록 나눴다. 순서가 바뀌면 설정이 빈 날 어느 오류가
-  먼저 나는지가 달라진다.
+쓰기는 두 걸음이다 — SQL 을 짓는 함수(`insert_partner_statement` ·
+`update_partner_statement`)와 받은 연결로 실행하는 함수(`write_partner`). service 는 연결을
+빌리기 전에 SQL 을 짓는다(그때 `DB_SCHEMA` 를 읽는다). 순서가 바뀌면 설정이 빈 날 어느
+오류가 먼저 나는지가 달라진다.
 """
 
 from typing import Any, NamedTuple
@@ -44,11 +43,11 @@ def find_partner(conn: Connection, *, partner_id: str) -> dict[str, Any] | None:
 def update_partner_statement(*, partner_id: str, changes: dict[str, Any]) -> PartnerWrite:
     """준 칸만 고치는 SQL. 없는 거래처면 실행해도 행이 안 나온다.
 
-    ★ 돌려받는 것은 입력이 아니라 `RETURNING` 이다 — 화면이 «고쳐졌다고 믿는 값» 대신
-      **저장된 값**을 보게 된다. 둘이 다를 수 있고, 다를 때 알아야 한다.
+    돌려받는 것은 입력이 아니라 `RETURNING` 이다 — 화면이 «고쳐졌다고 믿는 값» 대신
+    저장된 값을 보게 된다. 둘이 다를 수 있고, 다를 때 알아야 한다.
 
-    ⚠️ 고칠 칸은 `schemas.partners.EDITABLE_FIELDS` 안의 것만 넣는다 — 걸러 넘기는 것은
-      `service/partners.py` 다. 여기서도 그 목록 밖의 이름은 SQL 에 싣지 않는다.
+    주의: 고칠 칸은 `schemas.partners.EDITABLE_FIELDS` 안의 것만 넣는다 — 걸러 넘기는 것은
+    `service/partners.py` 다. 여기서도 그 목록 밖의 이름은 SQL 에 싣지 않는다.
     """
     schema = get_db_schema()
     assignments = [
@@ -77,12 +76,12 @@ def update_partner_statement(*, partner_id: str, changes: dict[str, Any]) -> Par
 def insert_partner_statement(*, values: dict[str, Any]) -> PartnerWrite:
     """거래처 한 건을 만드는 SQL. 같은 코드가 있으면 실행해도 행이 안 나온다.
 
-    ★ `update_partner_statement` 와 같은 규율이다 — 돌려받는 것은 입력이 아니라
-      `RETURNING` 이다. 기본값(`provisional`)은 DB 가 채우므로 그 값도 함께 온다.
+    `update_partner_statement` 와 같은 규율이다 — 돌려받는 것은 입력이 아니라
+    `RETURNING` 이다. 기본값(`provisional`)은 DB 가 채우므로 그 값도 함께 온다.
 
-    🔴 **덮어쓰지 않는다** (`ON CONFLICT … DO NOTHING`). 같은 코드가 이미 있으면 만들지 못한
-       것이고, 그 사실이 사용자에게 가야 한다 — `service/partners.py` 가
-       `PartnerAlreadyExists` 로 올린다.
+    덮어쓰지 않는다 (`ON CONFLICT … DO NOTHING`). 같은 코드가 이미 있으면 만들지 못한
+    것이고, 그 사실이 사용자에게 가야 한다 — `service/partners.py` 가
+    `PartnerAlreadyExists` 로 올린다.
     """
     columns = [name for name in CREATABLE_FIELDS if name in values]
     statement = (
@@ -105,9 +104,9 @@ def insert_partner_statement(*, values: dict[str, Any]) -> PartnerWrite:
 
 
 def write_partner(conn: Connection, write: PartnerWrite) -> dict[str, Any]:
-    """받은 연결로 쓰기를 실행하고 **저장된 행**을 돌려준다.
+    """받은 연결로 쓰기를 실행하고 저장된 행을 돌려준다.
 
-    ⚠️ 행이 안 나오면 `RuntimeError` 다 — 종전 `execute_returning_one` 과 같은 문구다.
-      만들 때는 `DO NOTHING` 충돌(«이미 있다»), 고칠 때는 없는 거래처(«없다»)라는 뜻이다.
+    행이 안 나오면 `RuntimeError` 다 — 만들 때는 `DO NOTHING` 충돌(«이미 있다»), 고칠 때는
+    없는 거래처(«없다»)라는 뜻이다.
     """
     return returning_one(conn, write.query, write.params)

@@ -1,8 +1,7 @@
 """마스터 입력 SQL — 예측 배치 · 확정 판매 · 파트너 일수요 · 주문 주기 (받은 연결, 읽기만).
 
-★ 2026-09-30 재구성 BL-018: `master/inputs.py` 의 조회 함수 안 SQL 을 옮겼다(문면 그대로). 조회
-  연결은 `readmodel/inputs.py` 가 종전 `fetch_one` · `fetch_all` 헬퍼처럼 SELECT 하나에 하나씩
-  빌린다. 행 → payload · 파생 계산은 `domain/inputs.py`.
+조회 연결은 `readmodel/inputs.py` 가 SELECT 하나에 하나씩 빌린다. 행 → payload · 파생 계산은
+`domain/inputs.py`.
 """
 
 from __future__ import annotations
@@ -17,7 +16,7 @@ from psycopg import sql
 def select_latest_forecast(
     conn: Any, *, item: str, as_of: date, target_kind: str, schema: str
 ) -> dict[str, Any] | None:
-    """`as_of` **이하** 최신 배치 한 행(`v_ml_price_forecast`). 당일인지는 부르는 쪽이 본다."""
+    """`as_of` 이하 최신 배치 한 행(`v_ml_price_forecast`). 당일인지는 부르는 쪽이 본다."""
     query = sql.SQL("""
         SELECT * FROM {}.v_ml_price_forecast
          WHERE item = %s AND as_of <= %s AND target_kind = %s

@@ -1,14 +1,10 @@
-"""가격 예측 탭(화면 `GET /api/forecast`)의 SQL — **원본 창고**(`prediction_log`)를 읽는다.
+"""가격 예측 탭(화면 `GET /api/forecast`)의 SQL — 원본 창고(`prediction_log`)를 읽는다.
 
-★ 서비스 창고(`haetdeul.ml_price_forecasts`)에는 실제값 · 채점이 없다. «얼마나 틀렸나» 를
-  보이려면 채점이 있어야 해서 원본 창고를 읽는다 (화면 `app/api/forecast/presenter.py` 머리말).
+서비스 창고(`haetdeul.ml_price_forecasts`)에는 실제값 · 채점이 없다. «얼마나 틀렸나» 를
+보이려면 채점이 있어야 해서 원본 창고를 읽는다(화면 `app/api/forecast/presenter.py` 머리말).
 
-★ **받은 연결로 SQL 만 실행한다.** 연결은 `readmodel/forecast_tab.py` 가 원본 창고 풀에서 빌린다.
-  모델 이름 · 품목 · 상한 같은 거르기 값은 화면이 넘긴 그대로 쓴다.
-
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 화면 파일 `app/api/forecast/query.py` 에 SQL 이
-  있었고 `app/ml/db.py::fetch_all(source=True)` 로 실행했다. `app/ml/db.py` 가 없어지며 SQL 을
-  ML repository 로 옮겼다. 문면 · 매개변수 순서는 그대로다.
+받은 연결로 SQL 만 실행한다. 연결은 `readmodel/forecast_tab.py` 가 원본 창고 풀에서 빌린다.
+모델 이름 · 품목 · 상한 같은 거르기 값은 화면이 넘긴 그대로 쓴다.
 """
 
 from __future__ import annotations
@@ -35,14 +31,12 @@ _SQL_ROWS = """
      ORDER BY lead_biz_d
 """
 
-#: 세 품목의 **기준일 그날 값** (리드 0).
+#: 세 품목의 기준일 그날 값(리드 0).
 #:
-#: ★ 전에는 «게이트를 지난 첫 리드» 를 썼습니다. 게이트가 리드 1~2 를
-#:   어제값으로 덮던 때라 그게 첫 모델값이었습니다. 게이트를 끄고 리드 0 을
-#:   만든 지금은 **기준일 그날**이 맞습니다 — 오늘 9월 9일인데 카드에
-#:   9월 14일 값이 뜨고 있었습니다.
+#: 리드 1~2 를 덮는 게이트를 끄고 리드 0 을 만들었으므로 카드는 기준일 그날 값을 보인다.
+#: «게이트를 지난 첫 리드» 를 쓰면 기준일보다 며칠 뒤의 값이 카드에 뜬다.
 #:
-#: ★ 그날 값이 없으면 가장 가까운 리드로 떨어집니다 (`ORDER BY lead_biz_d`).
+#: 그날 값이 없으면 가장 가까운 리드로 떨어진다(`ORDER BY lead_biz_d`).
 _SQL_CARDS = """
     SELECT DISTINCT ON (item_nm)
            item_nm, lead_biz_d, target_dt, pred_prc, pred_lo, pred_hi, gated

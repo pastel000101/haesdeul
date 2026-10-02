@@ -2,9 +2,6 @@
 
 HTTP 만: 요청 → `finance/service/expenses.py` → 응답, 업무 거절 → 상태 코드. 마스터 ask 도 같은
 service 를 부른다.
-
-★ 2026-09-30 재구성 BL-019: `app/finance/router.py` 에서 옮겼다 — 핸들러 이름 · docstring(OpenAPI
-  설명) · URL · 상태 코드 · 문구 그대로.
 """
 
 from fastapi import APIRouter, status
@@ -24,7 +21,7 @@ router = APIRouter(prefix="/finance", tags=["finance"])
 
 @router.get("/expense-categories")
 def list_expense_categories() -> dict[str, object]:
-    """새 비용에 쓸 수 있는 분류. **화면이 이 목록을 손으로 다시 적지 않는다.**"""
+    """새 비용에 쓸 수 있는 분류 목록. 화면은 분류를 따로 적어 두지 않고 이 목록을 쓴다."""
     return {"categories": sorted(KNOWN_EXPENSE_CATEGORIES)}
 
 

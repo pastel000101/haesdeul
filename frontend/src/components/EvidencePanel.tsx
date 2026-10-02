@@ -9,11 +9,11 @@ import type { ProcurementRunResponse } from "@/lib/types";
 /**
  * 이 안의 숫자가 어디서 왔는가.
  *
- * ★ 사용자에게 필요한 것만 사람 말로 보인다 (2026-09-15 결정).
- *   이 실행의 품목 · 사전에 있는 항목만 남기고, 같은 값은 한 번만 적는다.
- *   고르고 옮기는 규칙은 `lib/procurementLabels.ts` 한 곳에 있다.
+ * 사용자에게 필요한 것만 사람 말로 보인다.
+ * 이 실행의 품목 · 사전에 있는 항목만 남기고, 같은 값은 한 번만 적는다.
+ * 고르고 옮기는 규칙은 `lib/procurementLabels.ts` 한 곳에 있다.
  *
- * ★ 기본은 접어 둔다. 결론을 먼저 보고, "왜?" 라고 물을 때 연다.
+ * 기본은 접어 둔다. 결론을 먼저 보고, "왜?" 라고 물을 때 연다.
  */
 export function EvidencePanel({
   evidences,

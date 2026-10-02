@@ -1,9 +1,8 @@
-"""LangGraph 기반 Sales proposal agent.
+"""LangGraph 기반 Sales proposal agent — 판매 제안 그래프와 그 입구(`run_proposal`).
 
-★ 2026-09-29 BL-013: `sales/graph.py`(그래프)와 `sales/proposal.py::run_proposal`(입구)을 합쳐
-  옮겼다. 노드는 상태를 읽고 쓰기만 하고, 판단은 `domain/`(안 생성 · 순위 · 추천 · 자기 점검 ·
-  결정 흔적), 전략 계획은 `service/strategy.py`, 해석 모델은 `llm/runtime.py` 다. 판매 후보를
-  이력에 남기는 실행은 이 그래프를 부르는 `service/proposal_generation.py` 다.
+노드는 상태를 읽고 쓰기만 하고, 판단은 `domain/`(안 생성 · 순위 · 추천 · 자기 점검 ·
+결정 흔적), 전략 계획은 `service/strategy.py`, 해석 모델은 `llm/runtime.py` 다. 판매 후보를
+이력에 남기는 실행은 이 그래프를 부르는 `service/proposal_generation.py` 다.
 """
 
 from __future__ import annotations
@@ -37,12 +36,7 @@ from app.sales.service.strategy import plan_strategies
 
 
 def run_proposal(request: SalesProposalInput) -> SalesProposalReply:
-    """판매 제안 그래프를 한 번 돌려 회신을 만든다. **이력을 쓰지 않는다.**
-
-    ★ 2026-09-29 BL-013: 전에는 `proposal.run_proposal` 이 그래프 모듈을 함수 안에서 불러
-      `run_sales_agent` 에 넘기기만 했다(`proposal ⇄ graph` 순환을 피하려던 지연 import).
-      그래프가 판단을 `domain/` 에서 가져오게 되어 순환이 없어졌고, 입구를 하나로 합쳤다.
-    """
+    """판매 제안 그래프를 한 번 돌려 회신을 만든다. 이력을 쓰지 않는다."""
     state = _graph().invoke({"request": request})
     return state["reply"]
 
@@ -68,8 +62,8 @@ def _graph():
         _route_after_situation,
         {"incomplete": "self_check", "generate": "plan_strategy"},
     )
-    # ★ 입력이 모자란 길에서는 전략을 세우지 않는다 — 만들 안이 없는데 모델을 부르면
-    #   그 호출은 아무것도 바꾸지 못하고 비용만 쓴다.
+    # 입력이 모자란 길에서는 전략을 세우지 않는다 — 만들 안이 없는데 모델을 부르면
+    # 그 호출은 아무것도 바꾸지 못하고 비용만 쓴다.
     graph.add_edge("plan_strategy", "generate_candidates")
     graph.add_edge("generate_candidates", "plan_validations")
     graph.add_conditional_edges(
@@ -142,18 +136,18 @@ def _route_after_situation(state: SalesAgentState) -> str:
 
 
 def _plan_strategy(state: SalesAgentState) -> SalesAgentState:
-    """**후보를 만들기 전에 세 전략의 자세를 정한다** (2026-09-16).
+    """후보를 만들기 전에 세 전략의 자세를 정한다.
 
-    🔴 **모델이 불리는 두 번째 자리이고, 앞자리다.** 뒤쪽 `interpret_recommendation`
-      은 이미 정해진 추천을 말로 옮기는 자리라 전략에 참여하지 않는다 — 그래서
-      판매안이 *"모델이 만든 전략"* 인 적이 없었다.
+    그래프에서 모델이 불리는 두 자리 중 앞자리다. 뒤쪽 `interpret_recommendation` 은
+    이미 정해진 추천을 말로 옮기는 자리라 전략에 참여하지 않는다 — 전략에 모델이
+    참여하는 곳은 여기뿐이다.
 
-    🔴 **여기서도 숫자는 안 나온다.** 모델은 자세(닫힌 어휘)만 고르고, 그 자세가
-      실제 단가·수량이 되는 것은 `_generate_scenarios` 의 결정론 계산이다.
+    여기서도 숫자는 나오지 않는다. 모델은 자세(닫힌 어휘)만 고르고, 그 자세가 실제
+    단가·수량이 되는 것은 `domain/proposal.py` 의 `generate_scenarios` 결정론 계산이다.
 
-    ★ **계획은 한 실행에 한 번 선다.** 노드를 따로 세운 이유가 이것이다 — 후보
-      생성 안에서 매번 만들면 모델을 여러 번 부르고, 회차마다 다른 자세가 나오면
-      같은 실행 안에서 세 안의 기준이 갈린다.
+    계획은 한 실행에 한 번 선다. 노드를 따로 세운 이유가 이것이다 — 후보 생성 안에서
+    매번 만들면 모델을 여러 번 부르고, 회차마다 다른 자세가 나오면 같은 실행 안에서
+    세 안의 기준이 갈린다.
     """
     request = state["request"]
     plan, signals = plan_strategies(request, all_feedback_replies(request))
@@ -178,7 +172,7 @@ def _plan_strategy(state: SalesAgentState) -> SalesAgentState:
 
 
 def _generate_candidates(state: SalesAgentState) -> SalesAgentState:
-    #  ★ 계획은 바로 앞 `plan_strategy` 노드가 늘 세운다 — 이 노드로 오는 길은 그것 하나다.
+    # 계획은 바로 앞 `plan_strategy` 노드가 늘 세운다 — 이 노드로 오는 길은 그것 하나다.
     candidates = generate_scenarios(state["request"], state["strategy_plan"])
     terminal_reason = None if candidates else "NO_SALES_CANDIDATE"
     return {
@@ -295,7 +289,7 @@ def _rank_candidates(state: SalesAgentState) -> SalesAgentState:
 
 
 def _self_check(state: SalesAgentState) -> SalesAgentState:
-    """**결정한 것을 스스로 되짚는다.** 여기를 지나면 추천이 확정된다.
+    """결정한 것을 스스로 되짚는다. 여기를 지나면 추천이 확정된다.
 
     설명하는 node 가 뒤에 따로 서 있으므로 그 앞에서 추천이 굳어 있어야 한다.
     그래서 최종 조립이 아니라 이 자리에서 `_resolve_recommendation_id` 를 부른다.
@@ -346,12 +340,12 @@ def _self_check(state: SalesAgentState) -> SalesAgentState:
 
 
 def _resolve_recommendation_id(state: SalesAgentState) -> str | None:
-    """**누가 추천인지 확정한다.** 숫자와 규칙만 쓴다 — 모델은 오지 않는다.
+    """누가 추천인지 확정한다. 숫자와 규칙만 쓴다 — 모델은 오지 않는다.
 
     순위를 거쳐 온 길은 이미 첫 자리를 들고 있다. 순위를 건너뛴 길(입력 미비 ·
     검증 대기)은 여기서 처음 추천을 정한다. 그리고 거절된 안이 추천에 앉아 있으면
-    추천을 **비운다** — 막힌 안을 권할 수는 없다. 판정은 `domain.resolve_recommendation_id`
-    이고, 여기서는 상태에서 값을 꺼내 넘긴다.
+    추천을 비운다 — 막힌 안을 권할 수는 없다. 판정은 `domain/recommendation.py` 의
+    `resolve_recommendation_id` 이고, 여기서는 상태에서 값을 꺼내 넘긴다.
     """
     return resolve_recommendation_id(
         scenarios=state.get("validated_candidates", state.get("candidates", [])),
@@ -375,16 +369,18 @@ def _route_after_self_check(state: SalesAgentState) -> str:
 
 
 def _interpret_recommendation(state: SalesAgentState) -> SalesAgentState:
-    """**정해진 추천을 말로 옮긴다.** 그래프에서 모델이 불리는 유일한 자리다.
+    """정해진 추천을 말로 옮긴다. 그래프에서 모델이 불리는 두 자리 중 뒷자리다
+    (앞자리는 전략 자세를 고르는 `plan_strategy`).
 
     이 node 는 아무것도 고르지 않는다. 추천은 `rank_candidates` 가 정하고
     `self_check` 가 확정한 뒤 여기 도착한다. 수량·단가·금액·날짜·결제조건은
     읽지도 넘기지도 않는다 — 모델에는 라벨만 간다.
 
-    ★ 검증이 끝나지 않은 안(`UNRESOLVED`)과 막힌 안(`INFEASIBLE`)은
-      `_interpret_scenarios` 가 애초에 후보에서 뺀다. 그래서 첫 실행에서는 설명할
-      것이 없어 `SKIPPED_TEMPLATE` 로 끝나고 모델을 부르지 않는다. **node 를 따로
-      세웠다는 이유로 판정 전 안을 설명하게 두면, 보지 않은 안이 제안처럼 읽힌다.**
+    실행 가능(`EXECUTABLE`)·조건부(`CONDITIONAL`) 안만 해석 후보가 된다 — 검증이 끝나지
+    않은 안(`UNRESOLVED`)과 막힌 안(`INFEASIBLE`)은 `domain/proposal.py` 의
+    `interpretation_candidates` 가 애초에 뺀다. 그래서 첫 실행에서는 설명할 것이 없어
+    `SKIPPED_TEMPLATE` 로 끝나고 모델을 부르지 않는다. node 를 따로 세웠다는 이유로
+    판정 전 안을 설명하게 두면, 보지 않은 안이 제안처럼 읽힌다.
     """
     scenarios = state.get("validated_candidates", state.get("candidates", []))
     recommendation_id = state.get("recommendation_id")
@@ -407,7 +403,7 @@ def _interpret_recommendation(state: SalesAgentState) -> SalesAgentState:
 
 
 def _final_recommendation(state: SalesAgentState) -> SalesAgentState:
-    """**답장을 조립한다.** 새로 정하는 것은 없다 — 앞에서 정해진 것을 옮겨 담는다."""
+    """답장을 조립한다. 새로 정하는 것은 없다 — 앞에서 정해진 것을 담기만 한다."""
     request = state["request"]
     scenarios = state.get("validated_candidates", state.get("candidates", []))
     ranked_ids = state.get("ranked_candidate_ids", [])
@@ -443,10 +439,10 @@ def _final_recommendation(state: SalesAgentState) -> SalesAgentState:
         recommendation=recommendation,
         self_check=state["self_check"],
         decision_trace=trace,
-        # 🔴 **장애를 숨기지 않는다** (§10). 모델이 실패했는데 성공처럼 보이면 모델이
-        #   죽은 날과 산 날이 화면에서 같아진다.
+        # 장애를 숨기지 않는다 (§10). 모델이 실패했는데 성공처럼 보이면 모델이
+        # 죽은 날과 산 날이 화면에서 같아진다.
         **strategy_fields(state.get("strategy_plan")),
-        # ★ 제약 때문에 숫자가 수렴한 사실은 **버그가 아니라 결과의 일부**다 (§8).
+        # 제약 때문에 숫자가 수렴한 사실은 버그가 아니라 결과의 일부다 (§8).
         **strategy_collapse(scenarios),
     )
     return {

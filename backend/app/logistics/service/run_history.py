@@ -1,8 +1,6 @@
 """물류 에이전트 실행이력 저장 — 한 저장 = 풀 연결 하나 · 트랜잭션 하나.
 
-★ 2026-09-30 재구성 BL-015: `logistics/run_repository.py` 의 저장을 옮겼다(종전
-  `logistics/db.execute_returning_one` 과
-  같은 경계). SQL 은 `repository/runs.py`.
+SQL 은 `repository/runs.py` 다.
 """
 
 from datetime import date
@@ -26,8 +24,8 @@ def save_logistics_agent_run(
 ) -> LogisticsAgentRun:
     """완성된 Logistics Agent Request와 Response를 실행이력으로 저장한다.
 
-    ★ 한 저장 = 풀 연결 하나 · 트랜잭션 하나 (종전 `logistics/db.execute_returning_one` 과 같은
-      경계 — 정상 commit · 예외 rollback · 반환). 2026-09-30 재구성 BL-015.
+    한 저장 = 풀 연결 하나 · 트랜잭션 하나 — 정상이면 commit, 예외면 rollback 하고
+    저장한 행을 돌려준다.
     """
     if response_payload.get("verdict") != verdict:
         raise ValueError("Logistics run verdict metadata must match response_payload.verdict")

@@ -1,12 +1,11 @@
-"""Sales Proposal Core — **전달된 입력만으로 안을 세우는 결정론 계산.**
+"""Sales Proposal Core — 전달된 입력만으로 안을 세우는 결정론 계산.
 
-★ 2026-09-29 BL-013: `sales/proposal.py` 에서 옮겼다. 그래프 실행(`run_proposal`)과 해석 모델
-  호출은 `service/proposal.py`, 전략 계획은 `service/strategy.py` 다. 그래프가 가져다 쓰던
-  private 함수 다섯(`_generate_scenarios` · `_all_feedback_replies` · `_interpret_scenarios` ·
-  `_missing_capabilities` · `_reply_refs`)은 공개 이름으로 올렸다.
+그래프 실행(`run_proposal`)과 해석 모델 호출은 `service/proposal.py`, 전략 계획은
+`service/strategy.py` 다. 그래프는 이 모듈의 공개 함수(`generate_scenarios` ·
+`all_feedback_replies` · `interpretation_candidates` · `missing_capabilities` 등)를 가져다 쓴다.
 
-★ DB · HTTP · LLM 을 부르지 않는다. 정책값은 재무가 상수로 낸 `app.finance.domain.sales_policy` 를
-  읽는다 — 판매 → 재무 import 는 이것 하나다(`test_sales_never_imports_finance_runtime`).
+DB · HTTP · LLM 을 부르지 않는다. 정책값은 재무가 상수로 낸 `app.finance.domain.sales_policy` 를
+읽는다 — 판매 → 재무 import 는 이것 하나다(`test_sales_never_imports_finance_runtime`).
 """
 
 from __future__ import annotations
@@ -42,9 +41,9 @@ _TYPES = (
 
 #: 계획이 그 전략의 자세를 안 들고 있을 때의 기본 가격 자세.
 #:
-#: 🔴 **공격안 기본이 `MARKET_ALIGNED` 다.** 소진 자세는 신호가 확인돼야 서고
-#:   (`strategy.clamp_profiles`), 계획이 비어 있다는 것은 신호를 확인한 적이 없다는
-#:   뜻이다 — 확인 없이 시장 하단을 여는 것은 근거 없이 싸게 파는 것이다.
+#: 공격안 기본이 `MARKET_ALIGNED` 다. 소진 자세는 신호가 확인돼야 서고
+#: (`strategy.clamp_profiles`), 계획이 비어 있다는 것은 신호를 확인한 적이 없다는
+#: 뜻이다 — 확인 없이 시장 하단을 여는 것은 근거 없이 싸게 파는 것이다.
 _DEFAULT_POSTURE: dict[str, str] = {
     "CONSERVATIVE": "MARGIN_DEFENSE",
     "BALANCED": "MARKET_ALIGNED",
@@ -147,16 +146,15 @@ def _strategy_price(
 ) -> tuple[Decimal | None, list[str]]:
     """Finance policy guardrail과 authoritative market band로만 후보 가격을 만든다.
 
-    ★ **자세를 받는다** (2026-09-16). 전에는 `scenario_type` 과 `depletion` 두 값을
-      받아 안 이름으로 분기했는데, 그러면 *"공격안이면 소진 가격"* 이라는 규칙이 이
-      함수 안에 숨는다. 자세를 받으면 **누가 왜 그 자세를 골랐는지**가 호출부와
-      실행 이력에 남고, 여기는 그 자세를 값으로 옮기기만 한다.
+    안 이름(`scenario_type`)이 아니라 자세를 받는다. 안 이름으로 분기하면 "공격안이면
+    소진 가격" 이라는 규칙이 이 함수 안에 숨는다. 자세를 받으면 누가 왜 그 자세를
+    골랐는지가 호출부와 실행 이력에 남고, 여기는 그 자세를 값으로 옮기기만 한다.
 
-    🔴 **자세가 가드레일을 넘지 못한다.** `DEPLETION` 도 마진 최저선 아래로는 안
-      간다 — 세 갈래 전부 `max(..., minimum)` 을 거친다.
+    자세가 가드레일을 넘지 못한다. `DEPLETION` 도 마진 최저선 아래로는 가지 않는다 —
+    세 갈래 전부 `max(..., minimum)` 을 거친다.
 
-    ★ **가격 계보가 잠겨 있으면 자세를 보지 않는다.** 계약가·사용자 지정가를 자세로
-      덮으면 그 순간 판매가 남이 정한 값을 바꾸는 것이 된다.
+    가격 계보가 잠겨 있으면 자세를 보지 않는다. 계약가·사용자 지정가를 자세로 덮으면
+    그 순간 판매가 남이 정한 값을 바꾸는 것이 된다.
     """
     if provenance.startswith("LOCKED") or provenance == "UNKNOWN":
         return baseline_price, [provenance]
@@ -178,8 +176,8 @@ def _strategy_price(
             strategy.append("MARGIN_DEFENSE")
         return max(candidates) if candidates else baseline_price, strategy or ["BASELINE"]
     if price_posture == "DEPLETION":
-        # ★ 여기 오는 것 자체가 **소진 신호가 사실로 확인됐다**는 뜻이다.
-        #   신호가 없으면 `strategy.clamp_profiles` 가 자세를 이미 내렸다.
+        # 여기 오는 것 자체가 소진 신호가 사실로 확인됐다는 뜻이다.
+        # 신호가 없으면 `strategy.clamp_profiles` 가 자세를 이미 내렸다.
         if lower is not None:
             candidates = [value for value in (lower, minimum) if value is not None]
             return max(candidates), ["MARKET_LOWER", "MARGIN_FLOOR", "INVENTORY_DEPLETION"]
@@ -249,22 +247,20 @@ def validate_context(request: SalesProposalInput) -> list[str]:
 
 
 def generate_scenarios(request: SalesProposalInput, plan: StrategyPlan) -> list[SalesScenario]:
-    """세 전략의 안을 만든다. **자세는 받고 숫자는 여기서 만든다.**
+    """세 전략의 안을 만든다. 자세는 받고 숫자는 여기서 만든다.
 
-    ★ **계획은 받기만 한다** (2026-09-29 BL-013). 전에는 `plan` 을 안 주면 이 함수가
-      전략 Planner 를 불렀고, 그 안에서 모델이 불렸다 — 계산 자리가 모델 호출을 품고
-      있었다. 계획은 `service/strategy.py::plan_strategies` 가 세우고, 그래프
-      (`service/proposal.py`)가 한 실행에 한 번 세운 계획을 넘긴다 (모델을 두 번 부르지
-      않는다).
+    계획은 받기만 한다 — 계산 자리가 모델 호출을 품지 않는다. 계획은
+    `service/strategy.py::plan_strategies` 가 세우고, 그래프(`service/proposal.py`)가 한
+    실행에 한 번 세운 계획을 넘긴다(모델을 두 번 부르지 않는다).
     """
     quantity, price, requested_delivery, payment, terms_type, term, source_ref, refs = _baseline(
         request
     )
     if quantity is None:
         return []
-    # ★ 상업조건의 납품일과 **공급 조회의 기준일**을 가른다. 앞은 물류가 확정한
-    #   최초 납품일까지 받아들이고, 뒤는 **요청된 날짜**만 쓴다 — `_delivery_date` 가
-    #   왜 그래야 하는지를 적었다.
+    # 상업조건의 납품일과 공급 조회의 기준일을 가른다. 앞은 물류가 확정한 최초
+    # 납품일까지 받아들이고, 뒤는 요청된 날짜만 쓴다 — `_delivery_date` 가 왜 그래야
+    # 하는지를 적었다.
     delivery = _delivery_date(request, requested_delivery)
     provenance = _price_provenance(request)
     corridor = _market_corridor(request, delivery)
@@ -320,9 +316,9 @@ def generate_scenarios(request: SalesProposalInput, plan: StrategyPlan) -> list[
         )
         profile = plan.of(scenario_type)
         scenario_price, price_strategy = _strategy_price(
-            # ★ 자세가 없으면 그 전략의 **기본 자세**로 돈다. 계획이 비는 것은
-            #   모델이 실패한 것과 다른 사고(호출부 배선)라, 여기서 조용히
-            #   `MARKET_ALIGNED` 로 떨어뜨리지 않고 전략별 기본으로 간다.
+            # 자세가 없으면 그 전략의 기본 자세로 돈다. 계획이 비는 것은 모델이
+            # 실패한 것과 다른 사고(호출부 배선)라, 여기서 조용히 `MARKET_ALIGNED` 로
+            # 떨어뜨리지 않고 전략별 기본으로 간다.
             price_posture=(profile.price_posture if profile else _DEFAULT_POSTURE[scenario_type]),
             baseline_price=price,
             provenance=provenance,
@@ -389,8 +385,8 @@ def generate_scenarios(request: SalesProposalInput, plan: StrategyPlan) -> list[
                 contract_term_days=term,
                 source_ref=source_ref,
                 supply=supply,
-                # ★ **이 안의 확정 물량**에 붙은 원가만 싣는다. 조건부로 더 채운 몫은
-                #   재고가 아니라 매입에서 오므로 여기 금액에 섞이지 않는다.
+                # 이 안의 확정 물량에 붙은 원가만 싣는다. 조건부로 더 채운 몫은
+                # 재고가 아니라 매입에서 오므로 여기 금액에 섞이지 않는다.
                 inventory_cost_basis=basis,
                 price_strategy_codes=list(price_strategy),
                 sales_decision_axes=axes,
@@ -458,7 +454,7 @@ def generate_scenarios(request: SalesProposalInput, plan: StrategyPlan) -> list[
     return result
 
 
-#: 재무 회신에서 **그대로 옮기는** 여신 칸. 판매는 이 값을 세지 않는다.
+#: 재무 회신에서 그대로 옮기는 여신 칸. 판매는 이 값을 세지 않는다.
 _FINANCE_CREDIT_FIELDS: tuple[str, ...] = (
     "current_partner_ar_krw",
     "projected_partner_ar_krw",
@@ -470,12 +466,12 @@ _FINANCE_CREDIT_FIELDS: tuple[str, ...] = (
 
 
 def _finance_credit_facts(finance) -> dict[str, object]:
-    """재무가 센 여신 사실을 안에 싣는다. **회신이 없으면 전부 `None` 이다.**"""
+    """재무가 센 여신 사실을 안에 싣는다. 회신이 없으면 전부 `None` 이다."""
     summary = finance.financial_summary if finance else None
     return {name: getattr(summary, name) if summary else None for name in _FINANCE_CREDIT_FIELDS}
 
 
-#: 사용자가 이 중 하나라도 명시하면 **사용자 제안**으로 본다 (갱신 override 판정).
+#: 사용자가 이 중 하나라도 명시하면 사용자 제안으로 본다 (갱신 override 판정).
 _RENEWAL_OVERRIDE_FIELDS: tuple[str, ...] = (
     "requested_quantity_kg",
     "preferred_unit_price_krw",
@@ -494,21 +490,21 @@ def _user_overrides_contract(request: SalesProposalInput) -> bool:
 
 
 def _confirmed_sellable_qty(request: SalesProposalInput) -> Decimal | None:
-    """물류가 **확정한** 그 품목의 판매 가능 수량. 없으면 `None`.
+    """물류가 확정한 그 품목의 판매 가능 수량. 없으면 `None`.
 
-    🔴 **사람이 수량을 말하지 않는 호출이 있다** (2026-09-11 · 걷기 실측). 자동 걷기는
-       날마다 판매를 부르는데 그 자리에 사람이 없다. 종전에는 그때마다
-       `PROPOSAL_QUANTITY_REQUIRED` 로 막혔고, 206일에 안이 **0건**이었다.
+    사람이 수량을 말하지 않는 호출이 있다. 자동 걷기는 날마다 판매를 부르는데 그
+    자리에 사람이 없다. 이 값으로 수량을 채우지 않으면 그때마다
+    `PROPOSAL_QUANTITY_REQUIRED` 로 막힌다(2026-09-11 걷기 실측: 206일에 안 0건).
 
-    ★★ **`inventory_by_item` 만 읽는다.** 그 칸의 정의가 *"Logistics 가 확정한 현재
-      판매 가능 수량 뷰"* 다 — 물류가 비-ACTIVE·신선도 만료·예약분을 **이미 뺀** 값이다.
+    `inventory_by_item` 만 읽는다. 그 칸의 정의가 "Logistics 가 확정한 현재 판매 가능
+    수량 뷰" 다 — 물류가 비-ACTIVE·신선도 만료·예약분을 이미 뺀 값이다.
 
-    🔴 **`lot_constraints` 는 쓰지 않는다.** 그 모델이 *"Lot 은 근거 컨텍스트이며
-       Sales 가 이를 합산하거나 필터링하지 않는다"* 고 못박고 있다. 로트를 더하면
-       판매가 물류의 가용 판정을 다시 하는 것이 된다.
+    `lot_constraints` 는 쓰지 않는다. 그 모델이 "Lot 은 근거 컨텍스트이며 Sales 가
+    이를 합산하거나 필터링하지 않는다" 고 못박고 있다. 로트를 더하면 판매가 물류의
+    가용 판정을 다시 하는 것이 된다.
 
-    ⚠️ **0 이면 `None` 이 아니라 0 이다.** *"팔 것이 없다"* 는 사실이고, 그때는 수량이
-      0 인 안이 서서 **왜 0 인지가 결과에 남는다** — 「없다」와 「못 물어봤다」는 다르다.
+    주의: 0 이면 `None` 이 아니라 0 이다. "팔 것이 없다" 는 사실이고, 그때는 수량이
+    0 인 안이 서서 왜 0 인지가 결과에 남는다 — 「없다」와 「못 물어봤다」는 다르다.
     """
     context = request.logistics_context
     supply = context.sellable_supply if context else None
@@ -523,19 +519,19 @@ def _confirmed_sellable_qty(request: SalesProposalInput) -> Decimal | None:
 def _inventory_cost_basis(
     request: SalesProposalInput, *, item: str, covered_quantity_kg: Decimal | None
 ) -> LogisticsInventoryCostBasis | None:
-    """Logistics 가 낸 재고 취득원가를 **그대로** 싣는다 — 맞을 때만.
+    """Logistics 가 낸 재고 취득원가를 그대로 싣는다 — 맞을 때만.
 
     ```text
     덮는 양 == 이 안의 확정 물량   →  그대로 싣는다
     품목이 다르거나 양이 다르다     →  싣지 않는다 (None)
     ```
 
-    🔴 **판매가 금액을 손대지 않는다.** 수량이 달라졌다고 비례 배분하면 그 순간
-       장부에 없는 원가가 생긴다. 안 맞으면 버리고, 재무는 원가를 못 받았다는 사실로
-       `RUNTIME_NOT_READY` 에서 멈춘다 — 틀린 원가로 승인되는 것보다 낫다.
+    판매가 금액을 손대지 않는다. 수량이 달라졌다고 비례 배분하면 그 순간 장부에 없는
+    원가가 생긴다. 안 맞으면 버리고, 재무는 원가를 못 받았다는 사실로
+    `RUNTIME_NOT_READY` 에서 멈춘다 — 틀린 원가로 승인되는 것보다 낫다.
 
-    ★ 대조는 `quantity_kg` 로 한다. Logistics 가 그 칸을 같이 실어 주는 이유가 이것이다 —
-      금액만 오면 받는 쪽은 그것이 **몇 kg 의 원가인지** 알 수 없다.
+    대조는 `quantity_kg` 로 한다. Logistics 가 그 칸을 같이 실어 주는 이유가 이것이다 —
+    금액만 오면 받는 쪽은 그것이 몇 kg 의 원가인지 알 수 없다.
     """
     context = request.logistics_context
     supply = context.sellable_supply if context else None
@@ -562,8 +558,8 @@ def _baseline(request: SalesProposalInput):
     else:
         quantity = user.requested_quantity_kg
         if quantity is None:
-            # ★ 사람이 말하지 않은 자리다. **물류가 확정한 값**을 쓴다 —
-            #   `_confirmed_sellable_qty` 가 왜 그 칸만 읽는지를 적었다.
+            # 사람이 말하지 않은 자리다. 물류가 확정한 값을 쓴다 —
+            # `_confirmed_sellable_qty` 가 왜 그 칸만 읽는지를 적었다.
             quantity = _confirmed_sellable_qty(request)
         price = user.preferred_unit_price_krw
         delivery = user.preferred_delivery_date
@@ -580,9 +576,9 @@ def _baseline(request: SalesProposalInput):
                 terms_type if terms_type is not None else contract.contract_payment_terms_type
             )
             term = term if term is not None else contract.contract_term_days
-            # ★ 사용자가 조건을 바꿨으면 **계약 ref 를 그 변경안의 출처로 쓰지 않는다.**
-            #   바꾼 사람은 사용자인데 계약을 근거로 달면 누가 정한 조건인지 뒤바뀐다.
-            #   사용자 ref 가 없으면 없는 채로 둔다 — 발명하지 않는다.
+            # 사용자가 조건을 바꿨으면 계약 ref 를 그 변경안의 출처로 쓰지 않는다.
+            # 바꾼 사람은 사용자인데 계약을 근거로 달면 누가 정한 조건인지 뒤바뀐다.
+            # 사용자 ref 가 없으면 없는 채로 둔다 — 발명하지 않는다.
             if not _user_overrides_contract(request):
                 source_ref = contract.source_ref
     refs = (
@@ -617,23 +613,23 @@ def _uses_contract_commercial_fact(request: SalesProposalInput) -> bool:
 
 
 def _delivery_date(request: SalesProposalInput, requested: date | None) -> date | None:
-    """이 제안의 **납품일**. 사람이 말한 날짜가 먼저다.
+    """이 제안의 납품일. 사람이 말한 날짜가 먼저다.
 
-    ★ 사람도 계약도 날짜를 안 준 자동 실행에서만 **물류가 확정한 최초 납품일**을
-      채택한다. `earliest_delivery_date` 는 *"실려서 닿는 가장 이른 날"* 이고
-      (`logistics.tools.earliest_delivery_date_for` — 준비 리드 + 운송 리드) 참고값이
-      아니라 실제 가능일이라 상업조건의 출발점으로 쓸 수 있다.
+    사람도 계약도 날짜를 안 준 자동 실행에서만 물류가 확정한 최초 납품일을 채택한다.
+    `earliest_delivery_date` 는 "실려서 닿는 가장 이른 날" 이고
+    (`logistics/domain/tools.py` 의 `earliest_delivery_date_for` — 준비 리드 + 운송 리드)
+    참고값이 아니라 실제 가능일이라 상업조건의 출발점으로 쓸 수 있다.
 
-    🔴 **`READY` 일 때만 쓴다.** 물류가 못 정한 날짜를 판매가 대신 정하지 않는다 —
-      `as_of` 나 오늘 날짜로 메우면 그 순간 없는 사실이 납기가 되고, 회수일이 거기서
-      파생되어 현금흐름까지 거짓이 된다. 못 정했으면 없는 채로 둔다.
+    `READY` 일 때만 쓴다. 물류가 못 정한 날짜를 판매가 대신 정하지 않는다 — `as_of` 나
+    오늘 날짜로 메우면 그 순간 없는 사실이 납기가 되고, 회수일이 거기서 파생되어
+    현금흐름까지 거짓이 된다. 못 정했으면 없는 채로 둔다.
 
-    ⚠️ **이 값으로 확정 공급을 다시 고르지 않는다.** 물류는 *"물어본 날짜"* 에만
-      `supply_capacity_by_date` 를 낸다 (`adapter.supply_dates`). 아무도 안 물어본
-      자동 실행에서 그 벡터는 비어 있으므로, 여기서 채택한 날짜로 공급을 조회하면
-      **있던 확정 수량이 `SUPPLY_DATE_CONTEXT_REQUIRED` 로 사라진다** — 판매가 스스로
-      만든 날짜로 물류에게 견적을 요구하는 셈이라 순환이다. 공급 조회는 **요청된
-      날짜**(`requested`)로만 한다.
+    주의: 이 값으로 확정 공급을 다시 고르지 않는다. 물류는 "물어본 날짜" 에만
+    `supply_capacity_by_date` 를 낸다(`logistics/service/pre_sales.py` 의 `supply_dates`).
+    아무도 안 물어본 자동 실행에서 그 벡터는 비어 있으므로, 여기서 채택한 날짜로 공급을
+    조회하면 있던 확정 수량이 `SUPPLY_DATE_CONTEXT_REQUIRED` 로 사라진다 — 판매가 스스로
+    만든 날짜로 물류에게 견적을 요구하는 셈이라 순환이다. 공급 조회는 요청된
+    날짜(`requested`)로만 한다.
     """
     if requested is not None:
         return requested
@@ -683,21 +679,21 @@ def _supply(
     required = None if confirmed is None else max(Decimal(0), quantity - confirmed)
     conditional, dependency_ref = _purchase_conditional_supply(replies or [])
     if required is not None and required == 0:
-        # 🔴 **확정된 0 은 모름이 아니다.** 확정 공급이 요청 수량을 다 덮으면 추가
-        #    공급은 **필요 없다는 것이 확인된 것**이고, 그때 조건부 확보량은 0 이다.
-        #    여기서 `None` 을 남기면 재무는 *"조건부 물량을 모른다"* 로 읽어
-        #    (`sales_supply_conditional_quantity`) 원가 기준을 fail-closed 로 닫는다 —
-        #    아무것도 모자라지 않은 제안이 자료 미비로 막힌다.
+        # 확정된 0 은 모름이 아니다. 확정 공급이 요청 수량을 다 덮으면 추가 공급은
+        # 필요 없다는 것이 확인된 것이고, 그때 조건부 확보량은 0 이다. 여기서 `None` 을
+        # 남기면 재무는 "조건부 물량을 모른다" 로 읽어
+        # (`sales_supply_conditional_quantity`) 원가 기준을 fail-closed 로 닫는다 —
+        # 아무것도 모자라지 않은 제안이 자료 미비로 막힌다.
         #
-        # ★ `x or 0` 같은 일반 falsy fallback 이 아니다. 위 조건은 **upstream 이
-        #   명시적으로 "추가 공급 없음" 을 확정했을 때만** 참이다. 확정 공급을 모르면
-        #   (`confirmed is None`) `required` 도 `None` 이라 이 갈래에 오지 않는다.
+        # `x or 0` 같은 일반 falsy fallback 이 아니다. 위 조건은 upstream 이 명시적으로
+        # "추가 공급 없음" 을 확정했을 때만 참이다. 확정 공급을 모르면
+        # (`confirmed is None`) `required` 도 `None` 이라 이 갈래에 오지 않는다.
         conditional = Decimal(0)
     return ScenarioSupply(
         confirmed_quantity_kg=confirmed,
         required_additional_quantity_kg=required,
         additional_supply_required=required is not None and required > 0,
-        # ★ 확정 공급에 더하지 않는다. 조건부는 조건부 자리에만 산다.
+        # 확정 공급에 더하지 않는다. 조건부는 조건부 자리에만 산다.
         conditional_quantity_kg=conditional,
         dependency_ref=dependency_ref,
         basis=purchase.basis if purchase else None,
@@ -707,17 +703,17 @@ def _supply(
     )
 
 
-#: Purchase 추가공급 회신으로 **읽을 수 있는 유일한** capability.
+#: Purchase 추가공급 회신으로 읽을 수 있는 유일한 capability.
 #:
-#: 🔴 출처(source_agent)만 보면 안 된다. Purchase 의 `GENERATE_SCENARIOS` 회신은
-#:    `scenarios[i].risks` 를 담은 완전히 다른 모양인데, 출처만 맞다고 추가공급
-#:    결과로 읽으면 최상위 `risks` 가 없어 조용히 "위험 0건" 이 되고 수량은 None 이
-#:    된다. 물어보지 않은 질문에 답을 받은 셈이 된다.
+#: 출처(source_agent)만 보면 안 된다. Purchase 의 `GENERATE_SCENARIOS` 회신은
+#: `scenarios[i].risks` 를 담은 완전히 다른 모양인데, 출처만 맞다고 추가공급
+#: 결과로 읽으면 최상위 `risks` 가 없어 조용히 "위험 0건" 이 되고 수량은 None 이
+#: 된다. 물어보지 않은 질문에 답을 받은 셈이 된다.
 _ADDITIONAL_SUPPLY_CAPABILITY = "ADDITIONAL_SUPPLY_CONTEXT"
 
 
 def _is_additional_supply_reply(reply: SalesDomainReply) -> bool:
-    """이 회신을 추가공급 결과로 읽어도 되는가 — 출처와 capability 를 **둘 다** 본다."""
+    """이 회신을 추가공급 결과로 읽어도 되는가 — 출처와 capability 를 둘 다 본다."""
     return reply.source_agent == "purchase" and reply.capability == _ADDITIONAL_SUPPLY_CAPABILITY
 
 
@@ -726,8 +722,8 @@ def _parse_additional_supply(
 ) -> PurchaseAdditionalSupplyResult | None:
     """추가공급 회신 payload 를 약속한 모양으로만 읽는다.
 
-    ★ 약속을 안 지킨 payload 는 **소비하지 않는다.** 키가 없으면 None 을 돌려주고,
-      호출부는 그것을 정상 사실로 취급하지 않는다 — `[]`·`0` 으로 메우지 않는다.
+    약속을 안 지킨 payload 는 소비하지 않는다. 키가 없으면 None 을 돌려주고, 호출부는
+    그것을 정상 사실로 취급하지 않는다 — `[]`·`0` 으로 메우지 않는다.
     """
     try:
         return PurchaseAdditionalSupplyResult.model_validate(reply.payload)
@@ -755,18 +751,18 @@ def _has_ambiguous_additional_supply(replies: list[SalesDomainReply]) -> bool:
 def _purchase_conditional_supply(
     replies: list[SalesDomainReply],
 ) -> tuple[Decimal | None, str | None]:
-    """Purchase 가 **실제로 확인해 준** 조건부 확보 가능량만 옮긴다.
+    """Purchase 가 실제로 확인해 준 조건부 확보 가능량만 옮긴다.
 
-    ★ 0 은 사실이다. Purchase 가 "0kg 확보 가능" 이라고 답했으면 0으로 보존한다.
-      `READY + skipped + 0kg` 도 정상 조합이다 — 안이 만들어지지 않았지만 확보
-      가능량은 0kg 으로 확인됐다는 뜻이라, 그 0 을 None 이나 오류로 바꾸지 않는다.
+    0 은 사실이다. Purchase 가 "0kg 확보 가능" 이라고 답했으면 0으로 보존한다.
+    `READY + skipped + 0kg` 도 정상 조합이다 — 안이 만들어지지 않았지만 확보
+    가능량은 0kg 으로 확인됐다는 뜻이라, 그 0 을 None 이나 오류로 바꾸지 않는다.
 
-    ★ 확보 가능량을 **모르는** 경우만 `None` 이다. 회신이 `RUNTIME_NOT_READY` 이거나,
-      수량 칸을 명시적 null 로 보냈거나, 약속한 모양이 아니어서 읽을 수 없을 때다.
-      0 으로 바꾸면 *답을 못 받은 것*이 *확보 가능량 0* 이라는 사실이 된다.
+    확보 가능량을 모르는 경우만 `None` 이다. 회신이 `RUNTIME_NOT_READY` 이거나,
+    수량 칸을 명시적 null 로 보냈거나, 약속한 모양이 아니어서 읽을 수 없을 때다.
+    0 으로 바꾸면 답을 못 받은 것이 "확보 가능량 0" 이라는 사실이 된다.
 
-    ★ 수량과 근거를 같이 나른다. 수량만 남고 어느 회신에서 왔는지 사라지면 나중에
-      되짚을 수 없다.
+    수량과 근거를 같이 나른다. 수량만 남고 어느 회신에서 왔는지 사라지면 나중에
+    되짚을 수 없다.
     """
     valid = _valid_additional_supply_replies(replies)
     if _has_ambiguous_additional_supply(replies):
@@ -859,10 +855,10 @@ def _replies_for_scenario(request: SalesProposalInput, original_id: str) -> list
 
 
 def all_feedback_replies(request: SalesProposalInput) -> list[SalesDomainReply]:
-    """되먹임으로 온 부서 회신 전부. **1차 호출에서는 빈 목록이다.**
+    """되먹임으로 온 부서 회신 전부. 1차 호출에서는 빈 목록이다.
 
-    ★ 전략 자세는 **요청 단위**로 한 번 정한다 — 후보마다 다른 신호를 보면 같은
-      실행 안에서 소진 판단이 안마다 갈린다.
+    전략 자세는 요청 단위로 한 번 정한다 — 후보마다 다른 신호를 보면 같은 실행 안에서
+    소진 판단이 안마다 갈린다.
     """
     return list(request.feedback.domain_replies) if request.feedback else []
 
@@ -1116,9 +1112,9 @@ def _purchase_effects(reply: SalesDomainReply) -> tuple[list[str], bool]:
     없으므로 Sales Scenario를 조건부로 표시하지 않는다. Purchase 수량은 확정 Logistics
     공급에 합산하거나 Sales 수량을 자동 조정하는 데 사용하지 않는다.
 
-    🔴 약속한 모양이 아닌 payload 는 **위험 0건으로 읽지 않는다.** 예전에는
-       `payload.get("risks", [])` 라서 `risks` 칸이 없는 회신이 "위험 없음" 이 됐다.
-       확인하지 않은 것과 확인해서 없는 것은 다른 사실이다.
+    약속한 모양이 아닌 payload 는 위험 0건으로 읽지 않는다. `payload.get("risks", [])`
+    처럼 읽으면 `risks` 칸이 없는 회신이 "위험 없음" 이 된다. 확인하지 않은 것과
+    확인해서 없는 것은 다른 사실이다.
     """
     parsed = _parse_additional_supply(reply)
     if parsed is None:
@@ -1134,10 +1130,10 @@ def _purchase_effects(reply: SalesDomainReply) -> tuple[list[str], bool]:
 
 
 def interpretation_candidates(scenarios: list[SalesScenario]) -> list[SalesCandidate]:
-    """해석 모델에 넘길 후보. **실행 가능 · 조건부 안만, 라벨만** 싣는다.
+    """해석 모델에 넘길 후보. 실행 가능 · 조건부 안만, 라벨만 싣는다.
 
-    ★ 2026-09-29 BL-013 에 모델 호출(`llm/runtime.interpret_candidates`)과 떼었다 — 후보를
-      고르는 것은 규칙이고, 부르는 것은 그래프(`service/proposal.py`)다.
+    후보를 고르는 것은 이 규칙이고, 모델(`llm/runtime.interpret_candidates`)을 부르는
+    것은 그래프(`service/proposal.py`)다.
     """
     return [
         SalesCandidate(
@@ -1163,13 +1159,13 @@ def interpretation_candidates(scenarios: list[SalesScenario]) -> list[SalesCandi
 
 
 def _purchase_reference_issues(scenario: SalesScenario) -> list[str]:
-    """이 안에 붙은 Purchase 회신이 **여기 있어도 되는 것인가.**
+    """이 안에 붙은 Purchase 회신이 여기 있어도 되는 것인가.
 
-    🔴 예전에는 `조건부 아님 + Purchase 회신 존재` 를 통째로 누수로 봤다. 그러면
-       정상 조합인 `READY + skipped + 0kg`(= 확보 가능량 0kg 확인)까지 오류가 된다.
-       회신이 붙어 있다는 사실과 조건부 물량에 의존한다는 사실은 다르다.
+    `조건부 아님 + Purchase 회신 존재` 를 통째로 누수로 보면 정상 조합인
+    `READY + skipped + 0kg`(= 확보 가능량 0kg 확인)까지 오류가 된다. 회신이 붙어
+    있다는 사실과 조건부 물량에 의존한다는 사실은 다르다.
 
-    지금 가르는 것은 셋이다.
+    가르는 것은 셋이다.
 
         A. 추가공급이 아닌 Purchase capability 가 붙음  → capability 결합 오류
         B. 추가공급 검증이 필요 없는 안에 붙음          → scenario 결합 오류
@@ -1197,22 +1193,22 @@ def _purchase_reference_issues(scenario: SalesScenario) -> list[str]:
     ):
         # B — 추가조달이 필요하지 않은 안에 그 검증 결과가 붙었다.
         #
-        # ★ 판단 기준은 **이 안이 추가공급을 필요로 하는가**이지 `required_validations`
-        #   에 남아 있는가가 아니다. 저 목록은 *아직 answered 되지 않은 요청*이라,
-        #   답이 온 순간 사라진다 — 그것을 "묻지 않았다" 로 읽으면 정상 회신이 누수가 된다.
+        # 판단 기준은 이 안이 추가공급을 필요로 하는가이지 `required_validations` 에
+        # 남아 있는가가 아니다. 저 목록은 아직 답이 오지 않은 요청이라, 답이 온 순간
+        # 사라진다 — 그것을 "묻지 않았다" 로 읽으면 정상 회신이 누수가 된다.
         issues.append("PURCHASE_REFERENCE_LEAK")
     return issues
 
 
 def _answered_additional_supply(scenario: SalesScenario) -> bool:
-    """이 안의 추가공급 질문에 **읽을 수 있는 답이 왔는가.**
+    """이 안의 추가공급 질문에 읽을 수 있는 답이 왔는가.
 
-    ★ 셋을 모두 만족해야 답으로 친다 — 출처가 매입이고, capability 가 추가공급이고,
-      약속한 칸(`procurable_quantity_kg`·`risks`)이 실제로 있어야 한다.
+    셋을 모두 만족해야 답으로 친다 — 출처가 매입이고, capability 가 추가공급이고,
+    약속한 칸(`procurable_quantity_kg`·`risks`)이 실제로 있어야 한다.
 
-    🔴 여기를 "매입 회신이 하나라도 있으면 답이 왔다" 로 넓히면, capability 가 틀린
-       회신이나 칸이 빠진 회신이 검증을 끝낸 것으로 읽힌다. 물어본 것에 대한 답이
-       아직 없는데 "확인했다" 가 되는 것이라, 오탐을 고치려다 미검증을 통과시킨다.
+    주의: 여기를 "매입 회신이 하나라도 있으면 답이 왔다" 로 넓히면, capability 가 틀린
+    회신이나 칸이 빠진 회신이 검증을 끝낸 것으로 읽힌다. 물어본 것에 대한 답이 아직
+    없는데 "확인했다" 가 되는 것이라, 오탐을 고치려다 미검증을 통과시킨다.
     """
     return bool(_valid_additional_supply_replies(scenario.domain_replies))
 
@@ -1273,8 +1269,8 @@ def self_check_scenarios(scenarios: list[SalesScenario]) -> ProposalSelfCheck:
                 _ADDITIONAL_SUPPLY_CAPABILITY not in scenario.required_validations
                 or any(_is_additional_supply_reply(reply) for reply in scenario.domain_replies)
             )
-            # 🔴 답이 온 질문을 "안 물어봤다" 로 읽지 않는다. `required_validations` 는
-            #    *아직 답이 없는 요청* 목록이라, 회신이 오면 사라지는 것이 정상이다.
+            # 답이 온 질문을 "안 물어봤다" 로 읽지 않는다. `required_validations` 는
+            # 아직 답이 없는 요청 목록이라, 회신이 오면 사라지는 것이 정상이다.
             and not _answered_additional_supply(scenario)
             and scenario.status != "INFEASIBLE"
         ):

@@ -1,7 +1,4 @@
-"""판매 확정분 → 재무 매출채권 — 쓰기 계획 · 결과 · 충돌.
-
-★ 2026-09-29 재구성 BL-014: `finance/receivables.py` 에서 옮겼다.
-"""
+"""판매 확정분 → 재무 매출채권 — 쓰기 계획 · 결과 · 충돌."""
 
 from __future__ import annotations
 

@@ -1,39 +1,31 @@
 """
 persistence.py — 마스터 실행 계획 적재 (정의서 §1.2-11)
 
-★ 계산과 적재를 섞지 않는다.
-  `flow.py` 는 DB 를 모르고, `service.py` 는 경계 변환만 한다. 여기서만 저장한다.
+계산과 적재를 섞지 않는다. `service/flow.py` 는 DB 를 모르고, 여기서만 저장한다.
 
-★ 적재 실패가 응답을 막지 않는다.
-  이력이 없는 것보다 결과를 못 주는 것이 나쁘다 — `try_save_run` 이 삼킨다.
+적재 실패가 응답을 막지 않는다. 이력이 없는 것보다 결과를 못 주는 것이 나쁘다 —
+`try_save_run` 이 삼킨다.
 
-★ 마스터는 UUID 가 아니라 **업무 키**(`REQ-20260827-0001`)로 조회된다.
-  사용자가 "그 요청 어떻게 됐냐"고 묻는 단위가 `request_id` 이기 때문이다.
+마스터는 UUID 가 아니라 업무 키(`REQ-20260827-0001`)로 조회된다. 사용자가 "그 요청
+어떻게 됐냐" 고 묻는 단위가 `request_id` 이기 때문이다.
 
-★ **표는 `master_agent_runs` 다** (2026-09-02 이전). 옛 `orchestrator_agent_runs` 는
-  오케 · Critic 과 함께 쓰던 표라 어휘의 소유가 없었다 - 조회(`STATUS`)를 이력에
-  남기려 해도 남의 행의 뜻까지 건드려야 해서 지금까지 안 적어 왔다.
-  Critic 은 옛 표를 그대로 쓴다.
+표는 `master_agent_runs` 다. 마스터 전용 표라 어휘(`cycle` · `end_code`)의 주인이 마스터
+하나이고, 그래서 조회(`STATUS`)도 이력에 남길 수 있다. Critic 은 옛
+`orchestrator_agent_runs` 를 쓴다.
 
-★ `item` · `end_code` 를 컬럼으로도 넘긴다.
-  payload 안에도 있지만 "배추가 며칠째 E2 인가" 를 JSONB 를 파지 않고 보기 위해서다.
-  **꺼내는 것은 여기서 한다** - 저장소가 payload 모양을 알면 응답 스키마가 바뀔 때마다
-  적재가 흔들린다.
+`item` · `end_code` 를 컬럼으로도 넘긴다. payload 안에도 있지만 "배추가 며칠째 E2 인가"
+를 JSONB 를 파지 않고 보기 위해서다. 꺼내는 것은 여기서 한다 - 저장소가 payload 모양을
+알면 응답 스키마가 바뀔 때마다 적재가 흔들린다.
 
-🔴 **`sim_run_id` 는 봉투에서 온다** (2026-09-08 · `Refs #150`).
+`sim_run_id` 는 봉투에서 온다(`#150`). 축이 없으면 E2E 검증으로 만든 상태와 장기 걷기
+상태가 한 통에 섞이고, 판단 행을 실행별로 가를 수 없다. 값의 주인은
+`ExecutionContext.sim_run_id` 하나다. 여기서 전역이나 환경변수를 집지 않는다 - 집으면
+봉투에 실려 부서로 나간 값과 표에 적힌 값이 갈리고, 그때 이력은 자기가 무엇을
+기록했는지 모르게 된다.
 
-  축을 가진 표가 22개인데 **판단 기록에만 없었다.** 그래서 E2E 검증으로 만든 상태와
-  장기 걷기 상태가 한 통에 섞이고, 판단 행을 실행별로 못 갈랐다.
-
-  값의 주인은 `ExecutionContext.sim_run_id` 하나다. 여기서 전역이나 환경변수를
-  집지 않는다 - 집으면 **봉투에 실려 부서로 나간 값**과 **표에 적힌 값**이 갈리고,
-  그때 이력은 자기가 무엇을 기록했는지 모르게 된다.
-
-  ⚠️ **넷 다 넘긴다** (`record` · `record_sales` · `record_status` ·
-    `record_revalidation`). 하나라도 빠지면 그 사이클만 축이 없는데, 아무 오류도
-    안 나고 그 행이 조용히 NULL 로 앉는다.
-
-★ 2026-09-30 재구성 BL-018: `master/persistence.py` 에서 자리만 옮겼다(내용 그대로).
+주의: 적재 함수 모두가 축을 넘긴다(`record` · `record_sales` · `record_status` ·
+`record_revalidation` · `record_ledger_gap`). 하나라도 빠지면 그 사이클만 축이 없는데,
+아무 오류도 나지 않고 그 행이 조용히 NULL 로 앉는다.
 """
 
 from __future__ import annotations
@@ -59,11 +51,11 @@ logger = logging.getLogger(__name__)
 # 마스터의 1차 Flow 는 매입 의사결정이다. 판매(2차)가 붙으면 cycle 이 갈린다.
 _CYCLE = "PROCUREMENT"
 
-# 판매 의사결정 (2026-09-07 신설). DB CHECK 가 이미 허용하는 어휘다
-# (`database/schema/master/master_agent_runs.sql:44`) — 마이그레이션이 필요 없다.
+# 판매 의사결정. DB CHECK 가 이미 허용하는 어휘다
+# (`database/schema/master/master_agent_runs.sql`) — 마이그레이션이 필요 없다.
 _SALES_CYCLE = "SALES"
 
-# 조회. 안을 만들지 않지만 예산을 쓰고 부서를 부르므로 이력에 남는다 (2026-09-02).
+# 조회. 안을 만들지 않지만 예산을 쓰고 부서를 부르므로 이력에 남는다.
 _STATUS_CYCLE = "STATUS"
 
 # 종료 코드 → 런타임 상태. 표의 CHECK 어휘가 3값이라 여기서 접는다.
@@ -71,78 +63,75 @@ _RUNTIME_BY_END_CODE = {
     "E4_NOT_STARTED": "RUNTIME_NOT_READY",
 }
 
-# 🔴 **판매 매핑을 따로 둔다.** `runtime_status_of` 를 그대로 쓰면 안 된다 —
-#    기본값이 `READY` 라 `SL4_NOT_STARTED` 가 표에 안 걸리고 **`READY` 로 적힌다.**
-#    *"못 시작한 날"* 이 *"돈 날"* 로 남고, 매입에서 `E4` 만 미가동으로 가른 그 구분이
-#    판매에서는 사라진다 (설계 §4).
+# 판매 매핑을 따로 둔다. `runtime_status_of` 를 그대로 쓰면 안 된다 —
+# 기본값이 `READY` 라 `SL4_NOT_STARTED` 가 표에 안 걸리고 `READY` 로 적힌다.
+# "못 시작한 날" 이 "돈 날" 로 남고, 매입에서 `E4` 만 미가동으로 가른 그 구분이
+# 판매에서는 사라진다(설계 §4).
 _SALES_RUNTIME_BY_END_CODE = {
     "SL4_NOT_STARTED": "RUNTIME_NOT_READY",
 }
 
-# 🔴 **재검증은 또 다른 표다** (2026-09-07 · M-4). 어휘가 `RevalidationOutcome` 이라
-#    위 둘 중 어느 것도 이 값을 모른다 — 섞어 쓰면 `ERROR` 가 기본값 `READY` 로 적혀
-#    *"못 돌린 재검증"* 이 *"돈 재검증"* 으로 남는다. 근거는 `record_revalidation` 에.
+# 재검증은 또 다른 표다(M-4). 어휘가 `RevalidationOutcome` 이라
+# 위 둘 중 어느 것도 이 값을 모른다 — 섞어 쓰면 `ERROR` 가 기본값 `READY` 로 적혀
+# "못 돌린 재검증" 이 "돈 재검증" 으로 남는다. 근거는 `record_revalidation` 에.
 _REVALIDATION_RUNTIME_BY_OUTCOME = {
     "ERROR": "RUNTIME_NOT_READY",
 }
 
-# 🔴 **장부 관문이 막은 날의 종료 코드. 새 낱말이 아니다** (2026-09-09).
-#    `E4_NOT_STARTED` 는 *"시작 못 했다"* 이고 관문에서 돌아선 날이 정확히 그것이다.
-#    새 코드를 지으면 *"왜 못 했나"* 의 주인이 둘이 된다 — 그 답은 `reason` 이 든다.
+# 장부 관문이 막은 날의 종료 코드. 새 낱말이 아니다.
+# `E4_NOT_STARTED` 는 "시작 못 했다" 이고 관문에서 돌아선 날이 정확히 그것이다.
+# 새 코드를 지으면 "왜 못 했나" 의 주인이 둘이 된다 — 그 답은 `reason` 이 든다.
 #
-# ★ **값의 주인은 `run_repository` 다** (2026-09-09 · `Master 19.0`). 성적표가 이
-#   값으로 관문 행을 되찾으므로, 여기에 문자열을 다시 적으면 한쪽만 바뀌는 날
-#   `gate_blocked` 가 조용히 늘 거짓이 된다.
+# 값의 주인은 `domain/request_ids.py` 의 `LEDGER_GAP_END_CODE` 다(`Master 19.0`).
+# 성적표가 이 값으로 관문 행을 되찾으므로, 여기에 문자열을 다시 적으면 한쪽만 바뀌는
+# 날 `gate_blocked` 가 조용히 늘 거짓이 된다.
 _LEDGER_GAP_END_CODE = LEDGER_GAP_END_CODE
 
 
 def runtime_status_of(end_code: str) -> str:
     """`E4` 만 미가동이다.
 
-    `E2`(보류)·`E3`(반려)·`E5`(계획 없음)는 **돌긴 돈** 날이다 — 회사 상태이지
-    실행 환경 문제가 아니다. 이 구분이 무너지면 "부서가 죽은 날"과 "부서가 반대한 날"이
-    이력에서 같아 보인다.
+    `E2`(보류)·`E3`(반려)·`E5`(계획 없음)는 돌긴 돈 날이다 — 회사 상태이지 실행 환경
+    문제가 아니다. 이 구분이 무너지면 "부서가 죽은 날"과 "부서가 반대한 날"이 이력에서
+    같아 보인다.
 
-    ⚠️ **판매 종료 코드를 여기 넣지 마라.** `SL4_NOT_STARTED` 는 표에 없어 기본값
-      `READY` 를 받는다 — 아무 오류 없이 틀린 값이 들어간다. 판매는
-      `sales_runtime_status_of` 를 쓴다.
+    주의: 판매 종료 코드를 여기 넣지 않는다. `SL4_NOT_STARTED` 는 표에 없어 기본값
+    `READY` 를 받는다 — 아무 오류 없이 틀린 값이 들어간다. 판매는
+    `sales_runtime_status_of` 를 쓴다.
     """
     return _RUNTIME_BY_END_CODE.get(end_code, "READY")
 
 
 def sales_runtime_status_of(end_code: str) -> str:
-    """판매 종료 코드 → 런타임 상태. **`SL4` 만 미가동이다** (설계 §4).
+    """판매 종료 코드 → 런타임 상태. `SL4` 만 미가동이다(설계 §4).
 
     ```text
     SL4_NOT_STARTED       RUNTIME_NOT_READY   시작 못 했다
-    SL5_BUDGET_EXHAUSTED  READY               🔴 아래 참조
+    SL5_BUDGET_EXHAUSTED  READY               아래 참조
     SL1 · SL2 · SL3       READY               돌긴 돌았다
     ```
 
-    🔴 **`SL5` 를 `ERROR` 로 적지 않는다.** 예산 소진은 환경 고장이 아니라 **마스터가
-      스스로 끊은 것**이다 (§1.2-12 *"코드가 끊는다"*). `ERROR` 로 적으면 **어댑터가
-      죽은 날과 같아 보이고**, 그건 조사 방향을 틀리게 만든다 — 사람이 어댑터 로그를
-      뒤지는데 실제로는 예산을 올리거나 후보 수를 줄일 일이다.
+    `SL5` 를 `ERROR` 로 적지 않는다. 예산 소진은 환경 고장이 아니라 마스터가 스스로
+    끊은 것이다(§1.2-12 "코드가 끊는다"). `ERROR` 로 적으면 어댑터가 죽은 날과 같아
+    보이고, 그건 조사 방향을 틀리게 만든다 — 사람이 어댑터 로그를 뒤지는데 실제로는
+    예산을 올리거나 후보 수를 줄일 일이다. "판단이 안 끝났다" 는 사실은 종료 코드
+    (`SL5_BUDGET_EXHAUSTED`)가 이미 말한다. 런타임 상태까지 겹쳐 적지 않는다 — 같은
+    사실의 주인은 하나다.
 
-      *"판단이 안 끝났다"* 는 사실은 종료 코드(`SL5_BUDGET_EXHAUSTED`)가 이미 말한다.
-      런타임 상태까지 겹쳐 적지 않는다 — 같은 사실의 주인은 하나다.
-
-    ⚠️ **3값 밖을 적으면 저장이 전부 실패한다** (`runtime_status` CHECK ·
-      `master_agent_runs.sql:70`). 재무가 `SALES_VALIDATION` 을 열 때 겪은 그 순서다 —
-      *"제약보다 먼저 열면 판정은 되는데 저장이 전부 실패한다."* 위 세 값은 전부 3값
-      안이다.
+    제약: 3값 밖을 적으면 판정은 되는데 저장이 전부 실패한다(`runtime_status` CHECK ·
+    `master_agent_runs.sql`). 위 세 값은 전부 3값 안이다.
     """
     return _SALES_RUNTIME_BY_END_CODE.get(end_code, "READY")
 
 
 def _step_rows(steps: Sequence[StepOut]) -> list[dict[str, Any]]:
-    """실행 계획 한 벌을 JSONB 모양으로. **두 사이클이 같이 쓴다.**
+    """실행 계획 한 벌을 JSONB 모양으로. 두 사이클이 같이 쓴다.
 
-    ★ 계획의 모양(`StepOut`)은 사이클에 매인 것이 아니다 — 베끼면 칸이 하나 늘어난 날
-      한쪽만 늘어난다.
+    계획의 모양(`StepOut`)은 사이클에 매인 것이 아니다 — 베끼면 칸이 하나 늘어난 날
+    한쪽만 늘어난다.
 
-    ★ 시각을 담지 않는다. 계획은 **같은 입력에 같은 값**이어야 한다 (§1.2-11).
-      언제 돌았는지는 행의 `created_at` 이 답한다.
+    시각을 담지 않는다. 계획은 같은 입력에 같은 값이어야 한다(§1.2-11). 언제
+    돌았는지는 행의 `created_at` 이 답한다.
     """
     return [step.model_dump(mode="json") for step in steps]
 
@@ -159,17 +148,17 @@ def record(
     elapsed_ms: int | None = None,
     sim_run_id: str | None = None,
 ) -> str | None:
-    """실행 1건을 적재하고 **그 행의 id 를 돌려준다.** 실패해도 조용히 넘어간다.
+    """실행 1건을 적재하고 그 행의 id 를 돌려준다. 실패해도 조용히 넘어간다.
 
-    ★ **전에는 이 값을 버렸다** (2026-08-30 까지). `try_save_run` 이 `run_id` 를
-      돌려주는데 받지 않았고, 그래서 응답에 실을 수가 없었다. 결정은 업무 키까지만
-      가리켰고, 한 업무 키에 실행이 75행이면 **어느 실행을 승인한 것인지 알 수 없었다.**
+    id 를 돌려주는 이유: 결정이 업무 키까지만 가리키면, 한 업무 키에 실행이 여럿일 때
+    (실측 75행) 어느 실행을 승인한 것인지 알 수 없다. 응답에 이 id 를 실어 결정이 실행
+    행을 가리키게 한다.
 
-    ★ 적재에 실패하면 `None` 이다 — 그때는 결정이 실행을 못 가리킨다. 그것도 사실이라
-      숨기지 않는다 (`master_decisions.run_id` 가 NULL 을 허용하는 이유).
+    적재에 실패하면 `None` 이다 — 그때는 결정이 실행을 못 가리킨다. 그것도 사실이라
+    숨기지 않는다(`master_decisions.run_id` 가 NULL 을 허용하는 이유).
 
-    ⚠️ 저장되는 `response_payload` 에는 이 값이 없다. 값이 **적재 후에** 나오기
-      때문이다. 두 번 쓰지 않는다 — 행의 `run_id` 가 이미 그 답이다.
+    저장되는 `response_payload` 에는 이 값이 없다. 값이 적재 후에 나오기 때문이다. 두 번
+    쓰지 않는다 — 행의 `run_id` 가 이미 그 답이다.
     """
     run_id = try_save_run(
         cycle=_CYCLE,
@@ -182,8 +171,8 @@ def record(
         plan=plan_rows(response),
         request_payload=request.model_dump(mode="json"),
         response_payload=response.model_dump(mode="json"),
-        # ★ 부르는 쪽(`service.run_procurement`)이 봉투에서 꺼내 준다 — 이 모듈이
-        #   `ExecutionContext` 를 다시 만들지 않는다.
+        # 부르는 쪽(`service/procurement.py` 의 `run_procurement`)이 봉투에서 꺼내
+        # 준다 — 이 모듈이 `ExecutionContext` 를 다시 만들지 않는다.
         sim_run_id=sim_run_id,
     )
     return None if run_id is None else str(run_id)
@@ -196,21 +185,21 @@ def record_sales(
     elapsed_ms: int | None = None,
     sim_run_id: str | None = None,
 ) -> str | None:
-    """판매 실행 1건을 적재하고 **그 행의 id 를 돌려준다** (2026-09-07 신설).
+    """판매 실행 1건을 적재하고 그 행의 id 를 돌려준다.
 
-    ★ **`record()` 를 그대로 못 쓴다.** 저쪽은 `ProcurementRunRequest/Response` 로
-      타입이 박혀 있고, 무엇보다 **런타임 상태 매핑이 다르다** — 매입 표에는
-      `SL4_NOT_STARTED` 가 없어서 기본값 `READY` 를 받는다.
+    `record()` 를 그대로 쓸 수 없다. 저쪽은 `ProcurementRunRequest/Response` 로 타입이
+    박혀 있고, 무엇보다 런타임 상태 매핑이 다르다 — 매입 표에는 `SL4_NOT_STARTED` 가
+    없어서 기본값 `READY` 를 받는다.
 
-    ★ **`item` 은 요청 값을 그대로 넣는다** — 매입과 같은 칸이다. 판매도 품목 축으로
-      훑는 질문(*"배추 판매가 며칠째 SL3 인가"*)이 성립한다.
+    `item` 은 요청 값을 그대로 넣는다 — 매입과 같은 칸이다. 판매도 품목 축으로 훑는
+    질문("배추 판매가 며칠째 SL3 인가")이 성립한다.
 
-    🟢 **`end_code` 에 `SL*` 이 그대로 들어간다.** 컬럼에 CHECK 가 없고
-      (`master_agent_runs.sql:64`) 그건 **일부러 열어 둔 것**이다 — 사이클마다 어휘가
-      다르고(매입 E · 조회 S · 판매 SL), 이상값은 3값으로 닫힌 `runtime_status` 가
-      걸러 준다. 그래서 마이그레이션이 필요 없다.
+    `end_code` 에 `SL*` 이 그대로 들어간다. 컬럼에 CHECK 가 없고
+    (`master_agent_runs.sql`) 그건 일부러 열어 둔 것이다 — 사이클마다 어휘가 다르고
+    (매입 E · 조회 S · 판매 SL), 이상값은 3값으로 닫힌 `runtime_status` 가 걸러 준다.
+    그래서 마이그레이션이 필요 없다.
 
-    ★ 적재 실패는 `None` 이다 — 이력이 없어도 결과는 돌려준다 (`record` 와 같은 태도).
+    적재 실패는 `None` 이다 — 이력이 없어도 결과는 돌려준다(`record` 와 같은 태도).
     """
     run_id = try_save_run(
         cycle=_SALES_CYCLE,
@@ -223,7 +212,7 @@ def record_sales(
         plan=_step_rows(response.plan),
         request_payload=request.model_dump(mode="json"),
         response_payload=response.model_dump(mode="json"),
-        # ★ 부르는 쪽(`service.run_sales`)이 봉투에서 꺼내 준다 — 매입과 같은 자리.
+        # 부르는 쪽(`service/sales.py` 의 `run_sales`)이 봉투에서 꺼내 준다 — 매입과 같다.
         sim_run_id=sim_run_id,
     )
     return None if run_id is None else str(run_id)
@@ -244,35 +233,33 @@ def record_revalidation(
 ) -> str | None:
     """최종 승인 시점 재검증 1건을 적재한다 (설계 2026-09-07 §4 · M-4).
 
-    🔴 **왜 재검증도 남기는가.** 재검증은 안을 만들지 않지만 **예산을 쓰고 부서를
-      부른다** — `record_status` 가 조회를 남기는 것과 **같은 이유**다. 안 남기면 그
-      호출이 이력에서 사라지고, M-16 이 막으려는 것이 정확히 *"안 보이는 호출"* 이다.
+    왜 재검증도 남기는가: 재검증은 안을 만들지 않지만 예산을 쓰고 부서를 부른다 —
+    `record_status` 가 조회를 남기는 것과 같은 이유다. 남기지 않으면 그 호출이 이력에서
+    사라지고, M-16 이 막으려는 것이 정확히 "안 보이는 호출" 이다.
 
-    ★ **`cycle` 은 재검증한 안의 사이클이다** (2026-09-16). 판매 안은 `SALES`, 매입
-      안은 `PROCUREMENT` 다. 표의 CHECK 이 두 값을 이미 받는다 — 마이그레이션이 없다.
+    `cycle` 은 재검증한 안의 사이클이다. 판매 안은 `SALES`, 매입 안은 `PROCUREMENT` 다.
+    표의 CHECK 이 두 값을 이미 받는다 — 마이그레이션이 없다. 값은 부르는 쪽
+    (`revalidation._recorded`)이 정한다 — 무엇을 재검증했는지는 여기서 모른다. 상수로
+    박으면 매입 승인 재검증도 `cycle=SALES` 로 남는다(실측
+    `REV-SIM-TEST-PURREC-0916-20260105-0001`).
 
-      🔴 전에는 `SALES` 로 박혀 있어 매입 승인 재검증도 `cycle=SALES` 로 남았다
-        (실측 `REV-SIM-TEST-PURREC-0916-20260105-0001`). 값은 부르는 쪽
-        (`revalidation._recorded`)이 정한다 — 무엇을 재검증했는지는 여기서 모른다.
+    매입 사이클 행이 늘어도 매입 화면 조회(`scenarios` 가 있는 행만 고른다)와 경계
+    조회(`constraints` 가 있는 행만 본다)에는 걸리지 않는다. 재검증 행에는 둘 다 없다.
 
-      ⚠️ 매입 사이클 행이 늘어도 매입 화면 조회(`scenarios` 가 있는 행만 고른다)와
-        경계 조회(`constraints` 가 있는 행만 본다)에는 안 걸린다. 재검증 행에는 둘 다 없다.
+    `end_code` 에 재검증 결과를 그대로 적는다(`PASSED` · `CONDITIONAL` · `FAILED` ·
+    `ERROR`). 컬럼에 CHECK 이 없는 이유가 "사이클마다 어휘가 다르다" 이고, 재검증의
+    어휘는 `RevalidationOutcome` 이다 — 새 낱말을 짓지 않는다.
 
-    ★ **`end_code` 에 재검증 결과를 그대로 적는다** (`PASSED` · `CONDITIONAL` ·
-      `FAILED` · `ERROR`). 컬럼에 CHECK 이 없는 이유가 *"사이클마다 어휘가 다르다"*
-      이고, 재검증의 어휘는 `RevalidationOutcome` 이다 — 새 낱말을 짓지 않는다.
+    `ERROR` 는 `RUNTIME_NOT_READY` 다 — 판매 `SL5` 와 일부러 다르다. 판매는 예산 소진을
+    `READY` 로 적는다. "마스터가 스스로 끊은 것" 이고 화면이 후보를 보여주는 경로라, 못
+    본 것을 미가동으로 적으면 사용자가 오해하기 때문이다. 재검증에는 보여줄 후보가 없다.
+    여기서 이 칸이 답하는 물음은 "이 실행이 판정을 냈는가" 하나이고, `ERROR` 는 언제나
+    못 냈다는 뜻이다. "왜 못 냈나" 는 `end_code` 와 `reason` 이 말한다 — 같은 사실의
+    주인은 하나다.
 
-    🔴 **`ERROR` 는 `RUNTIME_NOT_READY` 다 — 판매 `SL5` 와 일부러 다르다.**
-
-      판매는 예산 소진을 `READY` 로 적는다. *"마스터가 스스로 끊은 것"* 이고 화면이
-      후보를 보여주는 경로라, 못 본 것을 미가동으로 적으면 사용자가 오해하기
-      때문이다. **재검증에는 보여줄 후보가 없다.** 여기서 이 칸이 답하는 물음은
-      *"이 실행이 판정을 냈는가"* 하나이고, `ERROR` 는 언제나 못 냈다는 뜻이다.
-      *"왜 못 냈나"* 는 `end_code` 와 `reason` 이 말한다 — 같은 사실의 주인은 하나다.
-
-    ★ **적재 실패는 `None` 이다.** 그때 `master_decisions.revalidation_request_id` 는
-      이 표에 없는 키를 가리키는데, 그것이 곧 *"적재가 실패했다"* 이고 설계 §4 가
-      숨기지 말라고 적은 자리다 (`history_run_id` 의 `None` 과 같은 태도).
+    적재 실패는 `None` 이다. 그때 `master_decisions.revalidation_request_id` 는 이 표에
+    없는 키를 가리키는데, 그것이 곧 "적재가 실패했다" 이고 설계 §4 가 숨기지 말라고
+    적은 자리다(`history_run_id` 의 `None` 과 같은 태도).
     """
     run_id = try_save_run(
         cycle=cycle,
@@ -282,38 +269,36 @@ def record_revalidation(
         end_code=outcome,
         runtime_status=_REVALIDATION_RUNTIME_BY_OUTCOME.get(outcome, "READY"),
         elapsed_ms=elapsed_ms,
-        # ★ **여기는 봉투를 이미 받았다** — 인자로 다시 받지 않는다. 같은 사실의
-        #   주인은 하나이고, 그 주인은 `context` 다.
+        # 여기는 봉투를 이미 받았다 — 인자로 다시 받지 않는다. 같은 사실의
+        # 주인은 하나이고, 그 주인은 `context` 다.
         sim_run_id=context.sim_run_id,
         plan=status_plan_rows(plan),
         request_payload={
             "as_of": context.as_of.isoformat(),
             "policy_version": context.policy_version,
             "trigger": context.trigger,
-            # ★ **무엇을 물었는지**를 남긴다. 답만 남기면 못 물어본 것과 물었는데
-            #   답이 안 온 것이 이력에서 같아 보인다.
+            # 무엇을 물었는지를 남긴다. 답만 남기면 못 물어본 것과 물었는데
+            # 답이 안 온 것이 이력에서 같아 보인다.
             "capabilities": [*validations, *unroutable],
         },
         response_payload={
             "outcome": outcome,
             "reason": reason,
-            # 🔴 **사람 말과 정본을 나란히 둔다** (2026-09-16). 두 칸은 같은 자리를
-            #   다투지 않는다 — 묻는 사람이 다르다.
+            # 사람 말과 정본을 나란히 둔다. 두 칸은 같은 자리를 다투지 않는다 —
+            # 묻는 사람이 다르다.
             #
             #   ```text
             #   reason      사람이 읽는다     「물류: 수량을 7,470kg 로 조정 제안」
             #   conditions  기계가 되만든다   adjust:{dept·axis·target_value·unit·…}
             #   ```
             #
-            #   전에는 표지 원문이 `reason` 문장에 이어 붙어 **그 문자열이 유일한
-            #   사본**이었다. 그 문장을 사람 말로 고치면서 이 칸을 같이 세웠다 —
-            #   안 세웠으면 조정 표지가 이 표에서 영영 사라진다
-            #   (`revalidation.Revalidation.conditions` 에 근거를 적어 두었다).
+            # `reason` 은 사람 말이라 표지 원문을 담지 않는다. 이 칸이 없으면 조정
+            # 표지가 이 표에서 사라지고 나중에 되만들 수 없다(`Revalidation.conditions`
+            # 에 근거를 적어 두었다).
             #
-            # 🔴 **발표 뒤 개발이 없다. 지금 안 남기면 영영 못 되만든다.**
-            #
-            # ★ **비어 있어도 적는다.** `PASSED` 의 `[]` 는 *"새 조건이 없었다"* 이고
-            #   칸이 아예 없는 것과 다르다 — 옛 행과 새 행을 가르는 자리이기도 하다.
+            # 비어 있어도 적는다. `PASSED` 의 `[]` 는 "새 조건이 없었다" 이고
+            # 칸이 아예 없는 것과 다르다 — 이 칸이 없던 옛 행과 새 행을 가르는 자리이기도
+            # 하다.
             "conditions": list(conditions),
             "validations": {k: dict(v) for k, v in validations.items()},
             "unroutable": list(unroutable),
@@ -325,12 +310,12 @@ def record_revalidation(
 def status_plan_rows(plan: ExecutionPlan) -> list[dict[str, Any]]:
     """조회의 실행 계획을 JSONB 모양으로.
 
-    ★ 매입 쪽(`plan_rows`)은 응답 스키마(`StepOut`)를 거치는데 여기는 계획 객체를
-      바로 쓴다 - 조회 응답에는 계획이 안 실리기 때문이다. **그래서 더 중요하다.**
-      화면에 안 보이는 호출이라 이력이 유일한 기록이다.
+    매입 쪽(`plan_rows`)은 응답 스키마(`StepOut`)를 거치는데 여기는 계획 객체를 바로
+    쓴다 - 조회 응답에는 계획이 안 실리기 때문이다. 그래서 더 중요하다. 화면에 안
+    보이는 호출이라 이력이 유일한 기록이다.
 
-    ★ 시각을 담지 않는다. `ExecutionStep` 에 시계가 없다는 것은
-      `test_계획에_실행_시각이_없다` 가 잠근다.
+    시각을 담지 않는다. `ExecutionStep` 에 시계가 없다는 것은
+    `test_계획에_실행_시각이_없다` 가 잠근다.
     """
     return [asdict(step) for step in plan.steps]
 
@@ -345,27 +330,23 @@ def record_status(
     elapsed_ms: int | None = None,
     sim_run_id: str | None = None,
 ) -> str | None:
-    """조회 1건을 적재한다 (2026-09-02 신설).
+    """조회 1건을 적재한다.
 
-    🔴 **왜 조회도 남기는가.**
-      조회는 안을 만들지 않지만 **예산을 쓰고 부서를 부른다.** 안 남기면 그 호출이
-      이력에서 사라지고, 검증 6계열의 M-16 이 막으려는 것이 정확히 "안 보이는
-      호출" 이다. 조회만 계속 돌린 날과 아무것도 안 한 날이 같아 보이면 안 된다.
+    왜 조회도 남기는가: 조회는 안을 만들지 않지만 예산을 쓰고 부서를 부른다. 남기지
+    않으면 그 호출이 이력에서 사라지고, 검증 6계열의 M-16 이 막으려는 것이 정확히 "안
+    보이는 호출" 이다. 조회만 계속 돌린 날과 아무것도 안 한 날이 같아 보이면 안 된다.
 
-    ★ **전에는 표가 못 받았다.** 옛 `orchestrator_agent_runs` 의 `cycle` CHECK 에
-      `STATUS` 가 없었고, 어휘를 고치려면 오케·Critic 행의 뜻까지 건드려야 했다.
-      마스터가 자기 표로 나오면서(2026-09-02) 그 장애물이 없어졌다.
+    `end_code` 에 S 코드가 들어간다. 매입은 `E1`~`E5`, 조회는
+    `S1_ANSWERED`~`S3_UNAVAILABLE` 이다. 컬럼을 CHECK 로 닫지 않은 이유가 이것이고,
+    뜻은 둘 다 "이 실행이 어떻게 끝났나" 로 같다.
 
-    ★ **`end_code` 에 S 코드가 들어간다.** 매입은 `E1`~`E5`, 조회는
-      `S1_ANSWERED`~`S3_UNAVAILABLE` 이다. 컬럼을 CHECK 로 안 닫은 이유가 이것이고,
-      뜻은 둘 다 "이 실행이 어떻게 끝났나" 로 같다.
+    품목이 없다. 조회는 품목 축이 아니라 부서 축이다 - 무엇을 물었는지는
+    `request_payload` 의 `agents` 에 남는다. 없는 것을 지어내지 않는다.
 
-    ★ **품목이 없다.** 조회는 품목 축이 아니라 부서 축이다 - 무엇을 물었는지는
-      `request_payload` 의 `agents` 에 남는다. 없는 것을 지어내지 않는다.
-
-    ⚠️ **업무 키가 매입과 겹칠 수 있다.** 둘 다 `make_request_id(as_of)` 를 쓴다.
-      그래서 읽는 쪽이 `cycle` 을 밝히게 했다 (`get_run_by_request_id`) - 안 그러면
-      조회가 최신 행이 되는 날 결정이 조회를 가리키고 이력 화면이 조회를 보여준다.
+    주의: 업무 키가 매입과 겹칠 수 있다. 둘 다 `make_request_id(as_of)` 를 쓴다. 그래서
+    읽는 쪽이 `cycle` 을 밝힌다(`readmodel/runs.py` 의 `get_run_by_request_id`) - 안
+    그러면 조회가 최신 행이 되는 날 결정이 조회를 가리키고 이력 화면이 조회를
+    보여준다.
     """
     run_id = try_save_run(
         cycle=_STATUS_CYCLE,
@@ -374,8 +355,8 @@ def record_status(
         end_code=outcome.status_code,
         runtime_status=outcome.runtime_status,
         elapsed_ms=elapsed_ms,
-        # ★ 부르는 쪽(`ask_service._run_status`)이 봉투에서 꺼내 준다. 조회도 부서를
-        #   실제로 부르므로 **판단 경로와 같은 장부**를 봐야 한다.
+        # 부르는 쪽(`service/ask.py` 의 `_run_status`)이 봉투에서 꺼내 준다. 조회도
+        # 부서를 실제로 부르므로 판단 경로와 같은 장부를 봐야 한다.
         sim_run_id=sim_run_id,
         plan=status_plan_rows(outcome.plan),
         request_payload={
@@ -399,21 +380,21 @@ def record_status(
 
 
 def _ledger_gap_already_recorded(request_id: str) -> bool:
-    """그날 게이트 행이 **이미 있는가.** 넣기 전에 본다.
+    """그날 게이트 행이 이미 있는가. 넣기 전에 본다.
 
-    🔴 **인덱스가 두 번째를 못 막는다** (2026-09-09 실측). 표의 유일 제약은
-      `UNIQUE (run_id, request_id)` 인데 `run_id` 가 매번 새 UUID 라 같은
-      `request_id` 를 두 번 넣어도 안 걸린다 — `REQ-DAILY-20260106-배추` 가 실제로
-      7행 쌓여 있다. 판단 행은 시도마다 사실이 달라 여럿일 이유가 있지만, 게이트
-      행은 **같은 날 같은 사실**이라 두 벌일 이유가 없다.
+    인덱스가 두 번째를 막지 못한다(2026-09-09 실측). 표의 유일 제약은
+    `UNIQUE (run_id, request_id)` 인데 `run_id` 가 매번 새 UUID 라 같은 `request_id` 를
+    두 번 넣어도 걸리지 않는다 — `REQ-DAILY-20260106-배추` 가 실제로 7행 쌓였다. 판단
+    행은 시도마다 사실이 달라 여럿일 이유가 있지만, 게이트 행은 같은 날 같은 사실이라
+    두 벌일 이유가 없다.
 
-    ⚠️ **읽고 쓰는 사이에 경쟁이 있다.** 지금은 걷기가 한 프로세스라 안전하고,
-      **그것이 전제다.** 걷기를 여럿으로 나누는 날 이 함수로는 못 막는다 — 그때는
-      표에 `request_id` 유일 제약을 세울 자리다.
+    제약: 읽고 쓰는 사이에 경쟁이 있다. 걷기가 한 프로세스라는 것이 전제다. 걷기를
+    여럿으로 나누는 날 이 함수로는 막지 못한다 — 그때는 표에 `request_id` 유일 제약을
+    세울 자리다.
 
-    ★ **읽기가 터지면 `False` 다 — 그래서 적재로 간다.** 행이 두 벌인 것보다 행이
-      아예 없는 것이 나쁘다. 행이 없으면 화면이 다시 *"사유를 남긴 실행이
-      없습니다"* 로 돌아가고, 그것이 이 판이 고치려는 바로 그 문구다.
+    실패 처리: 읽기가 실패하면 `False` 다 — 그래서 적재로 간다. 행이 두 벌인 것보다 행이
+    아예 없는 것이 나쁘다. 행이 없으면 화면이 "사유를 남긴 실행이 없습니다" 로 돌아가고,
+    관문이 막은 날을 가를 수 없다.
     """
     try:
         return bool(list_runs(request_id=request_id, cycle=_CYCLE, limit=1))
@@ -434,9 +415,9 @@ def record_ledger_gap(
     elapsed_ms: int | None = None,
     sim_run_id: str | None = None,
 ) -> str | None:
-    """장부 관문이 막아 **판단을 한 번도 안 돌린 날** 1건을 적재한다 (2026-09-09 신설).
+    """장부 관문이 막아 판단을 한 번도 안 돌린 날 1건을 적재한다.
 
-    🔴 **왜 다섯 번째를 만드는가.** 매입 화면이 세 가지를 한 문구로 보여준다.
+    왜 다섯 번째 적재 함수인가: 이 행이 없으면 매입 화면이 세 가지를 한 문구로 보여준다.
 
     ```text
     ① 장부 게이트가 막았다        →  "사유를 남긴 실행이 없습니다"
@@ -444,50 +425,49 @@ def record_ledger_gap(
     ③ 돌렸는데 적재가 실패했다     →  "사유를 남긴 실행이 없습니다"
     ```
 
-      `①` 은 정상 동작이고 `②` 는 운영 공백이고 `③` 은 사고다. 셋이 같아 보이면
-      사람이 무엇을 볼지 모른다. **이 함수는 `①` 만 가른다** — `②` `③` 은 여전히
-      행이 없고, 그것을 세는 것은 `Master 상세 19.0` 이 풀 자리다.
+    `①` 은 정상 동작이고 `②` 는 운영 공백이고 `③` 은 사고다. 셋이 같아 보이면 사람이
+    무엇을 볼지 모른다. 이 함수는 `①` 만 가른다 — `②` `③` 은 행이 없고, 그것을 세는
+    것은 `Master 상세 19.0` 이 풀 자리다.
 
-    🔴 **기존 넷 중 아무거나에 끼워 넣지 않는다.** `record` · `record_sales` 는
-      요청·응답 타입이 박혀 있는데 여기는 **응답이 없다**(부서를 한 번도 안 불렀다).
-      `record_status` 는 `StatusOutcome` 이 필요하고 런타임 상태 매핑이 다르다 —
-      그쪽 독스트링이 이미 그 이유를 적어 뒀다.
+    다른 적재 함수에 끼워 넣지 않는다. `record` · `record_sales` 는 요청·응답 타입이
+    박혀 있는데 여기는 응답이 없다(부서를 한 번도 안 불렀다). `record_status` 는
+    `StatusOutcome` 이 필요하고 런타임 상태 매핑이 다르다 — 그쪽 독스트링이 그 이유를
+    적어 둔다.
 
-    ★ **`end_code` 를 새로 만들지 않는다.** `E4_NOT_STARTED` 는 *"시작 못 했다"* 이고
-      그것이 정확히 일어난 일이다. *"왜 못 했나"* 는 종료 코드가 아니라 `reason` 이
-      답할 자리다 — 같은 사실의 주인은 하나다.
+    `end_code` 를 새로 만들지 않는다. `E4_NOT_STARTED` 는 "시작 못 했다" 이고 그것이
+    정확히 일어난 일이다. "왜 못 했나" 는 종료 코드가 아니라 `reason` 이 답할 자리다 —
+    같은 사실의 주인은 하나다.
 
-    ★ **런타임 상태를 손으로 안 적는다.** `runtime_status_of` 가 그 매핑의 주인이고,
-      여기서 `"RUNTIME_NOT_READY"` 를 다시 쓰면 매핑이 바뀌는 날 한쪽만 바뀐다.
+    런타임 상태를 손으로 적지 않는다. `runtime_status_of` 가 그 매핑의 주인이고, 여기서
+    `"RUNTIME_NOT_READY"` 를 다시 쓰면 매핑이 바뀌는 날 한쪽만 바뀐다.
 
-    ★ **품목이 없다.** 관문은 하루를 통째로 돌려세운다. 품목 칸을 채우면
-      *"배추 때문에 막혔다"* 라는 없는 사실이 생긴다 (`record_status` 와 같은 태도).
+    품목이 없다. 관문은 하루를 통째로 돌려세운다. 품목 칸을 채우면 "배추 때문에
+    막혔다" 라는 없는 사실이 생긴다(`record_status` 와 같은 태도).
 
-    🔴 **`plan` 은 빈 목록이다 — 이것이 화면 안전의 조건이다.** 매입 화면은
-      `response_payload.scenarios` 가 있는 행만 안으로 고른다
-      (`master/readmodel/purchase_tab.pick_runs`). 지어낸 안을 한 줄이라도 실으면 그
-      순간 **품목 미상 행**이 안 목록에 뜬다. 안 낸 날이니 안이 없는 것이 사실이다.
+    제약: `plan` 은 빈 목록이다 — 이것이 화면 안전의 조건이다. 매입 화면은
+    `response_payload.scenarios` 가 있는 행만 안으로 고른다
+    (`master/readmodel/purchase_tab.py` 의 `pick_runs`). 지어낸 안을 한 줄이라도 실으면
+    그 순간 품목 미상 행이 안 목록에 뜬다. 안 낸 날이니 안이 없는 것이 사실이다.
 
-    🔴 **`reason` 을 여기서 다시 짓지 않는다.** 문장은 `scheduler._ledger_gap_note`
-      가 만들고 그 값을 그대로 받는다. 두 벌이 되면 한쪽만 고치는 날 화면과 이력이
-      갈린다.
+    `reason` 을 여기서 다시 짓지 않는다. 문장은 `scheduler._ledger_gap_note` 가 만들고
+    그 값을 그대로 받는다. 두 벌이 되면 한쪽만 고치는 날 화면과 이력이 갈린다.
 
-    🟢 **`ledger_gate` 를 같이 넣는다.** 문자열을 파싱하지 않고도 *"어느 쪽이
-      막았나"* 를 꺼낼 수 있다 — 문구가 바뀌어도 이 세 칸은 안 흔들린다.
+    `ledger_gate` 를 같이 넣는다. 문자열을 파싱하지 않고도 "어느 쪽이 막았나" 를 꺼낼
+    수 있다 — 문구가 바뀌어도 이 세 칸은 흔들리지 않는다.
 
-    ★ 적재 실패는 `None` 이다 — 이력이 없어도 그날 결과는 그대로 나간다
-      (`record` 와 같은 태도).
+    적재 실패는 `None` 이다 — 이력이 없어도 그날 결과는 그대로 나간다(`record` 와 같은
+    태도).
     """
     if not history_enabled():
-        # ★ **읽지도 않는다.** 아래 중복 확인이 표를 찾아가므로, 이 줄이 없으면
-        #   이력을 안 남기는 판(pytest)에서도 SELECT 가 팀 공용 DB 로 나간다.
+        # 읽지도 않는다. 아래 중복 확인이 표를 찾아가므로, 이 줄이 없으면
+        # 이력을 안 남기는 환경(pytest)에서도 SELECT 가 팀 공용 DB 로 나간다.
         return None
     if _ledger_gap_already_recorded(request_id):
-        # ★ 같은 날을 두 번 걸어도 게이트 행은 한 벌이다.
+        # 같은 날을 두 번 걸어도 게이트 행은 한 벌이다.
         return None
     run_id = try_save_run(
-        # ★ **매입과 같은 사이클이다.** 화면이 `cycle = 'PROCUREMENT'` 축으로 그날을
-        #   훑는다 — 새 사이클을 만들면 이 행이 화면에 안 닿는다.
+        # 매입과 같은 사이클이다. 화면이 `cycle = 'PROCUREMENT'` 축으로 그날을
+        # 훑는다 — 새 사이클을 만들면 이 행이 화면에 닿지 않는다.
         cycle=_CYCLE,
         as_of=as_of,
         request_id=request_id,
@@ -501,7 +481,7 @@ def record_ledger_gap(
             "policy_version": policy_version,
         },
         response_payload={
-            # 🔴 **화면이 읽는 칸이 이것 하나다** (`_no_plan_note`).
+            # 화면이 읽는 칸이 이것 하나다(`api/purchase/presenter.py` 의 `_no_plan_note`).
             "reason": reason,
             "ledger_gate": {
                 "inbound": inbound_status,

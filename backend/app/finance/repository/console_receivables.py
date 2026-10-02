@@ -1,7 +1,4 @@
-"""운영 콘솔 매출채권 SQL — 수금 칸은 기준일 시점으로 복원한다.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_receivables.py` 에서 옮겼다(문면 그대로).
-"""
+"""운영 콘솔 매출채권 SQL — 수금 칸은 기준일 시점으로 복원한다."""
 
 from datetime import date
 from typing import Any
@@ -39,5 +36,5 @@ def select_console_receivables(conn: Any, *, sim_run_id: str, as_of: date) -> li
         """
         )
     )
-    #  ⚠️ `%s` 는 세 개다 — LATERAL 의 기준일이 WHERE 보다 **먼저** 온다.
+    # 주의: `%s` 는 세 개다 — LATERAL 의 기준일이 WHERE 보다 먼저 온다.
     return fetch_all(conn, query, [as_of, sim_run_id, as_of])

@@ -1,8 +1,5 @@
 """마스터 입력의 등급 · 파생 계산 — 행을 payload 로 바꾸고 결측 사유를 짓는다. SQL 은
   `repository/inputs.py`.
-
-★ 2026-09-30 재구성 BL-018: `master/inputs.py` 에서 옮겼다 — `injected_keys`, `stale_batch_why`,
-  `forecast_payload`, `forecast_missing`, `plain`.
 """
 
 from __future__ import annotations
@@ -16,12 +13,12 @@ from app.master.schemas.inputs import REQUEST_GRADE, SourcedInput
 
 
 def injected_keys(sources: Any) -> tuple[str, ...]:
-    """출처표에서 **주입분만** 추린다 — 화면 문구가 읽는 자리.
+    """출처표에서 주입분만 추린다 — 화면 문구가 읽는 자리.
 
-    ★ `ProcurementRunResponse` 에 칸을 새로 만들지 않는다. 같은 사실의 주인은
-      `input_sources` 하나이고, 화면은 그것을 읽어 문장으로 옮기기만 한다.
+    `ProcurementRunResponse` 에 칸을 새로 만들지 않는다. 같은 사실의 주인은
+    `input_sources` 하나이고, 화면은 그것을 읽어 문장으로 옮기기만 한다.
 
-    ★ **`mocked_inputs` 와 섞지 않는다.** 그것은 `grade == "MOCK"` 만 세고 실행을
+    `mocked_inputs` 와 섞지 않는다. 그것은 `grade == "MOCK"` 만 세고 실행을
       세우는 데 쓴다. 주입은 세울 일이 아니라 적을 일이다.
     """
     prefix = f"{REQUEST_GRADE}:"
@@ -29,54 +26,44 @@ def injected_keys(sources: Any) -> tuple[str, ...]:
 
 
 def stale_batch_why(as_of: date, batch_as_of: date) -> str:
-    """당일 배치가 아니라는 사유. **셋을 다 적는다** — 요청일 · 최신 배치일 · 지연일수.
+    """당일 배치가 아니라는 사유. 셋을 다 적는다 — 요청일 · 최신 배치일 · 지연일수.
 
-    사람이 읽고 *"언제 것을 집을 뻔했는지"* 를 알아야 한다. 지연일수가 없으면
+    사람이 읽고 "언제 것을 집을 뻔했는지" 를 알아야 한다. 지연일수가 없으면
     두 날짜를 눈으로 빼야 하고, 210일과 1일이 같은 문장으로 보인다.
 
-    ⚠️ **원인을 단정하지 않는다.** 당일 배치가 없는 이유는 공휴일일 수도, ML 이
-      안 돈 것일 수도, 적재가 늦은 것일 수도 있는데 **마스터는 그 셋을 구분할
-      수단이 없다.** 뷰에는 "배치가 있다/없다" 만 있고 "왜 없다" 가 없다.
-      사유가 원인을 단정하면 다음 사람이 엉뚱한 데를 판다 — 사실만 적는다.
+    원인을 단정하지 않는다. 당일 배치가 없는 이유는 공휴일일 수도, ML 이 안 돈 것일
+    수도, 적재가 늦은 것일 수도 있는데 마스터는 그 셋을 구분할 수단이 없다. 뷰에는
+    "배치가 있다/없다" 만 있고 "왜 없다" 가 없다. 사유가 원인을 단정하면 다음 사람이
+    엉뚱한 데를 판다 — 사실만 적는다.
     """
     delay = (as_of - batch_as_of).days
     return f"{as_of} 당일 예측 배치가 없다 (가장 최신 배치 {batch_as_of} · {delay}일 전)"
 
 
 def forecast_payload(row: dict[str, Any]) -> dict[str, Any]:
-    """뷰 행을 매입이 받는 형태로. **키를 고르기만 하고 값은 손대지 않는다.**
+    """뷰 행을 매입이 받는 형태로. 키를 고르기만 하고 값은 손대지 않는다.
 
-    🔴 **`use_recommended` 를 더했다** (2026-09-03 · 매입 `#192`).
-
-      ML 이 신뢰도 플래그 셋을 붙여 보내는데 매입이 하나도 안 읽고 있었다.
-      매입은 *"payload 에 칸이 없어서 못 읽는다"* 로 진단했는데 **절반만 맞았다.**
+    ML 신뢰도 플래그 셋이 모두 간다 (매입 `#192`).
 
       ```text
-      is_filled · is_gated   행별   뷰가 daily[] 안에 넣어 이미 간다
-      use_recommended        조합별  여기서 버리고 있었다
+      is_filled · is_gated   행별   뷰가 daily[] 안에 넣어 간다
+      use_recommended        조합별  여기서 칸으로 싣는다
       ```
 
-    ★ **`daily` 안의 둘은 손대지 않는다.** 뷰가 `jsonb_build_object` 로 넣은
-      그대로 나른다 — 마스터가 풀어 다시 조립하면 ML 이 준 모양이 바뀐다.
+    `daily` 안의 둘은 손대지 않는다. 뷰가 `jsonb_build_object` 로 넣은 그대로 나른다 —
+    마스터가 풀어 다시 조립하면 ML 이 준 모양이 바뀐다.
 
-    🔴 **`as_of` · `target_kind` 를 더했다** (2026-09-11 · 걷기 실측).
+    `as_of` · `target_kind` 는 ML 계약(`app/contracts/forecast.py Forecast`)이 필수로 두는
+    칸이다. 판매는 그 모델을 그대로 쓰므로 빠지면 봉투가 통째로 거부된다 (걷기 실측
+    2026-09-11: 206일에서 537건).
 
-      ML 계약(`app/contracts/forecast.py Forecast`)이 **필수**로 두는 칸인데 여기서 버리고
-      있었다. 매입은 안 읽어서 안 아팠고, 판매는 그 모델을 그대로 쓰므로 봉투가
-      통째로 거부됐다 — **206일에서 537건.** `use_recommended` 때와 같은 모양이다.
-
-    ⚠️ 아직 안 나르는 것이 셋 있다 — `has_filled_rows` · `filled_count` ·
-      `quality_note`. 앞 둘은 `daily` 에서 셀 수 있는 파생이고, `quality_note` 는
-      사람이 읽는 문장이라 `SourcedInput.note` 로 이미 화면에 간다.
-      **읽겠다는 파트가 생기면 그때 더한다.**
+    나르지 않는 것이 셋 있다 — `has_filled_rows` · `filled_count` · `quality_note`. 앞 둘은
+    `daily` 에서 셀 수 있는 파생이고, `quality_note` 는 사람이 읽는 문장이라
+    `SourcedInput.note` 로 이미 화면에 간다. 읽겠다는 파트가 생기면 그때 더한다.
     """
     return {
-        # 🔴 **`as_of` 와 `target_kind` 는 ML 계약의 필수 칸이다** (2026-09-11).
-        #    뷰가 주는데 여기서 버리고 있었다 — `use_recommended` 때와 같은 모양이다.
-        #
-        #    ★★ 매입은 이 둘을 안 읽어서 안 아팠고, 판매는 ML 모델(`app.contracts
-        #      .forecast.Forecast`)을 그대로 쓰므로 **없으면 봉투가 통째로 거부된다.**
-        #      걷기 206일에서 판매 537건이 이 자리에서 죽었다.
+        # `as_of` 와 `target_kind` 는 ML 계약의 필수 칸이다. 판매는 ML 모델
+        # (`app.contracts.forecast.Forecast`)을 그대로 쓰므로 없으면 봉투가 통째로 거부된다.
         "as_of": row["as_of"],
         "target_kind": row["target_kind"],
         "generated_at": row["generated_at"],
@@ -91,14 +78,14 @@ def forecast_payload(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def forecast_missing(why: str) -> SourcedInput:
-    """🔴 **못 읽으면 비운다. mock 으로 메우지 않는다** (2026-09-03).
+    """못 읽으면 비운다. mock 으로 메우지 않는다.
 
-    전에는 여기서 `app.purchase_agent.mocks` 를 집어 왔다. 그러면 ML DB 장애가
-    **정상 실행처럼** 보인다 — 매입이 안을 만들고 세 부서가 판정하고 `E1_APPROVED`
-    까지 간다. 사람이 `input_sources` 를 읽지 않으면 아무도 모른다.
+    mock(`app.purchase_agent.mocks`)으로 메우면 ML DB 장애가 정상 실행처럼 보인다 —
+    매입이 안을 만들고 세 부서가 판정하고 `E1_APPROVED` 까지 간다. 사람이
+    `input_sources` 를 읽지 않으면 아무도 모른다.
 
-    ★ 비우면 매입이 `missing_data: ["forecast"]` 로 `RUNTIME_NOT_READY` 를 낸다.
-      **없는 것과 못 만든 것을 가르는 것**이 이 프로젝트의 §1.2-10 이다.
+    비우면 매입이 `missing_data: ["forecast"]` 로 `RUNTIME_NOT_READY` 를 낸다. 없는 것과
+    못 만든 것을 가르는 것이 이 프로젝트의 §1.2-10 이다.
     """
     return SourcedInput(key="forecast", payload=None, grade="MISSING", source="-", note=why)
 
@@ -107,7 +94,7 @@ def forecast_missing(why: str) -> SourcedInput:
 
 
 def plain(value: Any) -> Any:
-    """`Decimal` 을 파이썬 수로. **정수는 정수로 남긴다.**
+    """`Decimal` 을 파이썬 수로. 정수는 정수로 남긴다.
 
     매입 계약이 `qty_kg` 를 정수로 받는 자리가 있어, 무조건 `float` 로 바꾸면
     소수/정수 불일치가 거기서 터진다.
@@ -152,7 +139,7 @@ def orders_from_demand(
     demand: Mapping[str, Any],
     cycle_row: Mapping[str, Any] | None,
 ) -> SourcedInput:
-    """파트너 일수요 × 기간. **주문 주기 간격으로 쪼갠다.**
+    """파트너 일수요 × 기간. 주문 주기 간격으로 쪼갠다.
 
     ⑤ 노드가 `due_date` 별 분포로 등급-신선도를 맞추므로 총량 한 덩어리로 주면
     "전량을 첫날 납품" 으로 읽힌다. 주기(`order_cycle_days`)를 그대로 쓴다.

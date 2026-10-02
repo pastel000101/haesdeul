@@ -1,19 +1,17 @@
-"""판매 재무 검증의 **Finance 내부 전용** 도메인 모델.
+"""판매 재무 검증의 Finance 내부 전용 도메인 모델.
 
 이 파일이 소유하는 것
     판매 원가 기준 구성요소 · 원가 산출방식 어휘 · 내부 계산 입력/결과 모양
 
-여기 **없는 것**
+여기 없는 것
     계산 · 판정 · 외부 계약
-    → `tools` · `rules` · `schemas` 소유다.
+    → `domain/tools.py` · `domain/rules.py` · `schemas/agent.py` 소유다.
 
-★ `schemas.py` 와 갈라놓은 이유는 **읽는 사람이 다르기 때문이다.** `schemas.py` 는
-  프론트 · Master · Critic 이 읽는 요청/회신 계약이고, 거기 놓인 모양은 그것만으로
-  외부 정본처럼 굳는다. 이 파일의 모양은 Finance 안에서만 산다 — Router 응답에도,
-  Master AgentRequest/AgentReply 에도 실리지 않는다. 밖으로 낼 것이 생기면 그때
-  `schemas.py` 에 외부 계약을 따로 세운다.
-
-★ 2026-09-29 재구성 BL-014: `finance/sales_validation.py` 에서 자리만 옮겼다(내용 그대로).
+`schemas/agent.py` 와 갈라놓은 이유는 읽는 사람이 다르기 때문이다. `schemas/agent.py` 는
+프론트 · Master · Critic 이 읽는 요청/회신 계약이고, 거기 놓인 모양은 그것만으로 외부 정본처럼
+굳는다. 이 파일의 모양은 Finance 안에서만 산다 — Router 응답에도, Master
+AgentRequest/AgentReply 에도 실리지 않는다. 밖으로 낼 것이 생기면 그때 `schemas/agent.py` 에
+외부 계약을 따로 세운다.
 """
 
 from __future__ import annotations
@@ -35,8 +33,8 @@ from app.finance.schemas.agent import (
 # ---------------------------------------------------------------------------
 # 판매 재무 판정 규칙의 결과 모양 — 판정은 `domain/rules.py` 가 한다
 #
-# ★ 2026-09-29 재구성 BL-014: `domain/rules.py` 에서 옮겼다(글자 그대로). 아래 결과 모델
-#   (`rule_results`)이 이 모양을 담으므로 모델 계층에 둔다 — schemas 가 domain 을 들이지 않는다.
+# 아래 결과 모델(`rule_results`)이 이 모양을 담으므로 모델 계층에 둔다 — schemas 가 domain 을
+# 들이지 않는다.
 # ---------------------------------------------------------------------------
 
 SalesRuleId = Literal[
@@ -52,7 +50,7 @@ SalesRuleId = Literal[
 class SalesRuleResult(TypedDict):
     """규칙 1건의 결정론적 결과.
 
-    `verdict is None` 은 **판정할 수 없었다**는 뜻이고, 왜인지는 `runtime_status`
+    `verdict is None` 은 판정할 수 없었다는 뜻이고, 왜인지는 `runtime_status`
     가 가른다.
 
         RUNTIME_NOT_READY     Finance 가 가진 정책/데이터가 없다 (Finance 쪽 사정)
@@ -75,7 +73,7 @@ class SalesAggregateResult(TypedDict):
 
 
 # ---------------------------------------------------------------------------
-# 원가 산출방식 — EvidenceGrade 와 **다른 축이다**
+# 원가 산출방식 — EvidenceGrade 와 다른 축이다
 #
 # EvidenceGrade(OFFICIAL·VENDOR·SIM_FIXED·ASSUMED·INVALID_FOR_HARD) 는 "그 숫자를
 # 얼마나 믿을 수 있는 출처에서 얻었나"이고, 아래 어휘는 "그 원가를 어떤 방식으로
@@ -86,9 +84,9 @@ class SalesAggregateResult(TypedDict):
 # 은 모순이 아니라 가장 흔한 조합이다. 둘을 한 필드로 합치면 "실제원가인데 근거가
 # 약함"과 "표준원가인데 근거가 공식"을 구분할 수 없게 된다.
 #
-# ★ 여기서 우선순위(ACTUAL > STANDARD > …)로 후보를 **고르지 않는다.** 어느 원가가
-#   정본인지 정하는 계약이 아직 도메인 간에 없다. 이 어휘는 들어온 값이 무엇인지
-#   기록만 하고, 선택은 권위 있는 입력을 만드는 바깥이 한다.
+# 여기서 우선순위(ACTUAL > STANDARD > …)로 후보를 고르지 않는다. 어느 원가가 정본인지
+# 정하는 계약이 아직 도메인 간에 없다. 이 어휘는 들어온 값이 무엇인지 기록만 하고, 선택은
+# 권위 있는 입력을 만드는 바깥이 한다.
 # ---------------------------------------------------------------------------
 
 #: 원가를 어떤 방식으로 산출했는지. UNKNOWN 은 "0원"이 아니라 "모른다"이다.
@@ -99,7 +97,7 @@ class InventoryCostBasis(BaseModel):
     """이미 권위 있는 것으로 선택되어 Finance 에 들어온 재고원가.
 
     Finance 가 후보를 고르지 않는다 — 어느 재고/매입 원가가 정본인지는 아직
-    도메인 간 계약이 없다. 이 모델은 **선택이 끝난 값**만 받는다.
+    도메인 간 계약이 없다. 이 모델은 선택이 끝난 값만 받는다.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -113,21 +111,20 @@ class InventoryCostBasis(BaseModel):
     cost_method: SalesCostMethod
     #: 이 금액이 이미 품고 있는 원가 구성요소 이름. 직접비 중복 계상 차단에 쓴다.
     included_components: tuple[str, ...] = ()
-    #: 🔴 **하위 호환용 단일 ref 다. 전체 계보가 아니다.**
+    #: 하위 호환용 단일 ref 다. 전체 계보가 아니다.
     #:
-    #:   금액이 여러 Lot 에서 배부돼 왔으면 이 칸은 그중 **첫 Lot 하나**만 가리킨다.
-    #:   이것을 provenance 로 읽으면 나머지 Lot 이 조용히 사라진다 — 나중에 *"이
-    #:   원가가 어느 재고에서 왔나"* 를 물었을 때 답이 틀린다.
+    #: 금액이 여러 Lot 에서 배부돼 왔으면 이 칸은 그중 첫 Lot 하나만 가리킨다. 이것을
+    #: provenance 로 읽으면 나머지 Lot 이 조용히 사라진다 — 나중에 "이 원가가 어느 재고에서
+    #: 왔나" 를 물었을 때 답이 틀린다.
     source_ref: str = Field(min_length=1)
-    #: ★ **배부 근거의 정본.** Logistics 가 배부에 쓴 모든 Lot 을 **받은 순서대로**
-    #:   담는다. 현재 allocation contract 는 FEFO 이며 **Finance 는 이 순서를
-    #:   바꾸지 않는다.**
+    #: 배부 근거의 정본. Logistics 가 배부에 쓴 모든 Lot 을 받은 순서대로 담는다. 현재
+    #: allocation contract 는 FEFO 이며 Finance 는 이 순서를 바꾸지 않는다.
     #:
-    #: ⚠️ **«출고된 Lot» 이 아니다.** Logistics 가 이 값을 내는 자리(PRE_SALES)는
-    #:    그 판매의 예약·할당이 서기 **전**이라, 담긴 것은 *"지금 출고한다면 FEFO 가
-    #:    집을 Lot"* 이다. 실제 출고 Lot 은 승인 뒤 `inventory_allocations` 가 말한다.
+    #: 주의: «출고된 Lot» 이 아니다. Logistics 가 이 값을 내는 자리(PRE_SALES)는 그 판매의
+    #: 예약·할당이 서기 전이라, 담긴 것은 "지금 출고한다면 FEFO 가 집을 Lot" 이다. 실제 출고
+    #: Lot 은 승인 뒤 `inventory_allocations` 가 말한다.
     #:
-    #: ★ 안 주면 `source_ref` 하나로 채운다 — 예전 단일 Lot 입력이 그대로 돈다.
+    #: 안 주면 `source_ref` 하나로 채운다 — 단일 Lot 입력도 그대로 돈다.
     source_refs: tuple[str, ...] = ()
     evidence_grade: EvidenceGrade
 
@@ -138,10 +135,10 @@ class InventoryCostBasis(BaseModel):
 
     @model_validator(mode="after")
     def carry_the_single_ref_into_the_lineage(self) -> InventoryCostBasis:
-        """계보를 안 주면 단일 ref 가 곧 계보다. **비워 두지 않는다.**
+        """계보를 안 주면 단일 ref 가 곧 계보다. 비워 두지 않는다.
 
-        ★ 빈 `source_refs` 를 그대로 두면 읽는 쪽이 *"계보가 없다"* 와 *"Lot 이
-          하나다"* 를 구분하지 못하고, 그때 `source_ref` 로 되돌아가는 코드가 생긴다.
+        빈 `source_refs` 를 그대로 두면 읽는 쪽이 "계보가 없다" 와 "Lot 이 하나다" 를
+        구분하지 못하고, 그때 `source_ref` 로 되돌아가는 코드가 생긴다.
         """
         if not self.source_refs:
             object.__setattr__(self, "source_refs", (self.source_ref,))
@@ -245,7 +242,7 @@ class SalesScenarioCashflow(BaseModel):
     proposed_collection_ref_id: str = Field(min_length=1)
     #: 회수일이 현재 Finance projection horizon 안인가. 밖이면 SCENARIO 는 BASE 와 같다.
     collection_within_horizon: bool
-    #: SCENARIO 최저 현금이 **제안 유입 덕분에** 올라갔는가.
+    #: SCENARIO 최저 현금이 제안 유입 덕분에 올라갔는가.
     #: 정의: scenario_projected_cash_min > base_projected_cash_min.
     #: True 면 그 현금 여력은 아직 확정되지 않은 돈에 기대고 있다는 뜻이다.
     depends_on_projected_inflow: bool
@@ -254,12 +251,12 @@ class SalesScenarioCashflow(BaseModel):
 # ---------------------------------------------------------------------------
 # Sales Core Phase 5 — 매출채권 사실
 #
-# ★ `receivables` 원장은 실재하고 Finance 가 이미 읽는다. 반면 **여신한도는 저장소
-#   어디에도 없다** — `partners` 에도, `agent_policy_config` 에도, 어떤 테이블에도
-#   credit_limit 컬럼이 없다. 그래서 채권 사실은 계산하되 여신 판정은 닫는다.
+# `receivables` 원장은 실재하고 Finance 가 읽는다. 여신한도는 `partners` 나 정책이 아니라
+# `partner_credit_limits` 에 따로 있고(`readmodel/partner_credit.py`), 그날 유효한 한도가
+# 없으면 채권 사실은 계산하되 여신 판정은 닫는다.
 #
-# ★ 빈 목록은 "채권이 없다"는 **사실**이고 "자료를 못 받았다"가 아니다. 둘을 섞지
-#   않으려고 목록을 항상 명시적으로 받는다.
+# 빈 목록은 "채권이 없다"는 사실이고 "자료를 못 받았다"가 아니다. 둘을 섞지 않으려고 목록을
+# 항상 명시적으로 받는다.
 # ---------------------------------------------------------------------------
 
 #: 미회수로 남아 있는 채권 상태. COLLECTED·WRITEOFF 는 잔액에 넣지 않는다.
@@ -284,7 +281,7 @@ class PartnerReceivable(BaseModel):
 
 
 class OpenReceivableDue(BaseModel):
-    """미회수 채권 1건의 **계약상 결제 예정일과 남은 금액.** 수금 예정이지 수금이 아니다."""
+    """미회수 채권 1건의 계약상 결제 예정일과 남은 금액. 수금 예정이지 수금이 아니다."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -293,7 +290,7 @@ class OpenReceivableDue(BaseModel):
 
 
 class PartnerReceivableFacts(BaseModel):
-    """거래처 채권 집계 — **사실만이다.** 위험도 점수도, 판정도 들어있지 않다."""
+    """거래처 채권 집계 — 사실만이다. 위험도 점수도, 판정도 들어있지 않다."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -306,11 +303,11 @@ class PartnerReceivableFacts(BaseModel):
     source_refs: tuple[str, ...] = ()
     #: 미회수 채권의 결제 예정 일정. 결제 예정일 순이다.
     #:
-    #: ★ **여신이 언제 풀릴지를 말하려면 금액 합계만으로는 모자란다.** 같은 800만원도
-    #:   내일 받을 돈인지 한 달 뒤 받을 돈인지에 따라 다음 판매가 달라진다.
+    #: 여신이 언제 풀릴지를 말하려면 금액 합계만으로는 모자란다. 같은 800만원도 내일 받을
+    #: 돈인지 한 달 뒤 받을 돈인지에 따라 다음 판매가 달라진다.
     #:
-    #: 🔴 **예정이지 사실이 아니다.** 여기서 채권을 줄이거나 현금을 늘리지 않는다 —
-    #:    실제 감소는 수금 사건으로만 일어난다.
+    #: 예정이지 사실이 아니다. 여기서 채권을 줄이거나 현금을 늘리지 않는다 — 실제 감소는 수금
+    #: 사건으로만 일어난다.
     open_receivable_schedule: tuple[OpenReceivableDue, ...] = ()
 
 
@@ -334,11 +331,10 @@ class ReceivableCreateInput(BaseModel):
 # ---------------------------------------------------------------------------
 # Sales Core Phase 6 — Finance 내부 판매 검증 입력/결과
 #
-# ★ Sales 의 Pydantic API 모델을 Finance 정본으로 쓰지 않는다. 편해 보이지만 그
-#   순간 Sales 의 화면 계약이 Finance 판정의 계약이 된다 — 저쪽이 필드 하나를
-#   바꾸면 이쪽 판정이 조용히 바뀐다. Finance 는 **자기가 쓰는 사실만** 자기 모양
-#   으로 갖는다. Master 가 Sales 회신 payload 를 통째로 넘겨도 여기서 필요한
-#   부분집합만 엄격히 검증한다.
+# Sales 의 Pydantic API 모델을 Finance 정본으로 쓰지 않는다. 편해 보이지만 그 순간 Sales 의
+# 화면 계약이 Finance 판정의 계약이 된다 — 저쪽이 필드 하나를 바꾸면 이쪽 판정이 조용히
+# 바뀐다. Finance 는 자기가 쓰는 사실만 자기 모양으로 갖는다. Master 가 Sales 회신 payload 를
+# 통째로 넘겨도 여기서 필요한 부분집합만 엄격히 검증한다.
 # ---------------------------------------------------------------------------
 
 #: 결제 방식. INSTALLMENT 는 권위 있는 분할결제 정책이 없어 판정되지 않는다.
@@ -348,19 +344,18 @@ SalesPaymentTermsType = Literal["SINGLE", "INSTALLMENT"]
 class SalesSupply(BaseModel):
     """공급 확정/조건부 구분.
 
-    ★ 조건부 물량을 확정 재고인 것처럼 원가에 넣지 않으려고 나눠 받는다.
-      확정 재고원가는 확정 물량에 대한 사실이지 제안 전체에 대한 사실이 아니다.
+    조건부 물량을 확정 재고인 것처럼 원가에 넣지 않으려고 나눠 받는다. 확정 재고원가는 확정
+    물량에 대한 사실이지 제안 전체에 대한 사실이 아니다.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     confirmed_quantity_kg: Decimal = Field(ge=0)
-    #: 조건부로 **확보 가능하다고 확인된** 양.
+    #: 조건부로 확보 가능하다고 확인된 양.
     #:
-    #: 🔴 `None` 은 0 이 아니다. 0 은 "조건부 물량이 없다"는 사실이고, `None` 은
-    #:   "조건부로 얼마를 확보할 수 있는지 아직 모른다"는 뜻이다. 둘을 같게 두면
-    #:   *모르는 상태*가 *확정 물량뿐인 상태*로 읽혀서, 확정 재고원가가 제안 전체를
-    #:   덮는 것을 막는 방어가 조용히 풀린다.
+    #: `None` 은 0 이 아니다. 0 은 "조건부 물량이 없다"는 사실이고, `None` 은 "조건부로 얼마를
+    #: 확보할 수 있는지 아직 모른다"는 뜻이다. 둘을 같게 두면 모르는 상태가 확정 물량뿐인
+    #: 상태로 읽혀서, 확정 재고원가가 제안 전체를 덮는 것을 막는 방어가 조용히 풀린다.
     conditional_quantity_kg: Decimal | None = Field(default=None, ge=0)
     dependency_ref: str | None = None
 
@@ -420,11 +415,11 @@ class SalesFinancialSummary(BaseModel):
     credit_limit_krw: Decimal | None = None
     available_credit_krw: Decimal | None = None
     required_collection_before_sale_krw: Decimal | None = None
-    #: 현재 미수금 ÷ 여신한도. **표시용 사실이다 — 판정에 쓰지 않는다.**
+    #: 현재 미수금 ÷ 여신한도. 표시용 사실이다 — 판정에 쓰지 않는다.
     #: 한도가 없거나 0원이면 나눌 수 없으므로 `None` 이다 (0 이 아니다).
     credit_utilization_rate: Decimal | None = None
     #: 판매 전 회수가 필요할 때, 계약상 결제 예정일 기준으로 그 금액이 모일 것으로 보이는
-    #: 가장 이른 날. **입금 보장일이 아니다.** 회수가 필요 없거나(0원) 예정 채권으로
+    #: 가장 이른 날. 입금 보장일이 아니다. 회수가 필요 없거나(0원) 예정 채권으로
     #: 채울 수 없으면 `None` 이다 — 두 경우는 `required_collection_before_sale_krw` 로 가른다.
     expected_credit_recovery_date: date | None = None
     overdue_ar_krw: Decimal | None = None
@@ -437,7 +432,7 @@ class SalesFinancialSummary(BaseModel):
 class SalesValidationResult(BaseModel):
     """Finance 내부 판매 검증 결과 — Master AgentReply 가 아니다.
 
-    Refeed 를 견디도록 **자기 완결적**으로 만든다. 판정을 만든 근거(개별 규칙 ·
+    Refeed 를 견디도록 자기 완결적으로 만든다. 판정을 만든 근거(개별 규칙 ·
     reason code · 없는 데이터/정책 · Evidence 계보)를 임시 상태에 숨기지 않는다.
     """
 

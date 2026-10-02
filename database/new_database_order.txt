@@ -1,13 +1,12 @@
 # 새 DB(빈 PostgreSQL)를 세우는 적용 순서 — `backend/scripts/apply_sql.py --new-database` 가
 # 이 목록 순서대로만 적용한다. 한 줄에 파일 하나(저장소 루트 기준), `#` 줄과 빈 줄은 건너뛴다.
 #
-# ★ 순서는 파일 이름 정렬이 아니라 이 목록이다. FK · 뷰 · 함수가 가리키는 객체를 만드는 파일이
-#   먼저 온다(2026-09-30 BL-021 · 임시 PostgreSQL 17 빈 DB 에서 확인). 스키마 파일을 더하면
-#   여기에도 넣는다 — `tests/scripts/test_new_database_order.py` 가 빠진 파일과 순서를 잰다.
-# ★ schema/ 파일만 담는다. 각 파일이 새 DB 의 최종 정의다 — 2026-09-30 BL-021 보완으로 전에 목록
-#   끝에서 따로 돌던 migrations/ 8개의 효과를 해당 schema 파일에 담고 목록에서 뺐다. migrations/ 는
-#   이미 쓰는 DB 를 갱신할 때 한 파일씩 쓴다(`database/README.md` §2).
-# 🔴 seed/ 는 넣지 않는다 — 데이터는 사용자가 확인하고 직접 넣는다(`database/seed/README.md`).
+# 순서는 파일 이름 정렬이 아니라 이 목록이다. FK · 뷰 · 함수가 가리키는 객체를 만드는 파일이
+#   먼저 온다(빈 PostgreSQL 17 DB 에서 확인). 스키마 파일을 더하면 여기에도 넣는다 —
+#   `backend/tests/scripts/test_new_database_order.py` 가 빠진 파일과 순서를 잰다.
+# schema/ 파일만 담는다. 각 파일이 새 DB 의 최종 정의다. migrations/ 는 목록에 없고, 이미 쓰는
+#   DB 를 갱신할 때 한 파일씩 쓴다(`database/README.md` §2).
+# seed/ 는 넣지 않는다 — 데이터는 사용자가 확인하고 직접 넣는다(`database/seed/README.md`).
 
 # ── 스키마 (객체마다 파일 하나) ──
 database/schema/common/haetdeul_schema.sql

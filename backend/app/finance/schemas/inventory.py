@@ -1,7 +1,7 @@
 """재고 원장 재생 결과 — 재무가 보는 재고 수량 · 가치.
 
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다. 재생 계산은 `domain/inventory.py`, SQL 은
-  `repository/inventory.py`, 부르는 쪽 연결로 읽고 계산하는 순서는 `service/inventory.py`.
+재생 계산은 `domain/inventory.py`, SQL 은 `repository/inventory.py`, 부르는 쪽 연결로 읽고
+계산하는 순서는 `service/inventory.py`.
 """
 
 from dataclasses import dataclass

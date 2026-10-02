@@ -3,18 +3,18 @@
 -- ══════════════════════════════════════════════════════════════════════════
 -- 왜 이 두 날인가
 --
---   마스터가 관통 날짜를 옮겼다 (2026-09-04 회신 §1.2).
+--   관통 날짜는 마스터가 정한다 (2026-09-04 회신 §1.2).
 --
 --   ```text
 --   as_of        요일  ML배치  경락가   fixture
 --   2025-12-31   Wed   있음    있음     있음
 --   2026-01-01   Thu   없음    없음     있음     ← 신정. 실행일이 아니다
 --   2026-01-02   Fri   있음    있음     있음
---   2026-01-05   Mon   있음    있음     🔴 없음
---   2026-01-06   Tue   있음    있음     🔴 없음
+--   2026-01-05   Mon   있음    있음     없음
+--   2026-01-06   Tue   있음    있음     없음
 --   ```
 --
---   `#256` 이 `target_state_date` 를 **달력 다음 날**로 정해서, 관통을 증명하려면
+--   `#256` 이 `target_state_date` 를 달력 다음 날로 정해서, 관통을 증명하려면
 --   달력으로 붙어 있는 실행일 쌍이 필요하다.
 --
 --   ```text
@@ -22,9 +22,9 @@
 --   Day2       → 01-06 을 읽는다                    같은 행
 --   ```
 --
---   ⚠️ `12-31 → 01-02` 로는 안 된다. 01-01 이 신정이라 승인이 `01-01` 행에 쓰이고
---      Day2 는 `01-02` 행을 읽는다 - **다른 행**이다. 그 구간은 `open_day` 가
---      맡는다 (마스터 회신 §1.4). `01-02` 행은 그 증명의 도착점이라 **안 지운다.**
+--   주의: `12-31 → 01-02` 로는 안 된다. 01-01 이 신정이라 승인이 `01-01` 행에 쓰이고
+--      Day2 는 `01-02` 행을 읽는다 - 다른 행이다. 그 구간은 `open_day` 가
+--      맡는다 (마스터 회신 §1.4). `01-02` 행은 그 증명의 도착점이라 안 지운다.
 --
 -- 무엇을 물려받고 무엇을 새로 두나 (마스터 회신 §2)
 --
@@ -34,46 +34,44 @@
 --   새로 둔다       as_of · fixture_id · source_ref · in_transit
 --   ```
 --
--- 🔴 **두 행의 `in_transit` 이 다르다** (마스터 통보 2026-09-04 §2)
+-- 두 행의 `in_transit` 이 다르다 (마스터 통보 2026-09-04 §2)
 --
 --   ```text
 --   01-05   CONFIRMED_ZERO   Day1 이 읽을 T0. 확인했고 입고 예정이 없다
 --   01-06   UNRESOLVED       전이가 UPDATE 할 그릇. 아직 아무도 확인하지 않았다
 --   ```
 --
---   `CONFIRMED_ZERO` 는 *"없다"* 가 아니라 *"확인했고 없다"* 다. `01-06` 을 그렇게
---   심으면 **전이가 실패해도 물류가 초록으로 답한다** - 재무는 행 자체가 없어
---   시끄러운데(INSERT) 물류만 조용해진다(씨앗 + UPDATE). Day2 가 *"입고 예정 없음"*
+--   `CONFIRMED_ZERO` 는 "없다" 가 아니라 "확인했고 없다" 다. `01-06` 을 그렇게
+--   심으면 전이가 실패해도 물류가 초록으로 답한다 - 재무는 행 자체가 없어
+--   시끄러운데(INSERT) 물류만 조용해진다(씨앗 + UPDATE). Day2 가 "입고 예정 없음"
 --   을 사실로 받아 판단을 계속한다.
 --
---   ★ **판정 근거는 이제 status 하나다** (W3-3/4 · 2026-09-09). 종전에는 이 행에
---      `in_transit_json = NULL` 도 함께 심어야 했다 - `LogisticsRuntimeFixture` 가
---      `UNRESOLVED` 에 `[]` 를 붙이면 거부했고, 규칙이 보는 것도 `in_transit is None`
---      쪽이었다. 지금은 Reader 가 `status == UNRESOLVED` 를 보고 목록을 `None` 으로
---      세우므로(`repository._schedule_source` · `inbound_stock._fixture_row`),
---      status 만 심으면 같은 결과가 선다. 두 JSON 칸은 DROP 대상이다
---      (`database/logistics_drop_inbound_json.sql`).
+--   판정 근거는 status 하나다 (W3-3/4). Reader 가 `status == UNRESOLVED` 를 보고 목록을
+--      `None` 으로 세우므로(`app/logistics/domain/snapshot.py` 의 `schedule_source`),
+--      status 만 심으면 된다. 입고 JSON 두 칸은 표에 없다
+--      (`database/schema/logistics/logistics_runtime_fixture.sql` · 기존 DB 는
+--      `database/migrations/logistics/logistics_drop_inbound_json.sql`).
 --
---   ★ 전이가 성공하면 `persist_inventory` 가 두 칸을 함께 덮어써 짝이 맞는다.
+--   전이가 성공하면 `persist_inventory` 가 입고 status 두 칸을 함께 덮어써 짝이 맞는다.
 --
---   ★ `sim_run_id` 를 문자열로 적지 않는다. 마스터가 그 값을 주지 않기로 했고
+--   `sim_run_id` 를 문자열로 적지 않는다. 마스터가 그 값을 주지 않기로 했고
 --     (회신 §3), 물류는 직전 사이클 행에서 물려받아 안다. 손으로 적으면 실행이
 --     여럿이 되는 날 이 파일만 옛 값을 들고 남는다.
 --
---   ★ `zone_capacity_status` 도 적지 않고 물려받는다. 창고 구조는 그 사이에
---     바뀌지 않았고, 여기서 `CONFIRMED` 로 적으면 **없던 확정이 생긴다.**
+--   `zone_capacity_status` 도 적지 않고 물려받는다. 창고 구조는 그 사이에
+--     바뀌지 않았고, 여기서 `CONFIRMED` 로 적으면 없던 확정이 생긴다.
 --
 -- 선행: `2025-12-31` fixture 행. 이 파일은 그 행에서 `sim_run_id` 와 설정값을
 --       물려받으므로 없으면 위 검사가 막는다.
 --
---       🔴 **그 행을 만드는 SQL 이 이 저장소에 아직 없다** (2026-09-04 실측).
+--       주의: 그 행을 만드는 SQL 은 이 저장소에 없다.
 --          `12-31` · `01-01` 두 행은 어느 씨앗 파일에도 없고 실 DB 에만 있다.
 --          그래서 빈 DB 에서는 이 파일만으로 관통 상태를 세울 수 없다.
---          `01-01` 은 note 가 시연 전용이라 적힌 행이라, 두 행을 씨앗으로 옮길지는
+--          `01-01` 은 note 가 시연 전용이라 적힌 행이라, 두 행을 씨앗으로 둘지는
 --          물류가 따로 판단한다 - 여기서 정하지 않는다.
 --
 -- 멱등: `fixture_id` 로 막는다. 두 번 돌려도 같다.
---       ⚠️ `DO NOTHING` 이라 **이미 있는 행의 값은 고치지 않는다.** 실 DB 행이
+--       `DO NOTHING` 이라 이미 있는 행의 값은 고치지 않는다. 실 DB 행이
 --          이 파일과 어긋나면 그 어긋남은 따로 다뤄야 한다.
 -- ══════════════════════════════════════════════════════════════════════════
 
@@ -118,7 +116,7 @@ SELECT
     'LOG-RUNTIME-' || base.sim_run_id || '-' || to_char(target.as_of, 'YYYYMMDD'),
     base.sim_run_id,
     target.as_of,
-    -- 🔴 두 행이 다르다 - 위 머리말 참조. 승인의 `persist_inventory` 가 채우기
+    -- 두 행이 다르다 - 위 머리말 참조. 승인의 `persist_inventory` 가 채우기
     --    전까지, 01-05 는 확인된 0 이고 01-06 은 아직 확인한 적이 없다.
     target.in_transit_status,
     base.confirmed_inbound_status,
@@ -144,7 +142,7 @@ CROSS JOIN (
         ),
         (
             DATE '2026-01-06',
-            -- 🔴 전이가 UPDATE 할 그릇. 아직 아무도 확인하지 않았다.
+            -- 전이가 UPDATE 할 그릇. 아직 아무도 확인하지 않았다.
             'UNRESOLVED',
             'MASTER-DECISION-20260904:THROUGHPUT-D2',
             '관통 Day2. 01-05 승인의 target_state_date 가 이 날이다. in_transit 은 '
@@ -176,7 +174,7 @@ COMMIT;
 --   as_of=2026-01-05  PRE_PURCHASE → READY
 --   as_of=2026-01-06  PRE_PURCHASE → RUNTIME_NOT_READY
 --                     missing_data 에 logistics_rule/IN_TRANSIT_SCHEDULE_UNRESOLVED
---   ⚠️ 01-06 이 RUNTIME_NOT_READY 가 아니면 in_transit_status 가 UNRESOLVED 가 아니다.
+--   주의: 01-06 이 RUNTIME_NOT_READY 가 아니면 in_transit_status 가 UNRESOLVED 가 아니다.
 --
 --
 -- ── 되돌리기 ──────────────────────────────────────────────────────────────

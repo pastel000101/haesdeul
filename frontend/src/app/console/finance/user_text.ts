@@ -1,12 +1,12 @@
 /**
- * 기술 상태를 사용자가 읽는 말로 옮긴다. **값을 바꾸지 않는다.**
+ * 기술 상태를 사용자가 읽는 말로 옮긴다. 값을 바꾸지 않는다.
  *
- * 🔴 **여기서 판정을 고치지 않는다.** `FAIL` 을 «확인 필요» 로 부드럽게 만들면 화면이
- *    거절을 보류로 바꾼 것이 된다. 옮기는 것은 **이름뿐**이고, 원본 값은 기술 상세에
- *    그대로 남는다.
+ * 여기서 판정을 고치지 않는다. `FAIL` 을 «확인 필요» 로 부드럽게 만들면 화면이
+ * 거절을 보류로 바꾼 것이 된다. 옮기는 것은 이름뿐이고, 원본 값은 기술 상세에
+ * 그대로 남는다.
  *
- * 🔴 **모르는 값을 지어내지 않는다.** 표에 없는 상태가 오면 원본을 그대로 보여 준다 —
- *    «정상» 으로 뭉뚱그리면 새로 생긴 상태가 조용히 통과한다.
+ * 모르는 값을 지어내지 않는다. 표에 없는 상태가 오면 «판단 없음» · «상태 없음» 같은
+ * 빈칸 문구를 적는다 — «정상» 으로 뭉뚱그리면 새로 생긴 상태가 조용히 통과한다.
  */
 
 /** 실행이 돌 수 있었는가. 업무 판정이 아니다. */
@@ -23,7 +23,7 @@ const VERDICT: Record<string, string> = {
   FAIL: "진행 어려움",
 };
 
-/** 봉투의 업무 상태. `skipped` 는 통과가 아니라 **판정을 못 낸 것**이다. */
+/** 봉투의 업무 상태. `skipped` 는 통과가 아니라 판정을 못 낸 것이다. */
 const BUSINESS: Record<string, string> = {
   ok: "진행 가능",
   conditional: "확인 필요",
@@ -58,7 +58,7 @@ export function runtimeText(value: string | null | undefined): string {
 }
 
 export function verdictText(value: string | null | undefined): string {
-  //  ⚠️ `null` 은 «통과» 가 아니다. 판정을 못 낸 것이고, 그렇게 읽혀야 한다.
+  //  주의: `null` 은 «통과» 가 아니다. 판정을 못 낸 것이고, 그렇게 읽혀야 한다.
   return say(VERDICT, value, "판단 없음");
 }
 
@@ -78,9 +78,9 @@ export function runtimeTone(value: string | null | undefined): Tone {
 export const DATA_SOURCE_NOTE = "저장된 시뮬레이션 결과";
 
 /**
- * 금액을 «만원» 단위로 줄여 축과 막대에 적는다. **표에는 쓰지 않는다** — 표는 원단위다.
+ * 금액을 «만원» 단위로 줄여 축과 막대에 적는다. 표에는 쓰지 않는다 — 표는 원단위다.
  *
- * ⚠️ 반올림한 값이라 합계를 이것으로 다시 세면 안 된다. 눈금용이다.
+ * 주의: 반올림한 값이라 합계를 이것으로 다시 세면 안 된다. 눈금용이다.
  */
 export function manwon(value: number): string {
   return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만`;
@@ -102,13 +102,13 @@ export function shortDate(iso: string): string {
 /* ── 금액 · 비율 표기 ──────────────────────────────────────────────────── */
 
 /**
- * 원 단위 금액. **소수점을 화면에서 지운다.**
+ * 원 단위 금액. 소수점을 화면에서 지운다.
  *
- * 🔴 **계산을 바꾸지 않는다.** DB 는 `numeric` 이라 `41375276.163` 처럼 소수가 딸려
- *    오고, 백엔드 값도 그대로 둔다. 바꾸는 것은 **읽는 방식**뿐이다 — 원화에 0.163원은
- *    없는 단위이고, 그 자리를 사용자가 유효숫자로 읽는다.
+ * 계산을 바꾸지 않는다. DB 는 `numeric` 이라 `41375276.163` 처럼 소수가 딸려
+ * 오고, 백엔드 값도 그대로 둔다. 바꾸는 것은 읽는 방식뿐이다 — 원화에 0.163원은
+ * 없는 단위이고, 그 자리를 사용자가 유효숫자로 읽는다.
  *
- * ⚠️ **`null` 은 0 이 아니다.** 값이 없으면 «데이터 없음» 이고, 0 은 실제 0원이다.
+ * 주의: `null` 은 0 이 아니다. 값이 없으면 «데이터 없음» 이고, 0 은 실제 0원이다.
  */
 export function moneyWon(value: string | number | null | undefined): string {
   const parsed = toNumber(value);
@@ -117,12 +117,12 @@ export function moneyWon(value: string | number | null | undefined): string {
 }
 
 /**
- * **퍼센트 포인트**로 이미 계산된 값을 적는다. `35.77` → `35.8%`.
+ * 퍼센트 포인트로 이미 계산된 값을 적는다. `35.77` → `35.8%`.
  *
- * 🔴 **비율 formatter 와 다른 계약이다.** 공용 `percent()` 는 `0.3577` 같은 0~1 비율을
- *    받아 안에서 100 을 곱한다. 백엔드 `_pct()` 는 이미 곱해서 `35.77` 을 주므로,
- *    거기에 `percent()` 를 쓰면 **3577.0%** 가 된다 — 실제로 그렇게 나왔다.
- *    이름으로 계약을 가른다.
+ * 비율 formatter 와 다른 계약이다. 공용 `percent()` 는 `0.3577` 같은 0~1 비율을
+ * 받아 안에서 100 을 곱한다. 백엔드 `_pct()`(`app/sales/readmodel/dashboard.py`)는
+ * 이미 곱해서 `35.77` 을 주므로, 거기에 `percent()` 를 쓰면 3577.0% 가 된다.
+ * 이름으로 계약을 가른다.
  */
 export function percentPoint(value: string | number | null | undefined): string {
   const parsed = toNumber(value);
@@ -133,8 +133,9 @@ export function percentPoint(value: string | number | null | undefined): string 
 /* ── 저장된 코드값을 업무 말로 ──────────────────────────────────────────── */
 
 /**
- * 🔴 **모르는 값을 «정상» 으로 만들지 않는다.** 표에 없으면 원본을 그대로 보여 준다.
- *    새 상태가 생긴 날 그것이 조용히 성공으로 둔갑하면, 화면은 틀린 채로 멀쩡해 보인다.
+ * 모르는 값을 «정상» 으로 만들지 않는다. 표에 없으면 부르는 쪽이 준 빈칸 문구
+ * (`blank`, 예: «상태 없음»)를 적는다. 새 상태가 생긴 날 그것이 조용히 성공으로
+ * 둔갑하면, 화면은 틀린 채로 멀쩡해 보인다.
  */
 function label(table: Record<string, string>, value: string | null | undefined, blank: string) {
   if (value === null || value === undefined || value === "") return blank;
@@ -195,9 +196,9 @@ export const pricingContractText = (v: string | null | undefined) =>
 /**
  * 사람이 읽는 품목 이름.
  *
- * ★ **백엔드가 주는 `item_name` 이 먼저다.** 화면에 표를 두는 것은 그 값이 없을 때의
- *   마지막 수단이고, 그 표에도 없으면 **코드를 그대로** 보여 준다 — 이름을 지어내면
- *   새 품목이 남의 이름으로 팔린다.
+ * 백엔드가 주는 `item_name` 이 먼저다. 화면에 표를 두는 것은 그 값이 없을 때의
+ * 마지막 수단이고, 그 표에도 없으면 이름을 지어내지 않는다 — 이름을 지어내면
+ * 새 품목이 남의 이름으로 팔린다.
  */
 const ITEM_NAMES: Record<string, string> = {
   "ITEM-BAECHU": "배추",
@@ -217,7 +218,7 @@ export function itemText(
   if (itemName) return itemName;
   if (!itemId) return "품목 미상";
   if (ITEM_NAMES[itemId]) return ITEM_NAMES[itemId];
-  //  🔴 모르는 **내부 품목 코드**만 가린다 — `ITEM-…` 이 사용자 이름처럼 보이면 안 된다.
+  //  모르는 내부 품목 코드만 가린다 — `ITEM-…` 이 사용자 이름처럼 보이면 안 된다.
   //     판매안처럼 이미 사람이 읽는 이름(`배추`)이 오는 자리는 그대로 둔다.
   return /^ITEM-/i.test(itemId) ? "등록되지 않은 품목" : itemId;
 }
@@ -225,10 +226,10 @@ export function itemText(
 /**
  * 화면에 적을 거래처 이름.
  *
- * 🔴 **내부 시연 이름을 사용자 이름처럼 보여 주지 않는다.** 저장된 이름에 `Persona` ·
- *    `demo` 같은 꼬리표가 붙어 있으면 그 꼬리표만 떼고 남은 이름을 쓴다. 이름이 통째로
- *    내부 표기면 «이름 미등록» 으로 두되, **거래처를 뭉치지 않으려고** 코드를 짧게
- *    덧붙인다 — 전부 같은 이름이면 어느 거래처인지 구분할 수 없다.
+ * 내부 시연 이름을 사용자 이름처럼 보여 주지 않는다. 저장된 이름에 `Persona` ·
+ * `demo` 같은 꼬리표가 붙어 있으면 그 꼬리표만 떼고 남은 이름을 쓴다. 이름이 통째로
+ * 내부 표기면 «이름 미등록» 으로 두되, 거래처를 뭉치지 않으려고 코드를 짧게
+ * 덧붙인다 — 전부 같은 이름이면 어느 거래처인지 구분할 수 없다.
  */
 const INTERNAL_NAME = /\s*(persona|demo|sample|dummy|test)\b[\w-]*/gi;
 
@@ -243,10 +244,11 @@ export function partnerText(
 }
 
 /**
- * 판매 재무 판정을 가른 사유. **왜 진행 가능하고 왜 어려운지를 한 줄로 말한다.**
+ * 판매 재무 판정을 가른 사유. 왜 진행 가능하고 왜 어려운지를 한 줄로 말한다.
  *
- * 🔴 **통과 사유는 여기 없다.** 백엔드가 이미 FAIL·REVIEW_REQUIRED 규칙의 사유만
- *    골라 보내고, 표에 없는 코드가 오면 원본을 그대로 보여 준다.
+ * 통과 사유는 여기 없다. 백엔드가 이미 FAIL·REVIEW_REQUIRED 규칙의 사유만
+ * 골라 보낸다. 표에 없는 코드가 오면 코드를 적지 않고 «세부 조건을 확인해 주세요.»
+ * 로 적는다.
  */
 const SALES_REASONS: Record<string, string> = {
   SALES_MARGIN_BELOW_MINIMUM: "기여이익률이 최소선에 못 미칩니다",
@@ -284,9 +286,9 @@ export function capabilityText(code: string): string {
 /* ── 여신 · 결제 조건 문구 ──────────────────────────────────────────────── */
 
 /**
- * 0~1 비율을 퍼센트로 **적기만** 한다. 비율 자체는 백엔드가 센 값이다.
+ * 0~1 비율을 퍼센트로 적기만 한다. 비율 자체는 백엔드가 센 값이다.
  *
- * ⚠️ `percentPoint` 와 계약이 다르다 — 그쪽은 이미 100 을 곱한 값을 받는다.
+ * 주의: `percentPoint` 와 계약이 다르다 — 그쪽은 이미 100 을 곱한 값을 받는다.
  */
 export function ratioPercent(value: string | number | null | undefined): string {
   const parsed = toNumber(value);
@@ -303,7 +305,7 @@ export function longDate(iso: string | null | undefined): string {
 }
 
 /**
- * 결제 조건 한 줄. 🔴 **0일은 «당일 결제» 라는 정해진 조건이고, `null` 은 모름이다.**
+ * 결제 조건 한 줄. 0일은 «당일 결제» 라는 정해진 조건이고, `null` 은 모름이다.
  */
 export function paymentTermText(days: number | null | undefined): string {
   if (days === null || days === undefined) return "결제 조건 미정";
@@ -312,10 +314,10 @@ export function paymentTermText(days: number | null | undefined): string {
 }
 
 /**
- * 판매 전에 먼저 받아야 하는 미수금. **백엔드가 센 값을 문장으로만 옮긴다.**
+ * 판매 전에 먼저 받아야 하는 미수금. 백엔드가 센 값을 문장으로만 옮긴다.
  *
- * 🔴 **0 은 «추가 회수 필요 없음» 이고 `null` 은 «판단할 정보 없음» 이다.** 둘을 같게
- *    적으면 여신 정보가 없는 거래처가 «바로 팔 수 있다» 로 읽힌다.
+ * 0 은 «추가 회수 필요 없음» 이고 `null` 은 «판단할 정보 없음» 이다. 둘을 같게
+ * 적으면 여신 정보가 없는 거래처가 «바로 팔 수 있다» 로 읽힌다.
  */
 export function collectionNeedText(required: string | number | null | undefined): string {
   const parsed = toNumber(required);
@@ -337,11 +339,11 @@ export function creditGradeText(value: string | null | undefined): string {
 /* ── 판매 대화 문구 ─────────────────────────────────────────────────────── */
 
 /**
- * 재무 검토 상태를 **한 문장으로.** 판정 코드를 세서 고르기만 한다.
+ * 재무 검토 상태를 한 문장으로. 판정 코드를 세서 고르기만 한다.
  *
- * ★ 백엔드 `app/sales/adapter.py` 의 `review_sentence` 와 같은 규칙이다 — 대화 요약과
- *   마스터 조회 답이 다른 말을 하지 않게 한다.
- * 🔴 모르는 판정은 «검토 필요» 쪽으로 센다. 통과로 뭉치지 않는다.
+ * 백엔드 `app/sales/domain/status_facts.py` 의 `review_sentence` 와 같은 규칙이다 —
+ * 대화 요약과 마스터 조회 답이 다른 말을 하지 않게 한다.
+ * 모르는 판정은 «검토 필요» 쪽으로 센다. 통과로 뭉치지 않는다.
  */
 export function salesReviewSentence(verdicts: (string | null)[]): string {
   const passed = verdicts.filter((v) => v === "PASS").length;
@@ -362,8 +364,8 @@ export function salesReviewSentence(verdicts: (string | null)[]): string {
 }
 
 /**
- * 서버가 준 사유를 **사람이 읽을 수 있을 때만** 옮긴다.
- * 🔴 한글이 없거나 코드 모양(`SALES_…`, `FAILED`)이 섞였으면 적지 않는다 — 원문은 기록에 남는다.
+ * 서버가 준 사유를 사람이 읽을 수 있을 때만 옮긴다.
+ * 한글이 없거나 코드 모양(`SALES_…`, `FAILED`)이 섞였으면 적지 않는다 — 원문은 기록에 남는다.
  */
 export function readableReason(text: string | null | undefined): string | null {
   if (!text) return null;
@@ -376,8 +378,8 @@ export function readableReason(text: string | null | undefined): string | null {
 /**
  * 비용 생명주기 상태의 사용자 말.
  *
- * ★ «미지급» 이 아니라 «지급 예정» 이라고 부른다. 앞은 연체처럼 읽히고, 뒤는 아직
- *   날짜가 오지 않았다는 뜻이다 — 원장이 말하는 것은 뒤쪽이다.
+ * «미지급» 이 아니라 «지급 예정» 이라고 부른다. 앞은 연체처럼 읽히고, 뒤는 아직
+ * 날짜가 오지 않았다는 뜻이다 — 원장이 말하는 것은 뒤쪽이다.
  */
 const EXPENSE_STATUS: Record<string, string> = {
   ACCRUED: "지급 예정",

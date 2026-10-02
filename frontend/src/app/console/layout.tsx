@@ -3,11 +3,11 @@
 /**
  * 운영 콘솔 셸 — 사이드바 · 상단 · 아래 서랍.
  *
- * ★ **탭마다 폴더가 하나입니다.** `console/finance/page.tsx` 는 재무 파트가
- *   고칩니다. 파일이 안 겹치므로 여섯 사람이 같이 작업해도 충돌하지 않습니다.
+ * 탭마다 폴더가 하나입니다. `console/finance/page.tsx` 는 재무 파트가
+ * 고칩니다. 파일이 안 겹치므로 여섯 사람이 같이 작업해도 충돌하지 않습니다.
  *
- * ★ **이 파일은 값을 안 만듭니다.** 틀만 잡습니다. 숫자는 각 탭이 자기
- *   API 에서 받습니다.
+ * 이 파일은 값을 안 만듭니다. 틀만 잡습니다. 숫자는 각 탭이 자기
+ * API 에서 받습니다.
  */
 
 import Link from "next/link";
@@ -29,15 +29,15 @@ const TABS = [
   { href: "/console", label: "대시보드", mark: "D", group: "top" },
   { href: "/console/forecast", label: "가격 예측", mark: "ML", group: "dept" },
   { href: "/console/purchase", label: "매입", mark: "PU", group: "dept" },
-  //  ★ 「재고 · 물류」 → 「재고」 (`#812`). 옆 메뉴가 전부 두 글자(매입 · 재무 · 판매)인데
-  //    여기만 길어 줄이 튀었고, 사용자가 이 화면을 부르는 말도 「재고」다.
+  //  라벨은 「재고」다 (`#812`). 옆 메뉴가 전부 두 글자(매입 · 재무 · 판매)라 길면 줄이
+  //    튀고, 사용자가 이 화면을 부르는 말도 「재고」다.
   { href: "/console/inventory", label: "재고", mark: "LG", group: "dept" },
   { href: "/console/finance", label: "재무", mark: "FN", group: "dept" },
   { href: "/console/sales", label: "판매", mark: "SL", group: "dept" },
 ] as const;
 
 /**
- * 기준일 선택기. 기능이라 남기고, 화면에는 「기준일」 라벨만 싣는다 (2026-09-15 결정).
+ * 기준일 선택기. 기능이라 남기고, 화면에는 「기준일」 라벨만 싣는다.
  *
  * 운영에서 기준일은 스케줄러가 정한다 (`app/core/clock.py` · `#422`).
  */
@@ -55,7 +55,7 @@ function DemoAsOfPicker() {
           type="date"
           value={asOf}
           onChange={(e) => {
-            //  ★ 빈 값(달력을 지운 상태)은 무시한다. 날짜가 맞는지는 **서버가 답한다**
+            //  빈 값(달력을 지운 상태)은 무시한다. 날짜가 맞는지는 서버가 답한다
             //    — 개장일 판정 같은 규칙을 화면에 새로 만들지 않는다.
             if (e.target.value) setDemoAsOf(e.target.value);
           }}
@@ -73,9 +73,9 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
 
   // localStorage 는 React 바깥이라 구독해서 읽는다 (`session.ts` 주석 참조)
   const session = useSyncExternalStore(subscribeSession, sessionSnapshot, serverSnapshot);
-  // 🔴 **"아직 모른다" 와 "없다" 를 가른다.** 서버 렌더에는 저장소가 없어 첫
+  // 주의: "아직 모른다" 와 "없다" 를 가른다. 서버 렌더에는 저장소가 없어 첫
   //    렌더의 세션이 늘 null 이다. 그걸 "없다" 로 읽고 로그인으로 보내면
-  //    로그인한 사용자가 새로고침마다 튕긴다 (실측으로 잡았던 것).
+  //    로그인한 사용자가 새로고침마다 튕긴다.
   const hydrated = useSyncExternalStore(subscribeSession, () => true, () => false);
 
   useEffect(() => {
@@ -90,12 +90,12 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
 
   return (
     <div
-      //  ★ **`content-start` 가 있어야 좁은 화면에서 배경이 안 갈립니다** (2026-09-16).
+      //  `content-start` 가 있어야 좁은 화면에서 배경이 안 갈립니다.
       //    격자의 기본 `align-content` 는 «늘리기» 라, 화면보다 내용이 짧으면
-      //    남는 세로 공간을 **두 줄에 똑같이 나눠 줍니다.** 그런데 첫 줄에 든
+      //    남는 세로 공간을 두 줄에 똑같이 나눠 줍니다. 그런데 첫 줄에 든
       //    왼쪽 띠(`nav`)는 좁은 화면에서 높이가 `h-14` 로 못 박혀 있어 늘어난
       //    칸을 안 채웁니다 — 그 빈자리로 바탕색(`--color-desk`)이 드러나
-      //    **띠 바로 아래에 색이 다른 가로 줄**이 생깁니다.
+      //    띠 바로 아래에 색이 다른 가로 줄이 생깁니다.
       //    `content-start` 는 칸을 내용 높이 그대로 두고 위로 붙입니다.
       className="grid min-h-screen content-start [grid-template-columns:1fr] md:[grid-template-columns:238px_minmax(0,1fr)]"
       style={{ background: "var(--color-desk)" }}

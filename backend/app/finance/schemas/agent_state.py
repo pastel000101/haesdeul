@@ -1,12 +1,12 @@
-"""한 Finance 실행 동안 **살아 있는 값**.
+"""한 Finance 실행 동안 살아 있는 값.
 
-여기 없는 것: capability 소유·의존 같은 정적 계약(`capability_graph`)과, 그것을
-실행 시점에 강제하는 통제(`application.harness`).
+여기 없는 것: capability 소유·의존 같은 정적 계약(`schemas/planner.py` 의 `CAPABILITY_OWNER`,
+`service/harness.py` 의 `TOOL_DEPENDENCIES`)과, 그것을 실행 시점에 강제하는 통제
+(`service/harness.py`).
 
-★ 2026-09-29 재구성 BL-014: `finance/state.py` 에서 옮겼다. `missing_source_name`(빠진 정책 출처를
-  부르는
-  이름)은 상태가 쓰는 이름 규약이라 `finance/execution.py` 에서 이리로 왔다 — 모델이 판단
-  모듈을 import 하지 않게. 마지막 판정을 찾는 `latest_scenario_verdict` 는 `domain/agent_state.py`.
+`missing_source_name`(빠진 정책 출처를 부르는 이름)은 상태가 쓰는 이름 규약이라 여기 둔다 —
+모델이 판단 모듈을 import 하지 않게. 마지막 판정을 찾는 `latest_scenario_verdict` 는
+`domain/agent_state.py`.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from app.finance.schemas.agent import CashEvent, FinancePolicy
 def missing_source_name(key: str) -> str:
     """근거 없이 뺀 정책값을 `missing_data` 에 적을 때 쓰는 이름.
 
-    ★ **한 이름으로만 부른다.** 어댑터 경계와 Tool 이 서로 다른 이름으로 적으면, 같은
-      사실이 두 이름으로 이력에 남아 나중에 세어 볼 수 없다.
+    한 이름으로만 부른다. 어댑터 경계와 Tool 이 서로 다른 이름으로 적으면, 같은 사실이 두
+    이름으로 이력에 남아 나중에 세어 볼 수 없다.
     """
     return f"{key}@policy_source_ref"
 
@@ -55,7 +55,7 @@ class FinanceAgentState:
     scenario_schedule: tuple[ScenarioPayment, ...] = ()
     base_state_violated: bool = False
     missing_sources: list[str] = field(default_factory=list)
-    #: Harness 가 남기는 실행 흔적. **관측이지 업무 결과가 아니다** — 회신
+    #: Harness 가 남기는 실행 흔적. 관측이지 업무 결과가 아니다 — 회신
     #: payload 로 올라가지 않고 실행 metadata 로만 나간다.
     trace: list[dict[str, Any]] = field(default_factory=list)
 

@@ -1,10 +1,9 @@
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
+"""Critic API 요청·응답 스키마.
 
-Critic API 요청·응답 스키마.
-
-★ Critic 은 오케스트레이터 산출물을 **검증만** 한다. 숫자를 바꾸지 않는다.
-  요청은 오케 procurement 와 같은 입력(부서 회신·매입 후보)을 받아, 내부에서 T3 결합·클리핑을
-  재현한 뒤 그 결과를 6레이어로 검증한다. 입력 스키마는 오케와 공유한다.
+Critic 은 결정 후보를 검증만 한다. 숫자를 바꾸지 않는다. 요청은 부서 회신과 후보를
+받아, 내부에서 결합·클리핑(T3 는 `master/domain/band.py`, S3 는 `master/domain/outbound.py`)을
+재현한 뒤 그 결과를 6레이어로 검증한다. 후보 입력 스키마는 `master/schemas/cycle.py` 와
+공유한다.
 """
 
 from __future__ import annotations
@@ -16,7 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.master.critic.llm.schemas import LLMResponseFields
 
-# 매입/판매 후보 입력 계약은 오케와 공유한다 (같은 것을 두 벌 정의하지 않는다).
+# 매입/판매 후보 입력 계약은 `master/schemas/cycle.py` 와 공유한다 (같은 것을 두 벌 정의하지
+# 않는다).
 from app.master.schemas.cycle import AllocationIn, ScenarioIn
 
 Dept = Literal["sales", "inventory", "finance"]
@@ -29,10 +29,10 @@ EvidenceGrade = Literal["OFFICIAL", "VENDOR", "SIM_FIXED", "ASSUMED"]
 
 
 class EvidenceIn(BaseModel):
-    """검사 1건이 딛는 근거. Critic 은 ref_ids 존재와 등급을 본다 (§1.2-5).
+    """검사 1건이 딛는 근거. Critic 은 `ref_ids` 가 있는지와 근거 등급을 본다.
 
-    ★ 이 API 층은 소스 DB 를 재조회하지 않는다. 값 대조는 회신이 제출한 evidence 안에서
-      이뤄지므로, 값의 진위가 아니라 **근거의 구조·바인딩**을 검증한다.
+    이 API 는 원천 DB 를 다시 조회하지 않는다. 값 대조는 회신이 제출한 evidence 안에서
+    이뤄지므로, 값의 진위가 아니라 근거의 구조와 연결(바인딩)을 검증한다.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -49,11 +49,7 @@ class EvidenceIn(BaseModel):
 
 
 class CheckIn(BaseModel):
-    """부서 self-check 1건 (밴드 기여 + 근거).
-
-    ★ 옛 `cycle_schemas.BandCheckIn` 에 evidences 를 더한 형태였다. 그쪽은 부르는
-      곳이 없어져 지웠고(2026-09-08), 이제 이 클래스가 그 모양의 유일한 주인이다.
-    """
+    """부서 self-check 1건 — 밴드 기여(하한 · 상한)와 그 근거."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -121,12 +117,14 @@ class CriticProcurementRequest(BaseModel):
     dept_meta: dict[Dept, DeptMetaIn] | None = None
     target_scenario_id: str | None = None
     rationale: str = ""
-    """L5 가 검사할 **결정 근거** - 오케 selector 가 쓴 문장(`rationale_per_id[선택안]`).
+    """L5 가 검사할 결정 근거 — 선택안을 고른 이유 문장.
 
-    ★ 부서 회신(`reasoning`)이 아니다. 부서 문장은 클리핑 **이전**에 작성되므로
-      클리핑 후에야 정해지는 binding_constraints 를 언급할 수 없다. 그것을 누락으로
-      판정하면 정상 실행마다 CONCERN 이 붙어 소음이 된다.
-      미제출이면 L5 는 검사할 문장이 없으므로 skipped 로 드러난다.
+    마스터 흐름에는 이 문장을 쓰는 단계가 없어 `adapters/critic_bridge.py` 는 빈 문자열을
+    보낸다. 미제출이면 L5 는 검사할 문장이 없으므로 skipped 로 드러난다.
+
+    부서 회신(`reasoning`)이 아니다. 부서 문장은 클리핑 이전에 작성되므로 클리핑 후에야
+    정해지는 binding_constraints 를 언급할 수 없다. 그것을 누락으로 판정하면 정상
+    실행마다 CONCERN 이 붙어 소음이 된다.
     """
     unattended: bool = False
 

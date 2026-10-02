@@ -1,7 +1,4 @@
-"""판매 운영 화면이 고르는 활성 품목 — `readmodel/console_items.py` 가 채운다.
-
-★ 2026-09-29 BL-013: `sales/console_items.py` 에서 옮겼다.
-"""
+"""판매 운영 화면이 고르는 활성 품목 — `readmodel/console_items.py` 가 채운다."""
 
 from pydantic import BaseModel
 

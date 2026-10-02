@@ -1,7 +1,6 @@
 """영업 Agent 실행이력 조회 — 저장된 행을 응답 모델로 편다.
 
-★ 2026-09-29 BL-013: `sales/runs.py` 의 `get_sales_run` · `list_sales_runs` 를 옮겼다. SQL 은
-  `repository/runs.py` 다. 조회 하나가 조회 연결 하나를 빌리는 것은 종전과 같다.
+SQL 은 `repository/runs.py` 다. 조회 하나가 조회 연결 하나를 빌린다.
 """
 
 from datetime import date

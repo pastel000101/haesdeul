@@ -1,6 +1,6 @@
 """재무 에이전트 실행이력 조회 (`GET /finance/runs*` · `/finance/agent/runs/{id}`).
 
-★ 2026-09-29 재구성 BL-014: `finance/execution.py` 에서 옮겼다. 조회 연결 하나로 읽는다.
+조회 연결 하나로 읽는다.
 """
 
 from __future__ import annotations

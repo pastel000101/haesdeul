@@ -1,15 +1,15 @@
-"""SUPPLY_CAPACITY_QUERY — 판매 부족분에 낼 **경계**를 위해 시세를 읽고 가능량을 계산한다 (E4-7).
+"""SUPPLY_CAPACITY_QUERY — 판매 부족분에 낼 경계를 위해 시세를 읽고 가능량을 계산한다 (E4-7).
 
 ```text
 read_supply_capacity   포트로 그날 시세를 한 번 읽는다 → domain `compute_supply_capacity`
 ```
 
-★ 8노드 그래프를 안 돈다 — 답은 안이 아니라 경계다 (`domain/supply_capacity.py` 머리말).
-★ 어느 품목을 묻는지 가리는 것과 회신 본문 · 근거 · 설명문으로 옮기는 것은 어댑터다.
-★ **DB 에 쓰지 않는다.** 시세 조회 연결은 시세 공급자(`readmodel/quotes.py`)가 빌린다.
+8노드 그래프를 안 돈다 — 답은 안이 아니라 경계다 (`domain/supply_capacity.py` 머리말).
+어느 품목을 묻는지 가리는 것과 회신 본문 · 근거 · 설명문을 만드는 것은 어댑터
+(`adapter._supply_capacity_query`)다. 설정은 어댑터가 읽어 넘기고, 여기서는 시세 → 계산
+차례로 돈다.
 
-🟢 **자리 (2026-09-29 · 재구성 BL-016).** 전에는 `adapter._supply_capacity_query` 안에서 시세를
-  읽고 계산했다. 읽는 차례(설정 → 시세 → 계산)와 인자는 그대로이다.
+DB 에 쓰지 않는다. 시세 조회 연결은 시세 공급자(`readmodel/quotes.py`)가 빌린다.
 """
 
 from collections.abc import Mapping
@@ -26,8 +26,8 @@ from app.purchase_agent.readmodel.quotes import QuoteSource
 class SupplyCapacityReading:
     """읽은 시세와 그 시세로 잡은 경계.
 
-    ★ **시세를 같이 돌려준다** — 같은 시세를 회신의 관측일(`adapter._observed_at`)도 봐야
-      한다. 두 번 읽으면 그 사이에 적재가 들어와 **경계와 관측일이 다른 조회에서 나온다.**
+    시세를 같이 돌려준다 — 같은 시세를 회신의 관측일(`adapter._observed_at`)도 봐야
+      한다. 두 번 읽으면 그 사이에 적재가 들어와 경계와 관측일이 다른 조회에서 나온다.
     """
 
     market_quotes: list[dict[str, Any]]

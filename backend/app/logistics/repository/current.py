@@ -1,9 +1,7 @@
 """현재 시점 SQL — 활성 정책 · 그날 fixture · 창고에 실재하는 Lot · 품목 보관 정책 · 출고가 잡은 몫.
 
-★ 2026-09-30 재구성 BL-015: `logistics/repository.py` 에서 옮겼다. **받은 연결로만 읽는다.** 종전의
-  «연결이 없으면 SQL 마다 조회 연결을 빌리는» 경로(`_fetch` → `logistics/db.fetch_all`)는 그 경계
-  그대로 `readmodel/current` 로 옮겼다 — 연결 없이 부르는 쪽에는 그 모듈이 SELECT 마다 조회 연결을
-  따로 빌려 여기 함수에 넘긴다. 그래서 여기 함수 하나는 SELECT 하나다.
+받은 연결로만 읽는다. 연결 없이 부르는 쪽에는 `readmodel/current` 가 SELECT 마다 조회 연결을
+따로 빌려 여기 함수에 넘긴다. 그래서 여기 함수 하나는 SELECT 하나다.
 """
 
 from datetime import date
@@ -129,7 +127,7 @@ def select_unallocated_reservation_rows(conn: Any, *, sim_run_id: str) -> list[d
 
 
 def get_outbound_commitments(conn: Any, *, sim_run_id: str) -> list[OutboundCommitment]:
-    """출고가 **이미 잡아 둔 몫** — 받은 연결 하나로 할당 · 예약 SELECT 를 차례로 읽는다.
+    """출고가 이미 잡아 둔 몫 — 받은 연결 하나로 할당 · 예약 SELECT 를 차례로 읽는다.
 
     규율은 `outbound_commitments_from`. 연결 없이 읽는 쪽(`readmodel/current`)은 두 SELECT 를
     따로 빌린 조회 연결로 읽어 같은 행 읽기에 넘긴다.
@@ -143,32 +141,31 @@ def get_outbound_commitments(conn: Any, *, sim_run_id: str) -> list[OutboundComm
 def outbound_commitments_from(
     allocation_rows: list[dict[str, Any]], reservation_rows: list[dict[str, Any]]
 ) -> list[OutboundCommitment]:
-    """출고가 **이미 잡아 둔 몫** — 위 두 SELECT 의 행을 읽는다. `outbound.py` 와 같은 규율로 센다.
+    """출고가 이미 잡아 둔 몫 — 위 두 SELECT 의 행을 읽는다. `outbound.py` 와 같은 규율로 센다.
 
     ```text
     lot_id 있음   살아있는 할당      ALLOCATED · PICKED
     lot_id 없음   미할당 예약 잔여   reserved − (ALLOCATED·PICKED·SHIPPED)  · 음수는 0
     ```
 
-    🔴 **`SHIPPED` 를 할당 쪽에서는 빼고 예약 쪽에서는 뺀다.** 헷갈리는 자리라 이유를
-       적는다.
+    `SHIPPED` 를 할당 쪽에서는 빼고 예약 쪽에서는 뺀다. 헷갈리는 자리라 이유를 적는다.
 
     ```text
     할당 축   SHIPPED 는 제외   원장 OUT 이 remaining_qty_kg 에서 이미 덜어냈다
     예약 축   SHIPPED 도 포함   그 예약이 더 이상 새로 잡아 둘 필요가 없는 몫이다
     ```
 
-       ⚠️ 이 두 줄이 `outbound._HOLDING_ALLOCATION` · `ASSIGNED_ALLOCATION` 과 **글자
-          그대로 같아야 한다.** 다르면 같은 재고를 두 곳이 다르게 세고, 매입에 나가는
-          `inventory_by_item` 과 예약이 실제로 잡을 수 있는 양이 어긋난다.
+    주의: 이 두 줄은 출고(`repository/outbound.py`)와 같은 `schemas/vocabulary.py` 의
+    `HOLDING_ALLOCATION` · `ASSIGNED_ALLOCATION` 을 쓴다. 갈라지면 같은 재고를 두 곳이
+    다르게 세고, 매입에 나가는 `inventory_by_item` 과 예약이 실제로 잡을 수 있는 양이
+    어긋난다.
 
-    ⚠️ **놓아준 예약(`RELEASED`·`CANCELLED`)은 세지 않는다** — 돌려준 몫이다.
+    놓아준 예약(`RELEASED`·`CANCELLED`)은 세지 않는다 — 돌려준 몫이다.
 
-    ★ 빈 목록은 *"0건 확인"* 이다. 못 읽은 것과 구분하려고 예외를 삼키지 않는다.
+    빈 목록은 "0건 확인" 이다. 못 읽은 것과 구분하려고 예외를 삼키지 않는다.
 
-    ★ 2026-09-30 재구성 BL-015 보완: `get_outbound_commitments` 의 몸통을 SELECT 둘과 이 행 읽기로
-      나눴다(SQL 문면 · 순서 그대로). 연결 없이 부르는 쪽이 종전처럼 SELECT 마다 조회 연결을
-      따로 빌리게 하려는 것이다 — 빌리는 곳은 `readmodel/current` 다.
+    SELECT 둘과 이 행 읽기를 나눠 둔 것은 연결 없이 부르는 쪽이 SELECT 마다 조회 연결을
+    따로 빌리게 하려는 것이다 — 빌리는 곳은 `readmodel/current` 다.
     """
     commitments = [
         OutboundCommitment(
@@ -236,8 +233,8 @@ def select_runtime_fixture_rows(
 ) -> list[dict[str, Any]]:
     """그날 활성 MVP runtime fixture 행들 — 축 `(sim_run_id, as_of, usage_scope)`."""
     schema = sql.Identifier(get_db_schema())
-    # ★ 파라미터 순서를 안 바꾼다 — 실행 조건은 **뒤에** 붙인다. 앞을 흔들면 이
-    #   질의를 파라미터로 재는 검사들이 축과 무관하게 깨진다.
+    # 파라미터 순서를 안 바꾼다 — 실행 조건은 뒤에 붙인다. 앞을 흔들면 이
+    # 질의를 파라미터로 재는 검사들이 축과 무관하게 깨진다.
     params: list[object] = [USAGE_SCOPE, as_of]
     실행조건 = sql.SQL("")
     if sim_run_id is not None:

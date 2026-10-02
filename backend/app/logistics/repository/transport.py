@@ -1,7 +1,4 @@
-"""운송 SQL — 차량 제원 · 고정 Route 계약 · 운임 구간.
-
-★ 2026-09-30 재구성 BL-015: `logistics/transport.py` 에서 옮겼다.
-"""
+"""운송 SQL — 차량 제원 · 고정 Route 계약 · 운임 구간."""
 
 from __future__ import annotations
 
@@ -34,7 +31,7 @@ def _require_text(값: Any, *, 칸: str) -> str:
 
 
 def load_vehicle_specs(conn: Any, *, body_type: str | None = None) -> tuple[VehicleSpec, ...]:
-    """차량 제원을 읽는다. **정본은 `vehicle_specs` 하나다.**"""
+    """차량 제원을 읽는다. 정본은 `vehicle_specs` 하나다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -67,20 +64,20 @@ def load_vehicle_specs(conn: Any, *, body_type: str | None = None) -> tuple[Vehi
 
 
 def resolve_fixed_route(conn: Any, *, logistics_contract_id: str | None = None) -> FixedRoute:
-    """운송 조건을 고정해 둔 계약 하나를 확정한다. **0 / 1 / 2+ 를 셋 다 다르게 다룬다.**
+    """운송 조건을 고정해 둔 계약 하나를 확정한다. 0 / 1 / 2+ 를 셋 다 다르게 다룬다.
 
     ```text
     0개    → RouteNotFound
     1개    → 그것을 쓴다
-    2개+   → AmbiguousRoute       🔴 자동으로 고르지 않는다
+    2개+   → AmbiguousRoute       자동으로 고르지 않는다
     ```
 
-    ★ `logistics_contract_id` 를 주면 그 줄만 본다 — 계약이 여럿이 되는 날, 어느 것을
-      쓸지는 **호출자가 정한다.**
+    `logistics_contract_id` 를 주면 그 줄만 본다 — 계약이 여럿이 되는 날, 어느 것을
+    쓸지는 호출자가 정한다.
 
-    ⚠️ **거리가 비어 있으면 계획을 세우지 않는다.** `delivery_distance_km` 는
-       nullable 이고, 없는 거리로는 운임 구간을 고를 수 없다. 0 으로 보정하면 가장
-       싼 구간이 조용히 선택된다.
+    거리가 비어 있으면 계획을 세우지 않는다. `delivery_distance_km` 는 nullable 이고,
+    없는 거리로는 운임 구간을 고를 수 없다. 0 으로 보정하면 가장 싼 구간이 조용히
+    선택된다.
     """
     schema = sql.Identifier(get_db_schema())
     if logistics_contract_id is not None:
@@ -131,18 +128,18 @@ def resolve_fixed_route(conn: Any, *, logistics_contract_id: str | None = None) 
 def select_fixed_fee(
     conn: Any, *, vehicle_class: str, body_type: str, distance_km: Decimal
 ) -> Decimal:
-    """이 차량·거리의 회당 운임. **구간표에서 읽는다.**
+    """이 차량·거리의 회당 운임. 구간표에서 읽는다.
 
     ```text
     distance_from_km < distance_km <= distance_to_km
     ```
 
-    ★ 경계가 *"초과 ~ 이하"* 인 것은 DDL 주석이 못박은 계약이다
-      (*"(0,11] = 문서의 ~11km"*). 양쪽을 이하로 잡으면 경계 거리에서 두 구간이 겹친다.
+    경계가 "초과 ~ 이하" 인 것은 DDL 주석이 못박은 계약이다
+    ("(0,11] = 문서의 ~11km"). 양쪽을 이하로 잡으면 경계 거리에서 두 구간이 겹친다.
 
-    ⚠️ **`is_active` 인 구간만 본다.** 내린 운임표로 견적을 내지 않는다.
+    `is_active` 인 구간만 본다. 내린 운임표로 견적을 내지 않는다.
 
-    🔴 거리×단가 같은 새 모델을 만들지 않는다.
+    거리×단가 같은 새 모델을 만들지 않는다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:

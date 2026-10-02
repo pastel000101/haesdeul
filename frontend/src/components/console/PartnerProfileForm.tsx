@@ -3,12 +3,12 @@
 /**
  * 거래처 기본정보 수정.
  *
- * 🔴 **여신 한도를 여기서 고치지 않는다.** 정본은 재무의 `partner_credit_limits` 이고,
- *    거래처 기본정보에 같은 이름의 칸을 두면 두 곳이 다른 한도를 말하는 날이 온다.
+ * 여신 한도를 여기서 고치지 않는다. 정본은 재무의 `partner_credit_limits` 이고,
+ *   거래처 기본정보에 같은 이름의 칸을 두면 두 곳이 다른 한도를 말하는 날이 온다.
  *
- * 🔴 **저장은 화면에 남기지 않는다.** `localStorage` 에 담아 두면 새로고침 한 번에
- *    사라지거나, 더 나쁘게는 장부와 다른 값이 화면에만 남는다. 저장 뒤에는 **다시
- *    읽어** 장부가 가진 값을 보여 준다.
+ * 저장은 화면에 남기지 않는다. `localStorage` 에 담아 두면 새로고침 한 번에
+ *   사라지거나, 더 나쁘게는 장부와 다른 값이 화면에만 남는다. 저장 뒤에는 다시
+ *   읽어 장부가 가진 값을 보여 준다.
  */
 
 import { useEffect, useState } from "react";
@@ -44,7 +44,7 @@ function toDraft(profile: PartnerProfile): Draft {
     factory_region: profile.factory_region ?? "",
     factory_city: profile.factory_city ?? "",
     factory_area: profile.factory_area ?? "",
-    //  ⚠️ `null` 은 빈 칸으로 보인다. 저장할 때 0 으로 바꾸지 않는다.
+    //  `null` 은 빈 칸으로 보인다. 저장할 때 0 으로 바꾸지 않는다.
     sales_collection_days:
       profile.sales_collection_days === null ? "" : String(profile.sales_collection_days),
     pricing_contract_type: profile.pricing_contract_type ?? "",
@@ -53,7 +53,7 @@ function toDraft(profile: PartnerProfile): Draft {
   };
 }
 
-/** 바뀐 칸만 고른다. **안 건드린 칸은 보내지 않는다.** */
+/** 바뀐 칸만 고른다. 안 건드린 칸은 보내지 않는다. */
 function changed(draft: Draft, profile: PartnerProfile): PartnerProfileUpdate {
   const update: PartnerProfileUpdate = {};
   const base = toDraft(profile);
@@ -82,7 +82,7 @@ export function PartnerProfileForm({ partnerId }: { partnerId: string }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  //  ★ 거래처가 바뀌면 **그리는 중에** 상태를 되돌린다. 효과 안에서 되돌리면 옛
+  //  거래처가 바뀌면 그리는 중에 상태를 되돌린다. 효과 안에서 되돌리면 옛
   //    거래처의 값이 한 프레임 보인다.
   const [shown, setShown] = useState(partnerId);
   if (shown !== partnerId) {
@@ -121,7 +121,7 @@ export function PartnerProfileForm({ partnerId }: { partnerId: string }) {
     setSaved(false);
     savePartnerProfile(partnerId, update)
       .then((value) => {
-        //  ★ 저장된 행으로 화면을 다시 세운다 — 보낸 값이 아니라 장부의 값이다.
+        //  저장된 행으로 화면을 다시 세운다 — 보낸 값이 아니라 장부의 값이다.
         setProfile(value);
         setDraft(toDraft(value));
         setSaved(true);

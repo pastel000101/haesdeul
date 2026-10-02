@@ -1,13 +1,10 @@
 -- logistics_runtime_fixture — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/10_domain_schema.sql` (2026-08-30 test DB 에서 뜬 pg_dump 스냅샷)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
--- 2026-09-30 BL-021 보완: 새 DB 목록 끝에서 따로 돌던 이관판의 최종 효과를 이 파일에 담았다 —
---   `migrations/logistics/logistics_drop_inbound_json.sql`. 스냅샷의 입고 JSON 두 칸
---   (`in_transit_json` · `confirmed_inbound_json`)은 새 DB 에서 처음부터 만들지 않고, 상태 두 칸에
+-- 적용 순서는 `database/new_database_order.txt`.
+-- 이 파일은 `migrations/logistics/logistics_drop_inbound_json.sql` 의 최종 효과를 담는다 —
+--   입고 JSON 두 칸(`in_transit_json` · `confirmed_inbound_json`)을 만들지 않고, 상태 두 칸에
 --   그 이관판의 칸 주석을 단다. 입고 예정의 정본은 `inbound_schedules` 다.
---   이미 쓰는 DB 는 그 이관판을 그대로 쓴다(`database/README.md` §2 — 적용 전 확인 넷은 그 머리말).
+--   이미 쓰는 DB 는 그 이관판을 쓴다(`database/README.md` §2 — 적용 전 확인 넷은 그 머리말).
 
 BEGIN;
 

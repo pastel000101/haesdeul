@@ -1,16 +1,16 @@
-"""판매 추이 read model — **날짜별로 접은 판매 사실.**
+"""판매 추이 read model — 날짜별로 접은 판매 사실.
 
-★ 판매 현황 화면이 «언제 얼마나 팔렸나» 를 묻는데, 기존 read model 은 그 축이 없다.
-  `console_partners` 는 거래처별로, `dashboard.load_item_summaries` 는 품목별로 접고,
-  `load_recent_sales` 는 최근 몇 건만 준다 — **날짜로 접은 계열이 어디에도 없다.**
+판매 현황 화면이 «언제 얼마나 팔렸나» 를 묻는데, 다른 read model 은 그 축이 없다.
+`console_partners` 는 거래처별로, `dashboard.load_item_summaries` 는 품목별로 접고,
+`load_recent_sales` 는 최근 몇 건만 준다 — 날짜로 접은 계열은 여기뿐이다.
 
-🔴 **화면이 접지 않는다.** 최근 판매 목록을 받아 프론트에서 날짜별로 더하면, 그 목록은
-   `limit` 이 걸린 일부라 **합계가 조용히 틀린다.** 접는 일은 여기서 끝낸다.
+화면이 접지 않는다. 최근 판매 목록을 받아 프론트에서 날짜별로 더하면, 그 목록은
+`limit` 이 걸린 일부라 합계가 조용히 틀린다. 접는 일은 여기서 끝낸다.
 
-🔴 **`sim_run_id` 에 기본값이 없다.** 빠뜨리면 전 실행이 한 그래프에 섞인다.
+`sim_run_id` 에 기본값이 없다. 빠뜨리면 전 실행이 한 그래프에 섞인다.
 
-★ 2026-09-29 BL-013: `sales/console_trend.py` 에서 옮겼다. SQL 은 `repository/console_trend.py`,
-  응답 모델과 `MAX_TREND_DAYS` 는 `schemas/console_trend.py` 다.
+SQL 은 `repository/console_trend.py`, 응답 모델과 `MAX_TREND_DAYS` 는
+`schemas/console_trend.py` 다.
 """
 
 from datetime import date

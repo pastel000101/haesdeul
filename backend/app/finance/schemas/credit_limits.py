@@ -1,10 +1,9 @@
 """거래처 여신한도 — 등록 요청과 기간 이력.
 
-★ 2026-09-29 재구성 BL-014: `finance/router.py` 에서 옮겼다(필드 · 검증 그대로). 화면
-  `POST /finance/credit-limits` 와 마스터 ask(FINANCE_CREDIT_LIMIT_UPSERT)가 같은 요청 모델을
-  import 한다. 등록 순서 · 트랜잭션은 `service/credit_limits.py`, 기간 판정은
-  `domain/credit_limits.py`, SQL 은 `repository/credit_limits.py`, 이력 조회는
-  `readmodel/credit_limits.py`.
+화면 `POST /finance/credit-limits` 와 마스터 ask(FINANCE_CREDIT_LIMIT_UPSERT)가 같은 요청
+모델을 import 한다. 등록 순서 · 트랜잭션은 `service/credit_limits.py`, 기간 판정은
+`domain/credit_limits.py`, SQL 은 `repository/credit_limits.py`, 이력 조회는
+`readmodel/credit_limits.py`.
 """
 
 from datetime import date

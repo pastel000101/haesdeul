@@ -1,7 +1,4 @@
-"""신규 일별 Finance state를 만들 때 쓰는 결정론 ID 규칙.
-
-★ 2026-09-29 재구성 BL-014: `finance/state_identity.py` 에서 자리만 옮겼다(내용 그대로).
-"""
+"""신규 일별 Finance state를 만들 때 쓰는 결정론 ID 규칙."""
 
 from __future__ import annotations
 

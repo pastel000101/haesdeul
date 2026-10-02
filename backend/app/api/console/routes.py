@@ -11,5 +11,5 @@ router = APIRouter(prefix="/console", tags=["console"])
 
 @router.get("/runs", response_model=ConsoleRunsResponse)
 def runs(limit: Annotated[int, Query(ge=1, le=500)] = 100) -> ConsoleRunsResponse:
-    """고를 수 있는 실행 목록. 🔴 읽기 전용 — 실행을 만들거나 고치지 않는다."""
+    """콘솔에서 고를 수 있는 실행 목록. 읽기 전용이며 실행을 만들거나 고치지 않는다."""
     return get_console_runs(limit=limit)

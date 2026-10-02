@@ -1,6 +1,6 @@
 """판매 확정분 → 재무 매출채권 판정 — 판매 행 대조 · 쓰기 계획 · 같은 사실인지.
 
-★ 2026-09-29 재구성 BL-014: `finance/receivables.py` 를 판정 · 순서 · SQL 로 나눴다.
+순서는 `service/receivables.py`, SQL 은 `repository/receivables.py`.
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ def build_receivable_write_plan(
 
 
 def receivable_state_id(rows: list) -> str:
-    """발행일의 재무 상태는 **정확히 한 행**이어야 한다."""
+    """발행일의 재무 상태는 정확히 한 행이어야 한다."""
     if not rows:
         raise FinanceDataNotReady("finance_state_for_receivable")
     if len(rows) != 1:
@@ -75,7 +75,7 @@ def receivable_id_for(sale_id: str) -> str:
 
 
 def assert_same_receivable(rows: list, plan: ReceivableWritePlan) -> None:
-    """이미 있던 채권 행이 이번 계획과 **같은 사실**인지. 다르면 막는다."""
+    """이미 있던 채권 행이 이번 계획과 같은 사실인지. 다르면 막는다."""
     if len(rows) != 1:
         raise ReceivablePersistenceConflict(
             f"receivable was not found after insert conflict: {plan.sale_id}"

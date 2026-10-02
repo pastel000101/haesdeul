@@ -1,8 +1,6 @@
 """배치 SQL — 자리 · Pallet · Lot · 포장규격 · Zone 배정 · 점유 수 읽기와 Pallet · 사건 쓰기.
 
-★ 2026-09-30 재구성 BL-015: `logistics/warehouse.py` 에서 옮겼다(세 흐름 안에 있던 SQL 7문을 함수로
-  뗐다 — 문면 그대로).
-  받은 연결로 실행만 한다.
+받은 연결로 실행만 한다.
 """
 
 from __future__ import annotations
@@ -21,18 +19,18 @@ _AMBIGUITY_PROBE_LIMIT = 2
 
 
 def _scalar(cursor: Any, name: str) -> Any:
-    """`count(*)` 처럼 **반드시 한 줄 한 칸**인 집계를 읽는다.
+    """`count(*)` 처럼 반드시 한 줄 한 칸인 집계를 읽는다.
 
-    ★ 집계는 0행이 나올 수 없어서 `_one` 의 0/1/2+ 규율을 적용할 자리가 아니다.
+    집계는 0행이 나올 수 없어서 `_one` 의 0/1/2+ 규율을 적용할 자리가 아니다.
     """
     행 = cursor.fetchall()[0]
     return cell(행, 0, name)
 
 
 def _one(rows: Any, *, 무엇: str) -> Any:
-    """0/1/2+ 를 **셋 다 다르게** 다룬다. `fetchone()` 을 쓰지 않는다.
+    """0/1/2+ 를 셋 다 다르게 다룬다. `fetchone()` 을 쓰지 않는다.
 
-    🔴 첫 행을 집어오면 둘 이상인 것을 영영 모른다.
+    첫 행을 집어오면 둘 이상인 것을 영영 모른다.
     """
     목록 = list(rows)
     if not 목록:
@@ -48,7 +46,7 @@ def _one(rows: Any, *, 무엇: str) -> Any:
 
 
 def select_location(conn: Any, *, location_id: str) -> Any:
-    """자리 한 줄 + 그 자리가 속한 Zone. **없으면 `None` 을 돌려준다.**"""
+    """자리 한 줄 + 그 자리가 속한 Zone. 없으면 `None` 을 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -109,15 +107,15 @@ def select_lot(conn: Any, *, sim_run_id: str, lot_id: str) -> Any:
 
 
 def select_kg_per_pallet(conn: Any, *, item_id: str) -> Decimal | None:
-    """이 품목의 kg → 자리 환산 단위. **정본은 `item_packaging_specs` 하나다.**
+    """이 품목의 kg → 자리 환산 단위. 정본은 `item_packaging_specs` 하나다.
 
     ```text
     None      환산 정본이 없다 (UNRESOLVED)   → 자리 수 상한을 못 센다
     Decimal   is_default 규격의 값
     ```
 
-    ⚠️ 기본 규격이 없으면 **다른 규격을 아무거나 집지 않는다** — 부분 UNIQUE
-       `uq_item_packaging_specs_default` 가 기본을 하나로 못박아 둔 이유가 그것이다.
+    기본 규격이 없으면 다른 규격을 아무거나 집지 않는다 — 부분 UNIQUE
+    `uq_item_packaging_specs_default` 가 기본을 하나로 못박아 둔 이유가 그것이다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -139,7 +137,7 @@ def select_kg_per_pallet(conn: Any, *, item_id: str) -> Decimal | None:
 def select_zone_allowed(
     conn: Any, *, item_id: str, zone_id: str
 ) -> bool | None:
-    """이 품목을 이 Zone 에 둘 수 있나. **세 상태를 구분한다.**
+    """이 품목을 이 Zone 에 둘 수 있나. 세 상태를 구분한다.
 
     ```text
     None    이 품목의 Zone 정책이 아예 없다   → UNRESOLVED. 추측하지 않는다
@@ -147,8 +145,8 @@ def select_zone_allowed(
     True    정책이 있고 이 Zone 은 허용이다
     ```
 
-    🔴 *정책 없음* 과 *금지* 를 같은 값으로 뭉개면, 정책을 안 만든 품목이
-       *"모든 Zone 금지"* 로 보이거나 그 반대가 된다.
+    "정책 없음" 과 "금지" 를 같은 값으로 뭉개면, 정책을 안 만든 품목이
+    "모든 Zone 금지" 로 보이거나 그 반대가 된다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -172,7 +170,7 @@ def select_zone_allowed(
             (item_id, zone_id, _AMBIGUITY_PROBE_LIMIT),
         )
         행 = _one(cursor.fetchall(), 무엇=f"품목 {item_id!r} · Zone {zone_id!r} 배정")
-        # ★ 정책은 있는데 이 Zone 줄이 없다 = 열거되지 않은 Zone = 금지다.
+        # 정책은 있는데 이 Zone 줄이 없다 = 열거되지 않은 Zone = 금지다.
         return False if 행 is None else bool(cell(행, 0, "allowed"))
 
 
@@ -196,14 +194,14 @@ def count_occupying_pallets(
 
 
 def select_lot_positions(conn: Any, *, sim_run_id: str, lot_id: str) -> tuple[LotPosition, ...]:
-    """이 Lot 이 지금 어디에 있나. **한 Lot 이 여러 자리에 나뉠 수 있다.**
+    """이 Lot 이 지금 어디에 있나. 한 Lot 이 여러 자리에 나뉠 수 있다.
 
-    ★ 스키마가 `1 Lot : N Pallet` 을 허용하고 `1 Pallet : 1 Lot` 만 막는다
-      (`pallets.lot_id` 는 단일 값이다). 그래서 부분 Pallet 은 되고, 한 Pallet 에
-      두 Lot 을 섞는 것은 안 된다. 관계를 임의로 넓히지 않는다.
+    스키마가 `1 Lot : N Pallet` 을 허용하고 `1 Pallet : 1 Lot` 만 막는다
+    (`pallets.lot_id` 는 단일 값이다). 그래서 부분 Pallet 은 되고, 한 Pallet 에
+    두 Lot 을 섞는 것은 안 된다. 관계를 임의로 넓히지 않는다.
 
-    ★ 자리를 안 차지하는 `EMPTIED`·`DISPOSED` Pallet 은 빼고 돌려준다 — *"지금 어디"*
-      를 묻는 질문이라 비운 Pallet 은 답이 아니다.
+    자리를 안 차지하는 `EMPTIED`·`DISPOSED` Pallet 은 빼고 돌려준다 — "지금 어디"
+    를 묻는 질문이라 비운 Pallet 은 답이 아니다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -243,7 +241,7 @@ def insert_pallet_event(
     recorded_by: str,
     note: str | None,
 ) -> None:
-    """위치이동 이력 한 줄. **수량은 여기에 없다.**"""
+    """위치이동 이력 한 줄. 수량은 여기에 없다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

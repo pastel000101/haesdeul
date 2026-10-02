@@ -1,24 +1,18 @@
-"""실행 흔적 — Evidence · DeptMeta · 실행이력.
+"""실행 흔적 — Evidence · DeptMeta.
 
 이 파일이 소유하는 것
-    Evidence 생성과 정책 출처 규율 · Critic 이 읽는 DeptMeta(입력 계보/산출 필드) ·
-    Agent 실행이력 저장(append-only)과 조회
+    Evidence 생성과 정책 출처 규율 · Critic 이 읽는 DeptMeta(입력 계보/산출 필드)
 
-여기 **없는 것**
-    금액 계산 · 판정 · 실행 통제 · 사람이 읽는 문장
+여기 없는 것
+    금액 계산 · 판정 · 실행 통제 · 사람이 읽는 문장 · 실행이력 저장(`service/run_history.py`) ·
+    조회(`readmodel/runs.py`) · SQL(`repository/runs.py`)
 
-★ 셋은 한 가지를 다룬다 — **무슨 일이 있었고, 무엇이 그것을 받치며, 어떻게 남기는가.**
-  Evidence 없이 DeptMeta 를 못 만들고, 둘 없이 남길 이력이 없다. 갈라 두면 근거 하나를
-  고칠 때마다 세 파일을 오간다.
+둘은 한 가지를 다룬다 — 무슨 일이 있었고, 무엇이 그것을 받치는가. Evidence 없이 DeptMeta 를
+못 만든다. 갈라 두면 근거 하나를 고칠 때마다 여러 파일을 오간다.
 
-★ **선언이 아니라 관측이다.** DeptMeta 는 실제로 성공한 Tool(`state.tool_order`)과
-  실제로 실린 payload 키만 보고 만든다. 손으로 적은 목록이 실행과 어긋나면 Critic 은
-  우리가 적은 거짓말을 검사하게 된다.
-
-★ 2026-09-29 재구성 BL-014: `finance/execution.py` 에서 근거 · DeptMeta 절을 옮겼다(몸통 그대로).
-  다른 모듈이
-  쓰던 밑줄 이름은 공개 이름으로 올렸다. 실행이력 저장은 `service/run_history.py`, 조회는
-  `readmodel/runs.py`, SQL 은 `repository/runs.py`.
+선언이 아니라 관측이다. DeptMeta 는 실제로 성공한 Tool(`state.tool_order`)과 실제로 실린
+payload 키만 보고 만든다. 손으로 적은 목록이 실행과 어긋나면 Critic 은 우리가 적은 거짓말을
+검사하게 된다.
 """
 
 from __future__ import annotations
@@ -37,11 +31,11 @@ from app.finance.schemas.data_port import FinanceDataNotReady
 def resolve_optional_source_ref(
     policy: FinancePolicy, key: str, record: Callable[[str], None]
 ) -> str | None:
-    """급여 외 정책값의 출처를 찾고, 없으면 **그 사실을 기록한 뒤 `None`** 을 준다.
+    """급여 외 정책값의 출처를 찾고, 없으면 그 사실을 기록한 뒤 `None` 을 준다.
 
-    이 규칙의 **유일한 주인**이다. Controller 경로(`optional_policy_source_ref`)와 조회
-    경로(`domain/status_facts.py::policy_ref`)가 담는 곳만 다르고 규칙은 같다 — 두 벌로 두면 한쪽만
-    고쳐지고, 그때 갈리는 것은 *"근거 없는 값을 냈는가"* 다.
+    이 규칙의 유일한 주인이다. Controller 경로(`optional_policy_source_ref`)와 조회
+    경로(`domain/status_facts.py::policy_ref`)가 담는 곳만 다르고 규칙은 같다 — 두 벌로 두면
+    한쪽만 고쳐지고, 그때 갈리는 것은 "근거 없는 값을 냈는가" 다.
 
     `record` 는 빠진 이름을 어디에 적을지만 정한다 (실행 상태 · 조회의 missing 목록).
     """
@@ -62,15 +56,15 @@ PAYROLL_SOURCE_KEYS: tuple[str, ...] = ("monthly_labor_cost_krw", "payroll_date"
 
 
 def policy_source_ref(policy: FinancePolicy, key: str) -> str:
-    """**계산 자체가 성립하지 않는** 정책 출처. 없으면 멈춘다.
+    """계산 자체가 성립하지 않는 정책 출처. 없으면 멈춘다.
 
     급여 두 키 전용이다 (`PAYROLL_SOURCE_KEYS`). 출처 없는 급여 이벤트를 만들지
     않기로 재무가 정했으므로(재무 #63 · M-23) 급여 유출이 통째로 빠지고, 그 상태의
-    `finance_cap` 은 틀린 게 아니라 **낙관적으로 틀린다** — 그 상한으로 매입이 실행된다.
+    `finance_cap` 은 틀린 게 아니라 낙관적으로 틀린다 — 그 상한으로 매입이 실행된다.
 
-    ★ `KeyError` 로 두지 않는 이유: Controller 의 일반 예외 경로로 빠져 `ERROR` 가
-      된다. **출처가 없는 것은 프로그램 오류가 아니라 그날의 사실**이므로
-      `RUNTIME_NOT_READY` + `missing_data` 다 — 둘은 재시도 가치가 다르다 (M-1 §5.1).
+    `KeyError` 로 두지 않는 이유: Controller 의 일반 예외 경로로 빠져 `ERROR` 가 된다. 출처가
+    없는 것은 프로그램 오류가 아니라 그날의 사실이므로 `RUNTIME_NOT_READY` + `missing_data` 다
+    — 둘은 재시도 가치가 다르다 (M-1 §5.1).
     """
     ref = policy.source_refs.get(key)
     if not ref:
@@ -81,19 +75,19 @@ def policy_source_ref(policy: FinancePolicy, key: str) -> str:
 def optional_policy_source_ref(
     policy: FinancePolicy, key: str, state: FinanceAgentState
 ) -> str | None:
-    """급여 외 정책값의 출처. **없어도 실행은 계속한다.**
+    """급여 외 정책값의 출처. 없어도 실행은 계속한다.
 
-    ★ 급여만 특별하다 (`PAYROLL_SOURCE_KEYS`). 나머지는 값 자체를 쓸 수 있으므로
-      계산은 그대로 돌고, 실행을 통째로 세우지 않는다 — 기존 재무 정책이다.
+    급여만 특별하다(`PAYROLL_SOURCE_KEYS`). 나머지는 값 자체를 쓸 수 있으므로 계산은 그대로
+    돌고, 실행을 통째로 세우지 않는다 — 재무 정책이다.
 
-    ★ 다만 **지어내지 않는다.** 없는 출처를 `finance-policy:{version}:{key}` 같은
-      문자열이나 스냅샷 id 로 채우면, 값은 멀쩡히 나오고 에러도 안 나지만 그 ref 는
-      따라갔을 때 **아무 데도 닿지 않는다.** 근거가 있는 척하는 판정만 남는다.
+    다만 지어내지 않는다. 없는 출처를 `finance-policy:{version}:{key}` 같은 문자열이나 스냅샷
+    id 로 채우면, 값은 멀쩡히 나오고 에러도 안 나지만 그 ref 는 따라갔을 때 아무 데도 닿지
+    않는다. 근거가 있는 척하는 판정만 남는다.
 
-    ★ 그래서 `None` 을 돌려주고, 부르는 쪽이 **그 claim 의 payload 필드와 Evidence 를
-      함께 뺀다.** 숫자만 남기고 근거를 빼면 봉투 검증이 `E-EVIDENCE-MISSING` 을
-      낸다 — 낼 수 없는 근거를 요구받는 것이 아니라, 낼 수 없는 값을 안 내는 것이다.
-      빠진 사실은 `missing_data` 의 `<key>@policy_source_ref` 로 밝힌다.
+    그래서 `None` 을 돌려주고, 부르는 쪽이 그 claim 의 payload 필드와 Evidence 를 함께 뺀다.
+    숫자만 남기고 근거를 빼면 봉투 검증이 `E-EVIDENCE-MISSING` 을 낸다 — 낼 수 없는 근거를
+    요구받는 것이 아니라, 낼 수 없는 값을 안 내는 것이다. 빠진 사실은 `missing_data` 의
+    `<key>@policy_source_ref` 로 밝힌다.
     """
     return resolve_optional_source_ref(
         policy, key, lambda name: state.note_missing_source_name(name)
@@ -202,16 +196,14 @@ def indexed_verdict_evidence(results: list[dict[str, Any]]) -> list[Evidence]:
 def adjustment_from_dict(value: dict[str, Any]) -> SuggestedAdjustment:
     """재무 조정안 dict 를 공용 계약으로 옮긴다.
 
-    🔴 예전에는 여섯 칸만 옮겼다. 그래서 상류가 `scenario_labels` 를 채워도 이 지점에서
-       **조용히 사라졌다** — 마스터는 "어느 안에 대한 조정인지"를 영영 알 수 없고,
-       빈 목록만 받는다. 값을 옮기면서 옮기는 자리를 빠뜨리는 그 모양이다.
+    모든 칸을 옮긴다. 칸 하나를 빠뜨리면(예: `scenario_labels`) 상류가 채워도 이 지점에서
+    조용히 사라진다 — 마스터는 "어느 안에 대한 조정인지"를 영영 알 수 없고, 빈 목록만 받는다.
 
-    ★ 없으면 만들지 않는다. `scenario_labels` 가 없으면 빈 tuple 그대로 나간다 —
-      빈 tuple 은 *"적용 대상을 특정하지 못했다"* 이지 *"모든 안에 적용"* 이 아니다.
+    없으면 만들지 않는다. `scenario_labels` 가 없으면 빈 tuple 그대로 나간다 — 빈 tuple 은
+    "적용 대상을 특정하지 못했다" 이지 "모든 안에 적용" 이 아니다.
 
-    ★ `split_date` 는 회차 개념이 있는 축의 칸이다. 재무 `amount` 에는 회차가 없어서
-      보통 `None` 이고, 그 `None` 은 정상이다 — 완전성을 위해 옮기기만 하고 재무가
-      날짜를 지어내지 않는다.
+    `split_date` 는 회차 개념이 있는 축의 칸이다. 재무 `amount` 에는 회차가 없어서 보통 `None`
+    이고, 그 `None` 은 정상이다 — 완전성을 위해 옮기기만 하고 재무가 날짜를 지어내지 않는다.
     """
     return SuggestedAdjustment(
         dept="finance",
@@ -232,11 +224,12 @@ def adjustment_from_dict(value: dict[str, Any]) -> SuggestedAdjustment:
 #: Critic에 전달되는 검사 id의 정본은 합성 주체인 Master가 소유한다.
 FINANCE_CAP_CHECK_ID = DEPT_CAP_CHECK_ID["finance"]
 
-#: `_context()` 가 **항상** 읽는 것. PRE_PURCHASE Tool 은 전부 이것을 거친다.
+#: 컨텍스트 적재(`service/capabilities/procurement.py` 의 `load_context`)가 항상 읽는 것.
+#: PRE_PURCHASE Tool 은 전부 이것을 거친다.
 #:
-#: 여기에 현금이벤트가 들어가는 이유: `_context` 는 어느 Tool 이 불렀든 채무·채권·급여를
-#: 함께 읽어 투영 입력을 만든다. 한 Tool 만 그것을 "쓴다"고 적으면, 그 Tool 이
-#: `tool_order` 에 없던 실행에서 **같은 읽기가 사라진 것처럼** 보인다.
+#: 여기에 현금이벤트가 들어가는 이유: 컨텍스트 적재는 어느 Tool 이 불렀든 채무·채권·급여를
+#: 함께 읽어 투영 입력을 만든다. 한 Tool 만 그것을 "쓴다"고 적으면, 그 Tool 이 `tool_order` 에
+#: 없던 실행에서 같은 읽기가 사라진 것처럼 보인다.
 _CONTEXT_INPUTS: tuple[str, ...] = (
     "finance_state.current_cash_krw",
     "finance_state.current_debt_krw",
@@ -247,19 +240,19 @@ _CONTEXT_INPUTS: tuple[str, ...] = (
     "finance_cash_events.receivables",
 )
 
-#: 부채가 있을 때만 읽는다 (`_context` 의 `current_debt > 0` 분기).
+#: 부채가 있을 때만 읽는다 (`load_context` 의 `current_debt > 0` 분기).
 _DEBT_CONTEXT_INPUT = "finance_cash_events.debt_service"
 
-#: Tool 이 `_context` **위에서 추가로** 읽는 입력.
+#: Tool 이 `load_context` 위에서 추가로 읽는 입력.
 #:
-#: ★ 이것은 **재무가 소유한 정적 의존 계약**이다 — 실행에서 관측한 것이 아니다.
-#:   관측되는 것은 "어느 Tool 이 실제로 돌았는가"(`state.tool_order`)뿐이고, 그 Tool 이
-#:   무엇을 읽는지는 여기에 적힌 대로 해석된다. 둘을 섞어 말하면 안 된다.
+#: 이것은 재무가 소유한 정적 의존 계약이다 — 실행에서 관측한 것이 아니다. 관측되는 것은
+#: "어느 Tool 이 실제로 돌았는가"(`state.tool_order`)뿐이고, 그 Tool 이 무엇을 읽는지는 여기에
+#: 적힌 대로 해석된다. 둘을 섞어 말하면 안 된다.
 #:
-#: ★ 그래서 **드리프트가 위험하다.** 코드가 새 입력을 읽기 시작했는데 여기를 안 고치면,
-#:   Critic 의 등급 누출 검사는 *우리가 적은 것*을 검사하게 된다 — 실제로 읽은 것이
-#:   아니라. 매입 소유 입력(`qty_kg` · `grade_unit_price` · `sourcing_plan` …)이 재무
-#:   cap 계산에 들어오는 날이 오면 **숨기지 말고 여기에 나타나야 한다.**
+#: 주의: 그래서 드리프트가 위험하다. 코드가 새 입력을 읽기 시작했는데 여기를 안 고치면, Critic
+#: 의 등급 누출 검사는 우리가 적은 것을 검사하게 된다 — 실제로 읽은 것이 아니라. 매입 소유
+#: 입력(`qty_kg` · `grade_unit_price` · `sourcing_plan` …)이 재무 cap 계산에 들어오는 날이
+#: 오면 숨기지 말고 여기에 나타나야 한다.
 _CAP_TOOL_INPUTS: dict[str, tuple[str, ...]] = {
     "assess_finance_position": (
         "finance_policy.minimum_cash_balance_krw",
@@ -281,12 +274,12 @@ _CAP_TOOL_INPUTS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: Tool 이 **선행으로 요구하는** Tool — 입력 계보용.
+#: Tool 이 선행으로 요구하는 Tool — 입력 계보용.
 #:
-#: 🔴 `capability_graph.TOOL_DEPENDENCIES` 와 겹쳐 보이지만 **묻는 것이 다르다.**
-#:    저쪽은 *"지금 이 Tool 을 부를 수 있는가"* 이고, 여기는 *"이 Tool 의 결과는
-#:    무엇을 읽고 만들어졌는가"* 다. 전이 폐포를 끊으면 cap 을 만든 현금흐름 입력이
-#:    `inputs_used` 에서 사라지고, Critic 의 등급 누출 검사가 대상을 못 본다.
+#: `service/harness.py` 의 `TOOL_DEPENDENCIES` 와 겹쳐 보이지만 묻는 것이 다르다. 저쪽은 "지금
+#: 이 Tool 을 부를 수 있는가" 이고, 여기는 "이 Tool 의 결과는 무엇을 읽고 만들어졌는가" 다.
+#: 전이 폐포를 끊으면 cap 을 만든 현금흐름 입력이 `inputs_used` 에서 사라지고, Critic 의 등급
+#: 누출 검사가 대상을 못 본다.
 _TOOL_PREREQUISITE_TOOLS: dict[str, tuple[str, ...]] = {
     "calculate_purchase_finance_cap": ("project_cashflow",),
     "analyze_payment_pressure": ("project_cashflow",),
@@ -294,9 +287,9 @@ _TOOL_PREREQUISITE_TOOLS: dict[str, tuple[str, ...]] = {
 
 
 class FinanceToolDependencyMissing(RuntimeError):
-    """실행한 Tool 의 의존 계약이 없다. **조용히 0개로 보고하지 않는다.**
+    """실행한 Tool 의 의존 계약이 없다. 조용히 0개로 보고하지 않는다.
 
-    비어 있는 `inputs_used` 는 Critic 이 *"금지 입력이 없다"* 로 읽고 통과시킨다 —
+    비어 있는 `inputs_used` 는 Critic 이 "금지 입력이 없다" 로 읽고 통과시킨다 —
     모르는 것이 통과가 되는 구조라, 여기서는 크게 실패하는 편이 낫다.
     """
 
@@ -306,9 +299,9 @@ class FinanceToolDependencyMissing(RuntimeError):
 
 
 def _resolve_tool_inputs(tool: str, *, has_debt: bool) -> list[str]:
-    """Tool 하나가 읽는 입력의 **전이 폐포**.
+    """Tool 하나가 읽는 입력의 전이 폐포.
 
-    `_context` 공통 입력 + Tool 고유 입력 + 내부에서 부르는 Tool 의 입력.
+    `load_context` 공통 입력 + Tool 고유 입력 + 내부에서 부르는 Tool 의 입력.
     """
     if tool not in _CAP_TOOL_INPUTS:
         raise FinanceToolDependencyMissing(tool)
@@ -332,7 +325,7 @@ def _resolve_tool_inputs(tool: str, *, has_debt: bool) -> list[str]:
 def _observed_has_debt(states: list[FinanceAgentState]) -> bool:
     """이번 실행에서 부채 일정을 실제로 읽었는가.
 
-    `_context` 가 `current_debt > 0` 일 때만 읽으므로, 고정 선언이 아니라 그날의
+    `load_context` 가 `current_debt > 0` 일 때만 읽으므로, 고정 선언이 아니라 그날의
     상태에서 판단한다 — 읽지 않은 것을 읽었다고 적지 않기 위해서다.
     """
     for state in states:
@@ -349,19 +342,18 @@ def _observed_has_debt(states: list[FinanceAgentState]) -> bool:
 def finance_dept_meta(
     mode: str, payload: dict[str, Any], states: list[FinanceAgentState]
 ) -> dict[str, Any] | None:
-    """이번 실행의 사용 입력·산출 필드를 **재무 자신이** 기계가 읽을 형태로 낸다.
+    """이번 실행의 사용 입력·산출 필드를 재무 자신이 기계가 읽을 형태로 낸다.
 
-    Critic 의 `E-GRADE-LEAK`(재무 cap 에 등급·수량이 섞였나)와 `E-AUTHORITY`(부서가
-    S3 전속 판정을 냈나)는 이 둘이 없으면 아예 돌지 않는다 — 통과가 아니라 **생략**이다.
+    Critic 의 `E-GRADE-LEAK`(재무 cap 에 등급·수량이 섞였나)와 `E-AUTHORITY`(부서가 S3 전속
+    판정을 냈나)는 이 둘이 없으면 아예 돌지 않는다 — 통과가 아니라 생략이다.
 
-    ★ **마스터가 추측하면 안 되는 것이라 재무가 낸다.** 마스터는 Tool 이름이나
-      payload 키를 보고 *"재무가 무엇을 읽었는지"* 를 알 수 없다. 모르는 것을 빈
-      dict 로 보내면 Critic 은 *"금지 입력이 없다"* 로 읽고 **통과시킨다** — 모르는
-      것이 통과가 되는 구조라, 마스터는 아예 안 보내고 생략으로 남겨 왔다.
+    마스터가 추측하면 안 되는 것이라 재무가 낸다. 마스터는 Tool 이름이나 payload 키를 보고
+    "재무가 무엇을 읽었는지" 를 알 수 없다. 모르는 것을 빈 dict 로 보내면 Critic 은 "금지 입력이
+    없다" 로 읽고 통과시킨다 — 모르는 것이 통과가 되는 구조라, 마스터는 안 보내고 생략으로
+    둔다.
 
-    ★ **관측이지 선언이 아니다.** `inputs_used` 는 실행에서 실제로 성공한 Tool
-      (`state.tool_order`)만 보고 만든다. `produced_fields` 는 실제로 실린 payload
-      키다. 둘 다 실행과 어긋날 수 없다.
+    관측이지 선언이 아니다. `inputs_used` 는 실행에서 실제로 성공한 Tool(`state.tool_order`)만
+    보고 만든다. `produced_fields` 는 실제로 실린 payload 키다. 둘 다 실행과 어긋날 수 없다.
 
     PRE_PURCHASE 만 낸다 — Critic 의 두 검사가 조언자 경계 회신을 대상으로 한다.
     """
@@ -370,7 +362,7 @@ def finance_dept_meta(
     if mode == "SCENARIO_VALIDATION":
         # 시나리오 판정에는 재무 cap 검사(`E-GRADE-LEAK`)에 해당하는 축이 없다.
         # 없는 검사에 가짜 `inputs_used` 를 지어내지 않고, 권한 검사(`E-AUTHORITY`)가
-        # 볼 수 있게 **실제 산출 필드만** 낸다.
+        # 볼 수 있게 실제 산출 필드만 낸다.
         return {
             "observation_type": "finance_dept_meta",
             "inputs_used": {},
@@ -393,24 +385,24 @@ def finance_dept_meta(
 
 
 def _produced_fields(payload: dict[str, Any]) -> list[str]:
-    """이번 회신에 **실제로 실린** 필드.
+    """이번 회신에 실제로 실린 필드.
 
     값이 `None` 인 키는 뺀다 — 어댑터가 경계에서 실제로 빼는 것과 같은 기준이다
-    (`_controller_run` 의 `margin_defense_floor_rate`). 산출하지 않은 필드를
-    산출했다고 적으면 권한 검사가 엉뚱한 것을 본다.
+    (`service/agent_run.py` 의 `run_controller` 가 빼는 `margin_defense_floor_rate`). 산출하지
+    않은 필드를 산출했다고 적으면 권한 검사가 엉뚱한 것을 본다.
     """
     return sorted(key for key, value in payload.items() if value is not None)
 
 
 def assert_dependency_contract_is_complete(pre_purchase_tools: frozenset[str]) -> None:
-    """PRE_PURCHASE Tool 은 **전부** 의존 계약을 가져야 한다.
+    """PRE_PURCHASE Tool 은 전부 의존 계약을 가져야 한다.
 
     기동 시점에 확인한다 — Tool 을 새로 만들고 계약을 안 적으면, 그 사실이 조용한
-    `inputs_used` 누락이 아니라 **import 실패**로 즉시 드러난다.
+    `inputs_used` 누락이 아니라 import 실패로 즉시 드러난다.
 
-    ★ Tool 목록을 **받아서** 검사한다. 여기서 Harness 를 import 하면 순환이 된다
-      (Harness → capabilities → execution). 부르는 쪽은 `application.harness` 이고,
-      실행 경로는 반드시 그 모듈을 지나므로 확인 시점은 그대로다.
+    Tool 목록을 받아서 검사한다. 여기서 Harness 를 import 하면 순환이 된다(harness →
+    capabilities → evidence). 부르는 쪽은 `service/harness.py` 의 모듈 맨 아래이고, 실행 경로는
+    반드시 그 모듈을 지나므로 확인 시점은 그대로다.
     """
     undeclared = sorted(pre_purchase_tools - set(_CAP_TOOL_INPUTS))
     if undeclared:

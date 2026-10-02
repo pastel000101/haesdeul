@@ -1,8 +1,6 @@
 """재무 화면 조회 응답 — 재무 현황 · 현금 흐름 한 판.
 
-★ 2026-09-29 재구성 BL-014: `finance/schemas.py` 의 화면 조회 절을 옮겼다(필드 · 모양 그대로).
-  채우는 쪽은
-  `readmodel/dashboard.py`, SQL 은 `repository/dashboard.py` 다.
+채우는 쪽은 `readmodel/dashboard.py`, SQL 은 `repository/dashboard.py` 다.
 """
 
 from datetime import date
@@ -49,7 +47,7 @@ class FinanceCashflowSummary(BaseModel):
     purchase_cash_out_krw: Decimal
     logistics_cash_out_krw: Decimal
     payroll_interest_cash_out_krw: Decimal
-    #: 기간 합이라 **기록된 날만 더한다.** 기록하지 않은 날은 0 으로 세지 않고 빠진다.
+    #: 기간 합이라 기록된 날만 더한다. 기록하지 않은 날은 0 으로 세지 않고 빠진다.
     operating_expense_cash_out_krw: Decimal = Decimal(0)
     sales_recognized_krw: Decimal
     collection_cash_in_krw: Decimal
@@ -127,9 +125,9 @@ class FinanceClosingItem(BaseModel):
     payroll_interest_cash_out_krw: Decimal
     #: 일반 운영비 현금유출. `base_net_cash_krw` 는 이 값까지 빼고 적힌 값이다.
     #:
-    #: 🔴 **`None` 은 «그 실행이 이 축을 기록하지 않았다» 다 — 0원이 아니다.** 이 칸이
-    #:    생기기 전 마감에 0 을 적으면 «세어 보니 없었다» 가 되고, 그러면 아무도 그날
-    #:    운영비가 정말 없었는지 물어보지 않는다.
+    #: `None` 은 «그 실행이 이 축을 기록하지 않았다» 다 — 0원이 아니다. 이 칸이 생기기 전
+    #: 마감에 0 을 적으면 «세어 보니 없었다» 가 되고, 그러면 아무도 그날 운영비가 정말
+    #: 없었는지 물어보지 않는다.
     operating_expense_cash_out_krw: Decimal | None = None
     sales_recognized_krw: Decimal
     collection_cash_in_krw: Decimal

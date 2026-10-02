@@ -1,6 +1,6 @@
 """Finance operations-console run-history read model; strictly run-scoped.
 
-🔴 **The run axis is not stored on the Finance run row.**  `finance_agent_runs_v22`
+The run axis is not stored on the Finance run row.  `finance_agent_runs_v22`
 keeps `request_id` but no `sim_run_id`, so this reader asks the one table that does
 record that binding — Master's `master_agent_runs`, which wrote the request in the
 first place.  It is read, never written, and nothing is copied out of it beyond the
@@ -15,8 +15,7 @@ A Finance run whose request never reached Master therefore belongs to no run her
 and is not returned.  That is the honest answer — there is no stored fact that puts
 it in one.
 
-★ 2026-09-29 재구성 BL-014: 응답 모델은 `schemas/console_runs.py`, SQL 은
-  `repository/console_runs.py`.
+응답 모델은 `schemas/console_runs.py`, SQL 은 `repository/console_runs.py`.
 """
 
 from datetime import date
@@ -79,12 +78,12 @@ def get_console_finance_runs(
 def get_console_finance_latest_run(
     *, sim_run_id: str, as_of: date | None = None
 ) -> ConsoleFinanceRun | None:
-    """The newest stored Finance run **inside this simulation run**, or null.
+    """The newest stored Finance run inside this simulation run, or null.
 
-    🔴 This reads history.  It never calls the agent — a GET that re-runs Finance
+    This reads history.  It never calls the agent — a GET that re-runs Finance
     would make opening a screen change the ledger.
 
-    🔴 There is no global fallback.  If this run has no Finance run yet, the answer
+    There is no global fallback.  If this run has no Finance run yet, the answer
     is "none", not somebody else's newest run.
     """
     with core_db.read_connection() as conn:

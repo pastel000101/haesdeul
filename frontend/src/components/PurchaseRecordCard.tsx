@@ -15,28 +15,28 @@ import type { PurchaseRecordLeg, PurchaseRecordOut, PurchaseRecordStatus } from 
 /**
  * 「실매입 기록」 카드 — 승인한 안(`ApprovedPlan`) 바로 아래 (설계 260915 안 A §5).
  *
- * ★ 사람이 안을 고르면 선정만 기록된다. **실제로 산 값을 여기서 적는 순간** 그 값으로
- *   매입 원장 · 매입채무 · 입고 일정이 선다.
+ * 사람이 안을 고르면 선정만 기록된다. 실제로 산 값을 여기서 적는 순간 그 값으로
+ * 매입 원장 · 매입채무 · 입고 일정이 선다.
  *
- * ★ **상태는 서버가 정한다.** 화면은 `GET …/purchase-record` 를 읽어 그리고, 적은 뒤에도
- *   응답을 믿지 않고 다시 읽는다 — 장부의 값이 화면의 값이다.
+ * 상태는 서버가 정한다. 화면은 `GET …/purchase-record` 를 읽어 그리고, 적은 뒤에도
+ * 응답을 믿지 않고 다시 읽는다 — 장부의 값이 화면의 값이다.
  *
- * ★ 회차 수와 회차 번호는 선정안 그대로다. 사람은 값만 고친다 (추가 · 삭제 없음).
+ * 회차 수와 회차 번호는 선정안 그대로다. 사람은 값만 고친다 (추가 · 삭제 없음).
  *
- * ★ 기록자는 로그인 이름이다. 화면에 입력칸으로 두지 않는다.
+ * 기록자는 로그인 이름이다. 화면에 입력칸으로 두지 않는다.
  *
- * ★ **매입일은 보여만 준다** (2026-09-16). 승인한 안에 적힌 날이 그대로 장부의 날이고,
- *   다른 날로 적으면 서버가 되돌린다 — 되돌려받기 전에 화면이 먼저 말한다.
+ * 매입일은 보여만 준다. 승인한 안에 적힌 날이 그대로 장부의 날이고,
+ * 다른 날로 적으면 서버가 되돌린다 — 되돌려받기 전에 화면이 먼저 말한다.
  *
- * ★ **사람은 금액이 아니라 단가(원/kg)를 적는다** (2026-09-16). 금액은 수량 × 단가로
- *   여기서 바로 서고 읽기 전용으로 보여만 준다 — 매입 원장의 단가 칸이 정수여야 해서,
- *   금액을 받아 나누면 소수 단가가 나고 장부가 그 자리에서 멈춘다.
+ * 사람은 금액이 아니라 단가(원/kg)를 적는다. 금액은 수량 × 단가로
+ * 여기서 바로 서고 읽기 전용으로 보여만 준다 — 매입 원장의 단가 칸이 정수여야 해서,
+ * 금액을 받아 나누면 소수 단가가 나고 장부가 그 자리에서 멈춘다.
  *
- * ★ **수량 · 단가는 정수만 받는다.** 반 kg · 소수점 원은 장부가 받지 않는다. 보내 놓고
- *   거절당하는 대신 적는 자리에서 알려 준다.
+ * 수량 · 단가는 정수만 받는다. 반 kg · 소수점 원은 장부가 받지 않는다. 보내 놓고
+ * 거절당하는 대신 적는 자리에서 알려 준다.
  */
 
-/** 🔴 상태 코드를 화면에 쓰지 않는다 — 사람 말로 옮긴다. */
+/** 상태 코드를 화면에 쓰지 않는다 — 사람 말로 옮긴다. */
 const STATUS_TEXT: Record<Exclude<PurchaseRecordStatus, "NOT_REQUIRED">, string> = {
   AWAITING_PURCHASE_RECORD: "기록 대기",
   APPLIED: "반영됨",
@@ -44,9 +44,9 @@ const STATUS_TEXT: Record<Exclude<PurchaseRecordStatus, "NOT_REQUIRED">, string>
 };
 
 /**
- * ★ **`NOT_APPLIED` 는 실패가 아니라 진행이다** (2026-09-17). 기록은 남았고 다음 개장
- *   때 원장에 선다 — 경고색으로 칠하면 사람이 *"내가 뭘 잘못 적었나"* 로 읽는다.
- *   그래서 기록 대기와 같은 진행 계열(`gold`)을 쓴다.
+ * `NOT_APPLIED` 는 실패가 아니라 진행이다. 기록은 남았고 다음 개장
+ * 때 원장에 선다 — 경고색으로 칠하면 사람이 «내가 뭘 잘못 적었나» 로 읽는다.
+ * 그래서 기록 대기와 같은 진행 계열(`gold`)을 쓴다.
  */
 const STATUS_STYLE: Record<Exclude<PurchaseRecordStatus, "NOT_REQUIRED">, string> = {
   AWAITING_PURCHASE_RECORD: "bg-gold-wash text-gold",
@@ -131,9 +131,9 @@ export function PurchaseRecordCard({ requestId }: { requestId: string }) {
         </>
       )}
       {/*
-        🔴 **이미 원장에 선 것(`APPLIED`)에는 안 보인다.** 실린 것을 되돌리려면 취소
-           경로가 따로 있어야 하고, 이 버튼은 그것을 하지 못한다 — 못 하는 일을
-           할 수 있는 것처럼 보이는 버튼이 제일 나쁘다.
+        이미 원장에 선 것(`APPLIED`)에는 안 보인다. 실린 것을 되돌리려면 취소
+        경로가 따로 있어야 하고, 이 버튼은 그것을 하지 못한다 — 못 하는 일을
+        할 수 있는 것처럼 보이는 버튼이 제일 나쁘다.
       */}
       {(data.status === "AWAITING_PURCHASE_RECORD" || data.status === "NOT_APPLIED") && (
         <ChangeRequest requestId={data.request_id} onRequested={reload} />
@@ -185,7 +185,7 @@ const toDraft = (leg: PurchaseRecordLeg): LegDraft => ({
   arrival_date: leg.arrival_date,
 });
 
-/** 금액은 **수량 × 단가로 난다** — 적는 칸이 아니다. 둘 중 하나가 비면 보여 줄 금액도 없다. */
+/** 금액은 수량 × 단가로 난다 — 적는 칸이 아니다. 둘 중 하나가 비면 보여 줄 금액도 없다. */
 function legAmount(leg: LegDraft): number | null {
   const qty = Number(leg.qty_kg);
   const unit = Number(leg.unit_price_krw);
@@ -197,8 +197,8 @@ function legAmount(leg: LegDraft): number | null {
 /**
  * 서버 사유를 한 줄로.
  *
- * ★ 본문 검사(도착일이 매입일보다 앞섬 등)는 목록으로 오므로 문장만 뽑는다.
- * ★ 판정 코드 괄호(`(REJECTED)` 같은 것)는 떼고, 코드가 남으면 사람 말로 바꾼다.
+ * 본문 검사(도착일이 매입일보다 앞섬 등)는 목록으로 오므로 문장만 뽑는다.
+ * 판정 코드 괄호(`(REJECTED)` 같은 것)는 떼고, 코드가 남으면 사람 말로 바꾼다.
  */
 function recordErrorText(error: unknown): string {
   const status = error instanceof ApiError ? error.status : null;
@@ -244,7 +244,7 @@ function RecordForm({
         leg.arrival_date !== "",
     );
 
-  // ★ 장부의 수량은 kg, 단가는 원/kg 이고 둘 다 정수다. **보내기 전에** 알려 준다.
+  // 장부의 수량은 kg, 단가는 원/kg 이고 둘 다 정수다. 보내기 전에 알려 준다.
   const 정수 = (text: string) => Number.isInteger(Number(text));
   const 소수회차 = legs
     .filter((leg) => !정수(leg.qty_kg) || !정수(leg.unit_price_krw))
@@ -263,7 +263,7 @@ function RecordForm({
         decision_seq: data.decision_seq,
         grade: grade.trim(),
         recorded_by: session.name,
-        // 🔴 금액을 같이 보내지 않는다 — 서버가 수량 × 단가로 만든다. 주인은 하나다.
+        // 금액을 같이 보내지 않는다 — 서버가 수량 × 단가로 만든다. 주인은 하나다.
         legs: legs.map((leg) => ({
           seq: leg.seq,
           qty_kg: Number(leg.qty_kg),
@@ -344,7 +344,7 @@ function RecordForm({
                       className={inputClass(changed(leg.unit_price_krw, plan?.unit_price_krw))}
                     />
                   </td>
-                  {/* 🔴 금액은 수량 × 단가로 난 값이다 — 사람이 고치는 칸이 아니다. */}
+                  {/* 금액은 수량 × 단가로 난 값이다 — 사람이 고치는 칸이 아니다. */}
                   <td className="px-3 py-1.5 font-mono tabular-nums text-muted">
                     {원(legAmount(leg))}
                   </td>
@@ -465,16 +465,16 @@ function RecordTable({ data }: { data: PurchaseRecordOut }) {
 /* ── 승인 되돌리기 ───────────────────────────────────────────────────────── */
 
 /**
- * 잘못 고른 안 · 잘못 적은 값을 **사람이 화면에서 되돌린다** (2026-09-17).
+ * 잘못 고른 안 · 잘못 적은 값을 사람이 화면에서 되돌린다.
  *
- * ★ 백엔드에는 이미 있던 길이다 — 승인과 같은 `/decision` 에 조건을 붙인 재요청을
- *   한 회차 더 적는다. 결정은 지워지지 않고 **최신 회차가 승인이 아니게 되는 것**으로
- *   접힌다. 그러면 그 승인이 만든 실매입 기록은 다음 개장 때 원장에 서지 않는다.
+ * 승인과 같은 `/decision` 에 조건을 붙인 재요청(`REQUEST_CHANGE`)을 한 회차 더 적는다.
+ * 결정은 지워지지 않고 최신 회차가 승인이 아니게 되는 것으로 접힌다. 그러면 그 승인이
+ * 만든 실매입 기록은 다음 개장 때 원장에 서지 않는다.
  *
- * ★ **되돌린 사람은 승인한 사람과 같은 자리에서 온다** — 로그인 이름이다. 새로 짓거나
- *   입력칸으로 받으면 승인 이력에 두 종류의 이름이 섞인다.
+ * 되돌린 사람은 승인한 사람과 같은 자리에서 온다 — 로그인 이름이다. 새로 짓거나
+ * 입력칸으로 받으면 승인 이력에 두 종류의 이름이 섞인다.
  *
- * ★ **확인을 한 번 더 받는다.** 장부를 바꾸는 요청이라 화면이 그렇게 약속했다.
+ * 확인을 한 번 더 받는다. 장부를 바꾸는 요청이기 때문이다.
  */
 function ChangeRequest({
   requestId,
@@ -497,8 +497,8 @@ function ChangeRequest({
     setError(null);
   }
 
-  // 🔴 조건이 비면 **보내지 않는다.** 서버도 거절하지만, 거절을 받고 나서 알려 주는
-  //    것과 적는 자리에서 알려 주는 것은 다른 일이다.
+  // 조건이 비면 보내지 않는다. 서버도 거절하지만, 거절을 받고 나서 알려 주는
+  // 것과 적는 자리에서 알려 주는 것은 다른 일이다.
   function ask() {
     if (reason.trim() === "") {
       setError("무엇을 바꿔야 하는지 한 줄이라도 적어 주세요.");
@@ -522,7 +522,7 @@ function ChangeRequest({
       // 상태의 주인은 서버다 — 응답을 믿지 않고 카드를 다시 읽는다.
       await onRequested();
     } catch (failure) {
-      // ★ 서버가 준 사유를 **그대로** 올린다. 덮으면 무엇을 고쳐야 하는지가 사라진다.
+      // 서버가 준 사유를 그대로 올린다. 덮으면 무엇을 고쳐야 하는지가 사라진다.
       setError(serverReasonText(failure));
       setConfirming(false);
     } finally {
@@ -621,12 +621,12 @@ function ChangeRequest({
 }
 
 /**
- * 서버가 준 사유를 한 줄로 **그대로** 옮긴다.
+ * 서버가 준 사유를 한 줄로 그대로 옮긴다.
  *
- * ★ `recordErrorText` 와 다르다 — 저쪽은 사람 말이 아니면 일반 문장으로 덮지만,
- *   되돌리기는 막힌 이유(*"이미 다른 결정이 있다"* 같은 것)가 그 자리에서 보여야
- *   사람이 다음 수를 고른다.
- * ★ 본문 검사는 목록으로 오므로 문장만 뽑는다.
+ * `recordErrorText` 와 다르다 — 저쪽은 사람 말이 아니면 일반 문장으로 덮지만,
+ * 되돌리기는 막힌 이유(«이미 다른 결정이 있다» 같은 것)가 그 자리에서 보여야
+ * 사람이 다음 수를 고른다.
+ * 본문 검사는 목록으로 오므로 문장만 뽑는다.
  */
 function serverReasonText(error: unknown): string {
   let message = error instanceof Error ? error.message : "";

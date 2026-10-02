@@ -4,21 +4,17 @@
     닫힌 어휘 · 숫자 입력 방어 · 현금흐름 · 정책/부채 · T0 상태 ·
     매입 제안 입력 · 매입/판매 Cycle 응답 · 실행이력 조회 응답
 
-여기 **없는 것**
+여기 없는 것
     계산 · 판정 · 실행 통제 · 사람이 읽는 문장
-    → `tools` · `rules` · `application` · `messages` 소유다.
+    → `domain/tools.py` · `domain/rules.py` · `service/` · `domain/messages.py` 소유다.
 
-★ 아홉 모듈을 한곳에 모았다. **늘 같이 열리는 것들**이라 파일이 갈려 있으면 하나를
-  고칠 때마다 나머지를 찾아다니게 된다. 계약은 서로를 참조하고(정책 → 상태 →
-  응답), 그 참조가 곧 이 파일의 절 순서다.
+늘 같이 열리는 계약을 한곳에 둔다. 파일이 갈려 있으면 하나를 고칠 때마다 나머지를 찾아다니게
+된다. 계약은 서로를 참조하고(정책 → 상태 → 응답), 그 참조가 곧 이 파일의 절 순서다.
 
-★ **필드 이름 · JSON 모양 · Literal 값 · 검증 의미는 그대로다.** 이 파일은 프론트와
-  Master 와 Critic 이 읽는 계약이고, 옮겨 담는 것이 이름을 바꿀 이유는 되지 않는다.
+필드 이름 · JSON 모양 · Literal 값 · 검증 의미는 프론트와 Master 와 Critic 이 읽는 계약이다.
 
-★ 2026-09-29 재구성 BL-014: `finance/schemas.py` 가 `schemas/` 폴더가 되며 이 파일로 옮겼다. 화면
-  조회 응답은
-  `schemas/dashboard.py`, 실행이력 조회 응답은 `schemas/runs.py` 로 갈랐다 — 에이전트 계약과
-  화면 조회 계약은 읽는 쪽이 다르다. 나머지 절 순서 · 필드 · 검증은 그대로다.
+화면 조회 응답은 `schemas/dashboard.py`, 실행이력 조회 응답은 `schemas/runs.py` 에 둔다 —
+에이전트 계약과 화면 조회 계약은 읽는 쪽이 다르다.
 """
 
 from datetime import date
@@ -31,16 +27,14 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # 공통 닫힌 어휘
 # ---------------------------------------------------------------------------
 
-#: Agent 가 지원하는 두 실행 mode. **Planner 계약이자 회신 계약이다.**
-#: ★ `SALES_VALIDATION` 은 **매입 시나리오 검증과 다른 책임이다.** Master 는
-#:   Sales 의 `FINANCIAL_VALIDATION` 요청을 `(finance, SALES_VALIDATION)` 으로 라우팅한다
-#:   (2026-09-02 Master 회신). 같은 mode 를 재사용하면 `(agent, mode, call_seq)` 로
-#:   매입 검증과 판매 검증을 구분할 수 없고, 그러면 payload 모양을 보고 무엇인지
-#:   추측하는 Adapter 가 생긴다.
+#: Controller 가 돌리는 세 실행 mode. Planner 계약이자 회신 계약이다.
+#: `SALES_VALIDATION` 은 매입 시나리오 검증과 다른 책임이다. Master 는 Sales 의
+#: `FINANCIAL_VALIDATION` 요청을 `(finance, SALES_VALIDATION)` 으로 라우팅한다(2026-09-02
+#: Master 회신). 같은 mode 를 재사용하면 `(agent, mode, call_seq)` 로 매입 검증과 판매 검증을
+#: 구분할 수 없고, 그러면 payload 모양을 보고 무엇인지 추측하는 Adapter 가 생긴다.
 #:
-#:   🔴 **아직 Controller 경로에 연결되지 않았다.** `finance_agent_runs_v22.mode` 의
-#:   CHECK 제약이 두 매입 mode 만 허용해서, 연결하면 실행이력 저장이 전부 깨진다.
-#:   DB 마이그레이션과 Master capability 라우팅이 함께 와야 열 수 있다.
+#: `finance_agent_runs_v22.mode` 의 CHECK 도 이 셋을 허용한다 — 바꾸려면 DDL 과 마이그레이션이
+#: 함께 바뀌어야 실행이력 저장이 깨지지 않는다.
 FinanceMode = Literal["PRE_PURCHASE", "SCENARIO_VALIDATION", "SALES_VALIDATION"]
 FinalVerdict = Literal["PASS", "REVIEW_REQUIRED", "FAIL"]
 RuntimeStatus = Literal["READY", "RUNTIME_NOT_READY", "ERROR"]
@@ -55,9 +49,9 @@ CashEventType = Literal[
     "DEBT_SERVICE",
     "EXTRA_PURCHASE",
     "H1_PURCHASE_PAYMENT",
-    # ★ 제안된 판매 회수. **확정 채권이 아니다** — 이름 자체가 확실성을 나른다.
-    #   BASE(확정 Event)에 섞이면 승인되지 않은 돈이 확정 현금처럼 읽히므로,
-    #   SCENARIO 투영에서만 쓰고 실제 채권으로 적재하지 않는다.
+    # 제안된 판매 회수. 확정 채권이 아니다 — 이름 자체가 확실성을 나른다.
+    # BASE(확정 Event)에 섞이면 승인되지 않은 돈이 확정 현금처럼 읽히므로,
+    # SCENARIO 투영에서만 쓰고 실제 채권으로 적재하지 않는다.
     "PROPOSED_SALES_COLLECTION",
 ]
 
@@ -225,9 +219,9 @@ class FinanceSnapshot(BaseModel):
     committed_outflows_krw: Decimal
     unsettled_purchase_payables_krw: Decimal
     receivables_krw: Decimal = Decimal(0)
-    #: 부채는 음수일 수 없다. 음수는 **"빚 없음"으로 오독되어** 부채 정책 검증과 상환
+    #: 부채는 음수일 수 없다. 음수는 "빚 없음"으로 오독되어 부채 정책 검증과 상환
     #: 일정을 통째로 건너뛰게 한다 — 잘못된 상태가 정상 응답으로 둔갑한다.
-    #: 원천 행 검증(`repository._reject_negative_debt`)과 **함께** 쓰는 이중 방어다.
+    #: 원천 행 검증(`domain/finance_state.py` 의 `reject_negative_debt`)과 함께 쓰는 이중 방어다.
     current_debt_krw: Decimal = Field(default=Decimal(0), ge=0)
     financial_limit_krw: Decimal
 

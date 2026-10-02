@@ -1,9 +1,4 @@
-"""판매 실행 요청 · 응답 모델과 판매 종료 코드 어휘.
-
-★ 2026-09-30 재구성 BL-018: `master/sales_flow.py` 에서 옮겼다 — `SalesEndCode`.
-★ 2026-09-30 재구성 BL-018: `master/schemas.py` 에서 옮겼다 — `SalesBusinessMode`,
-  `SalesRunRequest`, `SalesCandidateOut`, `SalesRunResponse`.
-"""
+"""판매 실행 요청 · 응답 모델과 판매 종료 코드 어휘."""
 
 from __future__ import annotations
 
@@ -24,36 +19,38 @@ SalesBusinessMode = Literal[
     "CONTRACT_PROPOSAL_RENEWAL",
     "SPOT_SALES",
 ]
-"""판매 사이클의 영업 모드. **어휘의 주인은 판매다** (`app/sales/schemas/proposal.py`).
+"""판매 사이클의 영업 모드. 어휘의 주인은 판매다 (`app/sales/schemas/proposal.py`).
 
-🔴 **그런데 마스터가 `app.sales.schemas` 를 import 하지 않는다.** `Capability` 때와
-  같은 이유다 — 조정자가 부서 스키마에 런타임으로 묶이면 부서가 자기 모델을 고치는 날
-  마스터 API 가 같이 흔들린다.
+그런데 마스터가 `app.sales.schemas` 를 import 하지 않는다. `Capability` 와 같은 이유다 —
+조정자가 부서 스키마에 런타임으로 묶이면 부서가 자기 모델을 고치는 날 마스터 API 가 같이
+흔들린다.
 
-★ **대신 테스트가 양쪽을 대조한다** (`tests/master/test_sales_entrypoint.py`).
-  갈려도 런타임에는 아무 소리가 안 나기 때문이다 — 판매가 모드를 하나 늘리면
-  마스터 문 앞에서 422 가 나고, 그것은 *"그런 모드는 없다"* 로 읽힌다.
+대신 테스트가 양쪽을 대조한다 (`tests/master/test_sales_entrypoint.py`). 갈려도 런타임에는
+아무 소리가 안 나기 때문이다 — 판매가 모드를 하나 늘리면 마스터 문 앞에서 422 가 나고,
+그것은 "그런 모드는 없다" 로 읽힌다.
 """
 
 
 # ---------------------------------------------------------------------------
-# 판매 사이클 — **매입과 대칭으로 두되 한 벌로 묶지 않는다** (설계 §1 · 2026-09-07)
+# 판매 사이클 — 매입과 대칭으로 두되 한 벌로 묶지 않는다 (설계 §1 · 2026-09-07)
 #
-# 🔴 두 사이클은 응답 모델도 종료 코드도 다르다. 공유하는 것은 **판정(개장 Gate)과
-#   순서**이지 응답이 아니다. 억지로 묶으면 판매 종료 코드가 매입 어휘로 새거나 그
+# 두 사이클은 응답 모델도 종료 코드도 다르다. 공유하는 것은 판정(개장 Gate)과
+#   순서이지 응답이 아니다. 억지로 묶으면 판매 종료 코드가 매입 어휘로 새거나 그
 #   반대가 된다 — `SL2_NO_CANDIDATE` 를 `E2_HELD` 로 적는 날이 온다.
 # ---------------------------------------------------------------------------
 
 
 class SalesRunRequest(BaseModel):
-    """사용자가 눌러서 시작하는 판매 요청 (설계 §2).
+    """판매 실행 요청. 사용자가 화면에서 시작하거나 자동 걷기가 보낸다.
 
-    ★ `ProcurementRunRequest` 와 대칭이되 **판매에만 있는 것이 셋**이다 —
-      `business_mode` · `partner_id` · `user_request`.
+    `ProcurementRunRequest` 와 대칭이되 판매에만 있는 칸이 있다 — 영업 모드
+    (`business_mode`) · 거래처(`partner_id`) · 사용자 요청(`user_request`)과, 판매
+    `SalesUserRequest` 로 그대로 넘어가는 구조화 조건(`requested_quantity_kg` ·
+    `preferred_*` · `source_ref` · `allow_additional_sourcing`)이다.
 
-    🔴 **`has_unmet_obligation` 은 싣지 않는다.** 그것은 매입 `E5` 판정 전용이고
-      **판매가 준 사실을 매입이 쓰는 값**이다. 판매 요청에 되돌려 실으면 순환이다 —
-      판매가 자기가 준 사실을 자기 입력으로 다시 받는다.
+    `has_unmet_obligation` 은 싣지 않는다. 그것은 매입 `E5` 판정 전용이고 판매가 준 사실을
+    매입이 쓰는 값이다. 판매 요청에 되돌려 실으면 판매가 자기가 준 사실을 자기 입력으로
+    다시 받는 순환이 된다.
     """
 
     model_config = {"extra": "forbid"}
@@ -66,9 +63,9 @@ class SalesRunRequest(BaseModel):
         description="주지 않으면 마스터가 만든다. 같은 날 재실행을 구분하려면 직접 준다.",
     )
 
-    #: 🔴 **25 다. 매입 12 가 아니다** (설계 §3).
+    #: 25 다. 매입 12 가 아니다 (설계 §3).
     #:
-    #:   골격에 `SALES_BUDGET = 25` 가 있지만 **요청이 12 를 들고 오면 그 값이 이긴다.**
+    #:   골격에 `SALES_BUDGET = 25` 가 있지만 요청이 12 를 들고 오면 그 값이 이긴다.
     #:   매입 스키마를 복사해 오면 실제로 그렇게 되고, 소진은 `SL5_BUDGET_EXHAUSTED`
     #:   로 조용히 남는다 — 판단이 안 끝난 날이 늘어나는데 아무 오류도 안 난다.
     #:
@@ -84,13 +81,13 @@ class SalesRunRequest(BaseModel):
     #:                                   25
     #:   ```
     #:
-    #:   ★★ **매입 줄은 「후보 수」가 아니라 「품목 수」다** (2026-09-10 · 라우팅 개방).
-    #:     호출을 품목으로 묶으므로 후보 셋이 다 배추면 회차당 1 이다. 후보가 셋이면
-    #:     품목도 최대 셋이라 상한만 같은 수가 된다.
+    #:   매입 줄은 「후보 수」가 아니라 「품목 수」다. 호출을 품목으로 묶으므로 후보
+    #:     셋이 다 배추면 회차당 1 이다. 후보가 셋이면 품목도 최대 셋이라 상한만 같은
+    #:     수가 된다.
     #:
-    #:   ★ 산식의 주인은 `sales_flow.SALES_BUDGET` docstring 이다. 여기 적힌 것은
-    #:     **왜 12 가 아닌지**를 고치는 사람이 바로 보게 하려는 사본이고, 값 자체는
-    #:     기본값 하나뿐이다.
+    #:   산식의 주인은 `service/sales_flow.py` 의 `SALES_BUDGET` 설명이다. 여기 적힌 것은
+    #:     왜 12 가 아닌지를 고치는 사람이 바로 보게 하려는 사본이고, 값 자체는 기본값
+    #:     하나뿐이다.
     budget: int = Field(
         default=25,
         ge=1,
@@ -120,33 +117,33 @@ class SalesRunRequest(BaseModel):
     partner_id: str | None = Field(
         default=None,
         description=(
-            "거래처. 계약 이행·갱신에서는 사실상 필수지만 **마스터가 강제하지 않는다** — "
+            "거래처. 계약 이행·갱신에서는 사실상 필수지만 마스터가 강제하지 않는다 — "
             "무엇이 필요한지는 판매가 정한다 (§3.2.2)."
         ),
     )
     user_request: str | None = Field(
         default=None,
         description=(
-            "사용자가 말한 것 **그대로**. 마스터가 숫자로 해석해 제약에 꽂지 않는다 — "
+            "사용자가 말한 것 그대로. 마스터가 숫자로 해석해 제약에 넣지 않는다 — "
             "해석은 판매가 한다 (매입 `prior_feedback` 과 같은 자리)."
         ),
     )
 
-    #: 🔴 **자유 문장으로는 수량을 못 나른다** (실측 2026-09-07).
+    #: 자유 문장으로는 수량을 못 나른다 (실측 2026-09-07).
     #:
     #:   판매는 `raw_text` 를 해석해 수량을 뽑지 않는다. 그래서 `user_request` 만
     #:   보내면 `PROPOSAL_QUANTITY_REQUIRED` 로 `RUNTIME_NOT_READY` 가 돌아온다 —
-    #:   **판매가 실제로 요구한 칸**이라 여기에 자리를 만든다.
+    #:   판매가 실제로 요구한 칸이라 여기에 자리를 만든다.
     #:
-    #: 🔴 **나머지 구조화된 칸은 지금 안 넣는다.** `SalesUserRequest` 에는
-    #:   `preferred_contract_term_days` 가 더 있지만 **요구한 caller 가 아직 없다.**
-    #:   없는 필요를 API 표면에 미리 만들면 화면이 안 쓰는 칸을 채우기 시작하고,
-    #:   그 값이 어디서 왔는지 아무도 모른 채 제안에 실린다.
+    #: 요구한 caller 가 없는 구조화된 칸은 넣지 않는다. `SalesUserRequest` 의
+    #:   `preferred_contract_term_days` 가 그렇다. 없는 필요를 API 표면에 미리 만들면
+    #:   화면이 안 쓰는 칸을 채우기 시작하고, 그 값이 어디서 왔는지 아무도 모른 채
+    #:   제안에 실린다.
     #:
-    #: ★ **못 나르는 칸이 조용히 잊히지는 않는다** —
-    #:   `tests/master/test_sales_user_request_fields.py` 가 판매 모델을 읽어
-    #:   나르는 칸과 안 나르는 칸을 대조한다. 판매가 칸을 더하면 그 검사가
-    #:   *"이건 어느 쪽이냐"* 고 묻는다.
+    #: 못 나르는 칸이 조용히 잊히지는 않는다 —
+    #:   `tests/master/test_sales_user_request_fields.py` 가 판매 모델을 읽어 나르는 칸과
+    #:   안 나르는 칸을 대조한다. 판매가 칸을 더하면 그 검사가 "이건 어느 쪽이냐" 고
+    #:   묻는다.
     requested_quantity_kg: Decimal | None = Field(
         default=None,
         ge=0,
@@ -156,25 +153,24 @@ class SalesRunRequest(BaseModel):
         ),
     )
 
-    #: 🔴 **상업조건 둘이 여기로 온다** (2026-09-08 계약 · 실측).
+    #: 상업조건 둘이 여기로 온다 (2026-09-08 계약).
     #:
-    #:   `delivery_date` · `payment_days` 가 없는 후보는 **승인해도 확정할 수 없다**
-    #:   (`sales_approval.REQUIRED_COMMERCIAL_TERMS`). 그래서 후보 판정이 그 둘을
-    #:   필수로 잡았고, 그 순간 *"요구한 caller 가 없다"* 가 깨졌다 — **요구한 caller
-    #:   가 승인 경로다.**
+    #:   `delivery_date` · `payment_days` 가 없는 후보는 승인해도 확정할 수 없다
+    #:   (`domain/sales_approval.py` 의 `REQUIRED_COMMERCIAL_TERMS`). 그래서 후보 판정이
+    #:   그 둘을 필수로 잡는다 — 이 칸을 요구한 caller 는 승인 경로다.
     #:
     #:   ```text
     #:   판매 proposal.py `_baseline`   delivery = user.preferred_delivery_date
     #:                                  payment  = user.preferred_payment_days
     #:   ```
     #:
-    #:   실측(2026-09-08)에서 판매 후보 3안이 전부 `delivery_date=None` ·
-    #:   `payment_days=None` 이었던 이유가 이것이다 — **마스터가 안 실어 보냈다.**
-    #:   판매가 값을 안 만든 것이 아니라 출처가 비어 있었다.
+    #:   마스터가 이 둘을 안 실어 보내면 판매 후보가 전부 `delivery_date=None` ·
+    #:   `payment_days=None` 으로 나온다 (2026-09-08 실측: 3안 전부). 판매가 값을 안
+    #:   만든 것이 아니라 출처가 빈 것이다.
     #:
-    #: ★ **마스터가 값을 지어내지 않는다.** 안 주면 안 싣고, 그러면 후보가 제시되지
-    #:   않으며 그 사유는 *"납품일이 없다"* 로 화면에 나간다. `as_of + N` 같은
-    #:   기본값을 두면 그 `N` 이 곧 업무 규칙이 된다.
+    #: 마스터가 값을 지어내지 않는다. 안 주면 안 싣고, 그러면 후보가 제시되지 않으며
+    #:   그 사유는 "납품일이 없다" 로 화면에 나간다. `as_of + N` 같은 기본값을 두면 그
+    #:   `N` 이 곧 업무 규칙이 된다.
     preferred_delivery_date: date | None = Field(
         default=None,
         description=(
@@ -191,7 +187,7 @@ class SalesRunRequest(BaseModel):
         ),
     )
 
-    #: 🔴 **재무가 요구한 셋이 여기로 온다** (2026-09-11 · 걷기 실측).
+    #: 재무가 요구한 셋이 여기로 온다 (2026-09-11 · 걷기 실측).
     #:
     #:   ```text
     #:   재무 SALES_VALIDATION  status "INPUT_INCOMPLETE"
@@ -199,13 +195,13 @@ class SalesRunRequest(BaseModel):
     #:                   payment_terms_type · source_ref
     #:   ```
     #:
-    #:   `partner_id` 는 이미 있었고 `reported_sales_amount_krw` 는 **판매가 수량 ×
-    #:   단가로 자기 안에서 세는 파생**이다. 마스터가 실을 수 있는 자리는 나머지
-    #:   셋이고, 자동 걷기가 그 셋을 안 실어서 재무가 판정을 못 냈다.
+    #:   `partner_id` 는 따로 있는 칸이고 `reported_sales_amount_krw` 는 판매가 수량 ×
+    #:   단가로 자기 안에서 세는 파생이다. 마스터가 실을 수 있는 자리는 나머지 셋이고,
+    #:   그 셋이 안 실리면 재무가 판정을 못 낸다.
     #:
-    #: ★ **마스터가 값을 지어내지 않는다** (`preferred_delivery_date` 와 같은 규율).
-    #:   자동 걷기의 값은 **실행 규칙 파일**에서 오고 (`backfill.SalesTermsRule`),
-    #:   규칙이 없으면 셋 다 `None` 이라 종전과 똑같이 안 실린다.
+    #: 마스터가 값을 지어내지 않는다 (`preferred_delivery_date` 와 같은 규율).
+    #:   자동 걷기의 값은 실행 규칙 파일에서 오고 (`domain/backfill.py` 의
+    #:   `SalesTermsRule`), 규칙이 없으면 셋 다 `None` 이라 안 실린다.
     preferred_unit_price_krw: Decimal | None = Field(
         default=None,
         ge=0,
@@ -215,13 +211,13 @@ class SalesRunRequest(BaseModel):
         ),
     )
 
-    #: ⚠️ **`SalesBusinessMode` 처럼 Literal 로 선언하지 않는다** (2026-09-11).
+    #: `SalesBusinessMode` 처럼 Literal 로 선언하지 않는다.
     #:
-    #:   영업 모드는 **마스터가 고른다** (`scheduler.WALK_BUSINESS_MODE`) — 고르는
-    #:   쪽이 아는 이름을 제 어휘로 선언하는 것이 맞다. 지급조건 종류는 **마스터가
-    #:   고르지 않는다.** 규칙 파일이 말한 것을 나르기만 하므로, 여기에 Literal 을
-    #:   두면 **업무의 값이 코드에 박히고** 판매가 어휘를 늘리는 날 마스터가 문
-    #:   앞에서 먼저 거절한다. 아는 이름인지는 판매 문(`SalesUserRequest`)이 판정한다.
+    #:   영업 모드는 마스터가 고른다 (`service/scheduler.py` 의 `WALK_BUSINESS_MODE`) —
+    #:   고르는 쪽이 아는 이름을 제 어휘로 선언하는 것이 맞다. 지급조건 종류는 마스터가
+    #:   고르지 않는다. 규칙 파일이 말한 것을 나르기만 하므로, 여기에 Literal 을 두면
+    #:   업무의 값이 코드에 박히고 판매가 어휘를 늘리는 날 마스터가 문 앞에서 먼저
+    #:   거절한다. 아는 이름인지는 판매 문(`SalesUserRequest`)이 판정한다.
     preferred_payment_terms_type: str | None = Field(
         default=None,
         min_length=1,
@@ -231,12 +227,12 @@ class SalesRunRequest(BaseModel):
         ),
     )
 
-    #: 🔴 **이 조건을 누가 정했나.** 사람이 화면에 친 문장에는 되짚을 행이 없어
-    #:   종전에는 이 칸을 안 날랐다. **자동 걷기는 다르다** — 조건이 실행 규칙에서
-    #:   왔고 그 규칙은 `sim_runs.config_json` 이라는 되짚을 행에 있다.
+    #: 이 조건을 누가 정했나. 사람이 화면에 친 문장에는 되짚을 행이 없어 이 칸을 비운다.
+    #:   자동 걷기는 다르다 — 조건이 실행 규칙에서 왔고 그 규칙은 `sim_runs.config_json`
+    #:   이라는 되짚을 행에 있다.
     #:
-    #: ⚠️ **사람이 말한 것처럼 보이면 안 된다.** 값은 `sales_terms.rules_source_ref`
-    #:   가 짓고, 실행 id 와 **단가를 어느 쪽에서 가져왔는지**를 같이 적는다.
+    #: 주의: 사람이 말한 것처럼 보이면 안 된다. 값은 `service/sales_terms.py` 의
+    #:   `rules_source_ref` 가 짓고, 실행 id 와 단가를 어느 쪽에서 가져왔는지를 같이 적는다.
     source_ref: str | None = Field(
         default=None,
         description=(
@@ -252,14 +248,14 @@ class SalesRunRequest(BaseModel):
             "실제 매입 확정 권한은 아니다."
         ),
     )
-    #: 🔴 **매입과 같은 칸이다** (`ProcurementRunRequest.sim_run_id` · `#531` 후속).
+    #: 매입과 같은 칸이다 (`ProcurementRunRequest.sim_run_id` · `#531` 후속).
     #:
-    #:   판매도 `ExecutionContext` 에 축을 실어야 한다 — `_procurement_boundary` 가
-    #:   그 값으로 그날 매입 경계를 읽고, `persistence.record_sales` 가 그 값을
-    #:   판단 행에 적는다. 여기만 상수로 남기면 같은 날 매입 행과 판매 행이 **서로
-    #:   다른 실행에 앉는다.**
+    #:   판매도 `ExecutionContext` 에 축을 실어야 한다 — `service/sales.py` 의
+    #:   `_procurement_boundary` 가 그 값으로 그날 매입 경계를 읽고,
+    #:   `service/persistence.py` 의 `record_sales` 가 그 값을 판단 행에 적는다. 여기만
+    #:   상수로 남기면 같은 날 매입 행과 판매 행이 서로 다른 실행에 앉는다.
     #:
-    #: ★ **기본값이 있는 이유도 매입과 같다** — 라우터·화면은 이 칸을 안 준다.
+    #: 기본값이 있는 이유도 매입과 같다 — 이 칸을 빼고 부르면 번인 상수로 떨어진다.
     sim_run_id: str | None = Field(
         default=None,
         description=(
@@ -271,12 +267,12 @@ class SalesRunRequest(BaseModel):
     @field_validator("item")
     @classmethod
     def _item_is_in_the_contract(cls, value: str | None) -> str | None:
-        """계약 밖 품목을 문 앞에서 거른다 — **매입과 같은 규칙이다.**
+        """계약 밖 품목을 문 앞에서 거른다 — 매입과 같은 규칙이다.
 
-        ★ `ProcurementRunRequest._item_is_in_the_contract` 와 같은 것을 판매에서도
-          한다. 두 사이클이 같은 3품목 계약을 쓰므로 문 앞 판정이 갈리면 안 된다.
+        `ProcurementRunRequest._item_is_in_the_contract` 와 같은 것을 판매에서도 한다. 두
+        사이클이 같은 3품목 계약을 쓰므로 문 앞 판정이 갈리면 안 된다.
 
-        ★ **`None` 은 통과시킨다.** 품목을 안 준 것과 없는 품목을 준 것은 다르다.
+        `None` 은 통과시킨다. 품목을 안 준 것과 없는 품목을 준 것은 다르다.
         """
         if value is not None and value not in ITEMS:
             raise ValueError(f"지원하지 않는 품목입니다: {value}. 가능: {', '.join(ITEMS)}")
@@ -284,25 +280,24 @@ class SalesRunRequest(BaseModel):
 
 
 class SalesCandidateOut(BaseModel):
-    """판매 후보 하나와 그 판정 — **골격 `CandidateVerdict` 를 그대로 옮긴다.**
+    """판매 후보 하나와 그 판정. 마스터 판정 객체 `CandidateVerdict` 의 값을 그대로 옮긴다.
 
-    🔴 **`passed` · `unvalidated` · `detail` 을 화면이 다시 계산하면 안 된다.**
-      통과 판정은 허용목록(`PASSING_VERDICTS`)으로 정해지는데, 그 목록은 봉투 어휘가
-      늘 때 같이 는다. 화면이 *"reject 가 아니면 통과"* 로 다시 세면 어휘가 는 날
-      새 값이 통과 쪽으로 샌다 (#173 이 고친 것과 같은 실수).
-      **주인은 `CandidateVerdict` 이고 여기 실린 것은 그 답이다.**
+    주의: 화면은 `passed` · `unvalidated` · `detail` 을 다시 계산하지 않는다. 통과 판정은
+    허용목록(`PASSING_VERDICTS`)으로 정해지고, 그 목록은 봉투 어휘가 늘 때 함께 는다.
+    화면이 "reject 가 아니면 통과" 로 다시 세면 어휘가 는 날 새 값이 통과 쪽으로 샌다.
+    판정의 주인은 `CandidateVerdict` 이고 여기 실린 것은 그 결과다.
     """
 
-    #: 판매가 낸 후보 그대로. **마스터는 고르지도 재계산하지도 않는다** (§3.2.2).
+    #: 판매가 낸 후보 그대로. 마스터는 고르지도 재계산하지도 않는다 (§3.2.2).
     scenario: dict[str, Any]
 
     #: capability → 그 검증의 회신. 키는 판매가 요구한 이름 그대로다.
     validations: dict[str, dict[str, Any]] = {}
 
-    #: 🔴 **부를 대상이 없어 못 물어본 요구.** 비어 있지 않으면 통과로 치지 않는다.
+    #: 부를 대상이 없어 못 물어본 요구. 비어 있지 않으면 통과로 치지 않는다.
     unroutable: list[str] = []
 
-    #: 🔴 **비어 있는 상업조건이 어디서 끊겼나.** 비어 있지 않으면 통과로 치지 않는다 —
+    #: 비어 있는 상업조건이 어디서 끊겼나. 비어 있지 않으면 통과로 치지 않는다 —
     #: 값이 없는 안은 사용자가 골라도 확정할 수 없다 (2026-09-08 계약).
     #:
     #: ```text
@@ -310,18 +305,18 @@ class SalesCandidateOut(BaseModel):
     #: TERMS_UNRESOLVED_<FIELD>   정말 조건이 없다       → 고칠 사람: 판매 · 계약
     #: ```
     #:
-    #: ★ **칸 이름은 접두를 벗기면 나온다** (`sales_approval.term_of_origin`). 화면이
-    #:   문자열을 직접 자르지 않는다 — 접두를 바꾸는 날 조용히 틀린 이름이 뜬다.
+    #: 칸 이름은 접두를 벗기면 나온다 (`domain/sales_approval.py` 의 `term_of_origin`).
+    #:   화면이 문자열을 직접 자르지 않는다 — 접두를 바꾸는 날 조용히 틀린 이름이 뜬다.
     #:
-    #: ★ **주인은 `CandidateVerdict.missing_terms` 다.** 여기서 원인을 다시 세지 않는다 —
+    #: 주인은 `CandidateVerdict.missing_terms` 다. 여기서 원인을 다시 세지 않는다 —
     #:   `user_request` 도 `business_mode` 도 이 응답에는 없다.
     #:
-    #: ⚠️ **`validations` 와 다른 칸이다.** 부서 판정에 섞으면 화면이 *"재무가 반려"*
-    #:   로 읽고 사람이 재무를 보러 간다 — 봐야 할 곳은 판매다.
+    #: `validations` 와 다른 칸이다. 부서 판정에 섞으면 화면이 "재무가 반려" 로 읽고
+    #:   사람이 재무를 보러 간다 — 봐야 할 곳은 판매다.
     missing_terms: list[str] = []
 
     passed: bool
-    #: 요구한 검증이 하나도 없었다 — **통과로 나가지만 아무도 안 본 안이다.**
+    #: 요구한 검증이 하나도 없었다 — 통과로 나가지만 아무도 안 본 안이다.
     unvalidated: bool
     #: 왜 탈락했나. 부서가 쓴 문장 그대로이고 마스터가 요약하지 않는다.
     detail: str
@@ -330,18 +325,18 @@ class SalesCandidateOut(BaseModel):
 class SalesRunResponse(BaseModel):
     """판매 Flow 한 번의 결과.
 
-    ★ **매입 응답과 닮았지만 담는 것이 다르다.** 매입은 *"시나리오 배열 + 부서별
-      판정"* 이고 판매는 **후보마다 자기 판정을 들고 있다** — 부분 통과가 정상이라
-      부서 축으로 접으면 어느 후보가 왜 떨어졌는지가 사라진다 (C-1).
+    매입 응답과 닮았지만 담는 것이 다르다. 매입은 시나리오 배열과 부서별 판정을 싣고,
+    판매는 후보마다 자기 판정을 들고 있다. 판매는 일부 후보만 통과하는 것이 정상이라,
+    부서 축으로 모으면 어느 후보가 왜 떨어졌는지가 사라진다.
     """
 
     request_id: str
     as_of: date
 
-    #: 개장 관문 결과. `None` 은 **관문을 안 물었다**는 뜻이다.
+    #: 개장 관문 결과. `None` 은 관문을 안 물었다는 뜻이다.
     #:
-    #: 🔴 **판매에는 실행일 관문이 없다** — 주말에도 판다 (설계 §1). 그래서 매입과
-    #:   달리 이 블록이 `BLOCKED` 인 것 말고 *"안 도는 날"* 이 없다.
+    #: 판매에는 실행일 관문이 없다 — 주말에도 판다 (설계 §1). 그래서 매입과 달리 이
+    #:   블록이 `BLOCKED` 인 것 말고 "안 도는 날" 이 없다.
     day_gate: DayGate | None = None
 
     #: 이 실행이 이력에 남은 행의 id (`master_agent_runs.run_id`). 적재 실패면 `None`.
@@ -353,7 +348,7 @@ class SalesRunResponse(BaseModel):
     candidates: list[SalesCandidateOut] = Field(
         default=[],
         description=(
-            "통과·탈락을 **한 칸에** 담는다. 가르는 것은 각 후보의 `passed` 다 — "
+            "통과·탈락 후보를 한 칸에 담는다. 가르는 것은 각 후보의 `passed` 다 — "
             "두 칸으로 두면 같은 후보가 양쪽에 들어가는 날을 아무도 못 막는다. "
             "SL1 에서도 탈락 후보가 비어 있지 않을 수 있다 (사유를 동봉해 함께 낸다)."
         ),
@@ -363,7 +358,7 @@ class SalesRunResponse(BaseModel):
         default={},
         description=(
             "`scenarios` 를 뺀 제안 최상위 — 판매의 situation · business_mode · self_check. "
-            "**키를 고르지 않는다** — 화이트리스트로 뽑으면 판매가 판정 필드를 늘릴 때마다 "
+            "키를 고르지 않는다 — 화이트리스트로 뽑으면 판매가 판정 필드를 늘릴 때마다 "
             "마스터를 고쳐야 하고, 빠뜨린 키는 커버리지를 감춘 상태가 된다."
         ),
     )
@@ -371,23 +366,24 @@ class SalesRunResponse(BaseModel):
     supply_context: dict[str, Any] = Field(
         default={},
         description=(
-            "②에서 받은 초기 물류 컨텍스트. 못 받았으면 비어 있고 사유는 `context_failure` 다."
+            "②에서 받은 초기 물류 컨텍스트 회신. 물류가 컨텍스트를 내지 못했어도 그 회신을 "
+            "그대로 싣고, 그 사실과 사유는 `context_failure` 가 나른다. 물류를 부르기 전에 "
+            "멈춘 실행이면 비어 있다."
         ),
     )
     context_failure: BlockedAgentOut | None = Field(
         default=None,
         description=(
-            "🔴 물류가 컨텍스트를 못 냈다는 사실. 판매는 밴드가 없어 여기서 멈추지 않지만, "
-            "멈추지 않는 것과 없던 일로 하는 것은 다르다 — 후보의 질이 왜 떨어졌는지를 "
-            "나중에 읽는 사람이 볼 수 있어야 한다."
+            "물류가 초기 컨텍스트를 내지 못했다는 사실. 판매 Flow 는 이 경우에도 멈추지 "
+            "않지만, 후보의 질이 왜 떨어졌는지 나중에 읽는 사람이 볼 수 있도록 여기 남긴다."
         ),
     )
 
     ml_context_note: str = Field(
         default="",
         description=(
-            "🔴 ML 예측을 **못 실은 이유**. 실었으면 비어 있다. "
-            "판매는 ML 을 직접 부르지 않고 마스터가 받아 실어 나른다 (판매 v1.7 §11) — "
+            "ML 예측을 싣지 못한 이유. 실었으면 비어 있다. "
+            "판매는 ML 을 직접 부르지 않고 마스터가 받아 실어 나른다 — "
             "못 실으면 후보가 시장 예측 없이 만들어지므로, 멈추지는 않되 그 사실이 "
             "결론과 함께 보여야 한다. 매입 `mocked_inputs` · `input_sources` 와 같은 자리다."
         ),
@@ -395,7 +391,7 @@ class SalesRunResponse(BaseModel):
 
     evidences: list[EvidenceOut] = Field(
         default=[],
-        description="부서가 낸 근거. **마스터가 고르거나 요약하지 않는다** — 매입과 같은 규율이다.",
+        description="부서가 낸 근거. 마스터가 고르거나 요약하지 않는다 — 매입과 같은 규율이다.",
     )
     adjustments: list[AdjustmentOut] = Field(
         default=[],
@@ -405,7 +401,7 @@ class SalesRunResponse(BaseModel):
     feedback_attempts: int = Field(
         default=0,
         description=(
-            "실제로 돈 되먹임 회차. **0 이면 되먹임하지 않았다** — 통과 후보가 있었거나 "
+            "실제로 돈 되먹임 회차. 0 이면 되먹임하지 않았다 — 통과 후보가 있었거나 "
             "권위 있는 대안이 없었다."
         ),
     )
@@ -413,28 +409,28 @@ class SalesRunResponse(BaseModel):
     findings: list[str] = Field(
         default=[],
         description=(
-            "판매 Critic(B)이 낸 발견. **매입 `findings` 와 같은 칸 이름이고 같은 뜻이다** "
+            "판매 Critic(B)이 낸 발견. 매입 `findings` 와 같은 칸 이름이고 같은 뜻이다 "
             "— 다시 만들면 달라질 수 있는 것."
         ),
     )
     concerns: list[str] = Field(
         default=[],
         description=(
-            "사실이지만 **다시 만들어도 안 고쳐지는** 것 — 부서 계약 위반 · 마스터 배선 "
+            "사실이지만 다시 만들어도 고쳐지지 않는 것 — 부서 계약 위반 · 마스터 배선 "
             "문제 · 검증 Tool 이 돌다 죽은 사실. 사람이 봐야 한다 (§3.4)."
         ),
     )
     skipped_checks: list[str] = Field(
         default=[],
         description=(
-            "🔴 검증 Tool 이 **판정하지 못한** 검사와 사유. 판매는 오늘 여기가 대부분이다 "
-            "— `inventory_allocations` 가 0행이라 배분·로트 재료가 없다. 비어 있는 "
+            "검증 Tool 이 판정하지 못한 검사와 사유. 예를 들어 판매 후보에 채널 배분이 "
+            "없으면 Critic 입력을 만들 수 없어 그 검사가 여기 남는다. 비어 있는 "
             "findings 를 '전부 통과' 로 읽지 않게 한다 (§3.7.6)."
         ),
     )
     verification_skipped: bool = Field(
         default=False,
-        description="검증 자체가 **안 돌았는가.** 시작조차 못 한 날(SL4)이 참이다.",
+        description="검증 자체가 돌지 않았는가. 시작조차 못 한 날(SL4)이 참이다.",
     )
 
     plan: list[StepOut] = []
@@ -446,10 +442,10 @@ class SalesRunResponse(BaseModel):
     report_text: str = Field(
         default="",
         description=(
-            "🔴 **마스터가 판매 문장을 짓지 않는다** (설계 §5). 추천 문장과 순위는 판매 "
-            "소유이고 마스터는 순위를 재계산하지 않는다 (판매 v1.7 §18). 그래서 "
-            "`SL1_PRESENTED` 에서는 **비어 있다** — 그 날의 문장은 판매가 낸 것이 답이다. "
-            "Flow 가 접힌 날(SL2~SL5)만 **왜 접혔는지** 한 줄이 들어간다. 업무 판단이 "
+            "마스터가 판매 문장을 짓지 않는다. 추천 문장과 순위는 판매 소유이고 "
+            "마스터는 순위를 재계산하지 않는다. 그래서 `SL1_PRESENTED` 에서는 비어 "
+            "있다 — 그 날의 문장은 판매가 낸 것이 답이다. Flow 가 접힌 날(SL2~SL6)만 "
+            "왜 접혔는지 한 줄(`<사유> (<end_code>): <reason>`)이 들어간다. 업무 판단이 "
             "아니라 실행 사실이다."
         ),
     )
@@ -471,37 +467,37 @@ SL2_NO_CANDIDATE          판매가 안을 만들지 못했다 (missing_data / m
 SL3_ALL_REJECTED          안은 있었으나 전부 탈락 — 되먹임까지 끝났다
 SL4_NOT_STARTED           시작하지 못했다 (어댑터 미등록 · mock 입력)
 SL5_BUDGET_EXHAUSTED      예산 소진 — 판단이 끝나지 않았다
-SL6_VALIDATION_UNRESOLVED 안은 있는데 **판정이 끝나지 않았다** — 탈락이 아니다
+SL6_VALIDATION_UNRESOLVED 안은 있는데 판정이 끝나지 않았다 — 탈락이 아니다
 ```
 
-🔴 **`SL6` 은 `SL3` 의 거짓말을 걷어내려고 생겼다.** 부서가 자료·정책이 없어 판정을
-  못 낸 날(`RUNTIME_NOT_READY` · `INPUT_INCOMPLETE` → `skipped`)에도 종료 코드는
-  *"전부 탈락"* 이었다. 아무도 탈락시키지 않았는데 탈락이라고 적은 것이라, 읽는
-  사람은 **후보를 다시 만들어야 한다**고 읽는다 — 실제로 할 일은 재무 자료를 채우는
-  것이고, 후보를 다시 만들어 봐야 같은 자리에서 또 막힌다.
+`SL6` 은 판정이 안 난 날을 `SL3` 과 가른다. 부서가 자료·정책이 없어 판정을 못 낸
+날(`RUNTIME_NOT_READY` · `INPUT_INCOMPLETE` → `skipped`)을 "전부 탈락" 으로 적으면,
+아무도 탈락시키지 않았는데 탈락이라고 적은 것이 된다. 읽는 사람은 후보를 다시 만들어야
+한다고 읽지만, 실제로 할 일은 재무 자료를 채우는 것이고 후보를 다시 만들어 봐야 같은
+자리에서 또 막힌다.
 
   ```text
   SL3   판정이 났고 그 판정이 "안 된다" 다      → 조건을 바꿔야 한다
   SL6   판정 자체가 안 났다                     → 없는 자료를 채워야 한다
   ```
 
-★ **`SL6` 도 승인 코드가 아니다.** `decision.approve_end_codes` 는 `SL1` 하나만
-  승인으로 받는다 — 후보가 살아 있는 것과 승인 가능한 것은 다른 문제다.
+`SL6` 도 승인 코드가 아니다. `domain/decision.py` 의 `approve_end_codes` 는 `SL1` 하나만
+승인으로 받는다 — 후보가 살아 있는 것과 승인 가능한 것은 다른 문제다.
 
-★ **`SL5` 와 다르다.** 저쪽은 *"예산이 다해서 더 못 물었다"* 이고 여기는 **물어봤고
-  답도 받았는데 그 답이 판정이 아니었다** 이다. 다음에 할 일이 다르다.
+`SL5` 와 다르다. 저쪽은 "예산이 다해서 더 못 물었다" 이고 여기는 물어봤고 답도 받았는데
+그 답이 판정이 아니었다 이다. 다음에 할 일이 다르다.
 
-🔴 **매입 `EndCode`(E1~E5) 에 값을 더하지 않는다** (D-3 합의). 층이 다르다. 한 어휘에
-  두 사이클을 담으면 `E2_HELD` 가 *"매입 보류"* 와 *"판매 보류"* 를 동시에 뜻하게 되고,
-  화면과 이력이 어느 사이클의 종료인지를 payload 로 되짚어야 한다.
+매입 `EndCode`(E1~E5) 에 값을 더하지 않는다 (D-3 합의). 층이 다르다. 한 어휘에 두
+사이클을 담으면 `E2_HELD` 가 "매입 보류" 와 "판매 보류" 를 동시에 뜻하게 되고, 화면과
+이력이 어느 사이클의 종료인지를 payload 로 되짚어야 한다.
 
-🔴 **예산 소진을 `SL3` 으로 접지 않는다 — 매입과 일부러 다르다.**
+예산 소진을 `SL3` 으로 접지 않는다 — 매입과 일부러 다르다.
 
-  매입은 `BudgetExhausted` 를 `E3_REJECTED` 로 바꾼다 (`flow.py:378-380`). 그러면
-  **"다 봤는데 안 된다"** 와 **"다 못 봤다"** 가 **같은 코드**가 된다.
+  매입은 `BudgetExhausted` 를 `E3_REJECTED` 로 바꾼다 (`service/flow.py` 의
+  `ProcurementFlow.run`). 그러면 "다 봤는데 안 된다" 와 "다 못 봤다" 가 같은 코드가 된다.
 
-  매입 쪽을 지금 고칠 일은 아니지만, **새로 만드는 어휘를 같은 모양으로 만들 이유는
-  없다.** 판매는 사용자에게 후보를 직접 보여주는 경로라, 못 본 것을 거절로 적으면
-  화면이 거짓말을 한다 — 사용자는 *"이 조건으로는 안 된다"* 로 읽고 조건을 바꾸는데,
-  실제로는 **판단이 끝나지 않은 것**이라 같은 조건으로 다시 돌리는 것이 맞다.
+  새로 만드는 어휘를 같은 모양으로 만들 이유는 없다. 판매는 사용자에게 후보를 직접
+  보여주는 경로라, 못 본 것을 거절로 적으면 화면이 거짓말을 한다 — 사용자는 "이
+  조건으로는 안 된다" 로 읽고 조건을 바꾸는데, 실제로는 판단이 끝나지 않은 것이라 같은
+  조건으로 다시 돌리는 것이 맞다.
 """

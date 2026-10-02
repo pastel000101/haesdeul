@@ -1,12 +1,6 @@
 """콘솔 실행 목록 SQL — `sim_runs` 와 각 실행의 마지막 기록 시각.
 
-★ 2026-09-29 재구성 BL-014: 화면 `api/console/runs.py` 가 재무 DB 입구(`app.finance.db`)의
-  조회 헬퍼로 직접 돌리던 SQL 을 옮겼다(문면 · 인자 그대로). 당시 조회는 마스터 입구
-  `app.master.db.fetch_all` 이 조회 연결을 빌려 했다. 응답 조립은 `readmodel/console_runs.py`.
-
-★ 2026-09-30 재구성 BL-018: `master/console_runs_repository.py` 에서 옮겼다. 받은 연결로 실행만 한다
-  —
-  조회 연결은 `readmodel/console_runs.py` 가 빌린다(종전 헬퍼와 같은 한 번).
+받은 연결로 실행만 한다. 조회 연결 대여와 응답 조립은 `readmodel/console_runs.py` 다.
 """
 
 from typing import Any
@@ -17,9 +11,8 @@ from psycopg import sql
 def select_console_runs(conn: Any, *, limit: int, schema: str) -> list[dict[str, object]]:
     """실행 행과, 각 실행에 마지막으로 기록이 쌓인 시각.
 
-    ★ 정렬은 **최근 활동 → 기준일 → 이름** 순이다. 활동이 없는 실행이 목록에서
-      사라지지 않도록 `NULLS LAST` 로 뒤에 세운다 — 아직 안 걸은 실행도 고를 수
-      있어야 한다.
+    정렬은 최근 활동 → 기준일 → 이름 순이다. 활동이 없는 실행이 목록에서 사라지지
+    않도록 `NULLS LAST` 로 뒤에 세운다 — 아직 안 걸은 실행도 고를 수 있어야 한다.
     """
     statement = sql.SQL(
         """

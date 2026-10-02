@@ -1,15 +1,10 @@
-"""★ **`app/orchestrator/` 에서 옮겼다** (2026-09-07 · 지시). 옛 경로는 없다.
+"""오케스트레이터 API 요청·응답 스키마와 `orchestrator_agent_runs` 행 모양.
 
-⚠️ **`cycle_` 는 이름이 겹쳐서 붙였다** — `app/master/schemas.py` 가 이미 있다.
-  그대로 옮기면 덮어쓴다.
+오케스트레이터는 원본 DB 를 직접 읽지 않는다 (§5.1). 모든 입력은 요청 본문으로 온다 —
+부서 회신(밴드 기여)·매입/판매 후보를 받아 T3(매입)·S3(판매) 결합·클리핑을 수행한다.
 
-오케스트레이터 API 요청·응답 스키마.
-
-★ 오케스트레이터는 원본 DB 를 직접 읽지 않는다 (§5.1). 모든 입력은 요청 본문으로 온다 —
-  부서 회신(밴드 기여)·매입/판매 후보를 받아 T3(매입)·S3(판매) 결합·클리핑을 수행한다.
-
-★ 2026-09-30 재구성 BL-018: `master/cycle_schemas.py` 에서 자리만 옮겼다(내용 그대로). 함께 모은 것:
-  `master/cycle_run_repository.py` 의 `Agent`, `RunCycle`, `OrchestratorAgentRun`.
+실행 이력 행 모양(`Agent`, `RunCycle`, `OrchestratorAgentRun`)은 `readmodel/cycle_runs.py` ·
+`repository/cycle_runs.py` 가 쓴다.
 """
 
 from __future__ import annotations
@@ -36,12 +31,12 @@ class SplitLegIn(BaseModel):
     qty_kg: dict[str, float]
     expected_arrival_date: date | None = None
     amount_krw: dict[str, float] | None = None
-    """회차별 금액. `contracts.core.SplitLeg.amount_krw` 와 **같은 모양**이다 -
+    """회차별 금액. `contracts.core.SplitLeg.amount_krw` 와 같은 모양이다 -
        품목별 매핑인 근거는 그쪽에 적혀 있다.
 
-       ⚠️ 선택 필드다. 없으면 `SplitLeg.amount_krw` 가 None 으로 남고
+       선택 필드다. 없으면 `SplitLeg.amount_krw` 가 None 으로 남고
        `check_triple_identity` 의 split 금액 변은 통째로 건너뛴다 - 그것이 위반이 아니다.
-       🔴 `0.0` 이나 빈 매핑으로 채우지 않는다 - 없는 것과 0 원은 다르다."""
+       `0.0` 이나 빈 매핑으로 채우지 않는다 - 없는 것과 0 원은 다르다."""
 
 
 class SourcingLotIn(BaseModel):

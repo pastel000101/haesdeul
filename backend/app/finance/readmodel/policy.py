@@ -1,7 +1,4 @@
-"""재무 active policy 조회.
-
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다.
-"""
+"""재무 active policy 조회."""
 
 from app.core import db as core_db
 from app.finance.domain.policy_rules import build_finance_debt_policy, build_finance_policy

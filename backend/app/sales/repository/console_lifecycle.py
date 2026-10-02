@@ -1,7 +1,7 @@
-"""판매 한 건의 흐름 SQL — **저장된 연결키로만 잇는다.**
+"""판매 한 건의 흐름 SQL — 저장된 연결키로만 잇는다.
 
-★ 2026-09-29 BL-013: `sales/console_lifecycle.py` 에서 SQL 을 옮겼다. 어느 연결키가 무엇을
-  잇는지와 단계 판정은 `readmodel/console_lifecycle.py` 머리말과 본문에 있다.
+어느 연결키가 무엇을 잇는지와 단계 판정은 `readmodel/console_lifecycle.py` 머리말과 본문에
+있다.
 """
 
 from psycopg import Connection, sql
@@ -90,7 +90,7 @@ def load_collection_events(
 def load_master_run(
     conn: Connection, *, sim_run_id: str, request_id: str
 ) -> dict[str, object] | None:
-    """이 판매를 낳은 판매 사이클 실행. **업무 키로만 찾는다.**"""
+    """이 판매를 낳은 판매 사이클 실행. 업무 키로만 찾는다."""
     schema = get_db_schema()
     statement = sql.SQL(
         """
@@ -108,10 +108,10 @@ def load_master_run(
 def load_master_decision(conn: Connection, *, request_id: str) -> dict[str, object] | None:
     """그 판단의 승인 기록.
 
-    ⚠️ `master_decisions` 에는 실행 축 칸이 없다. 업무 키가 실행 이름을 품고 있어
-      (`REQ-DAILY-SALES-{실행}-…`) 키 자체가 축을 나르지만, 여기서 **이름을 쪼개
-      뜻을 읽지 않는다** — 위 `load_master_run` 이 이미 실행 축으로 걸렀고, 이 조회는
-      그 판단에 붙은 결정을 가져오는 것뿐이다.
+    주의: `master_decisions` 에는 실행 축 칸이 없다. 업무 키가 실행 이름을 품고 있어
+    (`REQ-DAILY-SALES-{실행}-…`) 키 자체가 축을 나르지만, 여기서 이름을 쪼개 뜻을
+    읽지 않는다 — 위 `load_master_run` 이 이미 실행 축으로 걸렀고, 이 조회는 그 판단에
+    붙은 결정을 가져오는 것뿐이다.
     """
     schema = get_db_schema()
     statement = sql.SQL(

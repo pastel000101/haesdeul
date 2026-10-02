@@ -1,8 +1,6 @@
 """재무 에이전트 실행이력 — 저장 행과 조회 응답.
 
-★ 2026-09-29 재구성 BL-014: 저장 행 모양(`FinanceAgentRun`)은 `finance/execution.py`, 조회 응답
-  (`FinanceAgentRunResponse`)은 `finance/schemas.py` 에서 옮겼다. 저장은 `service/run_history.py`,
-  조회는 `readmodel/runs.py`, SQL 은 `repository/runs.py` 다.
+저장은 `service/run_history.py`, 조회는 `readmodel/runs.py`, SQL 은 `repository/runs.py` 다.
 """
 
 from __future__ import annotations

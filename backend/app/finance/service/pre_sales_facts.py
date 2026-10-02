@@ -1,6 +1,6 @@
-"""PRE_SALES_FACTS — 판매 후보를 만들기 **전에** 내는 재무 사실. 읽기만 한다.
+"""PRE_SALES_FACTS — 판매 후보를 만들기 전에 내는 재무 사실. 읽기만 한다.
 
-★ 2026-09-29 재구성 BL-014: `finance/adapter.py` 에서 옮겼다(몸통 그대로).
+계산은 `domain/pre_sales.py` · `domain/status_facts.py`.
 """
 
 from __future__ import annotations
@@ -49,26 +49,26 @@ from app.finance.service.agent_replies import (
 from app.finance.service.agent_run import load_runtime_context
 
 # ---------------------------------------------------------------------------
-# PRE_SALES_FACTS — 판매 후보를 만들기 **전에** 내는 사실
+# PRE_SALES_FACTS — 판매 후보를 만들기 전에 내는 사실
 # ---------------------------------------------------------------------------
 
 
 def answer_pre_sales_facts(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
-    """판매가 후보를 만들기 전에 볼 재무 사실. **읽기만 한다.**
+    """판매가 후보를 만들기 전에 볼 재무 사실. 읽기만 한다.
 
-    ★ **`SALES_VALIDATION` 을 재사용하지 않는다.** 저쪽은 후보 하나를 받아 판정하고,
-      여기는 후보가 아직 없다. 한 mode 로 합치면 *"후보 없이 불린 검증"* 이라는 모양이
-      생기고, 그 모양을 받아들이는 순간 판정 안 난 실행이 판정된 것으로 읽힌다.
+    `SALES_VALIDATION` 을 재사용하지 않는다. 저쪽은 후보 하나를 받아 판정하고, 여기는 후보가
+    아직 없다. 한 mode 로 합치면 "후보 없이 불린 검증" 이라는 모양이 생기고, 그 모양을
+    받아들이는 순간 판정 안 난 실행이 판정된 것으로 읽힌다.
 
-    ★ **`answer_status_query` 와 같은 태도로 부분 답을 낸다.** 급여 출처가 없으면 투영이
-      필요한 값만 빼고 현재 잔액·채무·채권은 그대로 답한다 — 여기서 통째로 멈추면
-      판매 후보 생성이 **매입 급여 정책 때문에** 막힌다.
+    `answer_status_query` 와 같은 태도로 부분 답을 낸다. 급여 출처가 없으면 투영이 필요한 값만
+    빼고 현재 잔액·채무·채권은 그대로 답한다 — 여기서 통째로 멈추면 판매 후보 생성이 매입
+    급여 정책 때문에 막힌다.
 
-    🔴 **실행 이력을 쓰지 않는다** (`recorded_reply` 의 `_CONTROLLER_MODES` 에 없다).
-      사실 조회가 장부를 건드리지 않는다는 것이 이 mode 의 계약이다.
+    실행 이력을 쓰지 않는다(`recorded_reply` 의 `_CONTROLLER_MODES` 에 없다). 사실 조회가
+    장부를 건드리지 않는다는 것이 이 mode 의 계약이다.
 
-    🔴 **없는 값을 `0` 으로 채우지 않는다.** 못 읽은 이름은 `missing_data` 로 나가고
-      칸 자체를 만들지 않는다 — 판매가 *"0원이라는 사실"* 과 구별할 수 있어야 한다.
+    없는 값을 `0` 으로 채우지 않는다. 못 읽은 이름은 `missing_data` 로 나가고 칸 자체를
+    만들지 않는다 — 판매가 "0원이라는 사실" 과 구별할 수 있어야 한다.
     """
     as_of = request.context.as_of
     run_id = new_run_id(request)
@@ -164,8 +164,8 @@ def answer_pre_sales_facts(request: AgentRequest) -> tuple[AgentReply, Execution
         outflows = outflows_by_date([e for e in events if as_of < e.event_date <= horizon_end])
         cash_min = calculate_projected_cash_min(projection)
         pressure = derive_cash_priority(projected_cash_min=cash_min, policy=policy)
-        # ★ **이름이 `base_` 다.** 판매 제안을 아직 안 얹은 투영이라는 뜻이고,
-        #   제안을 얹은 값(`scenario_projected_cash_min`)은 검증이 낸다.
+        # 이름이 `base_` 다. 판매 제안을 아직 안 얹은 투영이라는 뜻이고, 제안을 얹은 값
+        # (`scenario_projected_cash_min`)은 검증이 낸다.
         payload["base_projected_cash_min"] = as_float(cash_min)
         payload["payment_pressure"] = pressure
         payload["projection_days"] = policy.cashflow_projection_days
@@ -215,8 +215,8 @@ def answer_pre_sales_facts(request: AgentRequest) -> tuple[AgentReply, Execution
 
     credit_payload, credit_missing, credit_evidences = _pre_sales_partner_credit(request, as_of)
     if credit_payload:
-        # ★ **중첩 칸이다.** 거래처 id 는 대문자 라벨 모양이라 최상위에 두면 봉투가
-        #   *"판정 라벨"* 로 읽고 근거를 요구한다 — 거래처 이름은 판정이 아니다.
+        # 중첩 칸이다. 거래처 id 는 대문자 라벨 모양이라 최상위에 두면 봉투가 "판정 라벨" 로
+        # 읽고 근거를 요구한다 — 거래처 이름은 판정이 아니다.
         payload["partner_credit"] = credit_payload
         evidences = (*evidences, *credit_evidences)
     missing.extend(credit_missing)
@@ -243,11 +243,11 @@ def answer_pre_sales_facts(request: AgentRequest) -> tuple[AgentReply, Execution
 def _pre_sales_partner_credit(
     request: AgentRequest, as_of: date
 ) -> tuple[dict[str, Any], list[str], tuple[Evidence, ...]]:
-    """거래처 채권·여신 사실. **못 읽으면 못 읽은 채로 돌려준다.**
+    """거래처 채권·여신 사실. 못 읽으면 못 읽은 채로 돌려준다.
 
-    ★ 조회 실패를 `0` 으로 바꾸지 않는다. `FinanceDataNotReady` 는 *"못 읽었다"* 이고
-      빈 채권 목록은 *"채권이 0원이다"* 인데, 둘을 같은 값으로 만들면 여신이 가득
-      찬 거래처가 새 거래처처럼 보인다.
+    조회 실패를 `0` 으로 바꾸지 않는다. `FinanceDataNotReady` 는 "못 읽었다" 이고 빈 채권
+    목록은 "채권이 0원이다" 인데, 둘을 같은 값으로 만들면 여신이 가득 찬 거래처가 새 거래처처럼
+    보인다.
     """
     partner_id = request.payload.get("partner_id")
     partner_id = None if partner_id is None else str(partner_id)
@@ -282,7 +282,7 @@ def _pre_sales_partner_credit(
         receivable_ref = (
             receivable_facts.source_refs[0]
             if receivable_facts.source_refs
-            # ★ 채권이 0원이면 가리킬 행이 없다. 그때는 **어느 조회였는지**를 가리킨다.
+            # 채권이 0원이면 가리킬 행이 없다. 그때는 어느 조회였는지를 가리킨다.
             else f"receivables(partner_id={partner_id},as_of={as_of.isoformat()})"
         )
         evidences = (

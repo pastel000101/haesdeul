@@ -1,9 +1,7 @@
 """매입 시나리오 판정의 계산 — 지급 일정 재구성 · 일정 사건 · 일정 상한.
 
-★ 2026-09-29 재구성 BL-014: `finance/capabilities/scenario.py` 에서 DataPort 를 부르지 않는 계산만
-  옮겼다(몸통 그대로,
-  서비스가 부르는 셋은 밑줄을 뗐다). Tool 실행(DataPort 로 읽고 이 계산을 부르는 순서)은
-  `service/capabilities/scenario.py`.
+DataPort 를 부르지 않는 계산만 둔다. Tool 실행(DataPort 로 읽고 이 계산을 부르는 순서)은
+`service/capabilities/scenario.py`.
 """
 
 from __future__ import annotations
@@ -28,26 +26,25 @@ def _reconstructed_payment(
     default_payment_days: int | None,
     amount: Decimal,
 ) -> ScenarioPayment:
-    """`payment_schedule` 이 없는 제안을 **제출된 사실만으로** 재구성한다.
+    """`payment_schedule` 이 없는 제안을 제출된 사실만으로 재구성한다.
 
-    🔴 예전에는 `purchase_date=as_of` · `qty_kg=None` · `amount_max=amount` 였다.
-       세 가지가 동시에 잘못됐다.
+    `purchase_date=as_of` · `qty_kg=None` · `amount_max=amount` 로 채우면 안 된다.
 
-         · 매입일을 `as_of` 로 두면 N5 지급일이 **실제 매입일이 아닌 오늘**에서 계산된다.
-         · STRESS 금액이 BASE 와 같으면 **BASE/STRESS 검증이 아무것도 가르지 않는다** —
-           두 투영이 같은 값을 내고 늘 함께 통과한다. 검사가 있으나 마나였다.
+      · 매입일을 `as_of` 로 두면 N5 지급일이 실제 매입일이 아닌 오늘에서 계산된다.
+      · STRESS 금액이 BASE 와 같으면 BASE/STRESS 검증이 아무것도 가르지 않는다 — 두 투영이
+        같은 값을 내고 늘 함께 통과한다.
 
-    ★ 재무는 매입이 제출한 사실을 **읽고 파생**할 뿐, 소유하지 않는다.
+    재무는 매입이 제출한 사실을 읽고 파생할 뿐, 소유하지 않는다.
         purchase_date  ← split_plan[0].date        (매입 소유)
         payment_date   ← purchase_date + N5        (재무 정책)
         qty_kg         ← total_qty_kg              (매입 소유)
         BASE  amount   ← total_amount_krw          (매입 소유)
         STRESS amount  ← total_qty_kg × max_price  (매입 소유 값에서 파생)
 
-      파생한 STRESS 금액은 **재무 검증 메타데이터**다. 매입 제안을 고쳐 쓴 것이 아니다.
+    파생한 STRESS 금액은 재무 검증 메타데이터다. 매입 제안을 고쳐 쓴 것이 아니다.
 
-    ★ 없는 값은 지어내지 않는다. 분할이 여러 건인데 지급 일정이 없으면 금액을 어떻게
-      쪼갤지는 **매입이 정할 일**이라 재무가 배분을 발명하지 않고 fail-closed 한다.
+    없는 값은 지어내지 않는다. 분할이 여러 건인데 지급 일정이 없으면 금액을 어떻게 쪼갤지는
+    매입이 정할 일이라 재무가 배분을 발명하지 않고 fail-closed 한다.
     """
     if default_payment_days is None:
         raise FinanceDataNotReady("purchase_payment_days")
@@ -65,7 +62,7 @@ def _reconstructed_payment(
         raise FinanceDataNotReady("scenario_split_plan_date")
     purchase_date = date.fromisoformat(str(raw_date))
 
-    # N5 는 **계약 지급일까지의 달력일수**다. 주말 보정은 현금 사건에서만 한다.
+    # N5 는 계약 지급일까지의 달력일수다. 주말 보정은 현금 사건에서만 한다.
     payment_date = purchase_date + timedelta(days=default_payment_days)
     if not as_of <= effective_cash_date(payment_date) <= horizon:
         raise FinanceDataNotReady("default_purchase_payment_date")
@@ -85,7 +82,7 @@ def _reconstructed_payment(
 
 
 def payment_row(item: ScenarioPayment) -> dict[str, Any]:
-    """재무 검증 일정 한 행. **모든 행이 같은 모양이다.**"""
+    """재무 검증 일정 한 행. 모든 행이 같은 모양이다."""
     return {
         "seq": item.seq,
         "purchase_date": item.purchase_date.isoformat(),
@@ -98,7 +95,7 @@ def payment_row(item: ScenarioPayment) -> dict[str, Any]:
 
 
 def positive_decimal(value: Any, missing_key: str) -> Decimal:
-    """제출된 양수 사실을 읽는다. 없거나 양수가 아니면 **멈춘다.**"""
+    """제출된 양수 사실을 읽는다. 없거나 양수가 아니면 멈춘다."""
     if value is None:
         raise FinanceDataNotReady(missing_key)
     amount = Decimal(str(value))
@@ -181,9 +178,9 @@ def scenario_schedule(
 def schedule_events(
     scenario_id: object, schedule: tuple[ScenarioPayment, ...], *, stress: bool
 ) -> tuple[CashEvent, ...]:
-    # ★ 현금 사건은 **현금이 나가는 날**에 얹는다. 계약 지급일(`payment.payment_date`)은
-    #   그대로 두고 주말만 다음 월요일로 민다 — `ref_id` 도 계약일을 유지해서
-    #   일정 행과 사건이 같은 이름으로 이어진다.
+    # 현금 사건은 현금이 나가는 날에 얹는다. 계약 지급일(`payment.payment_date`)은 그대로
+    # 두고 주말만 다음 월요일로 민다 — `ref_id` 도 계약일을 유지해서 일정 행과 사건이 같은
+    # 이름으로 이어진다.
     return tuple(
         CashEvent(
             event_date=effective_cash_date(payment.payment_date),
@@ -211,7 +208,7 @@ def calculate_schedule_cap(
         point.projection_date: point.cash_balance_krw
         for point in base_projection.projected_cash_by_date
     }
-    # 상한도 **현금이 나가는 날** 기준이다 — 사건과 다른 날짜를 쓰면 같은 일정이
+    # 상한도 현금이 나가는 날 기준이다 — 사건과 다른 날짜를 쓰면 같은 일정이
     # 투영과 상한에서 서로 다른 날에 놓인다.
     schedule_by_date: dict[date, Decimal] = {}
     for payment in schedule:

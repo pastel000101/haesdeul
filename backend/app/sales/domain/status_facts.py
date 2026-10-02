@@ -1,7 +1,6 @@
 """판매 진행 상황을 사람이 읽는 사실로 — 마스터 STATUS_QUERY 회신의 본문.
 
-★ 2026-09-29 BL-013: `sales/adapter.py` 에서 옮겼다. 사실을 읽는 조회는
-  `readmodel/status.py`, 봉투 회신으로 옮기는 번역은 `adapter.py` 다.
+사실을 읽는 조회는 `readmodel/status.py`, 봉투 회신으로 싣는 번역은 `adapter.py` 다.
 """
 
 from app.sales.schemas.console_proposals import ConsoleSalesProposalsResponse
@@ -13,19 +12,19 @@ _SCENARIO_WORDS = {"CONSERVATIVE": "안정 우선", "BALANCED": "균형", "AGGRE
 def status_facts(
     proposals: ConsoleSalesProposalsResponse | None, *, has_history: bool
 ) -> dict[str, str]:
-    """판매 진행 상황을 **사람이 읽는 사실**로 만든다.
+    """판매 진행 상황을 사람이 읽는 사실로 만든다.
 
-    🔴 **키가 곧 화면 글자다.** 마스터는 부서가 낸 키를 이름 그대로 사실 줄로 편다
-       (`master/domain/answer.py` · `_LABEL.get(key, key)`). 그래서 `request_id` ·
-       `SCENARIOS_GENERATED` · `FINANCIAL_VALIDATION` 같은 기계용 키와 값을 여기 실으면
-       그대로 사용자 말풍선에 나간다 — 실측으로 그렇게 나왔다.
+    키가 곧 화면 글자다. 마스터는 부서가 낸 키를 이름 그대로 사실 줄로 편다
+    (`master/domain/answer.py` · `_LABEL.get(key, key)`). 그래서 `request_id` ·
+    `SCENARIOS_GENERATED` · `FINANCIAL_VALIDATION` 같은 기계용 키와 값을 여기 실으면
+    그대로 사용자 말풍선에 나간다 — 실측으로 확인했다.
 
-    🔴 **숫자를 지어내지 않는다.** 세는 것은 금일 판매안 read model 이 돌려준 행뿐이고,
-       재무 검토 상태는 판매 1차 회신의 «못 받은 검증» 이 아니라 **재무가 남긴 판정**이다.
-       (1차 회신은 되먹임 전이라 늘 «재무 검토 미완» 으로 남아, 이미 판정이 난 안까지
-       검토 전으로 읽혔다.)
+    숫자를 지어내지 않는다. 세는 것은 금일 판매안 read model 이 돌려준 행뿐이고,
+    재무 검토 상태는 판매 1차 회신의 «못 받은 검증» 이 아니라 재무가 남긴 판정이다.
+    1차 회신은 되먹임 전이라 늘 «재무 검토 미완» 으로 남으므로, 그것을 세면 이미
+    판정이 난 안까지 검토 전으로 읽힌다.
 
-    ★ 비교 · 선택 · 확정은 대화의 판매안 카드와 판매 화면이 한다. 여기서는 요약만 한다.
+    비교 · 선택 · 확정은 대화의 판매안 카드와 판매 화면이 한다. 여기서는 요약만 한다.
     """
     if proposals is None:
         return {"오늘 판매안": "판매안 정보를 읽지 못했습니다. 판매 화면에서 다시 확인해 주세요."}
@@ -87,7 +86,7 @@ def status_facts(
 
 
 def review_sentence(verdicts: list[str | None]) -> str:
-    """재무 검토 상태를 **한 문장으로.** 판정 코드를 세서 고르기만 한다.
+    """재무 검토 상태를 한 문장으로. 판정 코드를 세서 고르기만 한다.
 
     ```text
     모두 진행 어려움            현재 조건으로 바로 진행하기 어려운 판매안이 N개 있습니다
@@ -96,7 +95,7 @@ def review_sentence(verdicts: list[str | None]) -> str:
     진행 가능과 어려움만 섞였다  진행 가능한 판매안 N개와 … 어려운 판매안 M개가 있습니다
     ```
 
-    🔴 **모르는 판정은 «확인 필요» 쪽으로 센다** — 통과로 뭉치지 않는다.
+    모르는 판정은 «확인 필요» 쪽으로 센다 — 통과로 뭉치지 않는다.
     """
     passed = verdicts.count("PASS")
     failed = verdicts.count("FAIL")

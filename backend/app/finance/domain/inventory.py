@@ -1,7 +1,6 @@
 """재고 원장 재생 — Lot 원가와 이동으로 수량 · 취득원가를 센다.
 
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다(몸통 그대로). SQL 은
-  `repository/inventory.py`.
+SQL 은 `repository/inventory.py`.
 """
 
 from collections.abc import Sequence
@@ -14,7 +13,7 @@ from app.finance.schemas.inventory import InventorySnapshot
 
 
 def inventory_snapshot_from_ledger_rows(rows: Sequence[Any]) -> InventorySnapshot:
-    """재고 이동 행을 재생해 수량과 취득원가를 센다. **못 믿을 행이면 막는다.**"""
+    """재고 이동 행을 재생해 수량과 취득원가를 센다. 못 믿을 행이면 막는다."""
     quantities: dict[str, Decimal] = {}
     costs: dict[str, Decimal] = {}
     for row in rows:

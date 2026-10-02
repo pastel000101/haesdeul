@@ -13,11 +13,11 @@ import { saveSession } from "@/lib/session";
  */
 export default function LoginPage() {
   const router = useRouter();
-  // 🔴 **미리 채우지 않는다.** 시연 편의로 값을 넣어 뒀더니, 클릭 후 타이핑이
-  //    덧붙어 `이현서이현서` 가 그대로 승인자 이름으로 저장됐다 (실측 2026-08-30).
+  // 주의: 칸을 미리 채우지 않는다. 값이 들어 있으면 클릭 후 타이핑이 덧붙어
+  //    `이현서이현서` 가 그대로 승인자 이름으로 저장된다 (실측 2026-08-30).
   //    `onFocus` 의 select() 로는 못 막는다 — 이미 포커스된 칸을 다시 클릭하면
-  //    focus 이벤트가 안 난다. 예시는 placeholder 로 내리면 **빈 칸에서 시작**하고,
-  //    빈 칸은 `handleSubmit` 의 trim 검사가 이미 막는다.
+  //    focus 이벤트가 안 난다. 예시는 placeholder 로 두어 빈 칸에서 시작하고,
+  //    빈 칸은 `signIn` 의 trim 검사가 막는다.
   const [employeeId, setEmployeeId] = useState("");
   const [name, setName] = useState("");
 

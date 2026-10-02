@@ -1,9 +1,6 @@
 """Critic 실행이력 — `GET /critic/runs` · `GET /critic/runs/{run_id}`.
 
 HTTP 만: 조회는 `master/readmodel/cycle_runs.py` 가 한다.
-
-★ 2026-09-30 재구성 BL-019: `app/master/critic/router.py` 에서 옮겼다 — 핸들러 이름 ·
-  docstring(OpenAPI 설명) · URL · 상태 코드 · 문구 그대로.
 """
 
 from datetime import date

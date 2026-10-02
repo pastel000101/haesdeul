@@ -1,9 +1,8 @@
 """과거 시점 SQL — 원장 누계 · 그날 Lot · Receipt 계보 · Pallet 사건 · 날짜별 순증감 · Runtime
 커버리지 · 예약/할당.
 
-★ 2026-09-30 재구성 BL-015: `logistics/historical_repository.py` 에서 옮겼다. 받은 연결로 읽기만
-  한다. 기준 시각
-  (`cutoff`)은 부르는 쪽이 `domain/historical.timestamp_cutoff` 로 계산해 넘긴다.
+받은 연결로 읽기만 한다. 기준 시각(`cutoff`)은 부르는 쪽이 `domain/historical.timestamp_cutoff`
+로 계산해 넘긴다.
 """
 
 from __future__ import annotations
@@ -16,16 +15,16 @@ from psycopg import sql
 from app.logistics.repository.rows import dict_rows, schema_identifier
 from app.logistics.schemas.vocabulary import USAGE_SCOPE
 
-#: 원장 누계 한 조각. **`ADJUST` 는 더하지 않고 세기만 한다** — 세어 둔 것을 보고
+#: 원장 누계 한 조각. `ADJUST` 는 더하지 않고 세기만 한다 — 세어 둔 것을 보고
 #: 호출부가 멈춘다.
 #:
-#: 🔴 **잔량을 0 으로 만든 날(= 마지막 이동일)의 종류를 함께 센다.** `lot_state` 가
-#:    «폐기로 비었나» 를 가르는 데 그 하루가 필요하다 — 총 폐기량만 보면 **부분 폐기
-#:    뒤 판매로 소진된 Lot** 을 폐기된 Lot 과 구별할 수 없다 (실측 2건).
+#: 잔량을 0 으로 만든 날(= 마지막 이동일)의 종류를 함께 센다. `lot_state` 가
+#: «폐기로 비었나» 를 가르는 데 그 하루가 필요하다 — 총 폐기량만 보면 부분 폐기
+#: 뒤 판매로 소진된 Lot 을 폐기된 Lot 과 구별할 수 없다(실측 2건).
 #:
-#: 🔴 **그 하루를 날짜 자체로도 낸다 (`last_moved_at`).** 잔량은 파생 캐시라 자기
-#:    관측일이 없고, *"지금 500kg 이다"* 를 **언제부터 알 수 있었나**에 답하는 것은
-#:    이 원장의 마지막 이동일 하나다 (`agent.observe` · 상세설계 §18).
+#: 그 하루를 날짜 자체로도 낸다(`last_moved_at`). 잔량은 파생 캐시라 자기 관측일이
+#: 없고, "지금 500kg 이다" 를 언제부터 알 수 있었나에 답하는 것은 이 원장의 마지막
+#: 이동일 하나다(`readmodel/observation.py` 의 `observe` · 상세설계 §18).
 _LEDGER_AGGREGATE = sql.SQL(
     """
     SELECT m.lot_id,
@@ -60,11 +59,11 @@ def select_allocation_rows_at(
     as_of: date,
     cutoff: datetime,
 ) -> dict[str, tuple[dict[str, Any], ...]]:
-    """그날 존재한 할당 행들을 예약별로 모은다. **`status` 를 안 읽는다.**
+    """그날 존재한 할당 행들을 예약별로 모은다. `status` 를 안 읽는다.
 
-    ★ **원장 OUT 을 `LEFT JOIN` 으로 한 번에 붙인다.** `move_id` 가
-      `MOVE-OUT-{allocation_id}` 로 결정적이라 1:1 이고, 그래서 행이 불어나지 않는다
-      (`receipt_state_at` 이 1:N 가능성 때문에 곱을 막는 것과 다른 자리다).
+    원장 OUT 을 `LEFT JOIN` 으로 한 번에 붙인다. `move_id` 가 `MOVE-OUT-{allocation_id}`
+    로 결정적이라 1:1 이고, 그래서 행이 불어나지 않는다(`receipt_state_at` 이 1:N 가능성
+    때문에 곱을 막는 것과 다른 자리다).
     """
     schema = schema_identifier()
     rows = dict_rows(

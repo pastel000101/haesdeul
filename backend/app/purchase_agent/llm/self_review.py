@@ -1,12 +1,12 @@
-"""근거 자기 검토 판단자 (E3-10) — **지적 코드만 고른다.**
+"""근거 자기 검토 판단자 (E3-10) — 지적 코드만 고른다.
 
-🔴 **컷 권한이 없다.** 여기서 나온 것은 경고이고, 수량·분할·등급·금액·날짜·컷 결과를
+컷 권한이 없다. 여기서 나온 것은 경고이고, 수량·분할·등급·금액·날짜·컷 결과를
 바꾸지 않는다. 계산 검사는 ⑦ 이 이미 결정적으로 끝냈다.
 
-🔴 **문장을 안 쓴다.** 고르는 것은 ``review_templates.FINDINGS`` 의 코드와 입력에 있던
+문장을 안 쓴다. 고르는 것은 ``review_templates.FINDINGS`` 의 코드와 입력에 있던
 근거 id 뿐이고, 사람이 읽는 문장은 코드가 만든다.
 
-⚠️ **같은 판단자가 자기 출력을 본다.** ⑤ 의 사유를 검토할 때는 자기가 쓴 문장을 자기가
+주의: 같은 판단자가 자기 출력을 본다. ⑤ 의 사유를 검토할 때는 자기가 쓴 문장을 자기가
 보는 셈이고, 같은 모델 계열이라 같은 맹점을 공유한다. 그래서 경고까지이고 컷이 아니다.
 """
 
@@ -28,13 +28,12 @@ from app.purchase_agent.llm.runtime import (
 )
 from app.purchase_agent.llm.text_guard import contains_control_chars, contains_number
 
-# 🔴 **도달 불가한 예시를 걷어냈다** (2026-09-18 · 검증설계 v0.2 §4 · 결정 ②).
-#   예시가 *"라벨이 SPREAD_NORMAL·SHELF_TIGHT 인데"* 였는데, ⑤ 가 도는 날은 언제나
-#   ``SPREAD_WIDE`` 라 그 조합이 **안 온다.** 안 오는 예시는 검토자에게 「이런 것을
-#   찾아라」로 읽히므로, 보는 것(사유가 라벨의 반대를 말하나)만 남기고 예시를 지운다.
-#   ⚠️ **``timing`` × ``SINGLE`` 줄은 그대로 둔다** — 중복이지만(코드가 같은 판정을
-#     신호로 계산해 같이 넘긴다) 그건 「안 오는 상황」이 아니라 「두 번 말하는 상황」이라
-#     고치는 판이 다르다 (충환 2026-09-18).
+# 지시문에 도달 불가한 예시를 두지 않는다 (검증설계 v0.2 §4 · 결정 ②). ⑤ 가 도는 날은
+#   언제나 ``SPREAD_WIDE`` 라 "라벨이 SPREAD_NORMAL·SHELF_TIGHT 인데" 같은 조합은 안 온다.
+#   안 오는 예시는 검토자에게 「이런 것을 찾아라」로 읽히므로, 보는 것(사유가 라벨의 반대를
+#   말하나)만 둔다.
+#   ``timing`` × ``SINGLE`` 줄은 둔다 — 중복이지만(코드가 같은 판정을 신호로 계산해 같이
+#   넘긴다) 그건 「안 오는 상황」이 아니라 「두 번 말하는 상황」이다.
 SYSTEM_PROMPT = """당신은 매입 에이전트의 근거 검토 레이어다.
 수량·금액·제약 검사는 이미 끝났다. 당신이 보는 것은 **근거와 주장이 서로 맞는가**다.
 
@@ -83,10 +82,10 @@ class ReviewInvalid(ValueError):
 def validate_output(raw_output: str, context: ReviewContext) -> ReviewOutput:
     """프로바이더 밖의 공통 관문.
 
-    🔴 **숫자 검사는 식별자에 안 건다.** ``code`` 도 ``ref_id`` 도 규칙이 만든 이름이라
+    숫자 검사는 식별자에 안 건다. ``code`` 도 ``ref_id`` 도 규칙이 만든 이름이라
     숫자가 들어갈 수 있다 — 거기 걸면 정상 지적이 매번 fallback 으로 떨어진다.
-    이 응답에는 자유 문장이 아예 없으므로, 숫자 검사는 **제어문자와 같은 결의 위생 검사**로만
-    남긴다 (식별자에 숨은 제어문자가 화면에 그대로 실리는 것을 막는다).
+    이 응답에는 자유 문장이 아예 없으므로, 식별자에는 제어문자 위생 검사만 건다
+    (식별자에 숨은 제어문자가 화면에 그대로 실리는 것을 막는다).
     """
     try:
         output = ReviewOutput.model_validate_json(raw_output)
@@ -133,10 +132,10 @@ class SelfReviewService:
         self.provider = provider
 
     def review(self, context: ReviewContext) -> ReviewResult:
-        """지적을 받아 온다. **실패하면 지적 0건이다.**
+        """지적을 받아 온다. 실패하면 지적 0건이다.
 
-        🔴 실패를 「문제 없음」으로 적지 않는다 — 상태가 ``FALLBACK`` 으로 남고, 그 사실은
-        실행 흔적이 든다. 지적이 0건인 것과 **검토를 못 한 것**은 다른 사실이다.
+        실패를 「문제 없음」으로 적지 않는다 — 상태가 ``FALLBACK`` 으로 남고, 그 사실은
+        실행 흔적이 든다. 지적이 0건인 것과 검토를 못 한 것은 다른 사실이다.
         """
         template = ReviewOutput(findings=[])
         출력, 상태, 시도, 떨어짐 = run_with_fallback(
@@ -159,7 +158,7 @@ class SelfReviewService:
 
 
 def make_reviewer(service: SelfReviewService | None = None) -> Reviewer:
-    """꺼져 있거나 실패해도 **지적 0건**을 돌려준다 — 그래프가 멈추지 않는다."""
+    """꺼져 있거나 실패해도 지적 0건을 돌려준다 — 그래프가 멈추지 않는다."""
     selection = service or _service()
 
     def reviewer(context: ReviewContext) -> ReviewResult:
@@ -170,12 +169,12 @@ def make_reviewer(service: SelfReviewService | None = None) -> Reviewer:
 
 def _service() -> SelfReviewService:
     settings = get_llm_settings()
-    # 🔴 **조립은 ``build_provider`` 하나가 한다.** 역할마다 베끼면 모르는 provider 일
-    #   때만 갈라지는 길이 생긴다 — 그 클래스 docstring 에 실제로 밟은 자리가 있다.
+    # 조립은 ``build_provider`` 하나가 한다. 역할마다 베끼면 모르는 provider 일 때만
+    # 갈라지는 길이 생긴다 — 이유는 ``runtime.UnavailableProvider`` docstring 에 있다.
     return SelfReviewService(settings, build_provider(settings, ROLE))
 
 
-#: 🔴 ``contains_number`` 는 이 역할에서 **응답이 아니라 요청**을 잰다 —
+#: ``contains_number`` 는 이 역할에서 응답이 아니라 요청을 잰다 —
 #: 정제가 실제로 됐는지 노드가 확인할 때 쓴다 (``review_rationale``).
 __all__ = [
     "ROLE",

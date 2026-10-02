@@ -1,9 +1,6 @@
 -- inventory_moves — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/10_domain_schema.sql` (2026-08-30 test DB 에서 뜬 pg_dump 스냅샷)
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
@@ -54,7 +51,7 @@ ALTER TABLE ONLY haetdeul.inventory_moves
     ADD CONSTRAINT inventory_moves_sale_item_id_fkey FOREIGN KEY (sale_item_id) REFERENCES haetdeul.sale_items(sale_item_id);
 
 -- `inventory_move_lines` 의 복합 FK 가 이 UNIQUE 를 필요로 한다.
--- Move 한 건의 Line 이 **다른 Lot** 을 가리키지 못하게 하는 장치다.
+-- Move 한 건의 Line 이 다른 Lot 을 가리키지 못하게 하는 장치다.
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint

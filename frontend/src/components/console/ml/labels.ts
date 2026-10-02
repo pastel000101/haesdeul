@@ -1,16 +1,17 @@
 /**
- * Korean → English display labels for the ML console.
+ * Display labels for the ML console: backend value → text shown on screen.
+ * The helper is named `en`, but the labels it returns are Korean screen text.
  *
- * ★ **The backend still speaks Korean.** Verdicts (`정상`/`주의`/`이상`), verify
- *   verdicts and graph prompts are produced by our Python agents, and the same
- *   strings are archived in report files and read by our Korean console at
- *   `localhost:3100`. Translating them at the source would rewrite history and
- *   break that screen, so the translation lives **here, at the display layer**.
+ * The backend values stay as they are. Verdicts (`정상`/`주의`/`이상`), verify
+ * verdicts and graph prompts are produced by our Python agents, and the same
+ * strings are archived in report files and read by our Korean console at
+ * `localhost:3100`. Rewording them at the source would rewrite stored reports
+ * and break that screen, so the wording lives here, at the display layer.
  *
- * ★ **Never compare against the English text.** Branching logic must keep
- *   testing the Korean value the backend actually sends — the English string is
- *   for human eyes only. An unknown value falls through unchanged rather than
- *   disappearing: a label we forgot should look odd, not empty.
+ * Never compare against the display label. Branching logic must keep
+ * testing the value the backend actually sends — the label is
+ * for human eyes only. An unknown value falls through unchanged rather than
+ * disappearing: a label we forgot should look odd, not empty.
  */
 
 /** Agent verdict: how bad is it. */

@@ -1,18 +1,18 @@
 "use client";
 
 /**
- * 판매 후보 생성 — **마스터가 순서를 소유한다.**
+ * 판매 후보 생성 — 마스터가 순서를 소유한다.
  *
  * ```text
  * 화면(업무 요청)  →  POST /master/sales/run  →  물류 PRE_SALES → 판매 제안 → 재무 검증
  *                                              →  end_code · 후보 · 판정
  * ```
  *
- * 🔴 **화면이 보내는 것은 업무 요청뿐이다.** 원가·여신·마진·물류 판정·`end_code` 를
- *    실어 보내지 않는다 — 그 값을 화면이 정하면 판정이 화면에서 시작된다.
+ * 화면이 보내는 것은 업무 요청뿐이다. 원가·여신·마진·물류 판정·`end_code` 를
+ *   실어 보내지 않는다 — 그 값을 화면이 정하면 판정이 화면에서 시작된다.
  *
- * 🔴 **화면이 계산하지 않는다.** 공헌이익도 판정도 회신에 실린 값을 적기만 한다.
- *    회신에 없는 칸은 «없음» 이지 0 이 아니다.
+ * 화면이 계산하지 않는다. 공헌이익도 판정도 회신에 실린 값을 적기만 한다.
+ *   회신에 없는 칸은 «없음» 이지 0 이 아니다.
  */
 
 import { useState } from "react";
@@ -30,7 +30,7 @@ import {
 import { TechDetails } from "@/app/console/finance/TechDetails";
 import { runtimeText, verdictText } from "@/app/console/finance/user_text";
 
-/** 마스터가 낸 종료 코드의 뜻. **코드는 백엔드 값이고 여기서는 문장만 붙인다.** */
+/** 마스터가 낸 종료 코드의 뜻. 코드는 백엔드 값이고 여기서는 문장만 붙인다. */
 const END_CODES: Record<string, string> = {
   SL1_PRESENTED: "판매 가능한 안이 있습니다",
   SL2_NO_CANDIDATE: "후보가 만들어지지 않았습니다",
@@ -57,15 +57,15 @@ const EMPTY: Form = {
   requested_quantity_kg: "",
   preferred_unit_price_krw: "",
   preferred_delivery_date: "",
-  //  🔴 결제일수를 화면이 미리 정하지 않는다. 비워 두면 판매가 **거래처 계약 결제일수**를
-  //     싣는다 — 여기 30 을 박아 두면 거래처와 7일 결제로 바꾼 뒤에도 안이 30일로 선다.
+  //  결제일수를 화면이 미리 정하지 않는다. 비워 두면 판매가 거래처 계약 결제일수를
+  //  싣는다 — 여기 30 을 박아 두면 거래처와 7일 결제로 바꾼 뒤에도 안이 30일로 선다.
   preferred_payment_days: "",
   preferred_payment_terms_type: "",
   user_request: "",
 };
 
 function field(value: string): string | undefined {
-  //  ⚠️ 빈 칸은 «안 적었다» 이다. 0 이나 오늘 날짜로 채우지 않는다.
+  //  빈 칸은 «안 적었다» 이다. 0 이나 오늘 날짜로 채우지 않는다.
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
 }
@@ -136,7 +136,7 @@ export function SalesCandidatePanel({ simRun, asOf, onCreated }: { simRun: strin
         setState({
           data: null,
           running: false,
-          //  ★ 서버 문장을 그대로 올린다 — 무엇을 고쳐야 하는지 알려 주는 말이다.
+          //  서버 문장을 그대로 올린다 — 무엇을 고쳐야 하는지 알려 주는 말이다.
           error:
             error instanceof ApiError
               ? `[${error.status || "연결 실패"}] ${error.message}`
@@ -334,7 +334,7 @@ function Result({ data }: { data: SalesRunResponse }) {
         {data.reason && <p className="mb-0 mt-1 text-[16px] text-ink2">{data.reason}</p>}
         <div className="mt-3">
           <TechDetails>
-            {/* 🔴 코드와 뜻을 같이 보여 준다 — 뜻만 남기면 되짚을 수 없다. */}
+            {/* 코드와 뜻을 같이 보여 준다 — 뜻만 남기면 되짚을 수 없다. */}
             <p className="m-0 font-mono text-[15px] text-ink2">
               end_code {data.end_code} · request_id {data.request_id} · history_run_id{" "}
               {data.history_run_id ?? "null"}
@@ -397,10 +397,10 @@ function CandidateCard({ candidate }: { candidate: SalesCandidateOut }) {
 /**
  * 부서 판정 한 칸.
  *
- * 🔴 **Runtime 과 Verdict 를 합치지 않는다.** «못 돌았다» 와 «판정이 없다» 는 다른
- *    사실이고, 한 badge 로 뭉치면 그 둘을 구분할 수 없다.
+ * Runtime 과 Verdict 를 합치지 않는다. «못 돌았다» 와 «판정이 없다» 는 다른
+ *   사실이고, 한 badge 로 뭉치면 그 둘을 구분할 수 없다.
  *
- * ⚠️ **`reason_codes` 는 실패 사유 목록이 아니다.** 그 배열에는 통과 사유까지 함께
+ * 주의: `reason_codes` 는 실패 사유 목록이 아니다. 그 배열에는 통과 사유까지 함께
  *   들어 있다(2026-09-14 실측: PASS 판정에도 일곱 개가 실린다). «거절 사유» 라고
  *   이름 붙여 보여 주면 통과한 규칙이 실패로 읽힌다 — 이름을 붙이지 않고 기술
  *   상세 안에 그대로 둔다.

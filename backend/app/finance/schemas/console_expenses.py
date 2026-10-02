@@ -1,7 +1,4 @@
-"""운영 콘솔 운영비 응답.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_expenses.py` 에서 응답 모델만 옮겼다(필드 그대로).
-"""
+"""운영 콘솔 운영비 응답."""
 
 from datetime import date
 from decimal import Decimal
@@ -24,11 +21,11 @@ class ConsoleExpenseRow(BaseModel):
     status: str = "PAID"
     #: 지급하기로 한 날. 이 칸이 생기기 전 행은 `None` 이다.
     due_date: date | None = None
-    #: 🔴 **실제로 지급한 날. 모르면 `None` 이고, 발생일로 메우지 않는다.**
+    #: 실제로 지급한 날. 모르면 `None` 이고, 발생일로 메우지 않는다.
     #:
-    #:   마감은 지급일을 모르는 기존 `PAID` 행에 한해 `expense_date` 를 지급 기준일로
-    #:   읽지만(읽기 전용 호환), **화면은 그러면 안 된다.** 추측한 날짜를 «지급일» 이라고
-    #:   적으면 사용자는 그날 돈이 나간 것으로 읽고, 통장과 맞춰 보다 원인을 못 찾는다.
+    #: 마감은 지급일을 모르는 기존 `PAID` 행에 한해 `expense_date` 를 지급 기준일로 읽지만
+    #: (읽기 전용 호환), 화면은 그러면 안 된다. 추측한 날짜를 «지급일» 이라고 적으면 사용자는
+    #: 그날 돈이 나간 것으로 읽고, 통장과 맞춰 보다 원인을 못 찾는다.
     paid_date: date | None = None
     #: 지급일을 아는가. `PAID` 인데 거짓이면 «지급일 미상» 인 기존 데이터다.
     paid_date_known: bool = False
@@ -49,7 +46,7 @@ class ConsoleExpenseSummary(BaseModel):
     accrued_krw: Decimal = Decimal(0)
     #: 실제로 나간 돈. `PAID` 합계다.
     paid_krw: Decimal = Decimal(0)
-    #: 나가지 않기로 한 돈. `CANCELLED` 합계이고 **현금과 무관하다.**
+    #: 나가지 않기로 한 돈. `CANCELLED` 합계이고 현금과 무관하다.
     cancelled_krw: Decimal = Decimal(0)
     accrued_count: int = 0
     category_totals: list[ConsoleExpenseCategoryTotal] = []

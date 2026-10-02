@@ -1,17 +1,17 @@
 -- 재무 정책 Seed — `agent_policy_config` 의 domain = 'finance' 행.
 --
--- ★ 이 파일은 **행만** 넣는다. `agent_policy_config` 테이블 정의는 공유 스키마
---   (`database/10_domain_schema.sql`) 가 소유한다 — 여기서 다시 만들지 않는다.
+-- 이 파일은 행만 넣는다. `agent_policy_config` 테이블 정의는 공유 스키마
+--   (`database/schema/common/agent_policy_config.sql`) 가 소유한다 — 여기서 다시 만들지 않는다.
 --
--- ★ 값은 **승인된 재무 정책**이다. 없는 값을 채우지 않는다. 아래 N5 한 건을 빼면
+-- 값은 승인된 재무 정책이다. 없는 값을 채우지 않는다. 아래 N5 한 건을 빼면
 --   2026-09-04 운영 DB 행과 같다.
 --
--- ★ `evidence_grade` 는 공유 CHECK 가 정한 어휘만 쓴다. 팀이 고정한 시뮬레이션
+-- `evidence_grade` 는 공유 CHECK 가 정한 어휘만 쓴다. 팀이 고정한 시뮬레이션
 --   값은 `SIM_FIXED` 다 — 재무 전용 등급을 새로 만들지 않는다.
 --
 -- 재실행 안전: `uq_agent_policy_version (policy_version, domain, policy_key)`.
 --
--- 🔴 **`purchase_payment_days` 는 0 이다** (D+0 · 매입 당일 지급).
+-- `purchase_payment_days` 는 0 이다 (D+0 · 매입 당일 지급).
 --
 --    2026-09-04 관측 시점의 운영 DB 행은 `7` 을 들고 있다. 세 갈래 근거가 전부
 --    0 을 가리킨다.
@@ -26,14 +26,14 @@
 --    ```
 --
 --    반면 운영 행의 `7` 이 달고 있던 `FINANCE-DECISION-20260827:N5` 는 `evidences`
---    에 **행이 없다.** 저장소 SQL 어디에도 그 값을 넣는 구문이 없고, 기존 Finance
+--    에 행이 없다. 저장소 SQL 어디에도 그 값을 넣는 구문이 없고, 기존 Finance
 --    테스트가 문자열로만 들고 있다. 즉 저장소 밖에서 손으로 바꾼 값이고 근거를
 --    따라갈 수 없다. 그래서 이 파일은 `SRC-FIN-PERSONA` 를 단다 — 실제로 0 을
 --    받치는 근거이고, `monthly_labor_cost_krw` 가 이미 쓰는 것과 같은 출처다.
 --
---    이 브랜치는 운영 DB 를 읽기만 했다. 운영 행 반영은 별도 절차다.
+--    이 값을 정할 때 운영 DB 는 읽기만 했다. 운영 행 반영은 별도 절차다.
 --
--- ★ **`persona_version` 은 출처 Persona 행을 가리키지 않는다.** 그래서 이 행이
+-- `persona_version` 은 출처 Persona 행을 가리키지 않는다. 그래서 이 행이
 --    `SRC-FIN-PERSONA`(→ PERSONA-V1.3)를 달고도 `v1.5` 로 남는 것이 모순이 아니다.
 --
 --    ```text
@@ -43,7 +43,7 @@
 --
 --    근거: `company_personas.persona_version` 은 UNIQUE 이고 지금껏 `v1.3` 한 행뿐이라
 --    `v1.5` 라는 Persona 행은 존재한 적이 없다. `agent_policy_config` 에서 `v1.5` 는
---    재무 21행뿐 아니라 **물류 8행**도 같이 쓰고, 두 표 사이에 FK 도 컬럼 COMMENT 도
+--    재무 21행뿐 아니라 물류 8행도 같이 쓰고, 두 표 사이에 FK 도 컬럼 COMMENT 도
 --    없으며 읽는 코드도 없다. 기존 `monthly_labor_cost_krw` 주석이 이 값을
 --    *"통합 Persona v1.5"* 라고 부른다 — DB Persona 행이 아니라 문서 세대다.
 --

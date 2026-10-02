@@ -1,7 +1,6 @@
 """PRE_SALES 요청 해석 — 판매가 묻는 품목 · 수량 · 납품일을 봉투 payload 에서 읽는다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/adapter.py` 에서 옮겼다(내용 그대로). 조립 순서는
-  `service/pre_sales.py`.
+조립 순서는 `service/pre_sales.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ DELIVERY_MISSING_NAMES: dict[str, str] = {
 
 @dataclass(frozen=True)
 class SalesAsk:
-    """사용자가 실제로 물은 것. **없는 칸은 `None` 이고 물류가 채우지 않는다.**"""
+    """사용자가 실제로 물은 것. 없는 칸은 `None` 이고 물류가 채우지 않는다."""
 
     item: str | None
     quantity_kg: Decimal | None
@@ -35,10 +34,10 @@ class SalesAsk:
 
 
 def sales_ask(request: AgentRequest) -> SalesAsk:
-    """`user_request` 에서 **온 것만** 읽는다 (`query_scope` 와 같은 규율).
+    """`user_request` 에서 온 것만 읽는다 (`query_scope` 와 같은 규율).
 
-    🔴 **수량도 날짜도 지어내지 않는다.** 없으면 그 축의 판정을 안 하고, 안 한 것을
-       `READY` 로도 `FAIL` 로도 적지 않는다.
+    수량도 날짜도 지어내지 않는다. 없으면 그 축의 판정을 안 하고, 안 한 것을
+    `READY` 로도 `FAIL` 로도 적지 않는다.
     """
     raw = request.payload.get("user_request")
     if not isinstance(raw, Mapping):
@@ -52,7 +51,7 @@ def sales_ask(request: AgentRequest) -> SalesAsk:
 
 
 def ask_quantity(value: Any) -> Decimal | None:
-    """숫자면 `Decimal`, 아니면 `None`. 🔴 **못 읽은 값을 0 으로 바꾸지 않는다.**"""
+    """숫자면 `Decimal`, 아니면 `None`. 못 읽은 값을 0 으로 바꾸지 않는다."""
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, Decimal):
@@ -66,7 +65,7 @@ def ask_quantity(value: Any) -> Decimal | None:
 
 
 def ask_date(value: Any) -> date | None:
-    """`date` 거나 ISO 문자열이면 날짜, 아니면 `None`. **오늘로 메우지 않는다.**"""
+    """`date` 거나 ISO 문자열이면 날짜, 아니면 `None`. 오늘로 메우지 않는다."""
     if isinstance(value, datetime):
         return value.date()
     if isinstance(value, date):
@@ -86,19 +85,20 @@ def confirmed_inventory_cost_basis(
     inventory_by_item: Sequence[InventoryByItem],
     supply_rows: Sequence[SupplyByDate],
 ) -> InventoryCostBasisSnapshot | None:
-    """확정 물량에 FEFO 로 배부된 **예상** 재고 취득원가. **없으면 `None` 이다.**
+    """확정 물량에 FEFO 로 배부된 예상 재고 취득원가. 없으면 `None` 이다.
 
     ```text
     덮을 물량 = min(사용자가 물은 수량, 그 날짜(또는 현재)의 확정 판매가능량)
     ```
 
-    🔴 **판매가능량을 여기서 다시 셈하지 않는다.** 위에서 이미 낸
-       `inventory_by_item` · `supply_capacity_by_date` 를 그대로 읽는다 — 같은 회신
-       안에서 *"팔 수 있다고 답한 양"* 과 *"원가를 배부한 양"* 이 갈리면 그 회신은
-       스스로 모순된다.
+    판매가능량을 여기서 다시 셈하지 않는다. 위에서 이미 낸
+    `inventory_by_item` · `supply_capacity_by_date` 를 그대로 읽는다 — 같은 회신
+    안에서 "팔 수 있다고 답한 양" 과 "원가를 배부한 양" 이 갈리면 그 회신은
+    스스로 모순된다.
 
-    ★ 수량을 안 물었으면 확정 판매가능량 전체가 대상이다 — 판매가 사람 없는 자동
-      걷기에서 그 값을 그대로 제안 수량으로 쓴다 (`proposal._confirmed_sellable_qty`).
+    수량을 안 물었으면 확정 판매가능량 전체가 대상이다 — 판매가 사람 없는 자동
+    시뮬레이션 실행에서 그 값을 그대로 제안 수량으로 쓴다
+    (`sales/domain/proposal._confirmed_sellable_qty`).
     """
     if asked.item is None:
         return None
@@ -117,7 +117,7 @@ def confirmed_inventory_cost_basis(
 def delivery_input_error(
     request: AgentRequest, run_id: str, tools: Sequence[str]
 ) -> tuple[AgentReply, ExecutionMetadata]:
-    """납기 입력 조회의 **실행 실패** — `RUNTIME_NOT_READY` 가 아니다.
+    """납기 입력 조회의 실행 실패 — `RUNTIME_NOT_READY` 가 아니다.
 
     `snapshot_error_reply` 와 같은 판단이다 (M-1 §5.1): 데이터 부재가 아니라 다시 부르면
     성공할 수 있는 쪽이라 마스터가 재시도할 수 있어야 한다. 예외 원문은 싣지 않는다 —
@@ -140,19 +140,17 @@ def delivery_input_error(
     return reply, execution_meta(request, run_id, tools, reply)
 
 
-#: 운송 계약 조회가 **실행 오류**로 끝났다는 표시. 🔴 `None` 을 안 쓴다 —
-#: `None` 은 *"계약 행이 없다"* 라는 정상 사실이고 이것은 *"못 읽었다"* 다.
 def query_scope(request: AgentRequest, as_of: date) -> dict[str, Any]:
-    """이 회신이 **무엇을 기준으로 답했나.** 마스터가 보낸 것만 읽는다.
+    """이 회신이 무엇을 기준으로 답했나. 마스터가 보낸 것만 읽는다.
 
-    ★ **추론하지 않는다.** 마스터가 ②에 싣는 것은 사용자 조건 그대로이고
-      (`sales_flow._context_input`), 거기 없는 것은 물류도 모른다.
-      `delivery_window_start/end` 도 `max_confirmed_sellable_quantity_kg` 도 만들지
-      않는다 — 특히 뒤엣것은 판매가 **쓰지 않기로 못박은** 값이다
-      (`test_delivery_date_uses_exact_logistics_vector_not_query_scope_max`).
+    추론하지 않는다. 마스터가 ②에 싣는 것은 사용자 조건 그대로이고
+    (`master/service/sales_flow._context_input`), 거기 없는 것은 물류도 모른다.
+    `delivery_window_start/end` 도 `max_confirmed_sellable_quantity_kg` 도 만들지
+    않는다 — 특히 뒤엣것은 판매가 쓰지 않기로 못박은 값이다
+    (`test_delivery_date_uses_exact_logistics_vector_not_query_scope_max`).
 
-    ★ 품목이 없으면 **칸을 만들지 않는다.** `item: None` 을 실으면 받는 쪽이
-      *"품목 지정이 없었다"* 와 *"물류가 안 읽었다"* 를 구별할 수 없다 (§1.2-10).
+    품목이 없으면 칸을 만들지 않는다. `item: None` 을 실으면 받는 쪽이
+    "품목 지정이 없었다" 와 "물류가 안 읽었다" 를 구별할 수 없다 (§1.2-10).
     """
     scope: dict[str, Any] = {"as_of": as_of.isoformat()}
     user_request = request.payload.get("user_request")

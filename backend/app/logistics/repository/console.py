@@ -1,7 +1,4 @@
-"""화면 조회 SQL — 품목 이름 · 발표 품목 ID.
-
-★ 2026-09-30 재구성 BL-015: `logistics/console_service.py` 에서 옮겼다.
-"""
+"""화면 조회 SQL — 품목 이름 · 발표 품목 ID."""
 
 from __future__ import annotations
 

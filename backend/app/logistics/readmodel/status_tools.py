@@ -1,33 +1,32 @@
-"""공용 Read-only 물류 조회 Tool 7개 — **누가 무엇을 묻든 같은 구현을 지난다.**
+"""공용 Read-only 물류 조회 Tool 7개 — 누가 무엇을 묻든 같은 구현을 지난다.
 
 ```text
 get_open_exceptions · get_lot · get_item_lots · get_sales_commitments
 get_policy · get_capacity_context · get_inbound_schedule
 ```
 
-★ 질문형 STATUS_QUERY(`service/status_question`)가 이 7개를 LLM 에 tool schema 로 열고,
-  wrapper 가 `item_name → item_id` 를 확정해 여기 함수를 **시그니처 그대로** 부른다.
+질문형 STATUS_QUERY(`service/status_question`)가 이 7개를 LLM 에 tool schema 로 열고,
+wrapper 가 `item_name → item_id` 를 확정해 여기 함수를 시그니처 그대로 부른다.
 
-⚠️ `estimate_action_impact` 는 여기 없다 — 폐기한 Investigation/Proposal 흐름 전용이라
-   그 코드와 함께 제거했다(«현재 상태» 가 아니라 «이 행동을 하면» 을 답하던 Tool 이다).
+`estimate_action_impact` 는 여기 없다 — 폐기한 Investigation/Proposal 흐름 전용 Tool 이다
+(«현재 상태» 가 아니라 «이 행동을 하면» 을 답한다).
 
-🔴 **새 계산기가 아니라 기존 함수의 wrapper 다.** 잔량은 원장
-   (`readmodel/historical`), 신선도·회전은 `turnover`, 용량은 `tools`, 예약·할당은
-   `reservation_state_at`, 입고 예정은 `inbound_schedules` 가 낸 값 **그대로** 담는다 —
-   Tool 이 새 숫자를 내면 회신·Exception·화면이 같은 창고를 두고 서로 다른 말을 한다.
+새 계산기가 아니라 기존 함수의 wrapper 다. 잔량은 원장
+(`readmodel/historical`), 신선도·회전은 `turnover`, 용량은 `tools`, 예약·할당은
+`reservation_state_at`, 입고 예정은 `inbound_schedules` 가 낸 값 그대로 담는다 —
+Tool 이 새 숫자를 내면 회신·Exception·화면이 같은 창고를 두고 서로 다른 말을 한다.
 
-🔴 **전부 읽기 전용이다.** 쓰기 문장도, `commit` · `rollback` 도, Exception 상태 변경도
-   여기 없다. LLM 이 DB 를 바꾸는 경로를 만들지 않는 것이 이 층의 존재 이유다 (§9).
+전부 읽기 전용이다. 쓰기 문장도, `commit` · `rollback` 도, Exception 상태 변경도
+여기 없다. LLM 이 DB 를 바꾸는 경로를 만들지 않는 것이 이 층의 존재 이유다 (§9).
 
-🔴 **`as_of` 가 장식이 아니다.** `inventory_lots.remaining_qty_kg` 는 **지금** 잔량이라
-   과거 조회에 쓰면 오늘 소진된 재고가 그날에도 없던 것으로 보인다
-   (`readmodel/current.get_current_logistics_read` 의 경고 그대로). 그래서 물리 사실은 전부
-   원장·사건에서 되살리고, 되살릴 수 없는 축(정책)은 **그 사실을 결과에 적는다.**
+`as_of` 가 장식이 아니다. `inventory_lots.remaining_qty_kg` 는 지금 잔량이라
+과거 조회에 쓰면 오늘 소진된 재고가 그날에도 없던 것으로 보인다
+(`readmodel/current.get_current_logistics_read` 의 경고 그대로). 그래서 물리 사실은 전부
+원장·사건에서 되살리고, 되살릴 수 없는 축(정책)은 그 사실을 결과에 적는다.
 
-⚠️ **LLM 도 Planner 도 여기 없다.** 이 파일은 평범한 read-only 파이썬 함수 묶음이고,
-   모델에 선언하는 일(Commit 4)은 감싸는 쪽이 한다 — Registry 도 Plugin 도 안 만든다.
-
-★ 2026-09-30 재구성 BL-015: `logistics/query/tools.py` 에서 자리만 옮겼다(내용 그대로).
+LLM 도 Planner 도 여기 없다. 이 파일은 평범한 read-only 파이썬 함수 묶음이고,
+모델에 선언하는 일은 감싸는 쪽(`llm/status_query.py`)이 한다 — Registry 도 Plugin 도
+안 만든다.
 """
 
 from __future__ import annotations
@@ -109,7 +108,7 @@ __all__ = [
 # 어휘 — 못 본 것 · 못 잰 것
 # ---------------------------------------------------------------------------
 
-#: 그 실행에 그 Lot 이 없다. 🔴 **0kg Lot 으로 만들지 않는다** — «없다» 와 «비었다» 는
+#: 그 실행에 그 Lot 이 없다. 0kg Lot 으로 만들지 않는다 — «없다» 와 «비었다» 는
 #: 다른 사실이고, 뒤엣것으로 답하면 남의 실행 Lot 을 물은 것도 정상 응답이 된다.
 LOT_NOT_FOUND = "LOT_NOT_FOUND"
 #: 품목 자체가 `items` 에 없다.
@@ -120,16 +119,16 @@ LEDGER_ADJUST_UNSUPPORTED = "LEDGER_ADJUST_UNSUPPORTED"
 SNAPSHOT_AS_OF_MISMATCH = "SNAPSHOT_AS_OF_MISMATCH"
 #: 창 사용률·cap 을 못 셈했다 (리드타임 · 보장 용량 · 입고 예정 미확정).
 CAPACITY_WINDOW_UNRESOLVED = "CAPACITY_WINDOW_UNRESOLVED"
-#: 🔴 **정책은 과거로 되살릴 수 없다.** 세 정책 표에 유효일 칸이 없어 *"그날 그
-#: 정책이었나"* 를 알 수 없다 (`schemas/historical.CAPACITY_BASIS_CURRENT_ACTIVE_POLICY`
-#: 가 같은 한계를 이미 응답에 적는다). 지금 활성 정책을 쓰되 **그 사실을 적는다.**
+#: 정책은 과거로 되살릴 수 없다. 세 정책 표에 유효일 칸이 없어 "그날 그
+#: 정책이었나" 를 알 수 없다 (`schemas/historical.CAPACITY_BASIS_CURRENT_ACTIVE_POLICY`
+#: 가 같은 한계를 이미 응답에 적는다). 지금 활성 정책을 쓰되 그 사실을 적는다.
 POLICY_NOT_HISTORICAL = "POLICY_NOT_HISTORICAL"
-#: 🔴 **그날 값을 못 되살린 detail 이 있다.** 표가 과거 값을 안 들고 있어서다 —
+#: 그날 값을 못 되살린 detail 이 있다. 표가 과거 값을 안 들고 있어서다 —
 #: `touch_exception` 이 `severity`·근거를, `resolve_exception` 이 `note` 를 덮는다.
 #: 지금 값을 과거 답에 실으면 look-ahead 다. 어느 칸인지는 `unresolved_details` 가 말한다.
 EXCEPTION_DETAIL_UNRESOLVED = "EXCEPTION_DETAIL_UNRESOLVED"
 
-#: `touch_exception` 이 덮는 칸들. **날짜는 `last_detected_as_of` 하나다.**
+#: `touch_exception` 이 덮는 칸들. 날짜는 `last_detected_as_of` 하나다.
 DETECT_WRITTEN_DETAILS: tuple[str, ...] = (
     "severity",
     "evidence",
@@ -137,12 +136,12 @@ DETECT_WRITTEN_DETAILS: tuple[str, ...] = (
     "observed_as_of",
 )
 
-#: `resolve_exception` 이 덮는 칸. **날짜는 `resolved_as_of` 다.**
+#: `resolve_exception` 이 덮는 칸. 날짜는 `resolved_as_of` 다.
 #:
-#: 🔴 **writer 가 둘이라 게이트도 둘이다 (v0.9 보정).** 닫는 문장은
-#:    `note = COALESCE(%(note)s, note)` 이고 **`last_detected_as_of` 를 안 건드린다** —
-#:    그래서 `last_detected_as_of <= as_of` 하나만 보면 그 뒤 `resolve` 가 적은 note 가
-#:    과거 답에 그대로 실린다.
+#: writer 가 둘이라 게이트도 둘이다. 닫는 문장은
+#: `note = COALESCE(%(note)s, note)` 이고 `last_detected_as_of` 를 안 건드린다 —
+#: 그래서 `last_detected_as_of <= as_of` 하나만 보면 그 뒤 `resolve` 가 적은 note 가
+#: 과거 답에 그대로 실린다.
 #:
 #: ```text
 #: D5  마지막 Detect   last_detected_as_of = D5
@@ -150,14 +149,14 @@ DETECT_WRITTEN_DETAILS: tuple[str, ...] = (
 #: as_of=D5 조회에 «폐기 완료» 가 실리면 미래 정보 누수다
 #: ```
 #:
-#: ⚠️ `COALESCE` 라 **덮였는지 아닌지조차** 행만 보고는 못 가른다 — fail-closed 다.
+#: `COALESCE` 라 덮였는지 아닌지조차 행만 보고는 못 가른다 — fail-closed 다.
 RESOLVE_WRITTEN_DETAILS: tuple[str, ...] = ("note",)
 
-#: 표가 과거 값을 안 들고 있는 칸 **전부**. 그날 값을 증명할 수 없으면 비운다.
+#: 표가 과거 값을 안 들고 있는 칸 전부. 그날 값을 증명할 수 없으면 비운다.
 #:
-#: ★ *"그날 살아 있었다"* 와 *"그날 severity 가 무엇이었다"* 는 **다른 문제다.**
-#:   앞엣것은 두 날짜(`opened_as_of` · `resolved_as_of`)로 증명되지만, 뒤엣것은
-#:   표에 과거 값이 없어 증명할 길이 없다. 🔴 **지어내지 않고 비운다.**
+#: "그날 살아 있었다" 와 "그날 severity 가 무엇이었다" 는 다른 문제다.
+#: 앞엣것은 두 날짜(`opened_as_of` · `resolved_as_of`)로 증명되지만, 뒤엣것은
+#: 표에 과거 값이 없어 증명할 길이 없다. 지어내지 않고 비운다.
 MUTABLE_EXCEPTION_DETAILS: tuple[str, ...] = (
     *DETECT_WRITTEN_DETAILS,
     *RESOLVE_WRITTEN_DETAILS,
@@ -165,23 +164,23 @@ MUTABLE_EXCEPTION_DETAILS: tuple[str, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# 공통 결과 — **무엇을 · 언제 · 어디서 · 무엇을 못 알았나**
+# 공통 결과 — 무엇을 · 언제 · 어디서 · 무엇을 못 알았나
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, kw_only=True)
 class ToolAnswer:
-    """모든 Tool 결과의 공통 칸. **사실만으로는 부족한 네 가지를 함께 낸다.**
+    """모든 Tool 결과의 공통 칸. 사실만으로는 부족한 네 가지를 함께 낸다.
 
     ```text
     sim_run_id · as_of   어느 실행 · 어느 날의 사실인가
-    observed_as_of       그 사실을 **언제부터 알 수 있었나** (§18 · None = 못 쟀다)
-    uncertainties        무엇을 못 봤나 — 🔴 조용히 삼키지 않는다
+    observed_as_of       그 사실을 언제부터 알 수 있었나 (§18 · None = 못 쟀다)
+    uncertainties        무엇을 못 봤나 — 조용히 삼키지 않는다
     source_refs          어느 표·함수에서 왔나
     ```
 
-    ★ 네 칸이 빠지면 조사하는 쪽이 *"확인했고 문제 없음"* 과 *"확인을 못 했음"* 을
-      구별할 수 없다 — 그 구별이 이 층의 값어치다.
+    네 칸이 빠지면 조사하는 쪽이 "확인했고 문제 없음" 과 "확인을 못 했음" 을
+    구별할 수 없다 — 그 구별이 이 층의 값어치다.
     """
 
     sim_run_id: str
@@ -193,10 +192,10 @@ class ToolAnswer:
 
 @dataclass(frozen=True, kw_only=True)
 class LotFact:
-    """`as_of` 시점의 Lot 하나. **잔량도 상태도 원장에서 나온다.**
+    """`as_of` 시점의 Lot 하나. 잔량도 상태도 원장에서 나온다.
 
-    ⚠️ `remaining_qty_kg` 는 `inventory_lots.remaining_qty_kg`(지금 값)가 **아니다** —
-       `IN − OUT − DISPOSE` 누계다 (`readmodel/historical.lot_state_at`).
+    `remaining_qty_kg` 는 `inventory_lots.remaining_qty_kg`(지금 값)가 아니다 —
+    `IN − OUT − DISPOSE` 누계다 (`readmodel/historical.lot_state_at`).
     """
 
     lot_id: str
@@ -204,8 +203,8 @@ class LotFact:
     item: str | None
     grade: str | None
     storage_zone: str | None
-    #: 원장에서 **유도한** 상태 (`ACTIVE` · `DEPLETED` · `DISPOSED`).
-    #: 🔴 `inventory_lots.status`(지금 값)를 과거로 쓰지 않는다.
+    #: 원장에서 유도한 상태 (`ACTIVE` · `DEPLETED` · `DISPOSED`).
+    #: `inventory_lots.status`(지금 값)를 과거로 쓰지 않는다.
     status: str
     received_at: date
     remaining_qty_kg: Decimal
@@ -216,11 +215,11 @@ class LotFact:
     sell_priority: bool
     sell_priority_remaining_days: int | None
     disposal_candidate: bool
-    #: 그날 살아 있던 할당의 합 (`ALLOCATED`). 🔴 `SHIPPED` 는 안 센다 — 나간 몫은
+    #: 그날 살아 있던 할당의 합 (`ALLOCATED`). `SHIPPED` 는 안 센다 — 나간 몫은
     #: 원장 OUT 이 잔량에서 이미 덜어냈다 (`outbound` 와 같은 규율).
     committed_kg: Decimal
-    #: 아직 아무도 안 잡은 몫. 🔴 **판매 가용이 아닌 Lot 은 `None`** 이다 —
-    #: `tools._sellable_lot_contributions` 와 같은 경계다 (비-ACTIVE · 신선도 만료).
+    #: 아직 아무도 안 잡은 몫. 판매 가용이 아닌 Lot 은 `None` 이다 —
+    #: `domain/tools.sellable_lot_contributions` 와 같은 경계다 (비-ACTIVE · 신선도 만료).
     uncommitted_kg: Decimal | None
     #: §18.2 — 사실마다 따로 든다.
     remaining_qty_observed_as_of: date | None
@@ -228,7 +227,7 @@ class LotFact:
 
     @property
     def freshness_remaining_ratio(self) -> Decimal | None:
-        """잔여 ÷ **유효** 한계. `agent.schemas.ObservedLot` 와 같은 식이다."""
+        """잔여 ÷ 유효 한계. `schemas/monitoring.ObservedLot` 와 같은 식이다."""
         remaining = self.remaining_freshness_days
         limit = self.effective_freshness_limit_days
         if remaining is None or limit is None or limit <= 0:
@@ -237,19 +236,19 @@ class LotFact:
 
     @property
     def freshness_observed_as_of(self) -> date | None:
-        """신선도·회전 파생값의 관측일 = **입고일과 정책 중 늦은 쪽.**
+        """신선도·회전 파생값의 관측일 = 입고일과 정책 중 늦은 쪽.
 
-        🔴 `ObservedLot.freshness_observed_as_of` 와 같은 규칙이다 — 「한계 − 경과」이고
-           그 한계가 `item_storage_policies` 에서 온다. 회전 상태(`turnover_status` ·
-           `sell_priority*` · `disposal_candidate`)도 같은 정책 축이라 여기 접힌다.
+        `ObservedLot.freshness_observed_as_of` 와 같은 규칙이다 — 「한계 − 경과」이고
+        그 한계가 `item_storage_policies` 에서 온다. 회전 상태(`turnover_status` ·
+        `sell_priority*` · `disposal_candidate`)도 같은 정책 축이라 여기 접힌다.
         """
         return derive_observed_as_of([self.received_at, POLICY_OBSERVED_AS_OF])
 
     @property
     def uncommitted_observed_as_of(self) -> date | None:
-        """`committed_kg` · `uncommitted_kg` 의 관측일 = **잔량 축과 예약 축 중 늦은 쪽.**
+        """`committed_kg` · `uncommitted_kg` 의 관측일 = 잔량 축과 예약 축 중 늦은 쪽.
 
-        🔴 지금은 언제나 `None` 이다 (`COMMITMENT_OBSERVED_AS_OF` · §18.2).
+        지금은 언제나 `None` 이다 (`COMMITMENT_OBSERVED_AS_OF` · §18.2).
         """
         return derive_observed_as_of(
             [self.remaining_qty_observed_as_of, COMMITMENT_OBSERVED_AS_OF]
@@ -257,11 +256,11 @@ class LotFact:
 
     @property
     def observed_as_of(self) -> date | None:
-        """이 Lot **한 줄 전체**를 언제부터 알 수 있었나 (v0.8 보정).
+        """이 Lot 한 줄 전체를 언제부터 알 수 있었나.
 
-        🔴 **잔량 날짜 하나로 대표하지 않는다.** 한 줄에 잔량·상태·신선도·회전·예약이
-           함께 실려 있고 축마다 관측일이 다르다 — 잔량 날짜만 내면 *"정책·예약까지 그날
-           기준으로 다 쟀다"* 는 거짓이 된다. 하나라도 못 대면 전체가 `None` 이다.
+        잔량 날짜 하나로 대표하지 않는다. 한 줄에 잔량·상태·신선도·회전·예약이
+        함께 실려 있고 축마다 관측일이 다르다 — 잔량 날짜만 내면 "정책·예약까지 그날
+        기준으로 다 쟀다" 는 거짓이 된다. 하나라도 못 대면 전체가 `None` 이다.
         """
         return derive_observed_as_of(
             [
@@ -284,7 +283,7 @@ class LotView(ToolAnswer):
 
 @dataclass(frozen=True, kw_only=True)
 class ItemLots(ToolAnswer):
-    """`get_item_lots` — **FEFO 순서다** (`turnover.fefo_sort_key`)."""
+    """`get_item_lots` — FEFO 순서다 (`turnover.fefo_sort_key`)."""
 
     item_id: str
     lots: tuple[LotFact, ...]
@@ -292,7 +291,7 @@ class ItemLots(ToolAnswer):
 
 @dataclass(frozen=True, kw_only=True)
 class ExceptionFact:
-    """그날 살아 있던 문제 하나. 🔴 **`ExceptionRow`(지금 값)를 그대로 내지 않는다.**
+    """그날 살아 있던 문제 하나. `ExceptionRow`(지금 값)를 그대로 내지 않는다.
 
     ```text
     증명되는 것    exception_id · code · subject · opened_as_of · detector_version
@@ -303,10 +302,10 @@ class ExceptionFact:
                   ← resolve_exception 이 덮는다. 날짜는 resolved_as_of
     ```
 
-    ★ **되살리는 게이트가 둘이다** — writer 가 둘이라서다. `last_detected_as_of <= as_of`
-      면 *"그 뒤로 `touch` 가 없었다"* 가, `resolved_as_of` 가 없거나 `as_of` 이하면
-      *"그 뒤로 `resolve` 가 없었다"* 가 증명된다. 각 칸은 **자기 writer 의 게이트**를
-      지날 때만 실린다 — `detail_known` 은 둘 다 지났을 때만 참이다.
+    되살리는 게이트가 둘이다 — writer 가 둘이라서다. `last_detected_as_of <= as_of`
+    면 "그 뒤로 `touch` 가 없었다" 가, `resolved_as_of` 가 없거나 `as_of` 이하면
+    "그 뒤로 `resolve` 가 없었다" 가 증명된다. 각 칸은 자기 writer 의 게이트를
+    지날 때만 실린다 — `detail_known` 은 둘 다 지났을 때만 참이다.
     """
 
     exception_id: str
@@ -318,11 +317,11 @@ class ExceptionFact:
     previous_exception_id: str | None
     #: 그날 기준 며칠째인가. `opened_as_of` 가 불변이라 이 수는 언제나 정확하다.
     open_days: int
-    #: 그날의 상태. 🔴 저장된 값이 `OPEN` 일 때만 확정된다 — 상태는 앞으로만 가므로
+    #: 그날의 상태. 저장된 값이 `OPEN` 일 때만 확정된다 — 상태는 앞으로만 가므로
     #: 지금 `OPEN` 이면 그 전에도 `OPEN` 이었다. `PROPOSED` 로 넘어간 날을 적는 칸이
     #: 없어(§26) 그 밖의 행은 그날 무엇이었는지 못 댄다.
     status: str | None
-    #: 🔴 그날의 detail 을 되살릴 수 있었나.
+    #: 그날의 detail 을 되살릴 수 있었나.
     detail_known: bool
     severity: str | None
     evidence: tuple[ExceptionEvidence, ...] | None
@@ -336,7 +335,7 @@ class ExceptionFact:
 
 @dataclass(frozen=True, kw_only=True)
 class OpenExceptions(ToolAnswer):
-    """`get_open_exceptions` — **그날 살아 있던** 문제들."""
+    """`get_open_exceptions` — 그날 살아 있던 문제들."""
 
     exceptions: tuple[ExceptionFact, ...]
 
@@ -376,7 +375,7 @@ class SalesCommitments(ToolAnswer):
 
 @dataclass(frozen=True, kw_only=True)
 class PolicyView(ToolAnswer):
-    """`get_policy` — 🔴 `observed_as_of` 는 **언제나 `None`** 이다 (유효일 칸 없음)."""
+    """`get_policy` — `observed_as_of` 는 언제나 `None` 이다 (유효일 칸 없음)."""
 
     item_id: str | None
     item_policy: ItemPolicy | None
@@ -389,7 +388,7 @@ class PolicyView(ToolAnswer):
 
 @dataclass(frozen=True, kw_only=True)
 class CapacityContext(ToolAnswer):
-    """`get_capacity_context` — 🔴 **CAPACITY_PRESSURE 와 같은 함수·같은 숫자다.**"""
+    """`get_capacity_context` — CAPACITY_PRESSURE 와 같은 함수·같은 숫자다."""
 
     used_kg: Decimal
     guaranteed_kg: Decimal | None
@@ -402,7 +401,7 @@ class CapacityContext(ToolAnswer):
     cap_by_date: Mapping[date, Decimal]
     inbound_lead_days: int | None
     capacity_tight_ratio: Decimal | None
-    #: 🔴 정책을 과거로 못 되살린다는 표시 (`CURRENT_ACTIVE_POLICY`).
+    #: 정책을 과거로 못 되살린다는 표시 (`CURRENT_ACTIVE_POLICY`).
     capacity_basis: str
 
 
@@ -418,7 +417,7 @@ class InboundScheduleFact:
     expected_arrival_date: date
     created_as_of: date
     has_receipt: bool
-    #: Lot 과 원장 IN 이 **둘 다** 섰나. 참이면 미래 점유에서 빠진다.
+    #: Lot 과 원장 IN 이 둘 다 섰나. 참이면 미래 점유에서 빠진다.
     stock_applied: bool
 
 
@@ -426,8 +425,8 @@ class InboundScheduleFact:
 class InboundPlan(ToolAnswer):
     """`get_inbound_schedule` — `days` 는 `cap_by_date` 창을 넘지 않는다.
 
-    ⚠️ 이름이 `inbound_schedules.InboundSchedule` 과 다르다 — 그쪽은 **표 한 행**이고
-       이쪽은 **Tool 한 번의 답**이다. 같은 이름을 두 뜻으로 쓰지 않는다.
+    이름이 `inbound_schedules.InboundSchedule` 과 다르다 — 그쪽은 표 한 행이고
+    이쪽은 Tool 한 번의 답이다. 같은 이름을 두 뜻으로 쓰지 않는다.
     """
 
     days: int
@@ -440,7 +439,7 @@ _COMMITMENT_SOURCES = ("inventory_reservations", "inventory_allocations", "sales
 
 @dataclass(frozen=True)
 class _Warehouse:
-    """그날의 물리 사실 한 벌. **내부 전용이다 — 결과 타입이 아니다.**"""
+    """그날의 물리 사실 한 벌. 내부 전용이다 — 결과 타입이 아니다."""
 
     lots: tuple[LotFact, ...]
     reservations: tuple[HistoricalReservation, ...]
@@ -451,14 +450,14 @@ class _Warehouse:
 
 
 def _warehouse_at(conn: Any, *, sim_run_id: str, as_of: date) -> _Warehouse:
-    """그날의 Lot·예약 사실. 🔴 **여기 한 곳이 원장을 읽는다.**
+    """그날의 Lot·예약 사실. 여기 한 곳이 원장을 읽는다.
 
-    ★ 여덟 Tool 이 각자 원장을 읽으면 같은 하루를 두고 서로 다른 잔량을 말할 수 있다 —
-      `get_lot` 이 500kg 이라는데 `get_capacity_context` 는 700kg 로 세는 날이 그것이다.
+    일곱 Tool 이 각자 원장을 읽으면 같은 하루를 두고 서로 다른 잔량을 말할 수 있다 —
+    `get_lot` 이 500kg 이라는데 `get_capacity_context` 는 700kg 로 세는 날이 그것이다.
 
-    ⚠️ **`observe()` 를 통째로 부르지 않는다.** 저쪽은 탐지를 위한 한 벌이라 Exception
-       표까지 읽고 Current 스냅샷을 눈으로 삼는다 — Lot 하나를 묻는 자리에 그것을
-       부르면 범위가 너무 크고, 무엇보다 **과거를 못 본다.**
+    `observe()` 를 통째로 부르지 않는다. 저쪽은 탐지를 위한 한 벌이라 Exception
+    표까지 읽고 Current 스냅샷을 눈으로 삼는다 — Lot 하나를 묻는 자리에 그것을
+    부르면 범위가 너무 크고, 무엇보다 과거를 못 본다.
     """
     try:
         historical_lots = lot_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)
@@ -487,11 +486,12 @@ def _last_moved_at(ledger_state: Mapping[str, LedgerLotState], lot_id: str) -> d
 
 
 def _allocated_by_lot(reservations: Sequence[HistoricalReservation]) -> dict[str, Decimal]:
-    """그날 살아 있던 할당을 Lot 축으로 모은다. **`ALLOCATED` 만 센다.**
+    """그날 살아 있던 할당을 Lot 축으로 모은다. `ALLOCATED` 만 센다.
 
-    🔴 `SHIPPED` 는 빼고 `RELEASED` 도 뺀다 — 앞엣것은 원장 OUT 이 잔량에서 이미
-       덜어냈고(두 번 빼면 없는 재고가 생긴다), 뒤엣것은 돌려준 몫이다.
-       `repository/current.get_outbound_commitments` 의 `_HOLDING_ALLOCATION` 과 같은 경계다.
+    `SHIPPED` 는 빼고 `RELEASED` 도 뺀다 — 앞엣것은 원장 OUT 이 잔량에서 이미
+    덜어냈고(두 번 빼면 없는 재고가 생긴다), 뒤엣것은 돌려준 몫이다.
+    `repository/current.get_outbound_commitments` 가 쓰는 `schemas/vocabulary.HOLDING_ALLOCATION`
+    과 같은 경계다.
     """
     totals: dict[str, Decimal] = {}
     for reservation in reservations:
@@ -509,9 +509,9 @@ def _lot_fact(
     committed_kg = committed_by_lot.get(lot.lot_id, Decimal(0))
     turnover = lot.turnover
     remaining_freshness_days = turnover.remaining_freshness_days
-    # 🔴 `tools._sellable_lot_contributions` 와 **같은 경계다.** 비-ACTIVE 와 신선도가
-    #    0 이하로 **확인된** Lot 은 애초에 팔 수 없어 «아직 안 잡힌 몫» 이 성립하지
-    #    않는다 — 0 으로 적으면 «다 잡혔다» 로 읽힌다.
+    # `domain/tools.sellable_lot_contributions` 와 같은 경계다. 비-ACTIVE 와 신선도가
+    # 0 이하로 확인된 Lot 은 애초에 팔 수 없어 «아직 안 잡힌 몫» 이 성립하지
+    # 않는다 — 0 으로 적으면 «다 잡혔다» 로 읽힌다.
     sellable = lot.state == ACTIVE_LOT_STATUS and not (
         remaining_freshness_days is not None and remaining_freshness_days <= 0
     )
@@ -545,12 +545,12 @@ def _lot_fact(
 def _state_observed_as_of(
     state: str, *, received_at: date | None, last_moved_at: date | None
 ) -> date | None:
-    """원장에서 **유도한** 상태의 관측일. 규칙의 주인은 `observe` 다 (§18.2).
+    """원장에서 유도한 상태의 관측일. 규칙의 주인은 `observe` 다 (§18.2).
 
-    🔴 **`DEPLETED` 한 갈래만 다르고, 다른 이유가 있다.** `observe` 가 보는 것은
-       `inventory_lots.status`(캐시)이고 그 어휘로 `DEPLETED` 를 적는 writer 가 없어
-       날짜를 못 댄다. 여기 `DEPLETED` 는 **원장 잔량이 0** 이라는 유도 결과라,
-       0 이 된 날이 곧 마지막 이동일이다 — 같은 이름이 다른 근거를 가진 자리다.
+    `DEPLETED` 한 갈래만 다르고, 다른 이유가 있다. `observe` 가 보는 것은
+    `inventory_lots.status`(캐시)이고 그 어휘로 `DEPLETED` 를 적는 writer 가 없어
+    날짜를 못 댄다. 여기 `DEPLETED` 는 원장 잔량이 0 이라는 유도 결과라,
+    0 이 된 날이 곧 마지막 이동일이다 — 같은 이름이 다른 근거를 가진 자리다.
     """
     if state == "DEPLETED":
         return last_moved_at
@@ -558,18 +558,18 @@ def _state_observed_as_of(
 
 
 def _stock_observed_as_of(lots: Iterable[LotFact]) -> date | None:
-    """**물리 잔량 축**만의 관측일 = 잔량 관측일 중 가장 늦은 것.
+    """물리 잔량 축만의 관측일 = 잔량 관측일 중 가장 늦은 것.
 
-    ★ 용량 점유(`used_capacity_kg`)처럼 **잔량 합**인 사실이 쓰는 값이다. Lot 한 줄
-      전체를 대표하는 값이 아니다 — 그것은 `LotFact.observed_as_of` 다.
+    용량 점유(`used_capacity_kg`)처럼 잔량 합인 사실이 쓰는 값이다. Lot 한 줄
+    전체를 대표하는 값이 아니다 — 그것은 `LotFact.observed_as_of` 다.
 
-    🔴 하나라도 못 대면 전체가 `None` 이다 — 합계의 관측일은 가장 약한 고리를 따른다.
+    하나라도 못 대면 전체가 `None` 이다 — 합계의 관측일은 가장 약한 고리를 따른다.
     """
     return derive_observed_as_of([lot.remaining_qty_observed_as_of for lot in lots])
 
 
 def _lots_observed_as_of(lots: Iterable[LotFact]) -> date | None:
-    """Lot 묶음 **전체**의 관측일 = 각 줄의 합성 관측일 중 가장 늦은 것."""
+    """Lot 묶음 전체의 관측일 = 각 줄의 합성 관측일 중 가장 늦은 것."""
     return derive_observed_as_of([lot.observed_as_of for lot in lots])
 
 
@@ -579,15 +579,15 @@ def _lots_observed_as_of(lots: Iterable[LotFact]) -> date | None:
 
 
 def get_open_exceptions(conn: Any, *, sim_run_id: str, as_of: date) -> OpenExceptions:
-    """그날 살아 있던 운영 Exception 전부. **조사의 출발점이다.**
+    """그날 살아 있던 운영 Exception 전부. 조사의 출발점이다.
 
-    🔴 **`live_exceptions`(지금 값)를 그대로 내지 않는다.** 그러면 두 가지로 틀린다 —
-       ① `opened_as_of > as_of` 인 **미래 문제**가 과거 답에 섞이고(look-ahead),
-       ② 그날 열려 있다가 그 뒤 닫힌 문제가 통째로 빠진다. 그래서 표를 두 날짜
-       (`opened_as_of` · `resolved_as_of`)로 자르는 `live_exceptions_at` 을 쓴다.
+    `live_exceptions`(지금 값)를 그대로 내지 않는다. 그러면 두 가지로 틀린다 —
+    ① `opened_as_of > as_of` 인 미래 문제가 과거 답에 섞이고(look-ahead),
+    ② 그날 열려 있다가 그 뒤 닫힌 문제가 통째로 빠진다. 그래서 표를 두 날짜
+    (`opened_as_of` · `resolved_as_of`)로 자르는 `live_exceptions_at` 을 쓴다.
 
-    🔴 **행이 들고 있는 detail 도 그대로 내지 않는다.** 덮는 writer 가 **둘**이고
-       각자 **다른 날짜**를 남긴다 — 그래서 게이트도 둘이다 (v0.9 보정).
+    행이 들고 있는 detail 도 그대로 내지 않는다. 덮는 writer 가 둘이고
+    각자 다른 날짜를 남긴다 — 그래서 게이트도 둘이다.
 
     ```text
     touch_exception    severity · evidence_json · last_detected_as_of · observed_as_of
@@ -596,7 +596,7 @@ def get_open_exceptions(conn: Any, *, sim_run_id: str, as_of: date) -> OpenExcep
                        ← 게이트는 resolved_as_of 가 없거나 as_of 이하
     ```
 
-       ⚠️ `resolve_exception` 은 `last_detected_as_of` 를 **안 건드린다.** 그래서 그 칸
+       `resolve_exception` 은 `last_detected_as_of` 를 안 건드린다. 그래서 그 칸
        하나로 묶으면 닫으면서 적은 `note` 가 과거 답에 샌다.
 
     ```text
@@ -607,18 +607,18 @@ def get_open_exceptions(conn: Any, *, sim_run_id: str, as_of: date) -> OpenExcep
     as_of=D5 조회에 «폐기 완료» 가 실리면 look-ahead 다 — last_detected 는 D5 그대로다
     ```
 
-       표가 과거 값을 안 들고 있으므로 **지어내지 않고 비운다** — 단 **통째로 비우지는
-       않는다.** 각 칸은 자기 writer 의 게이트만 지나면 실리므로, 미래 `resolve` 뒤에
+       표가 과거 값을 안 들고 있으므로 지어내지 않고 비운다 — 단 통째로 비우지는
+       않는다. 각 칸은 자기 writer 의 게이트만 지나면 실리므로, 미래 `resolve` 뒤에
        조회해도 `severity` 는 여전히 증명된다. 못 댄 칸은 `unresolved_details` 가
        이름으로 말하고, 사유에는 `EXCEPTION_DETAIL_UNRESOLVED:{id}` 를 남긴다.
 
-    ⚠️ 목록의 관측일은 **목록을 바꾼 날들**(열린 날 · 닫힌 날)의 `max` 에 각 행의 근거
-       관측일을 더해 셈한다 — 살아남은 행의 `opened_as_of` 만 모으면 *"D7 에 하나가
-       닫혀서 오늘 목록이 이렇다"* 는 사실의 날짜가 통째로 사라진다.
+    목록의 관측일은 목록을 바꾼 날들(열린 날 · 닫힌 날)의 `max` 에 각 행의 근거
+    관측일을 더해 셈한다 — 살아남은 행의 `opened_as_of` 만 모으면 "D7 에 하나가
+    닫혀서 오늘 목록이 이렇다" 는 사실의 날짜가 통째로 사라진다.
     """
     found = live_exceptions_at(conn, sim_run_id=sim_run_id, as_of=as_of)
     facts = tuple(_exception_fact(row, as_of=as_of) for row in found.rows)
-    # 🔴 닫힌 날을 못 댄 행이 하나라도 있으면 그날 목록 자체가 확정된 것이 아니다.
+    # 닫힌 날을 못 댄 행이 하나라도 있으면 그날 목록 자체가 확정된 것이 아니다.
     membership = (
         None if found.uncertainties else derive_observed_as_of(found.membership_dates)
     )
@@ -636,8 +636,8 @@ def get_open_exceptions(conn: Any, *, sim_run_id: str, as_of: date) -> OpenExcep
         observed_as_of=derive_observed_as_of(
             [
                 membership,
-                # ★ **비운 칸은 사실을 안 싣는다** — 관측일에도 안 든다. 근거를 실은
-                #   행만 그 근거의 관측일로 셈한다 (`detect_known` 이 그 게이트다).
+                # 비운 칸은 사실을 안 싣는다 — 관측일에도 안 든다. 근거를 실은
+                # 행만 그 근거의 관측일로 셈한다 (`detect_known` 이 그 게이트다).
                 *(
                     fact.evidence_observed_as_of
                     if "evidence" not in fact.unresolved_details
@@ -653,22 +653,22 @@ def get_open_exceptions(conn: Any, *, sim_run_id: str, as_of: date) -> OpenExcep
 
 
 def _exception_fact(row: ExceptionRow, *, as_of: date) -> ExceptionFact:
-    """표 한 행을 **그날 증명되는 것만** 남긴 투영으로 바꾼다.
+    """표 한 행을 그날 증명되는 것만 남긴 투영으로 바꾼다.
 
-    🔴 `last_detected_as_of > as_of` 는 *"그 뒤에 `touch` 가 있었다"* 는 뜻이라 그 writer 의
-       칸을 못 쓴다. `resolved_as_of > as_of` 는 *"그 뒤에 `resolve` 가 있었다"* 는 뜻이라
-       `note` 를 못 쓴다. 그 사이 값이 무엇이었는지는 표 어디에도 없다 — 새 이력 표를
-       만들지 않는다(§26).
+    `last_detected_as_of > as_of` 는 "그 뒤에 `touch` 가 있었다" 는 뜻이라 그 writer 의
+    칸을 못 쓴다. `resolved_as_of > as_of` 는 "그 뒤에 `resolve` 가 있었다" 는 뜻이라
+    `note` 를 못 쓴다. 그 사이 값이 무엇이었는지는 표 어디에도 없다 — 새 이력 표를
+    만들지 않는다(§26).
     """
-    # ── 게이트 둘 — **writer 가 둘이라 날짜도 둘이다** (v0.9 보정) ──────
+    # ── 게이트 둘 — writer 가 둘이라 날짜도 둘이다 ──────────────────────
     #
-    # 🔴 `touch_exception` 과 `resolve_exception` 이 서로 다른 칸을 서로 다른 날짜로
-    #    덮는다. 한 게이트로 묶으면 둘 중 하나가 반드시 샌다 —
-    #    `last_detected_as_of` 만 보면 미래 `resolve` 의 note 가 새고,
-    #    `resolved_as_of` 만 보면 미래 `touch` 의 severity 가 샌다.
+    # `touch_exception` 과 `resolve_exception` 이 서로 다른 칸을 서로 다른 날짜로
+    # 덮는다. 한 게이트로 묶으면 둘 중 하나가 반드시 샌다 —
+    # `last_detected_as_of` 만 보면 미래 `resolve` 의 note 가 새고,
+    # `resolved_as_of` 만 보면 미래 `touch` 의 severity 가 샌다.
     detect_known = row.last_detected_as_of <= as_of
-    # ★ 살아 있는 행이면 `resolved_as_of` 는 `None` 이거나 `as_of` 뒤다 — 뒤엣것이면
-    #   그 닫는 문장이 note 를 덮었는지 못 가른다(`COALESCE`). 일반형으로 적어 둔다.
+    # 살아 있는 행이면 `resolved_as_of` 는 `None` 이거나 `as_of` 뒤다 — 뒤엣것이면
+    # 그 닫는 문장이 note 를 덮었는지 못 가른다(`COALESCE`). 일반형으로 적어 둔다.
     note_known = row.resolved_as_of is None or row.resolved_as_of <= as_of
     # 상태는 앞으로만 간다 — 지금 `OPEN` 이면 그 전에도 `OPEN` 이었다.
     # 그 밖(`PROPOSED` · 그날 뒤에 닫힌 행)은 넘어간 날을 적는 칸이 없어 못 댄다.
@@ -690,8 +690,8 @@ def _exception_fact(row: ExceptionRow, *, as_of: date) -> ExceptionFact:
         previous_exception_id=row.previous_exception_id,
         open_days=(as_of - row.opened_as_of).days + 1,
         status=status,
-        # 🔴 **전부 증명됐을 때만 참이다.** 한 칸이라도 못 대면 거짓이고, 어느 칸인지는
-        #    `unresolved_details` 가 이름으로 말한다.
+        # 전부 증명됐을 때만 참이다. 한 칸이라도 못 대면 거짓이고, 어느 칸인지는
+        # `unresolved_details` 가 이름으로 말한다.
         detail_known=detect_known and note_known,
         severity=row.severity if detect_known else None,
         evidence=row.evidence if detect_known else None,
@@ -708,10 +708,10 @@ def _exception_fact(row: ExceptionRow, *, as_of: date) -> ExceptionFact:
 
 
 def get_lot(conn: Any, *, sim_run_id: str, as_of: date, lot_id: str) -> LotView:
-    """그 Lot 의 `as_of` 시점 사실. **없으면 «없다» 고 답한다.**
+    """그 Lot 의 `as_of` 시점 사실. 없으면 «없다» 고 답한다.
 
-    🔴 **남의 실행 Lot 은 여기 없다.** 실행 축이 `lot_state_at` 의 `WHERE` 에 있어
-       `sim_run_id` 가 다르면 애초에 안 나온다 — 0kg 으로 답하지 않는다.
+    남의 실행 Lot 은 여기 없다. 실행 축이 `lot_state_at` 의 `WHERE` 에 있어
+    `sim_run_id` 가 다르면 애초에 안 나온다 — 0kg 으로 답하지 않는다.
     """
     warehouse = _warehouse_at(conn, sim_run_id=sim_run_id, as_of=as_of)
     lot = warehouse.by_lot(lot_id)
@@ -723,8 +723,8 @@ def get_lot(conn: Any, *, sim_run_id: str, as_of: date, lot_id: str) -> LotView:
     return LotView(
         sim_run_id=sim_run_id,
         as_of=as_of,
-        # 🔴 **잔량 날짜 하나로 대표하지 않는다** (v0.8 보정) — 한 줄에 잔량·상태·
-        #    신선도·회전·예약이 함께 실려 있고 축마다 관측일이 다르다 (`LotFact`).
+        # 잔량 날짜 하나로 대표하지 않는다 — 한 줄에 잔량·상태·
+        # 신선도·회전·예약이 함께 실려 있고 축마다 관측일이 다르다 (`LotFact`).
         observed_as_of=None if lot is None else lot.observed_as_of,
         uncertainties=uncertainties,
         source_refs=(*_LOT_SOURCES, *_COMMITMENT_SOURCES),
@@ -733,14 +733,14 @@ def get_lot(conn: Any, *, sim_run_id: str, as_of: date, lot_id: str) -> LotView:
 
 
 def get_item_lots(conn: Any, *, sim_run_id: str, as_of: date, item_id: str) -> ItemLots:
-    """같은 품목의 Lot 들. **FEFO 순서다 — 다음에 나갈 것이 맨 앞이다.**
+    """같은 품목의 Lot 들. FEFO 순서다 — 다음에 나갈 것이 맨 앞이다.
 
-    ★ **정렬 키를 다시 적지 않는다.** `turnover.fefo_sort_key` 가 주인이고 실제 자동
-      출고(`outbound.recommend_fefo_candidates`)도 그것을 쓴다 — 두 벌로 적으면
-      조사가 말한 순서와 실제로 나가는 순서가 갈린다.
+    정렬 키를 다시 적지 않는다. `turnover.fefo_sort_key` 가 주인이고 실제 자동
+    출고(`service/outbound.recommend_fefo_candidates`)도 그것을 쓴다 — 두 벌로 적으면
+    조사가 말한 순서와 실제로 나가는 순서가 갈린다.
 
-    ⚠️ **잔량 0 Lot 도 낸다.** 걸러내는 것은 읽는 쪽의 판단이지 사실이 아니다
-       (`lot_state_at` 과 같은 태도).
+    잔량 0 Lot 도 낸다. 걸러내는 것은 읽는 쪽의 판단이지 사실이 아니다
+    (`lot_state_at` 과 같은 태도).
     """
     warehouse = _warehouse_at(conn, sim_run_id=sim_run_id, as_of=as_of)
     selected_lots = [lot for lot in warehouse.lots if lot.item_id == item_id]
@@ -782,21 +782,21 @@ def get_sales_commitments(
 ) -> SalesCommitments:
     """이 품목을 판매 쪽이 얼마나 잡고 있나 · 언제 나가나.
 
-    🔴 **판매 코드를 부르지 않는다.** 이름에 Sales 가 들어가도 읽는 것은 물류가 이미
-       쓰는 예약·할당 표다 (`reservation_state_at`). 판매 서비스를 부르면 조사 하나가
-       남의 부서 상태를 바꿀 수 있는 길이 열린다.
+    판매 코드를 부르지 않는다. 이름에 Sales 가 들어가도 읽는 것은 물류가 이미
+    쓰는 예약·할당 표다 (`reservation_state_at`). 판매 서비스를 부르면 조사 하나가
+    남의 부서 상태를 바꿀 수 있는 길이 열린다.
 
-    🔴 **관측일은 `None` 이다.** `outbound.cancel_allocation` 이 취소에 업무 날짜를 안
-       남겨 «이 그림이 언제부터 참이었나» 를 못 댄다 (`COMMITMENT_OBSERVED_AS_OF`).
-       Tool 이 생겼다는 이유로 그 상수를 날짜로 바꾸지 않는다.
+    관측일은 `None` 이다. `service/outbound.cancel_allocation` 이 취소에 업무 날짜를 안
+    남겨 «이 그림이 언제부터 참이었나» 를 못 댄다 (`COMMITMENT_OBSERVED_AS_OF`).
+    Tool 이 생겼다는 이유로 그 상수를 날짜로 바꾸지 않는다.
     """
     reservations = [
         reservation
         for reservation in reservation_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)
         if reservation.item_id == item_id and reservation.state == "HOLDING"
     ]
-    # 🔴 **품목 이름을 예약에서 줍지 않는다.** 예약이 0건인 날에도 이름은 있어야
-    #    한다 — 없으면 아래 걸러내기가 통째로 열려 **남의 품목 출고**가 섞인다.
+    # 품목 이름을 예약에서 줍지 않는다. 예약이 0건인 날에도 이름은 있어야
+    # 한다 — 없으면 아래 걸러내기가 통째로 열려 남의 품목 출고가 섞인다.
     policy = load_item_policy(conn, item_id=item_id)
     item_name = None if policy is None else policy.item_name
     uncertainties = () if policy is not None else (f"{ITEM_NOT_FOUND}:{item_id}",)
@@ -863,7 +863,7 @@ def get_policy(
     item_id: str | None = None,
     policy_fn: Callable[[], Any] | None = None,
 ) -> PolicyView:
-    """지금 계산에 쓰는 정책값. 🔴 **과거로 되살릴 수 없고, 그 사실을 적는다.**
+    """지금 계산에 쓰는 정책값. 과거로 되살릴 수 없고, 그 사실을 적는다.
 
     ```text
     item_storage_policies    보관한계 · 중 등급 계수      유효일 칸 없음
@@ -871,23 +871,23 @@ def get_policy(
     agent_policy_config      용량 · 리드타임 · 임계 비율    유효일 칸 없음
     ```
 
-    🔴 **`as_of` 를 관측일로 쓰지 않는다.** 축을 맞추려고 받기는 하지만, 받았다는
-       이유로 *"그날 이 정책이었다"* 고 답하면 안 잰 것이 잰 것으로 세어진다 —
-       `POLICY_OBSERVED_AS_OF` 가 `None` 인 이유 그대로다. 대신 `POLICY_NOT_HISTORICAL`
-       을 언제나 사유에 적는다.
+    `as_of` 를 관측일로 쓰지 않는다. 축을 맞추려고 받기는 하지만, 받았다는
+    이유로 "그날 이 정책이었다" 고 답하면 안 잰 것이 잰 것으로 세어진다 —
+    `POLICY_OBSERVED_AS_OF` 가 `None` 인 이유 그대로다. 대신 `POLICY_NOT_HISTORICAL`
+    을 언제나 사유에 적는다.
     """
     policy = (policy_fn or read_active_logistics_policy)()
     item_policy = None if item_id is None else load_item_policy(conn, item_id=item_id)
     uncertainties = [POLICY_NOT_HISTORICAL]
     if item_id is not None and item_policy is None:
         uncertainties.append(f"{ITEM_NOT_FOUND}:{item_id}")
-    # 🔴 `vars()` 로 긁지 않는다 — pydantic 내부 표현에 기대면 계약이 아니라
-    #    구현에 붙는다. 모델이 스스로 내는 값만 쓴다.
+    # `vars()` 로 긁지 않는다 — pydantic 내부 표현에 기대면 계약이 아니라
+    # 구현에 붙는다. 모델이 스스로 내는 값만 쓴다.
     values = policy.model_dump(exclude={"source_refs", "policy_version", "usage_scope"})
     return PolicyView(
         sim_run_id=sim_run_id,
         as_of=as_of,
-        # 🔴 계산해서 낸 `None` 이다. 기본값을 둔 것이 아니다 (§18).
+        # 계산해서 낸 `None` 이다. 기본값을 둔 것이 아니다 (§18).
         observed_as_of=POLICY_OBSERVED_AS_OF,
         uncertainties=tuple(uncertainties),
         source_refs=("agent_policy_config", "item_storage_policies", "item_turnover_policies"),
@@ -911,7 +911,7 @@ def get_capacity_context(
     as_of: date,
     read_fn: Callable[..., LogisticsRead] = read_current_logistics,
 ) -> CapacityContext:
-    """창고 여유 한 벌. 🔴 **`CAPACITY_PRESSURE` 와 같은 함수를 부른다.**
+    """창고 여유 한 벌. `CAPACITY_PRESSURE` 와 같은 함수를 부른다.
 
     ```text
     창 구성   tools.build_cap_window                  as_of + lead 부터 18일
@@ -919,15 +919,15 @@ def get_capacity_context(
     사용률    tools.calculate_window_capacity_usage   1 − min(cap)/guaranteed
     ```
 
-    🔴 **공식을 새로 적지 않는다.** 같은 창고 상태를 두고 Exception 은 «빡빡하다» 인데
-       Tool 은 «여유 있다» 로 답하는 날이 오면 사람이 믿을 값이 없다.
+    공식을 새로 적지 않는다. 같은 창고 상태를 두고 Exception 은 «빡빡하다» 인데
+    Tool 은 «여유 있다» 로 답하는 날이 오면 사람이 믿을 값이 없다.
 
-    ★ **점유 축만 원장으로 바꿔 넣는다.** 스냅샷의 나머지(보장 용량 · 리드타임 · 입고
-      예정 · 확정 출고)는 이미 `as_of` 로 잘려 오지만(`readmodel/current._schedule_lists`),
-      Lot 잔량만은 **지금 값**이다 — `readmodel/historical.lot_state_at` 이
-      `_lot_turnover_from_row` 에 그 시점 잔량만 갈아 끼우는 것과 **같은 수법**이다.
+    점유 축만 원장으로 바꿔 넣는다. 스냅샷의 나머지(보장 용량 · 리드타임 · 입고
+    예정 · 확정 출고)는 이미 `as_of` 로 잘려 오지만(`readmodel/current._schedule_lists`),
+    Lot 잔량만은 지금 값이다 — `readmodel/historical.lot_state_at` 이
+    `domain/turnover.lot_turnover_from_row` 에 그 시점 잔량만 갈아 끼우는 것과 같은 수법이다.
 
-    ⚠️ 정책 축은 과거로 못 간다 — `capacity_basis` 가 그 한계를 말한다.
+    정책 축은 과거로 못 간다 — `capacity_basis` 가 그 한계를 말한다.
     """
     warehouse = _warehouse_at(conn, sim_run_id=sim_run_id, as_of=as_of)
     read = read_fn(as_of=as_of, sim_run_id=sim_run_id)
@@ -956,7 +956,7 @@ def get_capacity_context(
         sim_run_id=sim_run_id,
         as_of=as_of,
         # 점유는 원장이 날짜를 주지만 창·임계는 정책이라 결과는 `None` 이다 (§18.2).
-        # ★ 여기서는 **잔량 축**만 접는다 — 이 답이 싣는 Lot 사실이 점유 합 하나다.
+        # 여기서는 잔량 축만 접는다 — 이 답이 싣는 Lot 사실이 점유 합 하나다.
         observed_as_of=derive_observed_as_of(
             [_stock_observed_as_of(warehouse.lots), POLICY_OBSERVED_AS_OF]
         ),
@@ -970,8 +970,8 @@ def get_capacity_context(
         cap_by_date=cap_by_date,
         inbound_lead_days=snapshot.inbound_lead_days,
         capacity_tight_ratio=snapshot.capacity_tight_ratio,
-        # 🔴 **정본 상수를 그대로 쓴다.** 같은 뜻의 문자열을 두 벌 적으면
-        #    한쪽만 바뀌는 날 화면과 조사가 다른 한계를 말한다.
+        # 정본 상수를 그대로 쓴다. 같은 뜻의 문자열을 두 벌 적으면
+        # 한쪽만 바뀌는 날 화면과 조사가 다른 한계를 말한다.
         capacity_basis=CAPACITY_BASIS_CURRENT_ACTIVE_POLICY,
     )
 
@@ -979,10 +979,10 @@ def get_capacity_context(
 def _as_of_snapshot(
     snapshot: InventoryLogisticsSnapshot, *, lots: Sequence[LotFact], used_kg: Decimal
 ) -> InventoryLogisticsSnapshot:
-    """스냅샷의 **점유 축만** 그날 값으로 바꾼다. 나머지는 그대로 둔다.
+    """스냅샷의 점유 축만 그날 값으로 바꾼다. 나머지는 그대로 둔다.
 
-    ⚠️ `used_capacity_kg` 와 `on_hand_by_lot` 은 **함께** 바꾼다 — 한쪽만 바꾸면
-       `_replay_occupancy_by_item` 이 품목 버킷을 짚는 합과 총량이 갈린다.
+    `used_capacity_kg` 와 `on_hand_by_lot` 은 함께 바꾼다 — 한쪽만 바꾸면
+    `_replay_occupancy_by_item` 이 품목 버킷을 짚는 합과 총량이 갈린다.
     """
     return snapshot.model_copy(
         update={
@@ -1015,30 +1015,30 @@ def _as_of_snapshot(
 def get_inbound_schedule(
     conn: Any, *, sim_run_id: str, as_of: date, days: int | None = None
 ) -> InboundPlan:
-    """그날 살아 있던 입고 예정. **정본은 `inbound_schedules` 표다.**
+    """그날 살아 있던 입고 예정. 정본은 `inbound_schedules` 표다.
 
     ```text
     살아 있다   created_as_of <= as_of · (cancelled_as_of IS NULL OR > as_of)
     창          expected_arrival_date <= as_of + days
     ```
 
-    🔴 **fixture JSON 을 정본으로 되돌리지 않는다.** 그 축은 이미 표로 옮겨졌고
-       (`readmodel/current._schedule_lists` 가 그 표를 읽는다), 여기서 JSON 을 다시 읽으면
-       취소된 일정이 살아 돌아온다.
+    fixture JSON 을 정본으로 되돌리지 않는다. 그 축의 정본은 표이고
+    (`readmodel/current._schedule_lists` 가 그 표를 읽는다), 여기서 JSON 을 다시 읽으면
+    취소된 일정이 살아 돌아온다.
 
-    🔴 **살아남은 일정의 `created_as_of` 만 모으지 않는다 (v0.8 보정).** 목록은 생성뿐
-       아니라 **취소**로도 바뀐다.
+    살아남은 일정의 `created_as_of` 만 모으지 않는다. 목록은 생성뿐
+    아니라 취소로도 바뀐다.
 
     ```text
     D1  A 생성 (ETA D9) · D2  B 생성 (ETA D10) · D7  B 취소
-    D8 · 창 D8~D11 의 답 = [A]   ← 이 답은 **D7 부터** 참이다. D1 이라고 하면 거짓이다
+    D8 · 창 D8~D11 의 답 = [A]   ← 이 답은 D7 부터 참이다. D1 이라고 하면 거짓이다
     ```
 
        그래서 목록을 바꾼 다섯 축(생성 · 취소 · 도착 · 재고화 · 원장 IN)의 날을 전부
        모아 `max` 를 낸다 (`inbound_schedules.schedule_fact_dates_at`).
 
-    🔴 **그리고 그 셈을 이 답의 창으로 가둔다 (v0.9 보정).** 창 밖 일정의 사건은 이 답을
-       바꾸지 않는다 — 세면 관측일이 근거 없이 늦어진다.
+    그리고 그 셈을 이 답의 창으로 가둔다. 창 밖 일정의 사건은 이 답을
+    바꾸지 않는다 — 세면 관측일이 근거 없이 늦어진다.
 
     ```text
     D1  A 생성 (ETA D9) · D7  B 생성 (ETA D100)
@@ -1059,16 +1059,16 @@ def get_inbound_schedule(
         for view in load_schedule_views(conn, sim_run_id=sim_run_id, as_of=as_of)
         if view.expected_arrival_date <= window_end
     ]
-    # 🔴 **Reader 에게 같은 창을 준다 (v0.9 보정).** 창 밖 일정의 생성·취소는 이 답을
-    #    바꾸지 않으므로 관측일에 들면 안 된다 — 안 주면 `ETA D100` 짜리 일정 하나가
-    #    이 답의 관측일을 근거 없이 늦춘다.
+    # Reader 에게 같은 창을 준다. 창 밖 일정의 생성·취소는 이 답을
+    # 바꾸지 않으므로 관측일에 들면 안 된다 — 안 주면 `ETA D100` 짜리 일정 하나가
+    # 이 답의 관측일을 근거 없이 늦춘다.
     changed_on = schedule_fact_dates_at(
         conn, sim_run_id=sim_run_id, as_of=as_of, window_end=window_end
     )
     return InboundPlan(
         sim_run_id=sim_run_id,
         as_of=as_of,
-        # ✅ 입고 축은 **업무 날짜가 있다** — 목록을 바꾼 날들의 `max` 다.
+        # 입고 축은 업무 날짜가 있다 — 목록을 바꾼 날들의 `max` 다.
         observed_as_of=derive_observed_as_of(changed_on),
         uncertainties=(),
         source_refs=("inbound_schedules", "purchase_items", "items"),

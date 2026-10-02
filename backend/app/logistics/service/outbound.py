@@ -1,15 +1,15 @@
-"""outbound.py — 예약 · FEFO 후보 · 할당 · 실출고 (3-C1).
+"""예약 · FEFO 후보 · 할당 · 실출고 (3-C1).
 
 ```text
 Sales 확정 출고량
    → reserve_stock          품목 총량을 가용재고에서 잡아 둔다 (Lot 미지정)
-   → recommend_fefo_candidates   ★ 추천만 한다. 고르지 않는다
+   → recommend_fefo_candidates   추천만 한다. 고르지 않는다
    → allocate_stock         사람이 고른 lot_id + 수량을 확정한다
    → ship_allocated_stock   그때 처음 원장 OUT 이 나간다
    → release_reservation    잡아 둔 것을 되돌린다 (원장 Move 없음)
 ```
 
-★ **시뮬레이션 경로는 앞 두 칸이 다르다.** 사람 경로를 덮지 않고 **갈라 둔다.**
+시뮬레이션 경로는 앞 두 칸이 다르다. 사람 경로를 덮지 않고 갈라 둔다.
 
 ```text
 사람        reserve_stock              전량 아니면 InvalidOutboundRequest
@@ -20,25 +20,25 @@ Sales 확정 출고량
                                        FEFO 순서로 규칙이 고른다 → allocate_stock
 ```
 
-  🔴 **두 경로가 같은 코어를 쓴다.** 시뮬레이션 쪽은 예약 판정과 Lot 선택만 다르고,
-     쓰기·검증·잠금·멱등은 전부 이 파일의 같은 함수를 지난다. 갈라 둔 것은
-     *"모자라면 멈출 것인가"* 와 *"누가 고르는가"* **둘뿐이다.**
+  두 경로가 같은 코어를 쓴다. 시뮬레이션 쪽은 예약 판정과 Lot 선택만 다르고,
+  쓰기·검증·잠금·멱등은 전부 이 파일의 같은 함수를 지난다. 갈라 둔 것은
+  "모자라면 멈출 것인가" 와 "누가 고르는가" 둘뿐이다.
 
-🔴 **물류는 무엇을 팔지 정하지 않는다.** 누구에게 · 얼마에 · 팔지 말지는 Sales 가
-   정하고, 물류는 **확정된 출고량을 받아** 재고 쪽 사실만 만든다.
+물류는 무엇을 팔지 정하지 않는다. 누구에게 · 얼마에 · 팔지 말지는 Sales 가
+정하고, 물류는 확정된 출고량을 받아 재고 쪽 사실만 만든다.
 
-🔴 **예약은 잔량을 줄이지 않는다.** `inventory_lots.remaining_qty_kg` 를 바꾸는 것은
-   **실출고의 원장 OUT 뿐**이다.
+예약은 잔량을 줄이지 않는다. `inventory_lots.remaining_qty_kg` 를 바꾸는 것은
+실출고의 원장 OUT 뿐이다.
 
   ```text
   on_hand    = Lot.remaining_qty_kg              물리적으로 창고에 있는 양
   available  = remaining − 아직 안 나간 할당분    다른 판매가 이미 잡아 둔 몫을 뺀 것
   ```
 
-  ⚠️ 그래서 `on_hand ≠ available` 이다. 예약 단계에서 잔량을 줄이면 **창고에 있는
-     물건이 장부에서 사라지고**, 실출고 때 또 줄여 이중 차감이 된다.
+  그래서 `on_hand ≠ available` 이다. 예약 단계에서 잔량을 줄이면 창고에 있는
+  물건이 장부에서 사라지고, 실출고 때 또 줄여 이중 차감이 된다.
 
-★ **스키마 실측 (2026-09-05 · 저장소 DDL 과 실 DB 카탈로그 일치).**
+스키마 실측 (2026-09-05 · 저장소 DDL 과 실 DB 카탈로그 일치).
 
   ```text
   inventory_reservations  PK reservation_id · sale_id(FK→sales, nullable) · item_id
@@ -50,24 +50,24 @@ Sales 확정 출고량
                           allocation_basis  FEFO_TOOL_CONFIRMED · HUMAN_OVERRIDE
                                             · FEFO_AUTO_SELECTED
                           status  ALLOCATED · PICKED · SHIPPED · CANCELLED
-                          decided_by · decided_at  둘 다 NOT NULL → **호출자가 준다**
+                          decided_by · decided_at  둘 다 NOT NULL → 호출자가 준다
   ```
 
-  ⚠️ **`reserved_qty_kg <= required_qty_kg` 는 DDL 이 원래부터 허용하던 폭이다.**
-     `reserve_stock` 이 둘을 늘 같게 넣어 왔을 뿐 스키마가 좁았던 적은 없다 —
-     `reserve_available_stock` 은 **그 폭을 쓰는 것**이지 넓히는 것이 아니다.
+  `reserved_qty_kg <= required_qty_kg` 는 DDL 이 원래부터 허용하던 폭이다.
+  `reserve_stock` 이 둘을 늘 같게 넣어 왔을 뿐 스키마가 좁았던 적은 없다 —
+  `reserve_available_stock` 은 그 폭을 쓰는 것이지 넓히는 것이 아니다.
 
-  🔴 **Shipment 표가 없다.** 저장소·실 DB 어디에도 outbound/shipment entity 가 없어,
-     실출고는 **할당 상태 `SHIPPED` + 원장 OUT** 으로 표현한다. 새 표를 짓지 않는다.
+  Shipment 표가 없다. 저장소·실 DB 어디에도 outbound/shipment entity 가 없어,
+  실출고는 할당 상태 `SHIPPED` + 원장 OUT 으로 표현한다. 새 표를 짓지 않는다.
 
-  🔴 **`inventory_reservations` 는 `sale_id` 를 들고 `inventory_moves` 는
-     `sale_item_id` 를 든다** (둘 다 FK, 다른 표). 물류가 둘을 서로 유도하지 않는다 —
-     **호출자가 각각 준다.**
+  `inventory_reservations` 는 `sale_id` 를 들고 `inventory_moves` 는
+  `sale_item_id` 를 든다 (둘 다 FK, 다른 표). 물류가 둘을 서로 유도하지 않는다 —
+  호출자가 각각 준다.
 
-★ **어휘를 새로 만들지 않았다.** 출고 사유는 기존 원장에 이미 있는
-  `SALE_FULFILLMENT` 다 (실측: OUT 75행이 이 값을 쓴다).
+어휘를 새로 만들지 않았다. 출고 사유는 기존 원장에 이미 있는
+`SALE_FULFILLMENT` 다 (실측: OUT 75행이 이 값을 쓴다).
 
-🔴 **잠금 순서 계약.** 출고 전용 전역 키 하나를 더한다.
+잠금 순서 계약. 출고 전용 전역 키 하나를 더한다.
 
   ```text
   (20260905, 1)  재고 원장 쓰기      ledger.py
@@ -77,31 +77,30 @@ Sales 확정 출고량
 
   ```text
   ① 출고 전역 (20260905, 3)   ← 가장 먼저
-  ② 가용량 **재계산**          잠금 밖에서 본 값을 믿지 않는다
+  ② 가용량 재계산          잠금 밖에서 본 값을 믿지 않는다
   ③ 예약 / 할당 쓰기
   ④ 원장 전역 (20260905, 1)   record_inventory_move 안에서
   ⑤ Lot 행 FOR UPDATE          〃
   ⑥ 커밋은 호출자가 한 번
   ```
 
-  ⚠️ **입고 경로와 자원이 겹치지 않는다** — 저쪽은 `(…,2) → fixture 행 → (…,1)`,
-     이쪽은 `(…,3) → (…,1)` 이라 두 전순서가 `(…,1)` 에서만 만나고 순환이 없다.
+  입고 경로와 자원이 겹치지 않는다 — 저쪽은 `(…,2) → fixture 행 → (…,1)`,
+  이쪽은 `(…,3) → (…,1)` 이라 두 전순서가 `(…,1)` 에서만 만나고 순환이 없다.
 
-  🔴 **가용량은 반드시 잠금 안에서 다시 센다.** 안 그러면 둘이 같은 100kg 을 보고
-     각자 80 을 잡아 160 이 나간다.
+  가용량은 반드시 잠금 안에서 다시 센다. 안 그러면 둘이 같은 100kg 을 보고
+  각자 80 을 잡아 160 이 나간다.
 
-⚠️ **`confirmed_outbound` 와 이중 차감하지 않는다.** 실 DB 의 그 칸은 지금 **모든
-   행에서 비어 있다**(실측) — 예약을 표현하는 코드가 아무 데도 없다. 그래서 가용량의
-   차감 근거는 **이 표(할당)뿐**이고, 나중에 그 칸을 쓰게 되면 그때 한 축으로 합쳐야
-   한다 (지금 둘을 다 빼면 없는 예약을 두 번 빼게 된다).
+`confirmed_outbound` 와 이중 차감하지 않는다. 실 DB 의 그 칸은 지금 모든
+행에서 비어 있다(실측) — 예약을 표현하는 코드가 아무 데도 없다. 그래서 가용량의
+차감 근거는 이 표(할당)뿐이고, 나중에 그 칸을 쓰게 되면 그때 한 축으로 합쳐야
+한다 (지금 둘을 다 빼면 없는 예약을 두 번 빼게 된다).
 
-⚠️ **운송 Route · Pallet · Location 은 이 판이 아니다.** `pallet_id` 는 NULL 로 둔다.
+운송 Route · Pallet · Location 은 이 경로에서 다루지 않는다. `pallet_id` 는 NULL 로 둔다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/outbound.py` 을 계층별로 나눴다. 이 파일에는 예약 · 할당 ·
-  실출고 · 해제의 **순서**가 남았다(잠금 → 재조회 →
-  판정 → 쓰기). 판정 · ID 는 `domain/outbound.py`, SQL 은 `repository/outbound.py`, 잠금은
-  `repository/locks.py`, 어휘 · 결과는 `schemas/outbound.py` · `schemas/vocabulary.py`. 판매 확정
-  DTO 를 받는 두 입구(`reserve_confirmed_sale*`)는 `logistics/sales_outbound.py` 에서 이리로 왔다.
+이 파일에는 예약 · 할당 · 실출고 · 해제의 순서(잠금 → 재조회 → 판정 → 쓰기)가 있다.
+판정 · ID 는 `domain/outbound.py`, SQL 은 `repository/outbound.py`, 잠금은
+`repository/locks.py`, 어휘 · 결과는 `schemas/outbound.py` · `schemas/vocabulary.py` 다.
+판매 확정 DTO 를 받는 두 입구(`reserve_confirmed_sale*`)도 이 파일에 있다.
 """
 
 from __future__ import annotations
@@ -170,70 +169,69 @@ from app.logistics.service.ledger import record_inventory_move
 def _available_lots(
     conn: Any, *, sim_run_id: str, item_id: str, as_of: date
 ) -> list[dict[str, Any]]:
-    """이 품목의 **가용** Lot 들. 반드시 잠금 안에서 부른다.
+    """이 품목의 가용 Lot 들. 반드시 잠금 안에서 부른다.
 
     ```text
     available = remaining_qty_kg − (아직 안 나간 할당 합)
     ```
 
-    🔴 **`SHIPPED` 할당은 빼지 않는다.** 그 몫은 원장 OUT 이 이미 `remaining_qty_kg`
-       에서 덜어냈다 — 여기서 또 빼면 같은 수량을 두 번 차감한다.
+    `SHIPPED` 할당은 빼지 않는다. 그 몫은 원장 OUT 이 이미 `remaining_qty_kg`
+    에서 덜어냈다 — 여기서 또 빼면 같은 수량을 두 번 차감한다.
 
-    ★ **`status='ACTIVE'` 와 `remaining > 0` 로 거른다** — `repository` 가 가용 재고를
-      보는 눈과 같다 (비-ACTIVE 는 물리 점유만 하고 가용에서 빠진다).
+    `status='ACTIVE'` 와 `remaining > 0` 로 거른다 — `repository` 가 가용 재고를
+    보는 눈과 같다 (비-ACTIVE 는 물리 점유만 하고 가용에서 빠진다).
 
-    🔴 **`received_at <= as_of` 인 Lot 만 본다 (#812).** 아직 안 들어온 물건에서는
-       뺄 수 없다. 종전에는 이 조건이 없어 **기준일보다 뒤에 입고된 Lot 이 후보로
-       올라왔고**, 신선도는 `as_of` 기준이라 경과일이 음수가 되어
-       `보관한계 + |경과|` (배추 10일 한계에 **잔여 188일**)이 화면에 떴다 —
-       공식이 아니라 **모집단**이 틀린 것이다. 값을 `max(0, …)` 로 깎지 않는다.
+    `received_at <= as_of` 인 Lot 만 본다 (#812). 아직 안 들어온 물건에서는 뺄 수
+    없다. 이 조건이 없으면 기준일보다 뒤에 입고된 Lot 이 후보로 올라오고, 신선도는
+    `as_of` 기준이라 경과일이 음수가 되어 `보관한계 + |경과|` (배추 10일 한계에 잔여
+    188일)이 화면에 뜬다 — 공식이 아니라 모집단이 틀린 것이다. 값을 `max(0, …)` 로
+    깎지 않는다.
 
-       ★ **`repository` 와 같은 술어다** — `load_inventory_snapshot` 도
-         `readmodel/historical.lot_state_at` 도 이미 `l.received_at <= %(as_of)s`
-         로 «그날 존재한 Lot» 을 정한다. 위 문단이 *"보는 눈이 같다"* 고 적어 두고
-         실제로는 이 한 줄만 빠져 있었다.
+       `repository` 와 같은 술어다 — `load_inventory_snapshot` 도
+       `readmodel/historical.lot_state_at` 도 `l.received_at <= %(as_of)s` 로 «그날
+       존재한 Lot» 을 정한다. 위 문단의 "보는 눈이 같다" 는 이 술어까지 포함한다.
 
-       ⚠️ **쓰기 경로에는 아무 영향이 없다.** 걷기(`outbound_flow.ship_due_sales`)는
-          `as_of` 가 걷는 그날이고 판매 확정(`sales_approval`)은 납품일(D+1)이라,
-          둘 다 이미 실재하는 Lot 의 `received_at` 이상이다 (실측 전수 · #812).
+       쓰기 경로에는 영향이 없다. 하루 실행(`master/service/outbound_flow.ship_due_sales`)의
+       `as_of` 는 그날이고 판매 확정(`sales_approval`)은 납품일(D+1)이라, 둘 다 이미
+       실재하는 Lot 의 `received_at` 이상이다 (실측 전수 · #812).
 
-    🔴 **신선도가 소진된 Lot(`remaining_freshness_days <= 0`)도 뺀다.** 그 Lot 은
-       `tools.build_inventory_by_item` 이 이미 판매 가용에서 빼고 있고,
-       `turnover.is_disposal_candidate` 가 폐기대기로 표시하는 바로 그 재고다.
-       여기서 안 빼면 **판매 못 하는 재고를 예약·할당이 다시 잡는다.**
+    신선도가 소진된 Lot(`remaining_freshness_days <= 0`)도 뺀다. 그 Lot 은
+    `tools.build_inventory_by_item` 이 이미 판매 가용에서 빼고 있고,
+    `turnover.is_disposal_candidate` 가 폐기대기로 표시하는 바로 그 재고다.
+    여기서 안 빼면 판매 못 하는 재고를 예약·할당이 다시 잡는다.
 
-       ⚠️ **재고를 없애는 것이 아니다.** `remaining_qty_kg` 도 Lot 상태도 그대로이고,
-          창고 점유도 그대로다 — 빠지는 것은 *"팔 수 있는 양"* 하나뿐이다.
-          실제 감소는 `disposal.confirm_disposal` 만 한다.
+       재고를 없애는 것이 아니다. `remaining_qty_kg` 도 Lot 상태도 그대로이고,
+       창고 점유도 그대로다 — 빠지는 것은 "팔 수 있는 양" 하나뿐이다.
+       실제 감소는 `disposal.confirm_disposal` 만 한다.
 
-    ★ **신선도 식을 새로 만들지 않는다.** `turnover.freshness_days_of` 를 그대로 쓴다 —
-      그쪽이 `repository` 와 같은 계산을 이미 하고 있어 세 곳이 갈릴 자리가 없다.
+    신선도 식을 새로 만들지 않는다. `turnover.freshness_days_of` 를 그대로 쓴다 —
+    그쪽이 `repository` 와 같은 계산을 이미 하고 있어 세 곳이 갈릴 자리가 없다.
 
-    ⚠️ 신선도 계산에 쓰는 두 값(`operational_limit_days` · `medium_grade_factor`)도
-       같은 조인에서 가져온다 — `repository` 와 **같은 출처**여야 두 곳이 안 갈린다.
+    신선도 계산에 쓰는 두 값(`operational_limit_days` · `medium_grade_factor`)도
+    같은 조인에서 가져온다 — `repository` 와 같은 출처여야 두 곳이 안 갈린다.
     """
     행들 = select_available_lot_rows(conn, sim_run_id=sim_run_id, item_id=item_id, as_of=as_of)
-    # 🔴 판매 가용에서 이미 빠진 Lot 은 예약·FEFO·할당 어디에도 오르지 않는다.
-    #    ★ `0 != null` — 신선도를 **모르는** Lot 은 빼지 않는다 (확인된 만료가 아니다).
+    # 판매 가용에서 이미 빠진 Lot 은 예약·FEFO·할당 어디에도 오르지 않는다.
+    #    `0 != null` — 신선도를 모르는 Lot 은 빼지 않는다 (확인된 만료가 아니다).
     return sellable_lot_rows(행들, as_of=as_of)
 
 
 def item_free_stock_qty(
     conn: Any, *, sim_run_id: str, item_id: str, as_of: date
 ) -> Decimal:
-    """이 품목에서 **아무도 잡지 않은, 팔 수 있는 총량.** 반드시 잠금 안에서 부른다.
+    """이 품목에서 아무도 잡지 않은, 팔 수 있는 총량. 반드시 잠금 안에서 부른다.
 
-    ★ **읽는 곳은 예약(`reserve_stock`) 하나다** — *"새 Reservation 이 확보할 수 있는
-      판매 가능한 미확보 품목 총량"* 이라는 뜻이고, 그 밖의 축에는 답이 되지 않는다.
+    읽는 곳은 예약(`reserve_stock`) 하나다 — "새 Reservation 이 확보할 수 있는 판매 가능한
+    미확보 품목 총량" 이라는 뜻이고, 그 밖의 축에는 답이 되지 않는다.
 
-    🔴 **Lot 가용량의 합과 다르다.** Lot 가용량은 *"이 Lot 에서 아직 어떤 할당에도
-       안 묶인 물리량"* 이고, 이 값은 *"아직 아무도 잡지 않은 총량"* 이다.
-       **아직 Lot 을 안 고른 예약**은 특정 Lot 에 안 붙어 있어 Lot 가용량에서
-       안 빠진다 — 그것만 보면 같은 재고를 두 번 예약하게 된다.
+    Lot 가용량의 합과 다르다. Lot 가용량은 "이 Lot 에서 아직 어떤 할당에도 안 묶인
+    물리량" 이고, 이 값은 "아직 아무도 잡지 않은 총량" 이다.
+    아직 Lot 을 안 고른 예약은 특정 Lot 에 안 붙어 있어 Lot 가용량에서
+    안 빠진다 — 그것만 보면 같은 재고를 두 번 예약하게 된다.
 
     ```text
     Lot remaining 100 · 예약 A 80 (할당 0)
-    Lot 가용량 합   = 100      ← 예약 B 80 이 통과해 버린다 🔴
+    Lot 가용량 합   = 100      ← 예약 B 80 이 통과해 버린다 (틀린 값)
     이 함수         = 20
     ```
 
@@ -242,10 +240,10 @@ def item_free_stock_qty(
          − unallocated_reservations       잡아 뒀지만 Lot 을 안 고른 몫
     ```
 
-    🔴 **`_available_lots` 를 거쳐 센다.** 그래야 비-ACTIVE·신선도 소진 Lot 이
-       **재고와 할당 양쪽에서 함께** 빠진다 — 한쪽만 빼면 과다·과소 차감이 된다.
+    `_available_lots` 를 거쳐 센다. 그래야 비-ACTIVE·신선도 소진 Lot 이
+    재고와 할당 양쪽에서 함께 빠진다 — 한쪽만 빼면 과다·과소 차감이 된다.
 
-    ⚠️ **이중 차감을 피하는 규칙.**
+    이중 차감을 피하는 규칙.
 
     ```text
     unallocated = max(reserved_qty − 이미 배정한 몫, 0)
@@ -255,9 +253,9 @@ def item_free_stock_qty(
     ALLOCATED/PICKED 는    _available_lots 가 이미 뺐으므로 여기서 다시 세지 않는다
     ```
 
-    ⚠️ **`RELEASED` · `CANCELLED` 예약은 세지 않는다** — 놓아준 몫이라 돌아와야 한다.
+    `RELEASED` · `CANCELLED` 예약은 세지 않는다 — 놓아준 몫이라 돌아와야 한다.
 
-    :raises OutboundIntegrityError: 계산이 음수일 때. **0 으로 보정하지 않는다** —
+    :raises OutboundIntegrityError: 계산이 음수일 때. 0 으로 보정하지 않는다 —
         음수는 이미 잡힌 몫이 실재 재고를 넘었다는 뜻이라 데이터 문제다.
     """
     가용합 = sum(
@@ -284,24 +282,24 @@ def reserve_stock(
     sale_id: str | None = None,
     due_date: date | None = None,
 ) -> ReservationResult:
-    """Sales 가 확정한 출고량을 가용재고에서 **잡아 둔다.** Lot 은 아직 안 고른다.
+    """Sales 가 확정한 출고량을 가용재고에서 잡아 둔다. Lot 은 아직 안 고른다.
 
-    🔴 **`remaining_qty_kg` 를 건드리지 않는다.** 예약은 *"이 몫은 남이 못 쓴다"* 는
-       사실이고, 물건은 아직 창고에 있다. 잔량을 줄이는 것은 실출고의 원장 OUT 뿐이다.
+    `remaining_qty_kg` 를 건드리지 않는다. 예약은 "이 몫은 남이 못 쓴다" 는
+    사실이고, 물건은 아직 창고에 있다. 잔량을 줄이는 것은 실출고의 원장 OUT 뿐이다.
 
-    ⚠️ **잠금 안에서 가용량을 다시 센다.** 잠금 밖에서 본 값은 이미 낡았을 수 있다.
+    잠금 안에서 가용량을 다시 센다. 잠금 밖에서 본 값은 이미 낡았을 수 있다.
 
-    ★ **`reservation_id` 는 호출자가 준다.** 스키마가 한 `sale_id` 에 여러 예약을
-      허용하므로(유일 제약이 `reservation_id` 뿐이다) 물류가 `RSV-{sale_id}` 같은
-      규칙을 강요하지 않는다 — 그 규칙은 판매 쪽 정체성이다.
+    `reservation_id` 는 호출자가 준다. 스키마가 한 `sale_id` 에 여러 예약을
+    허용하므로(유일 제약이 `reservation_id` 뿐이다) 물류가 `RSV-{sale_id}` 같은
+    규칙을 강요하지 않는다 — 그 규칙은 판매 쪽 정체성이다.
 
     ```text
     같은 id + 같은 사실  applied=False
-    같은 id + 다른 사실  ReservationConflict   ★ 수량을 조용히 덮지 않는다
+    같은 id + 다른 사실  ReservationConflict   수량을 조용히 덮지 않는다
     가용 부족            InvalidOutboundRequest (DML 전)
     ```
 
-    :param as_of: 가용량 기준일. **신선도가 날짜에 달려 있어** 필요하다 — 폐기대기
+    :param as_of: 가용량 기준일. 신선도가 날짜에 달려 있어 필요하다 — 폐기대기
         Lot(`remaining_freshness_days <= 0`)은 이 날짜로 걸러진다.
     """
     outbound_text(reservation_id, 칸="reservation_id")
@@ -330,10 +328,10 @@ def reserve_stock(
             reserved_qty_kg=Decimal(기존["reserved_qty_kg"]),
         )
 
-    # ★ 잠금 안에서 다시 센다.
-    # 🔴 **Lot 가용량의 합이 아니라 품목 예약 가능량이다.** 아직 Lot 을 안 고른
-    #    남의 예약은 어떤 Lot 에도 안 붙어 있어 Lot 가용량에서 안 빠진다 —
-    #    그것만 보면 같은 재고를 두 번 예약하게 된다 (`item_free_stock_qty`).
+    # 잠금 안에서 다시 센다.
+    # Lot 가용량의 합이 아니라 품목 예약 가능량이다. 아직 Lot 을 안 고른
+    # 남의 예약은 어떤 Lot 에도 안 붙어 있어 Lot 가용량에서 안 빠진다 —
+    # 그것만 보면 같은 재고를 두 번 예약하게 된다 (`item_free_stock_qty`).
     예약가능 = item_free_stock_qty(
         conn, sim_run_id=sim_run_id, item_id=item_id, as_of=as_of
     )
@@ -351,7 +349,7 @@ def reserve_stock(
         item_id=item_id,
         sale_id=sale_id,
         required_qty_kg=required,
-        # ★ 품목 총량을 확보한 것이다 — Lot 지정은 Allocation 쪽이다.
+        # 품목 총량을 확보한 것이다 — Lot 지정은 Allocation 쪽이다.
         reserved_qty_kg=required,
         due_date=due_date,
     )
@@ -360,7 +358,7 @@ def reserve_stock(
         reservation_id=reservation_id,
         status="RESERVED",
         required_qty_kg=required,
-        # ★ 전량 확보다 — 위 가드를 지났다는 것이 그 뜻이다.
+        # 전량 확보다 — 위 가드를 지났다는 것이 그 뜻이다.
         reserved_qty_kg=required,
     )
 
@@ -376,15 +374,15 @@ def reserve_available_stock(
     sale_id: str | None = None,
     due_date: date | None = None,
 ) -> ReservationResult:
-    """**확보되는 만큼만** 잡아 둔다. 모자라도 멈추지 않는다 (시뮬레이션 경로).
+    """확보되는 만큼만 잡아 둔다. 모자라도 멈추지 않는다 (시뮬레이션 경로).
 
-    🔴 **`reserve_stock` 의 계약을 바꾸지 않으려고 따로 세운 문이다.** 그쪽은
-       *"전량 아니면 `InvalidOutboundRequest`"* 이고 그 fail-closed 를 믿는 호출자가
-       있다. 여기서 그 함수를 부분 확보로 열면 **부르는 쪽 전부의 의미가 조용히
-       바뀐다** — 그래서 함수를 갈랐다.
+    `reserve_stock` 의 계약을 바꾸지 않으려고 따로 세운 문이다. 그쪽은
+    "전량 아니면 `InvalidOutboundRequest`" 이고 그 fail-closed 를 믿는 호출자가
+    있다. 여기서 그 함수를 부분 확보로 열면 부르는 쪽 전부의 의미가 조용히
+    바뀐다 — 그래서 함수를 갈랐다.
 
     ```text
-    required_qty_kg   Sales 가 확정한 원 요구량.   🔴 물류가 안 바꾼다
+    required_qty_kg   Sales 가 확정한 원 요구량.   물류가 바꾸지 않는다
     reserved_qty_kg   물류가 실제로 확보한 양.     ← 이 값만 움직인다
     ```
 
@@ -392,43 +390,43 @@ def reserve_available_stock(
     확보량 = min(아직 못 채운 required, 지금 item_free_stock_qty)
     ```
 
-    ★ **재실행이 채워 넣는다 (top-up).** 새 재고가 들어오면 같은
-      `reservation_id` 로 다시 불러 `required` 까지 올린다.
+    재실행이 채워 넣는다 (top-up). 새 재고가 들어오면 같은
+    `reservation_id` 로 다시 불러 `required` 까지 올린다.
 
     ```text
     required 100 · free 60  →  reserved 60   applied=True
-    다시 · free 0           →  reserved 60   applied=False   ★ no-op
+    다시 · free 0           →  reserved 60   applied=False   no-op
     다시 · free 30          →  reserved 90   applied=True
-    다시 · free 50          →  reserved 100  applied=True    ★ required 를 못 넘는다
-    다시 · free 50          →  reserved 100  applied=False   ★ 다 찼다
+    다시 · free 50          →  reserved 100  applied=True    required 를 못 넘는다
+    다시 · free 50          →  reserved 100  applied=False   다 찼다
     ```
 
-    🔴 **행을 두 번 만들지 않는다.** 같은 `reservation_id` 는 늘 같은 한 행이고,
-       top-up 은 그 행의 `reserved_qty_kg` 를 올리는 `UPDATE` 다. 새 행을 만들면
-       같은 판매가 재고를 두 번 잡는다.
+    행을 두 번 만들지 않는다. 같은 `reservation_id` 는 늘 같은 한 행이고,
+    top-up 은 그 행의 `reserved_qty_kg` 를 올리는 `UPDATE` 다. 새 행을 만들면
+    같은 판매가 재고를 두 번 잡는다.
 
-    🔴 **같은 id 에 다른 사실이면 `ReservationConflict` 다.** `reserve_stock` 과 같은
-       규율이다 — `required_qty_kg` 가 달라졌다면 그것은 top-up 이 아니라 **다른
-       판매**이고, 조용히 덮으면 앞 요청이 소리 없이 사라진다.
+    같은 id 에 다른 사실이면 `ReservationConflict` 다. `reserve_stock` 과 같은
+    규율이다 — `required_qty_kg` 가 달라졌다면 그것은 top-up 이 아니라 다른
+    판매이고, 조용히 덮으면 앞 요청이 소리 없이 사라진다.
 
-    ⚠️ **놓아준 예약은 다시 채우지 않는다.** `RELEASED` · `CANCELLED` 는 되돌린
-       사실이라, 거기에 재고를 다시 붙이면 취소가 취소된다.
+    놓아준 예약은 다시 채우지 않는다. `RELEASED` · `CANCELLED` 는 되돌린
+    사실이라, 거기에 재고를 다시 붙이면 취소가 취소된다.
 
-    ⚠️ **`reserved_qty_kg` 를 내리지 않는다.** 이 함수는 올리기만 한다 — 줄이는 것은
-       `release_reservation` 의 일이고, 여기서 함께 하면 *"재고가 줄어서 예약이
-       사라졌다"* 가 아무 기록 없이 일어난다.
+    `reserved_qty_kg` 를 내리지 않는다. 이 함수는 올리기만 한다 — 줄이는 것은
+    `release_reservation` 의 일이고, 여기서 함께 하면 "재고가 줄어서 예약이
+    사라졌다" 가 아무 기록 없이 일어난다.
 
-    🔴 **한 kg 도 못 잡으면 행 자체를 안 만든다.** 그때는
-       `applied=False · reserved_qty_kg=0` 으로 돌아선다.
+    한 kg 도 못 잡으면 행 자체를 안 만든다. 그때는
+    `applied=False · reserved_qty_kg=0` 으로 돌아선다.
 
-       ⚠️ 그 경우의 `status` 를 *"행이 있다"* 로 읽으면 안 된다. `ReservationStatus`
-          에는 *"아직 없다"* 를 뜻하는 어휘가 없고 (DB 것 그대로다) 없는 값을 여기서
-          지어내지 않으므로, **행이 섰는지는 `applied` 와 `reserved_qty_kg` 로 읽는다.**
+       그 경우의 `status` 를 "행이 있다" 로 읽으면 안 된다. `ReservationStatus`
+       에는 "아직 없다" 를 뜻하는 어휘가 없고 (DB 것 그대로다) 없는 값을 여기서
+       지어내지 않으므로, 행이 섰는지는 `applied` 와 `reserved_qty_kg` 로 읽는다.
 
-    ⚠️ **`status` 를 여기서 안 바꾼다.** 그 칸은 *할당* 진행도가 정하는 것이라
-       (`reservation_status_for`) 확보량이 올라도 그대로 둔다 — 다음 할당이 다시 센다.
+    `status` 를 여기서 안 바꾼다. 그 칸은 할당 진행도가 정하는 것이라
+    (`reservation_status_for`) 확보량이 올라도 그대로 둔다 — 다음 할당이 다시 센다.
 
-    :param required_qty_kg: **원 요구량이다. 이번에 확보할 양이 아니다.**
+    :param required_qty_kg: 원 요구량이다. 이번에 확보할 양이 아니다.
     :param as_of: 가용량 기준일 (`reserve_stock` 과 같다).
     """
     outbound_text(reservation_id, 칸="reservation_id")
@@ -459,7 +457,7 @@ def reserve_available_stock(
     이미확보 = Decimal(기존["reserved_qty_kg"]) if 기존 is not None else Decimal(0)
     못채운것 = required - 이미확보
     if 못채운것 <= 0:
-        # ★ 다 찼다 — 재실행의 정상 경로다.
+        # 다 찼다 — 재실행의 정상 경로다.
         return ReservationResult(
             applied=False,
             reservation_id=reservation_id,
@@ -468,18 +466,18 @@ def reserve_available_stock(
             reserved_qty_kg=이미확보,
         )
 
-    # ★ 잠금 안에서 다시 센다 — `reserve_stock` 과 같은 이유이고 같은 함수다.
-    #   🔴 **품목 예약 가능량이다.** 이 값은 남이 잡아 둔 미할당 예약을 이미 뺐으므로,
-    #      여기서 min 을 취하는 것만으로 같은 재고를 두 번 잡는 일이 안 생긴다.
+    # 잠금 안에서 다시 센다 — `reserve_stock` 과 같은 이유이고 같은 함수다.
+    #   품목 예약 가능량이다. 이 값은 남이 잡아 둔 미할당 예약을 이미 뺐으므로,
+    #   여기서 min 을 취하는 것만으로 같은 재고를 두 번 잡는 일이 안 생긴다.
     예약가능 = item_free_stock_qty(
         conn, sim_run_id=sim_run_id, item_id=item_id, as_of=as_of
     )
     이번확보 = min(못채운것, 예약가능)
 
     if 이번확보 <= 0:
-        # 🔴 **0kg 짜리 예약 행을 만들지 않는다.** `ck_inventory_reservations_qty` 는
-        #    통과하지만, 잡은 것이 없는 예약은 `HOLDING_RESERVATION` 에 앉아
-        #    *"무언가 잡혀 있다"* 로 보이면서 실제로는 아무 몫도 안 든다.
+        # 0kg 짜리 예약 행을 만들지 않는다. `ck_inventory_reservations_qty` 는
+        # 통과하지만, 잡은 것이 없는 예약은 `HOLDING_RESERVATION` 에 앉아
+        # "무언가 잡혀 있다" 로 보이면서 실제로는 아무 몫도 안 든다.
         if 기존 is None:
             return ReservationResult(
                 applied=False,
@@ -504,15 +502,15 @@ def reserve_available_stock(
             sim_run_id=sim_run_id,
             item_id=item_id,
             sale_id=sale_id,
-            # 🔴 **원 요구량 그대로다.** 못 채운 몫이 요구량에서 사라지면
-            #    "얼마나 못 냈나" 를 나중에 아무도 못 센다.
+            # 원 요구량 그대로다. 못 채운 몫이 요구량에서 사라지면
+            # "얼마나 못 냈나" 를 나중에 아무도 못 센다.
             required_qty_kg=required,
             reserved_qty_kg=새확보,
             due_date=due_date,
         )
     else:
-        # ★ **`reserved_qty_kg` 하나만 올린다.** 나머지 칸은 위에서 같은 사실임을
-        #   이미 확인했고, 상태는 할당 진행도가 정하는 것이라 여기서 안 건드린다.
+        # `reserved_qty_kg` 하나만 올린다. 나머지 칸은 위에서 같은 사실임을
+        # 이미 확인했고, 상태는 할당 진행도가 정하는 것이라 여기서 안 건드린다.
         update_reserved_qty(conn, reservation_id=reservation_id, reserved_qty_kg=새확보)
     return ReservationResult(
         applied=True,
@@ -530,26 +528,26 @@ def release_reservation(
     released_as_of: date,
     status: ReservationStatus = "RELEASED",
 ) -> ReservationResult:
-    """잡아 둔 몫을 **그날부터 놓아준다.** 원장 Move 가 없다.
+    """잡아 둔 몫을 그날부터 놓아준다. 원장 Move 가 없다.
 
-    🔴 **이미 나간 수량을 되돌리지 않는다.** `SHIPPED` 할당이 하나라도 있으면 멈춘다 —
-       환입은 이 판의 범위가 아니고, `ADJUST_IN` 을 쓰지도 않는다.
+    이미 나간 수량을 되돌리지 않는다. `SHIPPED` 할당이 하나라도 있으면 멈춘다 — 환입
+    경로는 없고, `ADJUST_IN` 을 쓰지도 않는다.
 
-    ★ 아직 안 나간 할당은 함께 `CANCELLED` 로 내린다. 그래야 그 Lot 의 가용량이
-      실제로 돌아온다 (`HOLDING_ALLOCATION` 에서 빠진다).
+    아직 안 나간 할당은 함께 `CANCELLED` 로 내린다. 그래야 그 Lot 의 가용량이
+    실제로 돌아온다 (`HOLDING_ALLOCATION` 에서 빠진다).
 
-    🔴 **`released_as_of` 가 필수다 (WP-3 M3).** *"언제 놓아줬나"* 를 물류가 지어내지
-       않는다 — 시뮬레이션 날짜의 주인은 호출자(마스터 · 콘솔)다.
+    `released_as_of` 가 필수다 (WP-3 M3). "언제 놓아줬나" 를 물류가 지어내지
+    않는다 — 시뮬레이션 날짜의 주인은 호출자(마스터 · 콘솔)다.
 
     ```text
-    now() · created_at · updated_at   벽시각      🔴 시뮬레이션 사실일이 아니다
-    released_as_of                    그날 날짜    ✅ Historical 이 이것으로 유도한다
+    now() · created_at · updated_at   벽시각      시뮬레이션 사실일이 아니다
+    released_as_of                    그날 날짜    Historical 이 이것으로 유도한다
     ```
 
-       ⚠️ 벽시각으로 과거를 자르면 **같은 데이터가 내일 다른 과거를 낸다.**
-          `readmodel/historical.reservation_state_at` 이 이 칸 하나만 본다.
+       벽시각으로 과거를 자르면 같은 데이터가 내일 다른 과거를 낸다.
+       `readmodel/historical.reservation_state_at` 이 이 칸 하나만 본다.
 
-    🔴 **멱등이되 날짜는 안 덮는다.**
+    멱등이되 날짜는 안 덮는다.
 
     ```text
     같은 상태 · 같은 날짜   applied=False           재실행의 정상 경로다
@@ -557,12 +555,12 @@ def release_reservation(
     다른 놓아준 상태        같은 날짜면 바꾼다       RELEASED → CANCELLED 는 승격이다
     ```
 
-       ⚠️ **이미 놓아준 예약의 날짜를 다시 적으면 과거가 바뀐다.** 그날 살아 있던
-          예약이 소급해 사라지거나 그 반대가 된다 — 그래서 덮지 않고 멈춘다
-          (`inbound_schedules.ScheduleCancelConflict` 와 같은 규율이다).
+       이미 놓아준 예약의 날짜를 다시 적으면 과거가 바뀐다. 그날 살아 있던
+       예약이 소급해 사라지거나 그 반대가 된다 — 그래서 덮지 않고 멈춘다
+       (`inbound_schedules.ScheduleCancelConflict` 와 같은 규율이다).
 
-    :param released_as_of: 놓아준 시뮬레이션 날짜. **호출자가 준다.**
-    :raises ReservationConflict: 이미 놓아준 예약을 **다른 날짜로** 다시 놓아줄 때.
+    :param released_as_of: 놓아준 시뮬레이션 날짜. 호출자가 준다.
+    :raises ReservationConflict: 이미 놓아준 예약을 다른 날짜로 다시 놓아줄 때.
     """
     outbound_text(reservation_id, 칸="reservation_id")
     if not isinstance(released_as_of, date) or isinstance(released_as_of, datetime):
@@ -581,8 +579,8 @@ def release_reservation(
     if 기존 is None:
         raise OutboundIntegrityError(f"놓아줄 예약이 없다: {reservation_id!r}")
 
-    # ★ 이미 놓아준 예약이면 **날짜가 먼저다.** 상태가 같든 다르든, 적힌 날짜와
-    #   다른 날짜로 다시 놓아주는 것은 과거를 고치는 일이다.
+    # 이미 놓아준 예약이면 날짜가 먼저다. 상태가 같든 다르든, 적힌 날짜와
+    # 다른 날짜로 다시 놓아주는 것은 과거를 고치는 일이다.
     적힌날짜 = 기존.get("released_as_of")
     if 기존["status"] in RELEASED_RESERVATION and 적힌날짜 != released_as_of:
         raise ReservationConflict(
@@ -621,9 +619,9 @@ def release_reservation(
         reservation_id=reservation_id,
         status=status,
         required_qty_kg=기존["required_qty_kg"],
-        # ★ **보존된 확보량이다 — 0 이 아니다.** `ReservationResult.reserved_qty_kg` 의
-        #   뜻이 *"물류가 실제로 확보한 양"*(= DB 행 값)이라, 놓아줬다고 그 사실이
-        #   0 이 되는 것이 아니다. *"지금 잡고 있나"* 는 같은 결과의 `status` 가 답한다.
+        # 보존된 확보량이다 — 0 이 아니다. `ReservationResult.reserved_qty_kg` 의
+        # 뜻이 "물류가 실제로 확보한 양"(= DB 행 값)이라, 놓아줬다고 그 사실이
+        # 0 이 되는 것이 아니다. "지금 잡고 있나" 는 같은 결과의 `status` 가 답한다.
         reserved_qty_kg=Decimal(기존["reserved_qty_kg"]),
     )
 
@@ -634,12 +632,12 @@ def release_reservation(
 def recommend_fefo_candidates(
     conn: Any, *, sim_run_id: str, item_id: str, as_of: date
 ) -> tuple[FefoCandidate, ...]:
-    """FEFO 순서로 **후보만** 돌려준다.
+    """FEFO 순서로 후보만 돌려준다.
 
-    🔴 **고르지 않는다.** 이 함수는 Lot 을 잡지도, 할당을 만들지도, 아무것도 쓰지도
-       않는다. 자동 Allocation 은 후속 과제이고
-       (`inventory_allocations.allocation_basis` 주석이 그렇게 적고 있다),
-       사람이 `allocate_stock` 에 `lot_id` 와 수량을 명시해야 확정된다.
+    고르지 않는다. 이 함수는 Lot 을 잡지도, 할당을 만들지도, 아무것도 쓰지도
+    않는다. 사람 경로에서는 사람이 `allocate_stock` 에 `lot_id` 와 수량을 명시해야
+    확정되고, 시뮬레이션 경로의 자동 할당은 `fefo_allocation.allocate_reserved_stock_fefo`
+    가 이 후보를 받아 따로 한다.
 
     ```text
     정렬  turnover.fefo_sort_key — 신선도 UNKNOWN 후행 → remaining_freshness_days ASC
@@ -647,20 +645,20 @@ def recommend_fefo_candidates(
     제외  available <= 0
     ```
 
-    🔴 **여기의 `available_qty_kg` 는 "추가로 예약할 수 있는 양"이 아니다.**
-       뜻은 *"이 Lot 에서 아직 다른 할당에 묶이지 않은 물리적 후보량"* 이다.
+    여기의 `available_qty_kg` 는 "추가로 예약할 수 있는 양"이 아니다.
+    뜻은 "이 Lot 에서 아직 다른 할당에 묶이지 않은 물리적 후보량" 이다.
 
     ```text
     Lot remaining 100 · 예약 A 80 (아직 Lot 미지정)
-    → 이 후보의 available_qty_kg = 100    ★ A 가 어느 Lot 도 안 골랐으니 맞다
+    → 이 후보의 available_qty_kg = 100    A 가 어느 Lot 도 안 골랐으니 맞다
     → 그러나 새로 예약할 수 있는 양은 20  (`item_free_stock_qty`)
     ```
 
-       ⚠️ 이 값을 예약 가능량으로 쓰면 **같은 재고를 두 번 예약한다.** 이 수치는
-          *"이미 확보된 예약분을 어느 Lot 에서 뺄까"* 를 고를 때 보는 것이다.
+       이 값을 예약 가능량으로 쓰면 같은 재고를 두 번 예약한다. 이 수치는
+       "이미 확보된 예약분을 어느 Lot 에서 뺄까" 를 고를 때 보는 것이다.
 
-    ⚠️ 신선도를 모르는 Lot(보관 정책에 `operational_limit_days` 가 없음)은 **맨 뒤**로
-       보낸다 — 모르는 것을 *"가장 급하다"* 로도 *"가장 여유롭다"* 로도 읽지 않는다.
+    신선도를 모르는 Lot(보관 정책에 `operational_limit_days` 가 없음)은 맨 뒤로
+    보낸다 — 모르는 것을 "가장 급하다" 로도 "가장 여유롭다" 로도 읽지 않는다.
     """
     outbound_text(sim_run_id, 칸="sim_run_id")
     outbound_text(item_id, 칸="item_id")
@@ -679,9 +677,9 @@ def recommend_fefo_candidates(
                 grade=행["grade"],
             )
         )
-    # 🔴 **정렬 규칙을 여기 적지 않는다.** 키의 주인은 `turnover.fefo_sort_key` 하나이고
-    #    PRE_SALES 예상 원가 배부(`tools.fefo_inventory_cost_basis`)도 같은 것을 쓴다 —
-    #    두 벌로 적으면 «나갈 Lot» 과 «원가를 배부한 Lot» 이 갈린다.
+    # 정렬 규칙을 여기 적지 않는다. 키의 주인은 `turnover.fefo_sort_key` 하나이고
+    # PRE_SALES 예상 원가 배부(`tools.fefo_inventory_cost_basis`)도 같은 것을 쓴다 —
+    # 두 벌로 적으면 «나갈 Lot» 과 «원가를 배부한 Lot» 이 갈린다.
     후보.sort(
         key=lambda c: fefo_sort_key(
             remaining_freshness_days=c.remaining_freshness_days,
@@ -693,13 +691,13 @@ def recommend_fefo_candidates(
 
 
 def reservation_allocation_state(conn: Any, *, reservation_id: str) -> ReservationAllocationState:
-    """예약 하나의 할당 진행 상태를 읽는다. **쓰기가 없다.**
+    """예약 하나의 할당 진행 상태를 읽는다. 쓰기가 없다.
 
-    ⚠️ **잠금을 안 잡는다.** 쓰기 함수가 이미 잠금을 쥔 채 부르는 것을 전제한다 —
-       여기서 또 잡으면 *"어디가 잠금의 주인인가"* 가 흐려진다
-       (`recommend_fefo_candidates` 와 같은 규율).
+    잠금을 안 잡는다. 쓰기 함수가 이미 잠금을 쥔 채 부르는 것을 전제한다 —
+    여기서 또 잡으면 "어디가 잠금의 주인인가" 가 흐려진다
+    (`recommend_fefo_candidates` 와 같은 규율).
 
-    :raises OutboundIntegrityError: 그 예약이 없을 때. **빈 상태를 지어내지 않는다.**
+    :raises OutboundIntegrityError: 그 예약이 없을 때. 빈 상태를 지어내지 않는다.
     """
     outbound_text(reservation_id, 칸="reservation_id")
 
@@ -734,18 +732,18 @@ def reservation_allocation_state(conn: Any, *, reservation_id: str) -> Reservati
 
 
 def cancel_allocation(conn: Any, *, reservation_id: str, lot_id: str) -> Decimal:
-    """아직 **안 나간** 할당 하나를 `CANCELLED` 로 내린다. 되돌린 수량을 돌려준다.
+    """아직 안 나간 할당 하나를 `CANCELLED` 로 내린다. 되돌린 수량을 돌려준다.
 
-    🔴 **`SHIPPED` 는 못 내린다.** 그 몫은 원장 OUT 이 이미 잔량에서 덜어냈고,
-       상태만 되돌리면 **나간 물건이 창고에 다시 있는 것으로 보인다.**
-       환입은 이 판의 범위가 아니다 (`release_reservation` 과 같은 선이다).
+    `SHIPPED` 는 못 내린다. 그 몫은 원장 OUT 이 이미 잔량에서 덜어냈고,
+    상태만 되돌리면 나간 물건이 창고에 다시 있는 것으로 보인다.
+    환입 경로는 없다 (`release_reservation` 과 같은 선이다).
 
-    ★ **행을 지우지 않는다.** 같은 `(예약, Lot)` 정체성을 `CANCELLED` 로 남겨 두면
-      `allocate_stock` 이 **이미 있는 되살리기 경로**로 새 수량을 채워 넣는다 —
-      그래서 이 함수 뒤에 오는 것은 새 계약이 아니라 기존 코어다.
+    행을 지우지 않는다. 같은 `(예약, Lot)` 정체성을 `CANCELLED` 로 남겨 두면
+    `allocate_stock` 이 이미 있는 되살리기 경로로 새 수량을 채워 넣는다 —
+    그래서 이 함수 뒤에 오는 것은 새 계약이 아니라 기존 코어다.
 
-    ⚠️ **가용량이 그만큼 돌아온다.** `CANCELLED` 는 `HOLDING_ALLOCATION` 에서 빠지므로
-       그 Lot 의 가용량이 곧바로 되살아난다. 반드시 **같은 잠금 안에서** 부른다.
+    가용량이 그만큼 돌아온다. `CANCELLED` 는 `HOLDING_ALLOCATION` 에서 빠지므로
+    그 Lot 의 가용량이 곧바로 되살아난다. 반드시 같은 잠금 안에서 부른다.
 
     :returns: 되돌린 수량. 내릴 것이 없으면 0 이다.
     :raises OutboundIntegrityError: 그 할당이 이미 `SHIPPED` 일 때.
@@ -785,34 +783,34 @@ def allocate_stock(
     allocation_basis: AllocationBasis,
     as_of: date,
 ) -> AllocationResult:
-    """**사람이 고른** Lot 과 수량으로 할당을 확정한다.
+    """사람이 고른 Lot 과 수량으로 할당을 확정한다.
 
-    🔴 **여기서 Lot 을 고르지 않는다.** FEFO 는 추천까지이고, 무엇을 얼마나 뺄지는
-       호출자가 `requests` 로 명시한다.
+    여기서 Lot 을 고르지 않는다. FEFO 는 추천까지이고, 무엇을 얼마나 뺄지는
+    호출자가 `requests` 로 명시한다.
 
     ```text
     검증  각 수량 > 0
-          합계 <= reserved_qty_kg − 이미 확정된 할당분   ★ 요구량이 아니라 **확보량**이다
-          Lot 별 가용량 >= 이번 할당량   ★ 다른 예약이 잡아 둔 몫은 못 쓴다
+          합계 <= reserved_qty_kg − 이미 확정된 할당분   요구량이 아니라 확보량이다
+          Lot 별 가용량 >= 이번 할당량   다른 예약이 잡아 둔 몫은 못 쓴다
     ```
 
-    🔴 **상한이 `reserved_qty_kg` 인 이유는 부분 예약 때문이다.** `reserve_stock` 으로
-       선 예약은 `reserved == required` 라 사람 경로에서는 값이 달라지지 않는다.
+    상한이 `reserved_qty_kg` 인 이유는 부분 예약 때문이다. `reserve_stock` 으로
+    선 예약은 `reserved == required` 라 사람 경로에서는 값이 달라지지 않는다.
 
-    ⚠️ **원장 OUT 을 부르지 않는다.** 할당은 *"어느 Lot 에서 뺄지 정했다"* 이지 아직
-       나간 것이 아니다. 잔량은 실출고 때 움직인다.
+    원장 OUT 을 부르지 않는다. 할당은 "어느 Lot 에서 뺄지 정했다" 이지 아직
+    나간 것이 아니다. 잔량은 실출고 때 움직인다.
 
-    :param decided_by: 누가 정했나. **NOT NULL 이고 호출자가 준다** — 물류가 사람
+    :param decided_by: 누가 정했나. NOT NULL 이고 호출자가 준다 — 물류가 사람
         이름을 지어내지 않는다.
     :param decided_at: 언제 정했나. 시계를 읽지 않고 호출자가 준다 (tz 필요).
     :param allocation_basis: 이 선택이 FEFO 추천을 따른 것인가 사람이 다르게 정한
-        것인가. **기본값이 없다 — 호출자가 반드시 말해야 한다.**
+        것인가. 기본값이 없다 — 호출자가 반드시 말해야 한다.
 
-        🔴 **`FEFO_TOOL_CONFIRMED` 를 기본값으로 두면 안 된다.** FEFO 후보를
-           불러 봤다는 사실과 그 추천을 **따랐다**는 사실은 다른 것이고, 기본값은
-           묻지도 않고 뒤엣것을 장부에 적는다. 사람이 다른 Lot 을 골랐어도
-           *"Tool 이 추천한 대로 했다"* 로 남아, 나중에 왜 그 Lot 이었는지 물을 때
-           **근거가 거짓으로 서 있다.**
+        `FEFO_TOOL_CONFIRMED` 를 기본값으로 두면 안 된다. FEFO 후보를
+        불러 봤다는 사실과 그 추천을 따랐다는 사실은 다른 것이고, 기본값은
+        묻지도 않고 뒤엣것을 장부에 적는다. 사람이 다른 Lot 을 골랐어도
+        "Tool 이 추천한 대로 했다" 로 남아, 나중에 왜 그 Lot 이었는지 물을 때
+        근거가 거짓으로 서 있다.
     """
     check_allocation_request(
         reservation_id=reservation_id,
@@ -851,25 +849,25 @@ def allocate_stock(
                     f"같은 할당에 다른 수량이 이미 있다 ({allocation_id!r}):"
                     f" 기존 {있던것['allocated_qty_kg']} 이번 {수량}. 덮지 않는다."
                 )
-            continue  # ★ 멱등 재실행이다.
+            continue  # 멱등 재실행이다.
         새것.append((allocation_id, lot_id, 수량))
 
     if 새것:
         더할것 = sum((수량 for _, _, 수량 in 새것), start=Decimal(0))
-        # 🔴 **상한은 `reserved_qty_kg` 다. `required_qty_kg` 가 아니다.**
+        # 상한은 `reserved_qty_kg` 다. `required_qty_kg` 가 아니다.
         #
-        #    요구량은 *"Sales 가 얼마를 원했나"* 이고 확보량은 *"물류가 얼마를 실제로
-        #    잡았나"* 다. 부분 예약(`reserve_available_stock`)에서 둘이 갈리는데,
-        #    요구량을 상한으로 두면 **잡은 적 없는 몫까지 Lot 에 붙는다.**
+        # 요구량은 "Sales 가 얼마를 원했나" 이고 확보량은 "물류가 얼마를 실제로 잡았나"
+        # 다. 부분 예약(`reserve_available_stock`)에서 둘이 갈리는데, 요구량을 상한으로
+        # 두면 잡은 적 없는 몫까지 Lot 에 붙는다.
         #
         #    ```text
         #    required 100 · reserved 60 · allocated 0
-        #    요구량 기준   100 까지 할당된다   🔴 40 은 아무도 확보한 적이 없다
-        #    확보량 기준    60 까지            ✅
+        #    요구량 기준   100 까지 할당된다   틀림 — 40 은 아무도 확보한 적이 없다
+        #    확보량 기준    60 까지            맞음
         #    ```
         #
-        #    ★ **사람 경로는 값이 안 변한다** — `reserve_stock` 이 둘을 늘 같게 넣으므로
-        #      그 예약에서는 `reserved == required` 이고 상한도 그대로다.
+        # 사람 경로는 값이 변하지 않는다 — `reserve_stock` 이 둘을 늘 같게 넣으므로 그
+        # 예약에서는 `reserved == required` 이고 상한도 그대로다.
         남은예약 = Decimal(예약["reserved_qty_kg"]) - 이미할당
         if 더할것 > 남은예약:
             raise InvalidOutboundRequest(
@@ -897,9 +895,9 @@ def allocate_stock(
                     f" {가용[lot_id]}. 다른 예약이 잡아 둔 몫은 쓸 수 없다."
                 )
 
-        # ★ **`ON CONFLICT` 를 쓰지 않는다.** 잠금 안에서 기존 행을 이미 읽었으므로
-        #   여기서 가르면 된다 — DB 충돌 처리를 정상 흐름으로 쓰면 무엇이 새 행이고
-        #   무엇이 되살린 행인지 코드에서 안 보인다 (`ledger.py` 와 같은 규율).
+        # `ON CONFLICT` 를 쓰지 않는다. 잠금 안에서 기존 행을 이미 읽었으므로
+        # 여기서 가르면 된다 — DB 충돌 처리를 정상 흐름으로 쓰면 무엇이 새 행이고
+        # 무엇이 되살린 행인지 코드에서 안 보인다 (`ledger.py` 와 같은 규율).
         for allocation_id, lot_id, 수량 in 새것:
             되살릴것 = 기존.get(allocation_id)
             if 되살릴것 is None:
@@ -914,7 +912,7 @@ def allocate_stock(
                     decided_at=decided_at,
                 )
             else:
-                # ★ 취소됐던 할당을 같은 정체성으로 다시 세운다.
+                # 취소됐던 할당을 같은 정체성으로 다시 세운다.
                 assert_revivable_on_same_day(
                     되살릴것, allocation_id=allocation_id, decided_at=decided_at
                 )
@@ -952,7 +950,7 @@ def ship_allocated_stock(
     shipped_at: date,
     sale_item_id: str | None = None,
 ) -> ShipmentResult:
-    """할당된 몫을 **실제로 내보낸다.** 여기서 처음 원장 OUT 이 나간다.
+    """할당된 몫을 실제로 내보낸다. 여기서 처음 원장 OUT 이 나간다.
 
     ```text
     할당마다  record_inventory_move(OUT, lot_id, allocated_qty_kg, SALE_FULFILLMENT)
@@ -960,17 +958,17 @@ def ship_allocated_stock(
     그다음    할당 status = SHIPPED
     ```
 
-    🔴 **잔량 UPDATE 를 복제하지 않는다.** `remaining_qty_kg` 를 바꾸는 것은 원장뿐이고
-       (`ledger.py` 가 존재하는 이유), 이 함수는 그것을 부르기만 한다.
+    잔량 UPDATE 를 복제하지 않는다. `remaining_qty_kg` 를 바꾸는 것은 원장뿐이고
+    (`ledger.py` 가 존재하는 이유), 이 함수는 그것을 부르기만 한다.
 
-    ★ **이미 `SHIPPED` 인 할당은 건너뛴다.** 재실행이 같은 Move 를 두 번 만들지 않는다
-      (`move_id` 가 결정론이라 원장도 자체 멱등이지만, 여기서 먼저 거른다).
+    이미 `SHIPPED` 인 할당은 건너뛴다. 재실행이 같은 Move 를 두 번 만들지 않는다
+    (`move_id` 가 결정론이라 원장도 자체 멱등이지만, 여기서 먼저 거른다).
 
-    ⚠️ **Shipment 표가 없다** — 실출고 사실은 `할당 SHIPPED + 원장 OUT` 으로 표현된다.
-       새 표를 짓지 않는다 (모듈 docstring 참조).
+    Shipment 표가 없다 — 실출고 사실은 `할당 SHIPPED + 원장 OUT` 으로 표현된다.
+    새 표를 짓지 않는다 (모듈 docstring 참조).
 
-    :param sale_item_id: `inventory_moves.sale_item_id` 에 그대로 실린다. **Sales 가
-        소유한 참조**라 물류가 만들거나 뜯지 않는다. 아직 안 넘어오면 `None` 이다.
+    :param sale_item_id: `inventory_moves.sale_item_id` 에 그대로 실린다. Sales 가
+        소유한 참조라 물류가 만들거나 뜯지 않는다. 아직 안 넘어오면 `None` 이다.
     """
     outbound_text(reservation_id, 칸="reservation_id")
 
@@ -986,7 +984,7 @@ def ship_allocated_stock(
         if 행["status"] in HOLDING_ALLOCATION
     ]
     if not 내보낼것:
-        # ★ 이미 다 나갔거나 할당이 없다 — 재실행의 정상 경로다.
+        # 이미 다 나갔거나 할당이 없다 — 재실행의 정상 경로다.
         return ShipmentResult(
             applied=False, shipped_allocation_ids=(), move_ids=(), shipped_qty_kg=Decimal(0)
         )
@@ -998,7 +996,7 @@ def ship_allocated_stock(
         allocation_id = 행["allocation_id"]
         수량 = Decimal(행["allocated_qty_kg"])
         move_id = move_id_for_allocation(allocation_id=allocation_id)
-        # 🔴 **원장이 잔량을 줄인다.** 여기서 UPDATE 를 따로 쓰지 않는다.
+        # 원장이 잔량을 줄인다. 여기서 UPDATE 를 따로 쓰지 않는다.
         record_inventory_move(
             conn,
             move_id=move_id,
@@ -1029,8 +1027,8 @@ def reserve_confirmed_sale(
 ) -> ReservationResult:
     """Reserve stock for a confirmed sale without allocating or shipping any Lot.
 
-    🔴 **전량 아니면 멈춘다.** 가용재고가 모자라면 `InvalidOutboundRequest` 다 —
-       `reserve_stock` 의 fail-closed 계약 그대로이고, 이 문은 그것을 안 바꾼다.
+    전량 아니면 멈춘다. 가용재고가 모자라면 `InvalidOutboundRequest` 다 —
+    `reserve_stock` 의 fail-closed 계약 그대로이고, 이 문은 그것을 안 바꾼다.
     """
 
     return reserve_stock(
@@ -1048,18 +1046,18 @@ def reserve_confirmed_sale_available(
     conn: Any,
     request: SalesOutboundReservationRequest,
 ) -> ReservationResult:
-    """확정된 판매분을 **확보되는 만큼만** 잡아 둔다 (시뮬레이션 경로).
+    """확정된 판매분을 확보되는 만큼만 잡아 둔다 (시뮬레이션 경로).
 
     ```text
-    required_qty_kg = request.quantity_kg   🔴 판매 요구량 그대로. 물류가 안 줄인다
+    required_qty_kg = request.quantity_kg   판매 요구량 그대로. 물류가 줄이지 않는다
     reserved_qty_kg = 실제 확보량           ← 이 값만 모자랄 수 있다
     ```
 
-    ★ **재실행이 채운다.** 새 재고가 들어온 뒤 같은 요청을 다시 넘기면
-      `required_qty_kg` 까지 추가로 확보한다 (`reserve_available_stock` 의 top-up).
+    재실행이 채운다. 새 재고가 들어온 뒤 같은 요청을 다시 넘기면
+    `required_qty_kg` 까지 추가로 확보한다 (`reserve_available_stock` 의 top-up).
 
-    ⚠️ **판매 수량을 물류가 고쳐 넘기지 않는다.** `quantity_kg` 는 그대로 요구량으로
-       가고, 못 잡은 몫은 `ReservationResult.reserved_qty_kg` 로 **보이게** 남는다.
+    판매 수량을 물류가 고쳐 넘기지 않는다. `quantity_kg` 는 그대로 요구량으로
+    가고, 못 잡은 몫은 `ReservationResult.reserved_qty_kg` 로 보이게 남는다.
     """
 
     return reserve_available_stock(

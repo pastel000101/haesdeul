@@ -3,12 +3,12 @@
 /**
  * 운영 콘솔 탭이 공통으로 쓰는 상태 표시와 표.
  *
- * 🔴 **여섯 상태를 가른다** — `loading` · `success` · `empty` · `error` · `blocked` ·
- *    `unsupported`. 특히 **`0` 과 «데이터 없음» 은 다르다**: 백엔드가 0 을 내면 0 을
- *    적고, 값 자체가 없으면 그렇게 말한다. 둘을 한 칸에 뭉치면 *"채권이 0원"* 과
- *    *"채권을 못 읽었다"* 가 화면에서 같은 말이 된다.
+ * 여섯 상태를 가른다 — `loading` · `success` · `empty` · `error` · `blocked` ·
+ *   `unsupported`. 특히 `0` 과 «데이터 없음» 은 다르다: 백엔드가 0 을 내면 0 을
+ *   적고, 값 자체가 없으면 그렇게 말한다. 둘을 한 칸에 뭉치면 «채권이 0원» 과
+ *   «채권을 못 읽었다» 가 화면에서 같은 말이 된다.
  *
- * 🔴 **여기서 업무 계산을 하지 않는다.** 합계도 마진도 백엔드가 낸 값을 그대로 적는다.
+ * 여기서 업무 계산을 하지 않는다. 합계도 마진도 백엔드가 낸 값을 그대로 적는다.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -24,14 +24,14 @@ interface State<T> {
 /**
  * 실행 축이 정해졌을 때만 부른다.
  *
- * ⚠️ `enabled` 가 거짓이면 **요청을 아예 만들지 않는다.** 빈 실행으로 한 번 부르고
+ * `enabled` 가 거짓이면 요청을 아예 만들지 않는다. 빈 실행으로 한 번 부르고
  *   400 을 받아 오류를 띄우면, 사람은 고장난 줄 안다 — 고르지 않았을 뿐이다.
  */
 export function useConsoleData<T>(key: string, load: () => Promise<T>, enabled: boolean): State<T> {
   const [state, setState] = useState<State<T>>({ data: null, error: null, loading: enabled });
   const [shown, setShown] = useState(key);
-  //  ★ 키가 바뀌면 **그리는 중에** 상태를 되돌린다. 효과 안에서 되돌리면 한 번 옛 값이
-  //    그려진 뒤 다시 그려져, 실행을 바꾼 순간 **남의 실행 숫자가 한 프레임 보인다.**
+  //  키가 바뀌면 그리는 중에 상태를 되돌린다. 효과 안에서 되돌리면 한 번 옛 값이
+  //    그려진 뒤 다시 그려져, 실행을 바꾼 순간 남의 실행 숫자가 한 프레임 보인다.
   if (shown !== key) {
     setShown(key);
     setState({ data: null, error: null, loading: enabled });
@@ -50,7 +50,7 @@ export function useConsoleData<T>(key: string, load: () => Promise<T>, enabled: 
       })
       .catch((error: unknown) => {
         if (!alive) return;
-        //  ★ 서버가 낸 문장을 그대로 올린다 — 무엇을 고쳐야 하는지 알려 주는 말이다.
+        //  서버가 낸 문장을 그대로 올린다 — 무엇을 고쳐야 하는지 알려 주는 말이다.
         setState({
           data: null,
           loading: false,
@@ -80,7 +80,7 @@ function Frame({ title, body, tone }: { title: string; body: string; tone: strin
   );
 }
 
-/** 실행을 안 골랐을 때. **API 를 부르지 않은 상태**이지 실패가 아니다. */
+/** 실행을 안 골랐을 때. API 를 부르지 않은 상태이지 실패가 아니다. */
 export function NoRunSelected() {
   return (
     <Frame
@@ -91,7 +91,7 @@ export function NoRunSelected() {
   );
 }
 
-/** 조회는 됐는데 행이 0건. **«0 건» 은 사실이다** — 미구축과 다르다. */
+/** 조회는 됐는데 행이 0건. «0 건» 은 사실이다 — 미구축과 다르다. */
 export function EmptyRows({ what }: { what: string }) {
   return <Frame title={`${what} 0건`} body="이 실행·기준일에 저장된 행이 없습니다." tone="EMPTY" />;
 }
@@ -254,7 +254,7 @@ export function Table<T>({
   );
 }
 
-/** 값 하나. **`null` 이면 «데이터 없음» 으로 적고 0 으로 바꾸지 않는다.** */
+/** 값 하나. `null` 이면 «데이터 없음» 으로 적고 0 으로 바꾸지 않는다. */
 export function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-lg border p-3" style={{ borderColor: "var(--color-hair)" }}>
