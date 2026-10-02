@@ -38,8 +38,8 @@ database/schema/sales/sales.sql
 예약 이름은 저장하지 않고 계산한다. `reservation_id_for_sale_item` 이 결정론이라 적어 둘
 이유가 없다 — 적어 두면 그 값이 두 번째 정본이 된다.
 
-`reserve_confirmed_sale` 이 아니라 `reserve_confirmed_sale_available` 이다. 앞엣것은
-전량 아니면 예외를 던지는 사람 경로이고, 여기는 시뮬레이션 경로다. 부분 예약은
+예약 입구는 부분 예약 `reserve_confirmed_sale_available` 이다. 전량 아니면 예외를 던지는
+`reserve_stock` 을 쓰지 않는다 — 여기는 시뮬레이션 경로다. 부분 예약은
 정상이다 — 물류가 그렇게 설계했고, 확보된 만큼만 나간다.
 
 `decided_at` 은 `sim_time.phase_instant(as_of, "ALLOCATE")` 다. 벽시계를 읽지 않는다.

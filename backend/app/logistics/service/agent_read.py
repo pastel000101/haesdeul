@@ -46,8 +46,8 @@ def load_read(*, as_of: date, sim_run_id: str) -> LogisticsRead | None:
 
     `item_storage_policies.operational_limit_days` 는 DB 에서 nullable 이고, 그 NULL 은
     "보관한계 미등록"(부재)이다 (#366). 어댑터 특례로 TypeError 를 걸러내지 않고 Repository
-    어휘에서 부재로 읽는다 — 부재는 `remaining_freshness_days=None` 으로 나와
-    `evaluate_sales_rules` 의 `N17-LOT`(`N17_LOT_FRESHNESS_UNRESOLVED`)이 받는다. 여기서
+    어휘에서 부재로 읽는다 — 부재는 `remaining_freshness_days=None`(신선도 미확정)으로
+    나온다. 여기서
     TypeError 만 걸러내면 "어떤 TypeError 는 상태" 라는 예외의 예외가 생기고, 같은 NULL 을
     읽는 다른 경로는 그대로 실패한다. 없는 사실은 UNRESOLVED 로, 실행 실패만 ERROR 로
     가른다.

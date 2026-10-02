@@ -127,38 +127,3 @@ class InterpretationResult(BaseModel):
     #: 두 필드는 독립이다. 한쪽만 보고하는 Provider 응답이 공식 계약상 정상이라
     #: input 이 `None` 이어도 output 은 숫자일 수 있다.
     llm_observed_output_tokens: int | None = Field(default=None, ge=0)
-
-
-def default_interpretation() -> AgentInterpretation:
-    return AgentInterpretation(
-        summary="결정론적 재고물류 결과를 유지합니다.",
-        risks=[],
-        suggested_adjustment=None,
-    )
-
-
-class LLMResponseFields(BaseModel):
-    interpretation: AgentInterpretation = Field(default_factory=default_interpretation)
-    llm_status: LLMStatus = "DISABLED"
-    llm_provider: str | None = None
-    llm_model: str | None = None
-    llm_attempts: int = Field(default=0, ge=0)
-    llm_fallback_used: bool = False
-    llm_error_kind: LLMErrorKind | None = None
-    #: LLM 호출에 사용된 Sanitized ContextFact 목록 — 독립 Response로 노출되고
-    #: response_payload 실행이력에 자동 기록된다 (저장 스키마 무변경).
-    llm_context_facts: list[ContextFact] = Field(default_factory=list)
-    #: 재시도 포함 Provider 총 호출 시간 (`InterpretationResult` 와 같은 뜻 · #402).
-    #:
-    #: `InterpretationResult` 와 필드 집합이 어긋나면 조용히 사라진다.
-    #: `enrich_logistics_response` 는 `result.model_dump()` 를 `model_copy(update=)`
-    #: 로 싣는데, 여기 없는 키는 예외 없이 `__dict__` 에만 들어갔다가
-    #: `model_dump()` 에서 빠진다 — 응답 모델을 직렬화하면 값이 소리 없이 증발한다.
-    #: 두 모델의 필드 집합 동일성은 `test_logistics_context_facts.py` 의 구조 테스트가
-    #: 잠근다.
-    llm_provider_elapsed_ms: int | None = Field(default=None, ge=0)
-    #: 관측된 Provider 호출들의 토큰 사용량 합 (`InterpretationResult` 와 같은 뜻 · #406).
-    #: 위 경고가 이 둘에도 그대로 적용된다 — 한쪽 모델에만 넣으면 응답 모델 직렬화에서
-    #: 소리 없이 사라진다.
-    llm_observed_input_tokens: int | None = Field(default=None, ge=0)
-    llm_observed_output_tokens: int | None = Field(default=None, ge=0)

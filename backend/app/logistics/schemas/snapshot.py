@@ -193,8 +193,8 @@ class InventoryLogisticsSnapshot(BaseModel):
 
     #: 폐지된 T0 스냅샷의 식별자 — 실제 유산이다. 스냅샷 조립은 항상 `None` 을
     #: 넣고, 그래서 `_snapshot_warnings` 가 매 실행마다 `SNAPSHOT_ID_UNRESOLVED` 를
-    #: 낸다(상시 노이즈). 실행이력 표 칸(`logistics_agent_runs.snapshot_id`)·응답 모델
-    #: 필드에도 있어 그냥 지울 수 없다 — 실제 ID 를 부여할지 계약에서 걷어낼지가 미결
+    #: 낸다(상시 노이즈). 실행이력 표 칸(`logistics_agent_runs.snapshot_id`)에도 있어
+    #: 그냥 지울 수 없다 — 실제 ID 를 부여할지 계약에서 걷어낼지가 미결
     #: 안건이다 (#121 별도).
     snapshot_id: str | None
     as_of: date

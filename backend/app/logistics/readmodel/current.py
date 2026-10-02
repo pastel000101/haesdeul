@@ -242,13 +242,6 @@ def _build_logistics_runtime_fixture(
     return fixture, views
 
 
-def get_current_inventory_logistics_snapshot(
-    *, as_of: date, sim_run_id: str | None = None
-) -> InventoryLogisticsSnapshot:
-    """Snapshot 만 필요한 소비자용. 지금 앱 안에는 부르는 곳이 없다."""
-    return read_current_logistics(as_of=as_of, sim_run_id=sim_run_id).snapshot
-
-
 def get_current_logistics_read(
     conn: Any | None, *, as_of: date, sim_run_id: str | None = None
 ) -> LogisticsRead:

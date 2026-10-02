@@ -13,8 +13,8 @@ from app.core import db as core_db
 from app.logistics.domain.rules import evaluate_procurement_rules
 from app.logistics.readmodel.current import (
     get_active_logistics_runtime_fixture,
-    get_current_inventory_logistics_snapshot,
     read_active_logistics_policy,
+    read_current_logistics,
 )
 from app.logistics.schemas.snapshot import InTransitItem, ScheduledQuantity
 
@@ -683,7 +683,7 @@ def test_runtime_snapshot_combines_fixture_direct_lots_and_policy():
             ],
         ) as fetch,
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert snapshot.snapshot_id is None
     assert [lot.lot_id for lot in snapshot.on_hand_by_lot] == [
@@ -729,7 +729,7 @@ def test_lot_grade_in_purchase_vocabulary_passes_through():
             ],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert all(lot.grade == "상" for lot in snapshot.on_hand_by_lot)
 
@@ -756,7 +756,7 @@ def test_lot_grade_without_normalization_evidence_is_none():
             ],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert all(lot.grade is None for lot in snapshot.on_hand_by_lot)
     assert all(lot.grade != "상" for lot in snapshot.on_hand_by_lot)
@@ -785,7 +785,7 @@ def test_medium_grade_lot_applies_medium_grade_factor():
             ],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     baechu = next(lot for lot in snapshot.on_hand_by_lot if lot.item == "배추")
     assert baechu.grade == "중"
@@ -809,7 +809,7 @@ def test_non_active_lot_occupies_capacity_when_physically_present():
             ],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert snapshot.used_capacity_kg == Decimal("363.28")
     quarantined = next(lot for lot in snapshot.on_hand_by_lot if lot.status == "QUARANTINED")
@@ -838,7 +838,7 @@ def test_item_storage_policy_is_separate_from_lot_freshness():
             side_effect=[[_fixture_row()], _policy_rows(), rows, storage_rows, *_COMMITMENT_ROWS],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     lot = snapshot.on_hand_by_lot[0]
     assert lot.remaining_freshness_days == 8
@@ -865,7 +865,7 @@ def test_item_storage_policy_covers_items_without_lots():
             ],
         ) as fetch,
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert [lot.item for lot in snapshot.on_hand_by_lot] == ["배추"]
     assert snapshot.item_storage_policies is not None
@@ -896,7 +896,7 @@ def test_item_storage_policy_preserves_missing_values():
             ],
         ),
     ):
-        snapshot = get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        snapshot = read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
     assert snapshot.item_storage_policies is not None
     mu = snapshot.item_storage_policies[0]
@@ -919,7 +919,7 @@ def _snapshot_with_rows(rows: list[dict[str, object]]):
             ],
         ),
     ):
-        return get_current_inventory_logistics_snapshot(as_of=date(2025, 12, 31))
+        return read_current_logistics(as_of=date(2025, 12, 31)).snapshot
 
 
 def test_lot_freshness_is_none_when_storage_limit_is_missing():

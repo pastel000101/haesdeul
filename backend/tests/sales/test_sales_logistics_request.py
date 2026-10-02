@@ -54,6 +54,6 @@ def test_sales_outbound_boundary_does_not_call_logistics():
     source = Path(outbound_module.__file__).read_text(encoding="utf-8")
 
     assert "app.logistics" not in source
-    for forbidden in ("reserve_confirmed_sale(", "reserve_confirmed_sale_available("):
+    for forbidden in ("reserve_stock(", "reserve_confirmed_sale_available("):
         assert forbidden not in source
 

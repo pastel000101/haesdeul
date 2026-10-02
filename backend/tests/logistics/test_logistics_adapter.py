@@ -2140,16 +2140,10 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
     *"안 불렀다"* 를 실행으로 재면 경로 하나를 놓치는 날 조용히 통과하지만,
     **import 가 없으면 부를 방법이 없다.**
 
-    ```text
-    run_logistics_sales_scenario()       approved_purchase 필수
-    evaluate_sales_rules()               H1 Overlay 산출을 전제
-    enrich_logistics_response()          응답 모델 LLM 해석
-    ```
-
     ★ #385 이후 `app.logistics.interpretation` 은 **허용**이다 — 어댑터가 재사용하는 것은
-      순수 Harness 조립기(`build_sanitized_context`)와 opt-in 팩토리뿐이다. Service 응답
-      타입에 묶인 `enrich_logistics_response`, Provider 층(`app.logistics.llm.runtime`),
-      쓰기 경로, 마스터의 `cycle_llm` 은 여전히 들여오지 않는다.
+      순수 Harness 조립기(`build_sanitized_context`)와 opt-in 팩토리뿐이다. Provider 층
+      (`app.logistics.llm.runtime`), 쓰기 경로, 마스터의 `cycle_llm` 은 여전히 들여오지
+      않는다.
     """
     modules, names = _adapter_imports()
 
@@ -2167,9 +2161,6 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
         "app.master.cycle_llm",
     }
     금지_이름 = {
-        "run_logistics_sales_scenario",
-        "evaluate_sales_rules",
-        "enrich_logistics_response",
         "get_interpretation_service",
         "get_connection",
         "execute_returning_one",
@@ -2187,25 +2178,6 @@ def test_판매_Service_와_LLM_경로를_아예_들여오지_않는다():
         "master_interpretation_service",
         "uncalled_interpretation",
     } <= names
-
-
-def test_승인_매입을_지어내지_않는다():
-    """🔴 `LogisticsApprovedPurchaseCommitment` 이 어댑터에 **들어오지도 않는다.**
-
-    그 모델은 `total_qty_kg > 0` · `arrival_schedule` 최소 1건이라 빈 값을 못 넣는다 —
-    쓰려면 없는 입고를 지어내야 하고, 그 입고가 `LOG-H01` 판정을 그대로 바꾼다.
-    """
-    _, names = _adapter_imports()
-
-    assert (
-        not {
-            "LogisticsApprovedPurchaseCommitment",
-            "LogisticsSalesRequest",
-            "overlay_approved_purchase",
-            "calculate_future_occupancy_by_date",
-        }
-        & names
-    )
 
 
 def test_LLM_을_안_썼다는_말이_사실이다(wired_sales):
@@ -2368,7 +2340,7 @@ def test_판매가능량을_확정_못_하면_Lot_합계로_대신_답하지_않
 
 
 def test_출고_여력_정책이_없으면_READY_를_내지_않는다(monkeypatch):
-    """판매 사이클의 기존 Rule 이 같은 기준이다 — `evaluate_sales_rules` 의 `N17`."""
+    """판매 쪽 출고 판정의 기존 기준 — `N17`(공유 일일 출고 여력)이 필수다."""
     _with_read(monkeypatch, _sales_snapshot(shared_daily_outbound_capacity_kg=None))
     _, reply, _ = _pre_sales_reply()
 

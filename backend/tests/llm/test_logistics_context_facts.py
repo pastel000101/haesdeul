@@ -1,7 +1,6 @@
 """P6 facts 구조화 — formatter·인용 화이트리스트·상한·기록 (LLM 정책 결정서 v1.3 §5)."""
 
 import json
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -11,9 +10,7 @@ from app.logistics.llm.interpretation import (
     MASTER_LLM_ENV,
     _assemble_facts,
     _build_signal_facts,
-    build_logistics_context,
     build_sanitized_context,
-    enrich_logistics_response,
     format_count,
     format_measured_percent,
     format_policy_percent,
@@ -28,19 +25,12 @@ from app.logistics.llm.runtime import (
     InterpretationValidationError,
     LLMSettings,
     ProviderResult,
-    ProviderUsage,
     UnavailableProvider,
     ValidationIssue,
     build_template_interpretation,
     validate_interpretation,
 )
 from app.logistics.llm.schemas import ContextFact, SanitizedLLMContext
-from app.logistics.schemas.agent import (
-    InboundConstraints,
-    LogisticsBand,
-    LogisticsProcurementResponse,
-    LogisticsSalesResponse,
-)
 
 # ---------------------------------------------------------------------------
 # formatter — 표기 스펙 (2026-08-31 확정)
@@ -78,23 +68,6 @@ def test_count_attaches_unit_to_every_number():
 # ---------------------------------------------------------------------------
 
 
-def _sales_response(**overrides) -> LogisticsSalesResponse:
-    fields = {
-        "snapshot_id": None,
-        "approval_id": "H1",
-        "runtime_status": "READY",
-        "verdict": "PASS",
-        "daily_outbound_capacity_kg": None,
-        "lot_constraints": [],
-        "hard_constraints": [],
-        "soft_warnings": ["FRESHNESS_QUALITY_RISK"],
-        "missing_data": [],
-        "preferred_adjustment": "우선 출고 대상으로 검토합니다.",
-    }
-    fields.update(overrides)
-    return LogisticsSalesResponse(**fields)
-
-
 _FRESHNESS_MEASUREMENTS = {
     "freshness_risk_lot_count": 3,
     "freshness_min_remaining_ratio": Decimal("0.25"),
@@ -129,8 +102,18 @@ def test_scenario_fact_uses_agreed_count_format():
     ]
 
 
+def _sales_context(measurements):
+    return build_sanitized_context(
+        cycle="SALES",
+        signals=["FRESHNESS_QUALITY_RISK"],
+        measurements=measurements,
+        preferred_adjustment="우선 출고 대상으로 검토합니다.",
+        missing_data=[],
+    )
+
+
 def test_context_facts_carry_judged_values_only():
-    context, overflow = build_logistics_context(_sales_response(), _FRESHNESS_MEASUREMENTS)
+    context, overflow = _sales_context(_FRESHNESS_MEASUREMENTS)
 
     assert overflow is False
     assert [fact.display_value for fact in context.facts] == ["3개", "25.0% (임계 30%)"]
@@ -141,7 +124,7 @@ def test_context_facts_carry_judged_values_only():
 def test_signal_without_measurements_fails_closed():
     # signal 은 섰는데 판정 수치가 전달되지 않으면 배선 버그다 — 확인된 fact 없이
     # 해석시키지 않고 LLM 을 건너뛴다 (facts_incomplete=True).
-    context, incomplete = build_logistics_context(_sales_response(), None)
+    context, incomplete = _sales_context(None)
 
     assert incomplete is True
     assert context.facts == []
@@ -377,93 +360,7 @@ def test_skipped_and_disabled_record_empty_facts():
 # ---------------------------------------------------------------------------
 
 
-def _procurement_response(**overrides) -> LogisticsProcurementResponse:
-    fields = {
-        "as_of": date(2026, 1, 20),
-        "snapshot_id": None,
-        "runtime_status": "READY",
-        "verdict": "REVIEW_REQUIRED",
-        "band": LogisticsBand(cap_by_date={}),
-        "inbound_constraints": InboundConstraints(
-            inbound_lead_days=None,
-            daily_inbound_capacity_kg=None,
-            inbound_transport_capacity_kg=None,
-        ),
-        "hard_constraints": [],
-        "soft_warnings": ["SCENARIO_ADJUSTMENT_REQUIRED", "CAPACITY_TIGHT_POLICY_UNRESOLVED"],
-        "missing_data": ["capacity_tight_policy"],
-        "preferred_adjustment": "quantity",
-        "evidences": [],
-    }
-    fields.update(overrides)
-    return LogisticsProcurementResponse(**fields)
-
-
 _SCENARIO_MEASUREMENTS = {"scenario_conditional_count": 2, "scenario_total_count": 3}
-
-
-def test_sales_wrapper_equals_direct_builder_and_keeps_previous_behaviour():
-    response = _sales_response(
-        soft_warnings=["FRESHNESS_QUALITY_RISK", "SNAPSHOT_ID_UNRESOLVED"],
-        missing_data=["snapshot_id"],
-    )
-
-    via_wrapper = build_logistics_context(response, _FRESHNESS_MEASUREMENTS)
-    direct = build_sanitized_context(
-        cycle="SALES",
-        signals=response.soft_warnings,
-        measurements=_FRESHNESS_MEASUREMENTS,
-        preferred_adjustment=response.preferred_adjustment,
-        missing_data=response.missing_data,
-    )
-
-    assert via_wrapper == direct
-    # 추출 전 동작 그대로 — 핀
-    context, incomplete = via_wrapper
-    assert incomplete is False
-    assert context.signals == ["FRESHNESS_QUALITY_RISK"]
-    assert context.allowed_adjustments == ["우선 출고 대상으로 검토합니다."]
-    assert context.preferred_adjustment == "우선 출고 대상으로 검토합니다."
-    assert context.missing_data == ["snapshot_id"]
-    assert [fact.display_value for fact in context.facts] == ["3개", "25.0% (임계 30%)"]
-
-
-def test_procurement_wrapper_equals_direct_builder_and_keeps_previous_behaviour():
-    response = _procurement_response()
-
-    via_wrapper = build_logistics_context(response, _SCENARIO_MEASUREMENTS)
-    direct = build_sanitized_context(
-        cycle="PROCUREMENT",
-        signals=response.soft_warnings,
-        measurements=_SCENARIO_MEASUREMENTS,
-        preferred_adjustment=response.preferred_adjustment,
-        missing_data=response.missing_data,
-    )
-
-    assert via_wrapper == direct
-    context, incomplete = via_wrapper
-    assert incomplete is False
-    assert context.signals == ["SCENARIO_ADJUSTMENT_REQUIRED"]
-    assert context.allowed_adjustments == ["quantity", "timing"]
-    assert context.preferred_adjustment == "quantity"
-    assert context.missing_data == ["capacity_tight_policy"]
-    assert [fact.display_value for fact in context.facts] == ["조건부 2건 (전체 3건)"]
-
-
-def test_sales_without_preferred_has_no_allowed_adjustment_in_both_paths():
-    response = _sales_response(preferred_adjustment=None)
-
-    via_wrapper = build_logistics_context(response, _FRESHNESS_MEASUREMENTS)
-    direct = build_sanitized_context(
-        cycle="SALES",
-        signals=response.soft_warnings,
-        measurements=_FRESHNESS_MEASUREMENTS,
-        preferred_adjustment=None,
-        missing_data=[],
-    )
-
-    assert via_wrapper == direct
-    assert via_wrapper[0].allowed_adjustments == []
 
 
 def test_builder_translates_raw_missing_codes_and_never_carries_digits():
@@ -523,7 +420,7 @@ def _settings(*, enabled: bool) -> LLMSettings:
 
 
 def _pin_master(monkeypatch, value: str | None, *, base_enabled: bool = True) -> object:
-    """opt-in 값 하나만 고정하고, 독립 경로 설정과 실 팩토리는 가짜로 막는다.
+    """opt-in 값 하나만 고정하고, 물류 LLM 설정과 실 팩토리는 가짜로 막는다.
 
     `get_llm_settings` 를 갈아 끼우면 `.env` 는 읽히지 않는다 — 개발자 환경 값이 테스트
     결과를 흔들지 않는다. 돌려주는 sentinel 은 *"opt-in 경로가 실 팩토리에 닿았다"* 의 증거다.
@@ -594,58 +491,12 @@ def test_uncalled_interpretation_uses_the_service_gate_vocabulary(enabled, expec
 
 
 # ---------------------------------------------------------------------------
-# 응답 스키마 동기화 — 새 trace 필드가 독립 경로에서 조용히 사라지지 않는가 (#402)
+# Provider 호출 시간 — 미호출은 None (#402)
 # ---------------------------------------------------------------------------
 
 
-def test_interpretation_result_and_response_fields_carry_the_same_llm_contract():
-    """🔴 **어긋나면 예외가 아니라 침묵이다.**
-
-    `enrich_logistics_response` 는 `result.model_dump()` 를 `model_copy(update=)` 로
-    싣는다. pydantic 은 update 의 미지 키를 **거부하지 않고** `__dict__` 에만 넣었다가
-    `model_dump()` 에서 뺀다 (실측 2.13.4) — 즉 `InterpretationResult` 에만 필드를
-    추가하면 독립 응답과 `response_payload` 실행이력에서 값이 **소리 없이 증발한다.**
-    테스트도 안 깨지고 로그도 없다. 그래서 집합 동일성을 계약으로 잠근다.
-
-    ★ 두 모델은 오늘 8+1 필드로 정확히 같다. 언젠가 의도적으로 갈라야 한다면 그때
-      이 테스트를 고치면서 **왜** 다른지를 여기 적는다 — 조용히 갈리는 것만 막는다.
-    """
-    from app.logistics.llm.schemas import InterpretationResult, LLMResponseFields
-
-    assert set(InterpretationResult.model_fields) == set(LLMResponseFields.model_fields)
-    assert "llm_provider_elapsed_ms" in InterpretationResult.model_fields
-
-
-def test_provider_latency_survives_the_standalone_service_path():
-    """독립 경로 응답과 그 직렬화까지 값이 살아 도착한다 (`llm_context_facts` 와 같은 규율)."""
-    response = _procurement_response(
-        runtime_status="READY",
-        soft_warnings=["INVENTORY_FRESHNESS_PRESSURE"],
-        # Rule 이 방향을 안 정했으므로 추천도 null 이어야 한다 — `_success_output` 이
-        # 내는 값과 맞춰야 검증기를 통과해 SUCCESS 경로가 재현된다.
-        preferred_adjustment=None,
-    )
-
-    enriched = enrich_logistics_response(
-        response,
-        _service(_FakeProvider([_success_output()])),
-        measurements={
-            "freshness_risk_lot_count": 3,
-            "freshness_min_remaining_ratio": Decimal("0.25"),
-            "freshness_pressure_ratio": Decimal("0.30"),
-        },
-    )
-
-    assert enriched.llm_status == "SUCCESS"
-    assert enriched.llm_attempts == 1
-    assert enriched.llm_provider_elapsed_ms is not None
-    assert enriched.llm_provider_elapsed_ms >= 0
-    # 저장(response_payload)·API 응답이 지나는 직렬화에도 실린다 — 저장 스키마는 그대로다.
-    assert "llm_provider_elapsed_ms" in enriched.model_dump(mode="json")
-
-
-def test_uncalled_standalone_paths_keep_latency_none():
-    """미호출은 `None` 이다 — 독립 경로에서도 `0` 으로 위장하지 않는다."""
+def test_uncalled_interpretation_keeps_latency_none():
+    """미호출은 `None` 이다 — `0` 으로 위장하지 않는다."""
     provider = _FakeProvider([])
     skipped = _service(provider).interpret(
         _quote_context(),
@@ -663,89 +514,63 @@ def test_uncalled_standalone_paths_keep_latency_none():
 
 
 # ---------------------------------------------------------------------------
-# Provider token usage — 독립 경로 생존과 값 계약 (#406)
+# Provider token usage — 값 계약 (#406)
 # ---------------------------------------------------------------------------
 
 
-def test_observed_token_fields_are_in_both_llm_models():
-    """🔴 한쪽에만 넣으면 **예외가 아니라 침묵이다** (#406 M9).
+#: `InterpretationResult` 의 필수 칸 — 토큰 칸만 바꿔 가며 검사한다.
+_RESULT_REQUIRED = {
+    "interpretation": {
+        "summary": "결정론 결과를 유지합니다.",
+        "risks": [],
+        "suggested_adjustment": None,
+    },
+    "llm_status": "DISABLED",
+    "llm_provider": None,
+    "llm_model": None,
+    "llm_attempts": 0,
+    "llm_fallback_used": False,
+}
 
-    위 `test_interpretation_result_and_response_fields_carry_the_same_llm_contract` 가
-    집합 동일성을 잠그지만, 그 검사는 *"둘이 같다"* 만 말한다. 새 필드가 **양쪽 모두에서
-    빠졌을 때**도 통과하므로 이름을 따로 못 박는다 — `llm_provider_elapsed_ms` 에
-    같은 줄을 둔 것과 같은 이유다.
+
+def test_observed_token_fields_are_in_the_llm_result():
+    """마스터 경로가 받는 해석 결과에 호출 시간 · 토큰 칸이 있다 (#402 · #406).
+
+    칸이 빠지면 예외가 아니라 침묵이다 — 값이 어디에도 남지 않는다. 그래서 이름을 못 박는다.
     """
-    from app.logistics.llm.schemas import InterpretationResult, LLMResponseFields
+    from app.logistics.llm.schemas import InterpretationResult
 
-    for model in (InterpretationResult, LLMResponseFields):
-        assert "llm_observed_input_tokens" in model.model_fields, model.__name__
-        assert "llm_observed_output_tokens" in model.model_fields, model.__name__
+    assert "llm_provider_elapsed_ms" in InterpretationResult.model_fields
+    assert "llm_observed_input_tokens" in InterpretationResult.model_fields
+    assert "llm_observed_output_tokens" in InterpretationResult.model_fields
 
 
 def test_observed_token_fields_reject_negative_counts():
     """토큰은 개수다 — 음수는 계약 위반이고 조용히 통과시키지 않는다."""
     from pydantic import ValidationError
 
-    from app.logistics.llm.schemas import LLMResponseFields
+    from app.logistics.llm.schemas import InterpretationResult
 
     for field in ("llm_observed_input_tokens", "llm_observed_output_tokens"):
         with pytest.raises(ValidationError):
-            LLMResponseFields(**{field: -1})
+            InterpretationResult(**{**_RESULT_REQUIRED, field: -1})
 
 
 @pytest.mark.parametrize("value", [None, 0, 137])
 def test_observed_token_fields_accept_none_zero_and_counts(value):
     """`None`(미관측) · `0`(Provider 가 0 이라 보고) · 양수가 모두 유효한 상태다."""
-    from app.logistics.llm.schemas import LLMResponseFields
+    from app.logistics.llm.schemas import InterpretationResult
 
-    response = LLMResponseFields(llm_observed_input_tokens=value, llm_observed_output_tokens=value)
-
-    assert response.llm_observed_input_tokens == value
-    assert response.llm_observed_output_tokens == value
-
-
-def test_observed_usage_survives_the_standalone_service_path():
-    """독립 경로 응답과 그 직렬화까지 값이 살아 도착한다 (`llm_provider_elapsed_ms` 규율)."""
-    response = _procurement_response(
-        runtime_status="READY",
-        soft_warnings=["INVENTORY_FRESHNESS_PRESSURE"],
-        preferred_adjustment=None,
+    result = InterpretationResult(
+        **_RESULT_REQUIRED, llm_observed_input_tokens=value, llm_observed_output_tokens=value
     )
 
-    enriched = enrich_logistics_response(
-        response,
-        _service(
-            _FakeProvider(
-                [
-                    ProviderResult(
-                        text=_success_output(),
-                        usage=ProviderUsage(input_tokens=137, output_tokens=24),
-                    )
-                ]
-            )
-        ),
-        measurements={
-            "freshness_risk_lot_count": 3,
-            "freshness_min_remaining_ratio": Decimal("0.25"),
-            "freshness_pressure_ratio": Decimal("0.30"),
-        },
-    )
-
-    assert enriched.llm_status == "SUCCESS"
-    assert enriched.llm_observed_input_tokens == 137
-    assert enriched.llm_observed_output_tokens == 24
-    # 저장(response_payload)·API 응답이 지나는 직렬화에도 실린다 — 저장 스키마는 그대로다
-    dumped = enriched.model_dump(mode="json")
-    assert dumped["llm_observed_input_tokens"] == 137
-    assert dumped["llm_observed_output_tokens"] == 24
-    # 🔴 Provider 원본 필드명은 응답 어디에도 오지 않는다
-    serialized = json.dumps(dumped, ensure_ascii=False, default=str)
-    for raw_name in ("promptTokenCount", "candidatesTokenCount", "prompt_eval_count", "eval_count"):
-        assert raw_name not in serialized, raw_name
+    assert result.llm_observed_input_tokens == value
+    assert result.llm_observed_output_tokens == value
 
 
-def test_uncalled_standalone_paths_keep_observed_usage_none():
-    """미호출은 `None` 이다 — 독립 경로에서도 `0` 으로 위장하지 않는다."""
+def test_uncalled_interpretation_keeps_observed_usage_none():
+    """미호출은 `None` 이다 — `0` 으로 위장하지 않는다."""
     provider = _FakeProvider([])
     skipped = _service(provider).interpret(
         _quote_context(),

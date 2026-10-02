@@ -61,20 +61,6 @@ def logistics_purchase_payload() -> dict[str, object]:
 
 
 @pytest.fixture
-def logistics_sales_payload() -> dict[str, object]:
-    return {
-        "cycle": "SALES",
-        "as_of": "2026-08-21",
-        "approved_purchase": {
-            "approval_id": "H1-20260821-001",
-            "total_qty_kg": 4500,
-            "expected_arrival_date": "2026-08-23",
-            "arrival_schedule": [{"date": "2026-08-23", "quantity_kg": 4500}],
-        },
-    }
-
-
-@pytest.fixture
 def complete_logistics_snapshot() -> InventoryLogisticsSnapshot:
     return InventoryLogisticsSnapshot(
         snapshot_id="T0-20260821-001",

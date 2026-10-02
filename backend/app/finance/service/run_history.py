@@ -7,44 +7,9 @@ Controller(`service/agent.py`)는 회신을 ERROR 로 바꾸고, 어댑터가 �
 
 from __future__ import annotations
 
-from datetime import date
-from typing import cast
-
 from app.contracts.envelope import AgentReply, AgentRequest, ExecutionMetadata
 from app.core import db as core_db
-from app.finance.repository.runs import insert_finance_agent_run, insert_finance_execution
-from app.finance.schemas.agent import FinalVerdict, FinanceCycle, RuntimeStatus
-from app.finance.schemas.runs import FinanceAgentRun
-
-
-def save_finance_agent_run(
-    *,
-    cycle: FinanceCycle,
-    as_of: date,
-    snapshot_id: str | None,
-    runtime_status: RuntimeStatus,
-    verdict: FinalVerdict | None,
-    request_payload: dict[str, object],
-    response_payload: dict[str, object],
-) -> FinanceAgentRun:
-    """완성된 Finance Agent Request와 Response를 실행이력으로 저장한다.
-
-    한 호출 = 연결 하나 · 트랜잭션 하나. 원장 트랜잭션과 섞지 않는다.
-    """
-    if response_payload.get("verdict") != verdict:
-        raise ValueError("Finance run verdict metadata must match response_payload.verdict")
-    with core_db.connection() as conn, core_db.transaction(conn):
-        row = insert_finance_agent_run(
-            conn,
-            cycle=cycle,
-            as_of=as_of,
-            snapshot_id=snapshot_id,
-            runtime_status=runtime_status,
-            verdict=verdict,
-            request_payload=request_payload,
-            response_payload=response_payload,
-        )
-    return cast(FinanceAgentRun, row)
+from app.finance.repository.runs import insert_finance_execution
 
 
 def save_finance_execution(

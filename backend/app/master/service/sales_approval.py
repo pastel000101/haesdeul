@@ -121,7 +121,7 @@ def confirm_approved_sale(
     :param confirm: 확정 함수. 안 주면 `app.sales.service.sale_ledger.confirm_sale` 이다.
     :param reserve: 확정분 예약 함수. 안 주면
         `app.logistics.service.outbound.reserve_confirmed_sale_available` 이다.
-        `reserve_confirmed_sale` 이 아니다 — 저쪽은 전량 아니면 멈추고, 여기서 멈추면
+        전량형 `reserve_stock` 이 아니다 — 저쪽은 전량 아니면 멈추고, 여기서 멈추면
         이미 선 확정이 예외로 되돌아간다.
     :param borrow: 연결을 빌려 주는 함수. 안 주면 `app.core.db.connection`(공통 풀)이다.
         판매 원장과 물류 예약이 같은 서비스 DB 에 있어 연결 하나로 한 번 commit 한다.
