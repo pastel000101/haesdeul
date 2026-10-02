@@ -296,6 +296,7 @@ _ROUTES_BEFORE_BL019 = [
     ("GET", "/api/console/sales/runs"),
     ("GET", "/api/console/sales/{sale_id}/lifecycle"),
     ("GET", "/api/console/runs"),
+    ("GET", "/api/console/shown-run"),
     ("POST", "/ml/qa"),
     ("GET", "/ml/qa"),
     ("GET", "/ml/console/{path:path}"),

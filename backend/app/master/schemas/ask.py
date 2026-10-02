@@ -41,8 +41,10 @@ class AskRequest(BaseModel):
     policy_version: str = Field(min_length=1)
     request_id: str | None = None
     budget: int = Field(default=12, ge=1, le=50)
-    # Report UI가 선택한 실행/기간. 기존 발화-only 호출과 호환되도록 전부 선택값이다.
+    #: 화면이 보는 실행 ID. 화면은 `GET /api/console/shown-run` 이 준 값을 싣는다. 비우면
+    #: HTTP 입구가 백엔드 기준값(`app/core/settings.py` 의 `SHOWN_SIM_RUN_ID`)으로 채운다.
     sim_run_id: str | None = Field(default=None, min_length=1)
+    # Report UI가 선택한 기간. 기존 발화-only 호출과 호환되도록 선택값이다.
     date_from: date | None = None
     date_to: date | None = None
 
@@ -69,6 +71,11 @@ class AskExecuteRequest(BaseModel):
     policy_version: str = Field(min_length=1)
     request_id: str | None = None
     budget: int = Field(default=12, ge=1, le=50)
+
+    #: 조회 · 쓰기 · 매입 실행이 쓸 실행 ID. `/ask` 와 같은 값을 싣는다. 비우면 HTTP 입구가
+    #: 백엔드 기준값으로 채운다. 승인 · 재요청의 결정 기록은 이 값이 아니라 대상 실행 행의
+    #: 실행 ID 를 읽는다.
+    sim_run_id: str | None = Field(default=None, min_length=1)
 
     #: 결정 대상 실행의 업무 키. `SELECT_SCENARIO` 에 필수다.
     #:

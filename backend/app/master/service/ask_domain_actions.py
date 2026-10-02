@@ -9,7 +9,6 @@ from contextlib import contextmanager
 from datetime import date
 
 from app.core import db as core_db
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.finance.readmodel.console_credit import get_console_credit
 from app.finance.readmodel.console_expenses import get_console_expenses
 from app.finance.readmodel.console_payables import get_console_payables
@@ -86,12 +85,12 @@ DOMAIN_WRITE_ACTIONS = frozenset(
 )
 
 
-def _partner_id(intent: Intent, *, as_of: date) -> str:
+def _partner_id(intent: Intent, *, as_of: date, sim_run_id: str) -> str:
     slots = slots_of(intent)
     ref = (slots.partner_id or slots.partner_ref or "").strip()
     if not ref:
         raise DomainClarification("거래처를 알려주세요.")
-    rows = get_console_partners(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, query=ref).rows
+    rows = get_console_partners(sim_run_id=sim_run_id, as_of=as_of, query=ref).rows
     exact = [
         row for row in rows if row.partner_id == ref or (row.partner_name or "").strip() == ref
     ]
@@ -106,11 +105,11 @@ def _partner_id(intent: Intent, *, as_of: date) -> str:
     return hits[0].partner_id
 
 
-def _financing_mode(intent: Intent, *, as_of: date) -> str:
+def _financing_mode(intent: Intent, *, as_of: date, sim_run_id: str) -> str:
     slots = slots_of(intent)
     if slots.financing_mode:
         return slots.financing_mode
-    dashboard = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+    dashboard = get_finance_dashboard(sim_run_id=sim_run_id, as_of=as_of)
     modes = list(dict.fromkeys(state.financing_mode for state in dashboard.states))
     if not modes:
         raise DomainClarification("해당 기준일의 재무 장부가 준비되지 않았습니다.")
@@ -121,13 +120,13 @@ def _financing_mode(intent: Intent, *, as_of: date) -> str:
     return modes[0]
 
 
-def _find_receivable(intent: Intent, *, as_of: date) -> str:
+def _find_receivable(intent: Intent, *, as_of: date, sim_run_id: str) -> str:
     slots = slots_of(intent)
     if slots.receivable_id:
         return slots.receivable_id
-    partner_id = _partner_id(intent, as_of=as_of)
+    partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
     rows = get_console_receivables(
-        sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, partner_id=partner_id
+        sim_run_id=sim_run_id, as_of=as_of, partner_id=partner_id
     ).rows
     open_rows = [row for row in rows if row.outstanding_amount_krw > 0]
     if not open_rows:
@@ -140,26 +139,26 @@ def _find_receivable(intent: Intent, *, as_of: date) -> str:
     return open_rows[0].receivable_id
 
 
-def domain_preview(intent: Intent, *, as_of: date) -> str:
+def domain_preview(intent: Intent, *, as_of: date, sim_run_id: str) -> str:
     action = intent.domain_action or ""
     slots = slots_of(intent)
 
     if action == "FINANCE_CASH_ADJUSTMENT_CREATE":
         direction = "입금" if slots.direction == "INFLOW" else "출금"
         amount = money(slots.amount, field="금액")
-        mode = _financing_mode(intent, as_of=as_of)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         return (
             f"{direction}을 기록합니다.\n- 금액: {won(amount)}\n- 장부: {mode}\n"
             f"- 기준일: {as_of.isoformat()}\n- 확인 자료: {slots.source_ref}\n진행할까요?"
         )
 
     if action == "FINANCE_CREDIT_LIMIT_UPSERT":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         amount = money(slots.credit_limit, field="새 여신한도", allow_zero=True)
         effective = user_date(
             slots.effective_from, as_of=as_of, field="적용 시작일", required=True
         )
-        credit = get_console_credit(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        credit = get_console_credit(sim_run_id=sim_run_id, as_of=as_of)
         current = next((row for row in credit.partners if row.partner_id == partner_id), None)
         return (
             f"{partner_id}의 여신한도를 변경합니다.\n"
@@ -169,8 +168,8 @@ def domain_preview(intent: Intent, *, as_of: date) -> str:
         )
 
     if action == "FINANCE_COLLECTION_CREATE":
-        receivable_id = _find_receivable(intent, as_of=as_of)
-        mode = _financing_mode(intent, as_of=as_of)
+        receivable_id = _find_receivable(intent, as_of=as_of, sim_run_id=sim_run_id)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         amount = "전액" if slots.collect_all else won(money(slots.amount, field="수금액"))
         return (
             f"수금을 기록합니다.\n- 받을 돈: {receivable_id}\n- 수금: {amount}\n"
@@ -191,7 +190,7 @@ def domain_preview(intent: Intent, *, as_of: date) -> str:
 
     if action == "FINANCE_EXPENSE_SETTLE":
         paid = user_date(slots.paid_date, as_of=as_of, field="실제 지급일", required=True)
-        mode = _financing_mode(intent, as_of=as_of)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         return (
             f"{slots.expense_id} 비용을 지급 처리합니다.\n"
             f"- 지급일: {paid}\n- 장부: {mode}\n진행할까요?"
@@ -201,7 +200,7 @@ def domain_preview(intent: Intent, *, as_of: date) -> str:
         return f"{slots.expense_id} 비용을 취소합니다. 현금은 바꾸지 않습니다.\n진행할까요?"
 
     if action == "SALES_PROPOSAL_CREATE":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         qty = money(slots.requested_quantity_kg, field="판매 요청 수량")
         return (
             f"판매 후보를 생성합니다.\n- 거래처: {partner_id}\n- 품목: {intent.item}\n"
@@ -216,7 +215,7 @@ def domain_preview(intent: Intent, *, as_of: date) -> str:
         )
 
     if action == "PARTNER_UPDATE":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         return (
             f"{partner_id} 거래처 기본정보를 수정합니다. 여신한도는 건드리지 않습니다.\n진행할까요?"
         )
@@ -224,14 +223,12 @@ def domain_preview(intent: Intent, *, as_of: date) -> str:
     return "이 작업을 실행할까요?"
 
 
-def _domain_read(
-    intent: Intent, *, as_of: date, sim_run_id: str = SHOWN_SIM_RUN_ID
-) -> DomainActionAnswer:
+def _domain_read(intent: Intent, *, as_of: date, sim_run_id: str) -> DomainActionAnswer:
     action = intent.domain_action or ""
     slots = slots_of(intent)
 
     if action == "FINANCE_SUMMARY_GET":
-        value = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        value = get_finance_dashboard(sim_run_id=sim_run_id, as_of=as_of)
         lines = ["재무 현황입니다."]
         for state in value.states:
             lines.append(
@@ -243,8 +240,8 @@ def _domain_read(
         )
 
     if action == "FINANCE_CREDIT_LIMIT_GET":
-        partner_id = _partner_id(intent, as_of=as_of)
-        value = get_console_credit(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
+        value = get_console_credit(sim_run_id=sim_run_id, as_of=as_of)
         row = next((item for item in value.partners if item.partner_id == partner_id), None)
         if row is None:
             text = f"{partner_id}의 여신 기록이 없습니다."
@@ -262,7 +259,7 @@ def _domain_read(
     if action == "FINANCE_EXPENSE_LIST":
         start, end = period_of(intent, as_of=as_of)
         value = get_console_expenses(
-            sim_run_id=SHOWN_SIM_RUN_ID,
+            sim_run_id=sim_run_id,
             as_of=as_of,
             from_date=start,
             to_date=end,
@@ -278,7 +275,7 @@ def _domain_read(
     if action == "FINANCE_CASHFLOW_GET":
         start, end = period_of(intent, as_of=as_of)
         value = get_finance_cashflow(
-            sim_run_id=SHOWN_SIM_RUN_ID,
+            sim_run_id=sim_run_id,
             as_of=end,
             days=max(1, min(400, (end - start).days + 1)),
         )
@@ -290,7 +287,7 @@ def _domain_read(
         )
 
     if action == "FINANCE_RECEIVABLES_GET":
-        value = get_console_receivables(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        value = get_console_receivables(sim_run_id=sim_run_id, as_of=as_of)
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -299,7 +296,7 @@ def _domain_read(
         )
 
     if action == "FINANCE_PAYABLES_GET":
-        value = get_console_payables(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        value = get_console_payables(sim_run_id=sim_run_id, as_of=as_of)
         return DomainActionAnswer(
             domain="finance",
             action=action,
@@ -324,7 +321,7 @@ def _domain_read(
         )
 
     if action == "SALES_PROPOSALS_TODAY":
-        value = get_console_sales_proposals(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        value = get_console_sales_proposals(sim_run_id=sim_run_id, as_of=as_of)
         return DomainActionAnswer(
             domain="sales",
             action=action,
@@ -337,19 +334,19 @@ def _domain_read(
         )
 
     if action == "SALES_CONFIRMED_TODAY":
-        value = get_console_sales_proposals(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        value = get_console_sales_proposals(sim_run_id=sim_run_id, as_of=as_of)
         rows = [dump(row) for row in value.rows if row.sale_status in {"CONFIRMED", "DELIVERED"}]
         return DomainActionAnswer(
             domain="sales",
             action=action,
             text=f"오늘 실제 확정된 판매는 {len(rows)}건입니다.",
-            data={"sim_run_id": SHOWN_SIM_RUN_ID, "as_of": as_of.isoformat(), "rows": rows},
+            data={"sim_run_id": sim_run_id, "as_of": as_of.isoformat(), "rows": rows},
         )
 
     if action == "SALES_REPORT_GENERATE":
         start, end = period_of(intent, as_of=as_of)
         report = render_sales_chat_report(
-            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, start_date=start, end_date=end
+            sim_run_id=sim_run_id, as_of=as_of, start_date=start, end_date=end
         )
         return DomainActionAnswer(
             domain="sales",
@@ -362,7 +359,7 @@ def _domain_read(
     if action == "LOGISTICS_REPORT_GENERATE":
         start, end = period_of(intent, as_of=as_of)
         report = render_logistics_chat_report(
-            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, start_date=start, end_date=end
+            sim_run_id=sim_run_id, as_of=as_of, start_date=start, end_date=end
         )
         return DomainActionAnswer(
             domain="logistics",
@@ -374,7 +371,7 @@ def _domain_read(
 
     if action == "PARTNER_LIST":
         value = get_console_partners(
-            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, query=slots.partner_ref
+            sim_run_id=sim_run_id, as_of=as_of, query=slots.partner_ref
         )
         return DomainActionAnswer(
             domain="partner",
@@ -384,9 +381,9 @@ def _domain_read(
         )
 
     if action == "PARTNER_DETAIL_GET":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         value = get_console_partner_detail(
-            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, partner_id=partner_id
+            sim_run_id=sim_run_id, as_of=as_of, partner_id=partner_id
         )
         if value is None:
             raise LookupError("거래처를 찾지 못했습니다.")
@@ -429,7 +426,7 @@ def _domain_write(
     as_of: date,
     policy_version: str,
     request_id: str,
-    sim_run_id: str | None = None,
+    sim_run_id: str,
     actor: str,
     utterance: str | None,
 ) -> DomainActionAnswer:
@@ -437,7 +434,7 @@ def _domain_write(
     slots = slots_of(intent)
 
     if action == "FINANCE_CASH_ADJUSTMENT_CREATE":
-        mode = _financing_mode(intent, as_of=as_of)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         direction = slots.direction
         if direction is None:
             raise DomainClarification("입금인지 출금인지 알려주세요.")
@@ -448,7 +445,7 @@ def _domain_write(
             result = apply_cash_adjustment(
                 conn,
                 CashAdjustmentChange(
-                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    sim_run_id=sim_run_id,
                     financing_mode=mode,
                     adjustment_date=as_of,
                     direction=direction,
@@ -467,7 +464,7 @@ def _domain_write(
         )
 
     if action == "FINANCE_CREDIT_LIMIT_UPSERT":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         with core_db.connection() as conn, _finance_write():
             result = change_credit_limit(
                 conn,
@@ -496,13 +493,13 @@ def _domain_write(
         )
 
     if action == "FINANCE_COLLECTION_CREATE":
-        receivable_id = _find_receivable(intent, as_of=as_of)
-        mode = _financing_mode(intent, as_of=as_of)
+        receivable_id = _find_receivable(intent, as_of=as_of, sim_run_id=sim_run_id)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         with core_db.connection() as conn, _finance_write():
             result = record_collection(
                 conn,
                 ReceivableCollectionChange(
-                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    sim_run_id=sim_run_id,
                     financing_mode=mode,
                     collection_date=as_of,
                     receivable_id=receivable_id,
@@ -528,7 +525,7 @@ def _domain_write(
             result = accrue_operating_expense(
                 conn,
                 ExpenseCreate(
-                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    sim_run_id=sim_run_id,
                     expense_date=user_date(
                         slots.expense_date, as_of=as_of, field="비용 발생일", required=True
                     ),
@@ -551,13 +548,13 @@ def _domain_write(
         )
 
     if action == "FINANCE_EXPENSE_SETTLE":
-        mode = _financing_mode(intent, as_of=as_of)
+        mode = _financing_mode(intent, as_of=as_of, sim_run_id=sim_run_id)
         with core_db.connection() as conn, _finance_write():
             result = pay_accrued_expense(
                 conn,
                 slots.expense_id or "",
                 ExpenseSettle(
-                    sim_run_id=SHOWN_SIM_RUN_ID,
+                    sim_run_id=sim_run_id,
                     financing_mode=mode,
                     paid_date=user_date(
                         slots.paid_date, as_of=as_of, field="실제 지급일", required=True
@@ -577,7 +574,7 @@ def _domain_write(
     if action == "FINANCE_EXPENSE_CANCEL":
         with core_db.connection() as conn, _finance_write():
             result = cancel_accrued_expense(
-                conn, slots.expense_id or "", ExpenseCancel(sim_run_id=SHOWN_SIM_RUN_ID)
+                conn, slots.expense_id or "", ExpenseCancel(sim_run_id=sim_run_id)
             )
         return DomainActionAnswer(
             domain="finance",
@@ -587,12 +584,12 @@ def _domain_write(
         )
 
     if action == "SALES_PROPOSAL_CREATE":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         payload: dict[str, object] = {
             "as_of": as_of,
             "policy_version": policy_version,
             "request_id": request_id,
-            "sim_run_id": SHOWN_SIM_RUN_ID,
+            "sim_run_id": sim_run_id,
             "business_mode": slots.business_mode,
             "partner_id": partner_id,
             "item": intent.item,
@@ -659,7 +656,7 @@ def _domain_write(
         )
 
     if action == "PARTNER_UPDATE":
-        partner_id = _partner_id(intent, as_of=as_of)
+        partner_id = _partner_id(intent, as_of=as_of, sim_run_id=sim_run_id)
         body: dict[str, object] = {}
         for key in (
             "partner_name",
@@ -701,13 +698,13 @@ def run_domain_action(
     as_of: date,
     policy_version: str,
     request_id: str,
-    sim_run_id: str | None = None,
+    sim_run_id: str,
     actor: str | None = None,
     utterance: str | None = None,
 ):
     action = intent.domain_action
     if action in DOMAIN_READ_ACTIONS:
-        return _domain_read(intent, as_of=as_of, sim_run_id=sim_run_id or SHOWN_SIM_RUN_ID)
+        return _domain_read(intent, as_of=as_of, sim_run_id=sim_run_id)
     if action in DOMAIN_WRITE_ACTIONS:
         if not actor:
             raise DecisionRejected(
@@ -718,6 +715,7 @@ def run_domain_action(
             as_of=as_of,
             policy_version=policy_version,
             request_id=request_id,
+            sim_run_id=sim_run_id,
             actor=actor,
             utterance=utterance,
         )

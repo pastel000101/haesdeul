@@ -132,7 +132,9 @@ def clean_wiring(monkeypatch: pytest.MonkeyPatch):
 
 def _ask(utterance: str, response: str, narrator=None):
     return ask(
-        AskRequest(utterance=utterance, as_of=AS_OF, policy_version="v1.3"),
+        AskRequest(
+            utterance=utterance, as_of=AS_OF, policy_version="v1.3", sim_run_id="SIM-TEST-RUN"
+        ),
         service=IntentService(SETTINGS, _FakeProvider(response)),
         narrator=narrator,
     )

@@ -15,7 +15,7 @@ import { DomainReadResult } from "@/components/console/DomainReadResult";
 import { SalesConversation } from "@/components/console/SalesConversation";
 import { Markdownish } from "@/components/console/ml/Markdownish";
 import { ApiError, ask, execute } from "@/lib/api";
-import { useSimRun } from "@/components/console/RunPicker";
+import { useShownRun } from "@/components/console/ShownRun";
 //  시연용 기준일(`#431`). 시연이 끝나면 이 줄을 지우고 `AS_OF` 로 되돌린다.
 import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
 import { formatKoreanDate, userErrorText } from "@/lib/procurementLabels";
@@ -265,7 +265,10 @@ export function MasterConsole({ session }: { session: Session }) {
   //  시연용 기준일(`#431`). `ask` · `execute` 가 실제로 싣는 값과 같은 곳을 읽는다
   //  — 머리에 적힌 날짜와 서버에 보내는 날짜가 갈리면 안 된다.
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
-  const simRun = useSimRun();
+  //  화면이 보는 실행 ID(백엔드가 준 값). 받기 전 · 실패했으면 `null` 이고, 그동안은 보내기 ·
+  //  실행을 막는다 — 다른 실행으로 대신 채워 조회하거나 기록하지 않는다.
+  const shownRun = useShownRun();
+  const simRun = shownRun.status === "ready" ? shownRun.simRunId : null;
   //  세션 판정(하이드레이션 · 로그인 리다이렉트)은 셸이 이미 했다
   //  (`app/console/layout.tsx`). 여기까지 왔으면 사람이 있다.
   const [tab, setTab] = useState<"master" | "runs">("master");
@@ -382,8 +385,9 @@ export function MasterConsole({ session }: { session: Session }) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  //  보내기가 막혀 있나. 요청이 도는 동안과 분류 실패 뒤 몇 초. Enter 도 이것을 본다.
-  const locked = busy || cooldown > 0;
+  //  보내기가 막혀 있나. 요청이 도는 동안, 분류 실패 뒤 몇 초, 실행 ID 를 받기 전. Enter 도
+  //  이것을 본다.
+  const locked = busy || cooldown > 0 || simRun === null;
 
   const can = CAN[session.role];
 
@@ -420,14 +424,15 @@ export function MasterConsole({ session }: { session: Session }) {
   /** ① 발화문 분류. 확인이 필요하면 아무것도 실행하지 않는다. */
   async function send(text: string, context?: { dateFrom?: string; dateTo?: string }) {
     const utterance = text.trim();
-    if (!utterance || locked) return;
+    const runId = simRun;
+    if (!utterance || locked || runId === null) return;
     setReportPeriod("idle");
     setReportDates({ from: "", to: "" });
     setDraft("");
     push({ kind: "me", text: utterance });
     setBusy(true);
     try {
-      const res: AskResponse = await ask(utterance, { simRunId: simRun || undefined, dateFrom: context?.dateFrom, dateTo: context?.dateTo });
+      const res: AskResponse = await ask(utterance, { simRunId: runId, dateFrom: context?.dateFrom, dateTo: context?.dateTo });
       //  분류가 못 돌았으면 연달아 누르지 못하게 몇 초 더 잠근다.
       if (classifyFailed(res)) setCooldown(FALLBACK_COOLDOWN_SEC);
       const slots = res.intent.slots;
@@ -493,11 +498,10 @@ export function MasterConsole({ session }: { session: Session }) {
    * 못 찾거나 여럿이면 `null` 이고, 부르는 쪽은 실행하지 않는다. 하나로 좁혀지지
    * 않은 채 보내면 서버가 고르게 되는데, 그건 사람이 확인한 것과 다를 수 있다.
    *
-   * 기준일은 화면 머리에 적힌 그 날이고(`asOf`), 실행 축은 `GET /api/purchase` 가
-   * 다른 네 탭과 같은 자리에서 정한다(`app/core/settings.py`). 화면이 축을
-   * 새로 지어내지 않는다.
+   * 기준일은 화면 머리에 적힌 그 날이고(`asOf`), 실행 ID 는 탭 · 채팅이 함께 쓰는 백엔드
+   * 기준값이다(`runId`). 화면이 실행을 새로 지어내지 않는다.
    */
-  async function standingRun(intent: Intent) {
+  async function standingRun(intent: Intent, runId: string) {
     const label = (intent.scenario_label ?? "").trim();
     if (!label) {
       push({
@@ -507,7 +511,7 @@ export function MasterConsole({ session }: { session: Session }) {
       return null;
     }
 
-    const plans = (await purchase(asOf)).plans;
+    const plans = (await purchase(asOf, runId)).plans;
     const hits = plans.filter(
       (plan) =>
         plan.request_id !== null &&
@@ -544,7 +548,8 @@ export function MasterConsole({ session }: { session: Session }) {
     turn: Extract<Turn, { kind: "confirm" }>,
     index: number,
   ) {
-    if (busy || !session || turn.done) return;
+    const runId = simRun;
+    if (busy || !session || turn.done || runId === null) return;
     const rerun = turn.intent.action === "RERUN_WITH_CONDITION";
     //   말로 한 승인. 모달로 누른 승인(`approve`)과 같은 셋을 실어야 한다 —
     //   빠뜨리면 서버가 422 로 거절하고, 눌러서 한 승인과 말로 한 승인이 갈린다.
@@ -573,7 +578,7 @@ export function MasterConsole({ session }: { session: Session }) {
       // 찾는 것은 화면이다. 서버(`/ask/execute`)는 대상이 없으면 422 를 내고
       // 추측하지 않는다 — 그 규칙은 그대로 산다.
       if (select && !target) {
-        const found = await standingRun(turn.intent);
+        const found = await standingRun(turn.intent, runId);
         //   못 찾았으면 위에서 사람 말로 적었다. 실행하지 않는다.
         if (!found) return;
         target = { requestId: found.requestId, historyRunId: found.historyRunId };
@@ -598,6 +603,7 @@ export function MasterConsole({ session }: { session: Session }) {
       push({ kind: "me", text: "네" });
       const res = await execute({
         intent: turn.intent,
+        simRunId: runId,
         requestId: turn.requestId,
         // 재요청·안 선택에만 싣는다 — 조회·매입 실행에는 대상 실행이 없다
         targetRequestId: needsTarget ? (target?.requestId ?? undefined) : undefined,
@@ -651,7 +657,8 @@ export function MasterConsole({ session }: { session: Session }) {
 
   /** ③ 안 선택 — 발화문에 없는 둘(대상 실행·승인자)을 화면이 싣는다. */
   async function approve() {
-    if (!picked || !session) return;
+    const runId = simRun;
+    if (!picked || !session || runId === null) return;
     setModalBusy(true);
     setModalError(null);
     try {
@@ -664,6 +671,7 @@ export function MasterConsole({ session }: { session: Session }) {
           condition: null,
           confidence: "HIGH",
         },
+        simRunId: runId,
         targetRequestId: picked.requestId,
         targetHistoryRunId: picked.historyRunId ?? undefined,
         decidedBy: session.name,
@@ -756,8 +764,14 @@ export function MasterConsole({ session }: { session: Session }) {
             {/* 하루를 넘기는 자리. 판 머리에 둔다 — 「하루는 이 순서로 돕니다」
                 안내와 같은 자리에서 보이고, 대화가 쌓여도 안 밀린다 (그 안내는
                 대화가 비었을 때만 있는 `Empty` 안에 있다).
-                허용 목록에 없는 축이면 `DayAdvance` 가 스스로 아무것도 안 그린다. */}
-            <DayAdvance asOf={asOf} simRunId={simRun} />
+                실행 ID 는 탭과 같은 백엔드 기준값이다. 받기 전에는 그리지 않고, 허용
+                목록에 없는 실행이면 `DayAdvance` 가 스스로 아무것도 안 그린다. */}
+            {simRun !== null && <DayAdvance asOf={asOf} simRunId={simRun} />}
+            {shownRun.status === "error" && (
+              <p className="m-0 px-4 pt-3 text-[15px]" style={{ color: "var(--color-t-bad)" }}>
+                {shownRun.message} 실행 ID 를 받기 전에는 보내지 않습니다.
+              </p>
+            )}
             {/* 안내 버튼이 구르는 판 위에 떠야 해서 `relative` 한 겹을 덧댄다.
                 높이 규칙(`min-h-0 flex-1`)은 덧댄 겹과 안쪽 판이 그대로 이어받는다. */}
             <div className="relative flex min-h-0 flex-1 flex-col">

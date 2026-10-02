@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.finance.presenter import STATES, build
 from app.api.finance.schema import FinanceTab
+from app.core.settings import screen_sim_run_id
 
 router = APIRouter(prefix="/finance", tags=["api:finance"])
 
@@ -17,6 +18,16 @@ router = APIRouter(prefix="/finance", tags=["api:finance"])
 def finance_tab(
     as_of: Annotated[date, Query(description="기준일")],
     state: Annotated[str, Query(description="저장된 재무 기준 상태")] = "base",
+    sim_run_id: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            description=(
+                "화면이 보는 실행 ID(sim_runs.sim_run_id). 화면은 GET /api/console/shown-run 이"
+                " 준 값을 싣습니다. 안 주면 같은 백엔드 기준값을 씁니다"
+            ),
+        ),
+    ] = None,
 ) -> FinanceTab:
     if state not in STATES:
         raise HTTPException(
@@ -24,7 +35,7 @@ def finance_tab(
             detail=f"없는 재무 보기입니다: {state}. 가능: {', '.join(STATES)}",
         )
     try:
-        return build(as_of, state)
+        return build(as_of, state, sim_run_id=screen_sim_run_id(sim_run_id))
     except LookupError as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

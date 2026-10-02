@@ -28,6 +28,7 @@ import {
   useConsoleData,
 } from "@/components/console/ConsoleData";
 import { DomainHeader } from "@/components/console/DomainShell";
+import { ShownRunGate } from "@/components/console/ShownRun";
 import {
   AGING_LABELS,
   financeConsole,
@@ -41,7 +42,6 @@ import {
   type ReceivablesResponse,
 } from "@/lib/console_api";
 import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
-import { FINANCE_SALES_SIM_RUN_ID } from "@/lib/run_context";
 
 import { AgingBars } from "./AgingBars";
 import { CreditPanel } from "./CreditPanel";
@@ -74,13 +74,14 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function FinancePage() {
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
-  const simRun = FINANCE_SALES_SIM_RUN_ID;
   const [tab, setTab] = useState<Tab>("overview");
   return (
     <div className="flex w-full flex-col gap-4 sm:gap-5">
       <DomainHeader title="재무" tabs={TABS} active={tab} onChange={setTab} />
       <DataBasis asOf={asOf} note={DATA_SOURCE_NOTE} />
-      <Body simRun={simRun} asOf={asOf} tab={tab} onTab={setTab} />
+      <ShownRunGate what="재무">
+        {(simRun) => <Body simRun={simRun} asOf={asOf} tab={tab} onTab={setTab} />}
+      </ShownRunGate>
     </div>
   );
 }

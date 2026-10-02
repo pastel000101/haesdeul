@@ -26,7 +26,6 @@ from app.api.logistics import presenter as logistics_presenter
 from app.api.primitives import Badge, Column, Note, Stat, Table
 from app.api.purchase import presenter as purchase_presenter
 from app.api.sales import presenter as sales_presenter
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.master.domain import plan_state
 from app.master.readmodel.purchase_record import RecordedTotals, recorded_totals_by_plan
 
@@ -62,7 +61,7 @@ def _state(plan: Any, recorded: RecordedTotals | None) -> str:
     return plan_state.state_of(approved=plan.approved, recorded=recorded is not None)
 
 
-def _records(as_of: date) -> dict[tuple[str, str], RecordedTotals]:
+def _records(as_of: date, sim_run_id: str) -> dict[tuple[str, str], RecordedTotals]:
     """그날 · 보고 있는 실행의 실매입 기록 합계.
 
     여기서 숫자를 만들지 않는다. 표를 읽고 합계를 엮는 자리는 마스터 한 곳이고
@@ -74,7 +73,7 @@ def _records(as_of: date) -> dict[tuple[str, str], RecordedTotals]:
     것과 같은 태도 — 기록 하나 때문에 대시보드가 통째로 실패하면 안 된다.
     """
     try:
-        return recorded_totals_by_plan(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+        return recorded_totals_by_plan(sim_run_id=sim_run_id, as_of=as_of)
     except Exception as error:  # noqa: BLE001  DB 미연결 · 표 없음 둘 다
         log.info("실매입 기록을 못 읽어 안의 값을 그대로 보입니다: %s", error)
         return {}
@@ -123,7 +122,7 @@ def _현재고(lg: Any) -> Stat:
                 tone="warn", raw=None)
 
 
-def build(as_of: date) -> DashboardTab:
+def build(as_of: date, *, sim_run_id: str) -> DashboardTab:
     axis = build_axis(as_of)
     n = len(axis.days)
     at = axis.as_of_index
@@ -152,7 +151,7 @@ def build(as_of: date) -> DashboardTab:
 
         f_fc = 맡긴다(forecast_presenter.build, as_of, "배추")
         #  매입은 축을 안 주면 모든 실행을 섞는다. 다른 네 탭과 같은 실행을 넘긴다
-        #    (`app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 한 자리).
+        #    (입구가 정해 넘긴 `sim_run_id`).
         #
         #  `window_days=0` — 도착일을 안 읽는다 (`#740` 의 인자).
         #     이 화면이 매입에서 읽는 것은 `pu.plans` · `pu.source` 둘뿐이다. 도착일
@@ -163,17 +162,17 @@ def build(as_of: date) -> DashboardTab:
         #     매입 탭 쪽은 그 사실을 「확정 입고 예정 —」 으로 말하는데, 이 화면은 그
         #     칸을 안 읽으므로 표시가 달라지지 않는다 —
         #     `tests/api/test_dashboard_purchase_window.py` 가 그 자리를 지킨다.
-        f_pu = 맡긴다(purchase_presenter.build, as_of, sim_run_id=SHOWN_SIM_RUN_ID, window_days=0)
-        f_fi = 맡긴다(finance_presenter.build, as_of, "base")
-        f_lg = 맡긴다(logistics_presenter.build, as_of, "stock")
-        f_sl = 맡긴다(sales_presenter.build, as_of)
+        f_pu = 맡긴다(purchase_presenter.build, as_of, sim_run_id=sim_run_id, window_days=0)
+        f_fi = 맡긴다(finance_presenter.build, as_of, "base", sim_run_id=sim_run_id)
+        f_lg = 맡긴다(logistics_presenter.build, as_of, "stock", sim_run_id=sim_run_id)
+        f_sl = 맡긴다(sales_presenter.build, as_of, sim_run_id=sim_run_id)
         #  두 그래프는 주인 부서(물류·재무)가 만듭니다. 여기서 만들면 같은 값을 두
         #    군데서 계산하게 되고, 실제로 갈라진 적이 있습니다 — 요약은 재고 4,550kg 인데
         #    그래프 끝은 14,600kg 이었습니다.
-        f_cash = 맡긴다(finance_presenter.dashboard_cash, axis)
-        f_stock = 맡긴다(logistics_presenter.dashboard_stock, n, at, as_of)
+        f_cash = 맡긴다(finance_presenter.dashboard_cash, axis, sim_run_id=sim_run_id)
+        f_stock = 맡긴다(logistics_presenter.dashboard_stock, n, at, as_of, sim_run_id=sim_run_id)
         #  매입안과 같은 실행 · 같은 날의 실매입 기록. 열쇠는 `(품목, 안 이름)`.
-        f_records = 맡긴다(_records, as_of)
+        f_records = 맡긴다(_records, as_of, sim_run_id)
 
         fc = f_fc.result()
         pu = f_pu.result()

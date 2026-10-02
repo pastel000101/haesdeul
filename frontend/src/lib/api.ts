@@ -138,10 +138,14 @@ async function send<T>(
 export const AS_OF = DEFAULT_AS_OF;
 export const POLICY_VERSION = "v1.3";
 
-/** ① 발화문을 분류한다. 확인이 필요하면 아무것도 실행하지 않는다. */
+/**
+ * ① 발화문을 분류한다. 확인이 필요하면 아무것도 실행하지 않는다.
+ *
+ * `simRunId` 는 화면이 보는 실행 ID 다(`lib/run_context.ts`). 바로 도는 조회가 이 실행을 읽는다.
+ */
 export function ask(
   utterance: string,
-  context?: { simRunId?: string; dateFrom?: string; dateTo?: string },
+  context: { simRunId: string; dateFrom?: string; dateTo?: string },
 ): Promise<AskResponse> {
   return call<AskResponse>("/master/ask", {
     method: "POST",
@@ -149,9 +153,9 @@ export function ask(
       utterance,
       as_of: asOfSnapshot(),
       policy_version: POLICY_VERSION,
-      sim_run_id: context?.simRunId,
-      date_from: context?.dateFrom,
-      date_to: context?.dateTo,
+      sim_run_id: context.simRunId,
+      date_from: context.dateFrom,
+      date_to: context.dateTo,
     }),
   });
 }
@@ -164,6 +168,8 @@ export function ask(
  */
 export function execute(args: {
   intent: Intent;
+  /** 화면이 보는 실행 ID. 조회 · 쓰기 · 매입 실행이 이 실행에 선다(`ask` 와 같은 값). */
+  simRunId: string;
   requestId?: string;
   targetRequestId?: string;
   /** 화면이 보고 있던 실행. 없으면 서버가 최신을 고르고 경합이 남는다. */
@@ -182,6 +188,7 @@ export function execute(args: {
         intent: args.intent,
         as_of: asOfSnapshot(),
         policy_version: POLICY_VERSION,
+        sim_run_id: args.simRunId,
         request_id: args.requestId ?? null,
         // 발화문에 없어 화면이 실어야 하는 셋 (SELECT · RERUN 필수)
         target_request_id: args.targetRequestId ?? null,

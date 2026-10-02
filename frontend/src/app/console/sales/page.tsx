@@ -28,6 +28,7 @@ import {
   useConsoleData,
 } from "@/components/console/ConsoleData";
 import { DomainHeader } from "@/components/console/DomainShell";
+import { ShownRunGate } from "@/components/console/ShownRun";
 import { PartnerProfileForm } from "@/components/console/PartnerProfileForm";
 import { SalesCandidatePanel } from "@/components/console/SalesCandidatePanel";
 import {
@@ -44,7 +45,6 @@ import {
   STAGE_LABELS,
 } from "@/lib/console_api";
 import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
-import { FINANCE_SALES_SIM_RUN_ID } from "@/lib/run_context";
 
 import { AgingBars } from "../finance/AgingBars";
 import { DataBasis, TechDetails } from "../finance/TechDetails";
@@ -86,14 +86,15 @@ const TABS: { key: Tab; label: string }[] = [
 
 export default function SalesPage() {
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
-  const simRun = FINANCE_SALES_SIM_RUN_ID;
   const [tab, setTab] = useState<Tab>("overview");
   const [salesRefresh, setSalesRefresh] = useState(0);
   return (
     <div className="flex w-full flex-col gap-4 sm:gap-5">
       <DomainHeader title="판매" tabs={TABS} active={tab} onChange={setTab} />
       <DataBasis asOf={asOf} note={DATA_SOURCE_NOTE} />
-      <Body simRun={simRun} asOf={asOf} tab={tab} salesRefresh={salesRefresh} onSalesConfirmed={() => setSalesRefresh((value) => value + 1)} />
+      <ShownRunGate what="판매">
+        {(simRun) => <Body simRun={simRun} asOf={asOf} tab={tab} salesRefresh={salesRefresh} onSalesConfirmed={() => setSalesRefresh((value) => value + 1)} />}
+      </ShownRunGate>
     </div>
   );
 }

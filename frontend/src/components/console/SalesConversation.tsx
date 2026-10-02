@@ -23,7 +23,7 @@
 import { useRef, useState, useSyncExternalStore } from "react";
 
 import { EmptyRows, Failed, Skeleton, useConsoleData } from "@/components/console/ConsoleData";
-import { useSimRun } from "@/components/console/RunPicker";
+import { useShownRun } from "@/components/console/ShownRun";
 import { sessionSnapshot, serverSnapshot, subscribeSession } from "@/lib/session";
 
 import {
@@ -67,7 +67,10 @@ type Outcome =
   | { kind: "error"; row: SalesProposal; message: string };
 
 export function SalesConversation({ asOf, canApprove }: { asOf: string; canApprove: boolean }) {
-  const simRun = useSimRun();
+  //  판매 진행은 탭 · 채팅과 같은 백엔드 기준 실행을 읽는다. 받기 전 · 실패했으면 빈 값이고
+  //  조회하지 않는다.
+  const shownRun = useShownRun();
+  const simRun = shownRun.status === "ready" ? shownRun.simRunId : "";
   const session = useSyncExternalStore(subscribeSession, sessionSnapshot, serverSnapshot);
   const [stage, setStage] = useState<"ask" | "declined" | "cards">("ask");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -84,13 +87,10 @@ export function SalesConversation({ asOf, canApprove }: { asOf: string; canAppro
     Boolean(simRun),
   );
 
-  if (!simRun) {
-    return (
-      <p className="m-0 text-[18px] text-muted">
-        어느 시뮬레이션을 볼지 아직 고르지 않았습니다. 화면 위의 실행 선택에서 먼저 골라 주세요.
-      </p>
-    );
+  if (shownRun.status === "error") {
+    return <Failed what="판매 진행 상황" message={shownRun.message} />;
   }
+  if (!simRun) return <Skeleton what="판매 진행 상황" />;
   //  다시 읽는 동안에도 결과 문장은 남긴다 — 사용자가 방금 무엇이 됐는지 봐야 한다.
   if (state.loading && !outcome) return <Skeleton what="판매 진행 상황" />;
   if (state.error) return <Failed what="판매 진행 상황" message="판매안을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." />;

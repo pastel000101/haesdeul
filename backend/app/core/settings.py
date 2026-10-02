@@ -314,21 +314,21 @@ def ml_source_database_settings() -> DatabaseSettings:
     )
 
 
-# ── 화면이 읽는 실행과 기준일 — 발표용 임시 설정이다 ─────────────────────────────
+# ── 화면이 읽는 실행과 기준일 ─────────────────────────────────────────────────
 #
-# 화면 API 와 마스터(`app/master/service/ask.py`)가 함께 읽는 값이라, 마스터가 화면 모듈을
-# import 하지 않도록 공용 설정 자리에 둔다. 발표용 고정을 없앨지(주소 파라미터 방식)는
-# 아직 정하지 않았다.
+# `SHOWN_SIM_RUN_ID` 는 화면이 조회하고 업무를 실행할 때 쓰는 실행 ID 의 기준값이다. 화면
+# 탭 · 채팅 · 판매 진행 패널 · 하루 시뮬레이션이 `GET /api/console/shown-run` 으로 이 값을
+# 받아 요청에 싣는다. 요청이 실행 ID 를 비워 보내면 HTTP 입구가 `screen_sim_run_id` 로
+# 이 값을 채운다. service · readmodel · repository 는 이 값을 직접 읽지 않고 넘겨받은 값만
+# 쓴다. CLI 인자, 외부 요청 body, 승인 대상 실행 행의 실행 ID 는 이 값으로
+# 바꾸지 않는다.
 #
-# `app/api/dashboard/AGENTS.md` 의 「아직 안 정한 것 — `sim_run_id`」 에서 ㉰ (설정값으로
-# 하나 못 박는다) 를 골랐다. 화면 API 가 읽는 실행은 아래 두 줄 한 자리에서만 정한다.
-# 보여 줄 실행을 바꿀 때는 이 두 줄만 바꾼다.
-#
-# 프론트 기준일 `frontend/src/lib/demo_as_of.ts` 의 코드 기본값은 `SHOWN_AS_OF` 와 같은
-# 값이어야 한다 (`tests/api/test_shown_run.py` 가 잡는다).
+# `SHOWN_AS_OF` 는 화면의 기본 기준일이다. 앱 실행 경로는 기준일을 요청에서 받으므로 이
+# 값을 읽지 않는다. 프론트 `frontend/src/lib/demo_as_of.ts` 의 코드 기본값과 같은 값이어야
+# 한다 (`tests/api/test_shown_run.py` 가 잡는다).
 #
 # 화면에서 번인 상수(`app/master/domain/sim_run.py` 의 `BURN_IN_SIM_RUN_ID`)를 쓰지 않는다.
-# 번인은 2025-12 한 달치라 발표 숫자와 다른 장부를 보여 준다.
+# 번인은 2025-12 한 달치라 화면 숫자와 다른 장부를 보여 준다.
 #
 # 환경변수로 덮어쓰지 않는다. 이 파일의 다른 설정과 달리 `os.getenv` 로 읽지 않는
 # 상수다. 덮어쓸 길을 두면 값의 주인이 둘이 되어 화면과 검사가 서로 다른 실행을 보게
@@ -336,3 +336,13 @@ def ml_source_database_settings() -> DatabaseSettings:
 
 SHOWN_SIM_RUN_ID = "SIM-MENTOR-0918"
 SHOWN_AS_OF = date(2026, 9, 17)
+
+
+def shown_sim_run_id() -> str:
+    """화면이 보는 실행 ID 의 기준값. 부를 때마다 위 상수를 읽는다 — 사본을 두지 않는다."""
+    return SHOWN_SIM_RUN_ID
+
+
+def screen_sim_run_id(given: str | None) -> str:
+    """HTTP 입구가 쓸 실행 ID. 요청이 준 값이 있으면 그 값, 없으면 기준값."""
+    return shown_sim_run_id() if given is None else given
