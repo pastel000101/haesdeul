@@ -209,7 +209,7 @@ def test_판매_화면은_요청_as_of를_service에_그대로_넘긴다(monkeyp
 
     monkeypatch.setattr(sales_presenter, "get_sales_dashboard", spy)
 
-    sales_presenter.build(date(2026, 1, 6))
+    sales_presenter.build(date(2026, 1, 6), sim_run_id=SHOWN_SIM_RUN_ID)
 
     assert seen["as_of"] == date(2026, 1, 6)
 
@@ -303,7 +303,7 @@ def test_재무_화면은_요청_as_of를_service에_그대로_넘긴다(monkeyp
     monkeypatch.setattr(finance_presenter, "get_finance_dashboard", dashboard_spy)
     monkeypatch.setattr(finance_presenter, "get_finance_cashflow", cashflow_spy)
 
-    finance_presenter.build(date(2026, 1, 6), "base")
+    finance_presenter.build(date(2026, 1, 6), "base", sim_run_id=SHOWN_SIM_RUN_ID)
 
     assert seen == {
         "dashboard_as_of": date(2026, 1, 6),
@@ -319,7 +319,7 @@ def test_재무_판매_출처에_보는_실행과_요청_기준일을_적는다(
         params = {"as_of": as_of} | ({"state": "base"} if path == "/api/finance" else {})
         note = client.get(path, params=params).json()["source"]["note"]
         notes.append(note)
-        assert f"보고 있는 실행: {finance_presenter.SHOWN_SIM_RUN_ID} · 기준일: {as_of}" in note
+        assert f"보고 있는 실행: {SHOWN_SIM_RUN_ID} · 기준일: {as_of}" in note
     assert notes[0] != notes[1]
 
 
@@ -421,7 +421,7 @@ def test_표의_칸_이름이_행에_있다(client):
 
 
 def _sales_dashboard_stub(sim_run_id: str, as_of: date) -> SalesDashboardResponse:
-    assert sim_run_id == sales_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     return SalesDashboardResponse(
         meta=SalesDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         summary=SalesDashboardSummary(
@@ -537,7 +537,7 @@ def _sales_dashboard_stub(sim_run_id: str, as_of: date) -> SalesDashboardRespons
 
 
 def _finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardResponse:
-    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     return FinanceDashboardResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         states=[
@@ -583,7 +583,7 @@ def _finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardRes
 
 
 def _empty_finance_dashboard_stub(sim_run_id: str, as_of: date) -> FinanceDashboardResponse:
-    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     assert as_of == date(2026, 1, 6)
     return FinanceDashboardResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
@@ -657,7 +657,7 @@ def _finance_cashflow_stub(
     as_of: date,
     days: int,
 ) -> FinanceCashflowResponse:
-    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     return FinanceCashflowResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
         cashflow=[
@@ -672,7 +672,7 @@ def _prior_finance_cashflow_stub(
     as_of: date,
     days: int,
 ) -> FinanceCashflowResponse:
-    assert sim_run_id == finance_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     assert as_of == date(2026, 1, 20)
     return FinanceCashflowResponse(
         meta=FinanceDashboardMeta(sim_run_id=sim_run_id, as_of=as_of, data_type="SIMULATION"),
@@ -691,7 +691,7 @@ def _logistics_page_stub(*, sim_run_id: str, as_of: date) -> Any:
 
     모양은 `tests/api/test_logistics_panes.py` 의 한 판 대역과 같다.
     """
-    assert sim_run_id == logistics_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     item = SimpleNamespace(
         item_id="배추", item_name="배추", on_hand_qty_kg=_STOCK_ON_HAND_KG,
         available_qty_kg=Decimal(95), reserved_qty_kg=Decimal(5), allocated_qty_kg=Decimal(0),
@@ -733,7 +733,7 @@ def _logistics_page_stub(*, sim_run_id: str, as_of: date) -> Any:
 
 def _logistics_stock_chart_stub(*, sim_run_id: str, as_of: date, start: date) -> Any:
     """재고 그래프 재료 (`readmodel/console.read_stock_chart` 자리) — 기준일 하루만 열린 날이다."""
-    assert sim_run_id == logistics_presenter.SHOWN_SIM_RUN_ID
+    assert sim_run_id == SHOWN_SIM_RUN_ID
     assert start <= as_of
     return SimpleNamespace(
         onhand_by_day={as_of: _STOCK_ON_HAND_KG},

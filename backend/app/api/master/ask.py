@@ -8,6 +8,7 @@ HTTP 만: `master/service/ask.py` 의 `ask` · `execute` 를 부르고, 업무 �
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.core.settings import screen_sim_run_id
 from app.master.schemas.ask import AskExecuteRequest, AskRequest, AskResponse
 from app.master.schemas.decision import DecisionRejected
 from app.master.schemas.procurement import ProcurementRunResponse
@@ -15,6 +16,11 @@ from app.master.service.ask import ask as run_ask
 from app.master.service.ask import execute as run_ask_execute
 
 router = APIRouter(prefix="/master", tags=["master"])
+
+
+def _with_sim_run_id[R: (AskRequest, AskExecuteRequest)](request: R) -> R:
+    """실행 ID 를 비워 보낸 요청은 백엔드 기준값으로 채워 넘긴다. 준 값은 그대로 쓴다."""
+    return request.model_copy(update={"sim_run_id": screen_sim_run_id(request.sim_run_id)})
 
 
 @router.post(
@@ -44,7 +50,7 @@ def master_ask(request: AskRequest) -> AskResponse:
     | `CLASSIFIED_ONLY` | 분류했지만 확인이 필요해 실행하지 않았다 |
     | `NEEDS_CLARIFICATION` | 분류하지 못했거나 필요한 정보가 없어 되묻는다 |
     """
-    return run_ask(request)
+    return run_ask(_with_sim_run_id(request))
 
 
 @router.post(
@@ -76,7 +82,7 @@ def master_ask_execute(request: AskExecuteRequest) -> AskResponse | ProcurementR
     | 501 | 실행 경로가 연결되지 않은 의도 종류다 |
     """
     try:
-        return run_ask_execute(request)
+        return run_ask_execute(_with_sim_run_id(request))
     except NotImplementedError as error:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,

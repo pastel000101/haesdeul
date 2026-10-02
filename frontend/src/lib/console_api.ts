@@ -5,8 +5,9 @@
  * 문장·색·표를 만들어 주는 옛 계약이고, 이쪽은 저장된 사실을 그대로 준다.
  * 운영 콘솔은 이쪽만 쓴다 — 옛 API 는 지우지 않되 여기서 부르지 않는다.
  *
- * 모든 호출이 `sim_run_id` 를 싣는다. 실행 축이 없으면 부르지 않는다
- * (`lib/run_context.ts`). 기본 실행으로 대신 답하는 길을 만들지 않는다.
+ * 조회 호출은 `sim_run_id` 를 싣는다. 그 값은 백엔드가 `/shown-run` 으로 준 화면 실행 ID 다
+ * (`lib/run_context.ts`). 값을 받기 전에는 부르지 않는다. 다른 실행으로 대신 답하는 길을
+ * 만들지 않는다.
  *
  * 숫자를 여기서 만들지 않는다. 합계·마진·연체는 백엔드가 낸 값을 그대로
  * 나른다. 화면이 다시 세면 두 곳이 서로 다른 답을 갖게 된다.
@@ -458,6 +459,15 @@ export interface ConsoleRunsResponse {
 
 export const consoleRuns = {
   list: (limit = 100) => get<ConsoleRunsResponse>("/runs", { limit }),
+};
+
+/** 화면이 조회와 업무 실행에 함께 쓰는 실행 ID. 값은 백엔드 설정 한 곳이 정한다. */
+export interface ShownRunResponse {
+  sim_run_id: string;
+}
+
+export const consoleShownRun = {
+  get: () => get<ShownRunResponse>("/shown-run", {}),
 };
 
 /* ── 판매 흐름 ─────────────────────────────────────────────────────────── */

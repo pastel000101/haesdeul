@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.api.logistics.presenter import PANES, build_result
 from app.api.logistics.schema import LogisticsTab
+from app.core.settings import screen_sim_run_id
 
 router = APIRouter(prefix="/logistics", tags=["api:logistics"])
 
@@ -18,6 +19,16 @@ def logistics_tab(
     as_of: Annotated[date, Query(description="기준일")],
     response: Response,
     pane: Annotated[str, Query(description="안쪽 작은 탭")] = "summary",
+    sim_run_id: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            description=(
+                "화면이 보는 실행 ID(sim_runs.sim_run_id). 화면은 GET /api/console/shown-run 이"
+                " 준 값을 싣습니다. 안 주면 같은 백엔드 기준값을 씁니다"
+            ),
+        ),
+    ] = None,
 ) -> LogisticsTab:
     """재고 · 물류 탭 한 화면 분량을 기준일 기준으로 돌려준다.
 
@@ -40,6 +51,6 @@ def logistics_tab(
             status.HTTP_400_BAD_REQUEST,
             detail=f"없는 화면입니다: {pane}. 가능: {', '.join(PANES)}",
         )
-    result = build_result(as_of, pane)
+    result = build_result(as_of, pane, sim_run_id=screen_sim_run_id(sim_run_id))
     response.status_code = result.http_status
     return result.tab

@@ -38,7 +38,6 @@ from dataclasses import replace
 from datetime import date
 
 from app.contracts.envelope import ExecutionContext
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.master.domain.answer import (
     AnswerFacts,
     Fact,
@@ -103,7 +102,13 @@ _REPORT_DATE_RANGE_ACTIONS = frozenset(
 
 
 def _domain_answer_response(
-    *, request_id: str, as_of: date, intent: Intent, result: DomainActionAnswer, outcome: str
+    *,
+    request_id: str,
+    as_of: date,
+    sim_run_id: str,
+    intent: Intent,
+    result: DomainActionAnswer,
+    outcome: str,
 ) -> AskResponse:
     return AskResponse(
         request_id=request_id,
@@ -113,7 +118,7 @@ def _domain_answer_response(
         answer=AnswerOut(text=result.text, markdown=result.markdown, llm_status="SKIPPED_TEMPLATE"),
         domain_result=result,
         llm_status="SKIPPED_TEMPLATE",
-        note=_shown_note(as_of),
+        note=_shown_note(as_of, sim_run_id),
     )
 
 
@@ -121,6 +126,7 @@ def _ask_domain_action(
     *, request_id: str, request: AskRequest, result: IntentResult
 ) -> AskResponse:
     intent = result.intent
+    sim_run_id = _sim_run_id_of(request)
     if intent.domain_action == "FINANCE_REPORT_GENERATE" and not has_report_period(intent):
         return _response(
             request_id,
@@ -158,13 +164,14 @@ def _ask_domain_action(
                 as_of=request.as_of,
                 policy_version=request.policy_version,
                 request_id=request_id,
-                sim_run_id=request.sim_run_id,
+                sim_run_id=sim_run_id,
                 utterance=request.utterance,
             )
             assert isinstance(domain, DomainActionAnswer)
             response = _domain_answer_response(
                 request_id=request_id,
                 as_of=request.as_of,
+                sim_run_id=sim_run_id,
                 intent=intent,
                 result=domain,
                 outcome="DOMAIN_ACTION_ANSWERED",
@@ -184,7 +191,7 @@ def _ask_domain_action(
                 result,
                 outcome="CLASSIFIED_ONLY",
                 confirm_required=True,
-                clarification=domain_preview(intent, as_of=request.as_of),
+                clarification=domain_preview(intent, as_of=request.as_of, sim_run_id=sim_run_id),
                 note="확인 전에는 장부를 바꾸지 않았다.",
             )
     except DomainClarification as error:
@@ -250,9 +257,11 @@ def ask(
             note="확인 후 /master/ask/execute 로 같은 intent 를 보내면 실행한다.",
         )
 
+    sim_run_id = _sim_run_id_of(request)
     outcome = _run_status(
         request_id=request_id,
         as_of=request.as_of,
+        sim_run_id=sim_run_id,
         policy_version=request.policy_version,
         budget=request.budget,
         intent=intent,
@@ -265,7 +274,7 @@ def ask(
         outcome="STATUS_ANSWERED",
         status=_to_answer(outcome),
         answer=_write_answer(facts_from_status(outcome), narrator),
-        note=_shown_note(request.as_of),
+        note=_shown_note(request.as_of, sim_run_id),
     )
 
 
@@ -282,6 +291,7 @@ def execute(
     """
     intent = request.intent
     request_id = request.request_id or make_request_id(request.as_of.isoformat())
+    sim_run_id = _sim_run_id_of(request)
 
     if intent.action == "DOMAIN_ACTION":
         missing = missing_domain_slots(intent)
@@ -293,6 +303,7 @@ def execute(
                 as_of=request.as_of,
                 policy_version=request.policy_version,
                 request_id=request_id,
+                sim_run_id=sim_run_id,
                 actor=request.actor,
                 utterance=request.utterance,
             )
@@ -303,6 +314,7 @@ def execute(
         return _domain_answer_response(
             request_id=request_id,
             as_of=request.as_of,
+            sim_run_id=sim_run_id,
             intent=intent,
             result=domain,
             outcome=(
@@ -316,6 +328,7 @@ def execute(
         outcome = _run_status(
             request_id=request_id,
             as_of=request.as_of,
+            sim_run_id=sim_run_id,
             policy_version=request.policy_version,
             budget=request.budget,
             intent=intent,
@@ -331,7 +344,7 @@ def execute(
             answer=_write_answer(facts_from_status(outcome), narrator),
             # ①은 안 부른다 (이미 분류된 의도다). ⑥의 상태는 answer 안에 있다.
             llm_status="SKIPPED_TEMPLATE",
-            note=_shown_note(request.as_of),
+            note=_shown_note(request.as_of, sim_run_id),
         )
 
     if intent.action == "PROCUREMENT_RUN":
@@ -344,7 +357,7 @@ def execute(
                 budget=request.budget,
                 # 화면이 보는 실행으로 판단한다. 안 실으면 번인으로 떨어진다
                 # (`domain/sim_run.py` 의 `sim_run_id_of`: `given or BURN_IN_SIM_RUN_ID`).
-                sim_run_id=SHOWN_SIM_RUN_ID,
+                sim_run_id=sim_run_id,
             )
         )
         # 여기에는 ⑥ 을 붙이지 않는다. 매입 리포트의 머리말은 이미 완결된 판단
@@ -359,7 +372,7 @@ def execute(
         return _record_selection(request)
 
     if intent.action == "RERUN_WITH_CONDITION":
-        return _record_rerun(request)
+        return _record_rerun(request, sim_run_id=sim_run_id)
 
     if intent.action == "UNKNOWN":
         # "아직 안 만들었다" 가 아니라 "실행할 것이 없다" 다. 501 로 답하면 언젠가 되는
@@ -379,6 +392,7 @@ def _run_status(
     *,
     request_id: str,
     as_of: date,
+    sim_run_id: str,
     policy_version: str,
     budget: int,
     intent: Intent,
@@ -397,9 +411,9 @@ def _run_status(
         trigger="USER_REQUEST",
         policy_version=policy_version,
         # 조회는 화면이 보는 실행을 읽는다. 번인 상수를 읽으면 2025-12 한 달치 장부만
-        # 읽혀, 2026 날짜는 기준일을 바꿔도 늘 같은 물려받은 상태가 나온다. 화면 탭과 같은
-        # 한 자리(`app/core/settings.py` 의 `SHOWN_SIM_RUN_ID`)를 가리킨다.
-        sim_run_id=SHOWN_SIM_RUN_ID,
+        # 읽혀, 2026 날짜는 기준일을 바꿔도 늘 같은 물려받은 상태가 나온다. 값은 HTTP 입구가
+        # 정해 넘긴 것이다(`app/core/settings.py` 의 `screen_sim_run_id`).
+        sim_run_id=sim_run_id,
     )
     asked = tuple(intent.agents)
     missing = set(wiring.missing())
@@ -497,7 +511,7 @@ def _record_selection(request: AskExecuteRequest) -> AskResponse:
     )
 
 
-def _record_rerun(request: AskExecuteRequest) -> AskResponse:
+def _record_rerun(request: AskExecuteRequest, *, sim_run_id: str) -> AskResponse:
     """조건을 붙인 재요청 — 적고 · 다시 돌리고 · 둘을 잇는다.
 
     ```text
@@ -545,7 +559,7 @@ def _record_rerun(request: AskExecuteRequest) -> AskResponse:
             request_id=follow_up_id,
             item=intent.item or _item_of(request.target_request_id),
             budget=request.budget,
-            sim_run_id=SHOWN_SIM_RUN_ID,
+            sim_run_id=sim_run_id,
             prior_feedback={
                 "condition_text": intent.condition,
                 # 키 이름은 `attempt` 가 아니다 (#178). 두 슬롯(계약 v0.2 §2)은 수명·모양·
@@ -596,9 +610,20 @@ def _record_rerun(request: AskExecuteRequest) -> AskResponse:
     )
 
 
-def _shown_note(as_of: date) -> str:
+def _shown_note(as_of: date, sim_run_id: str) -> str:
     """조회가 어느 실행·기준일을 읽었나. 재무 현금 그래프 문장과 같은 모양이다."""
-    return f"보고 있는 실행: {SHOWN_SIM_RUN_ID} · 기준일: {as_of.isoformat()}"
+    return f"보고 있는 실행: {sim_run_id} · 기준일: {as_of.isoformat()}"
+
+
+def _sim_run_id_of(request: AskRequest | AskExecuteRequest) -> str:
+    """요청에 실린 실행 ID. HTTP 입구(`app/api/master/ask.py`)가 비어 있으면 채워 넘긴다.
+
+    여기서 다른 값으로 메우지 않는다. 비어 있으면 입구를 거치지 않은 호출이라 멈춘다 —
+    조회한 실행과 업무를 기록하는 실행이 갈리는 길을 서비스 안에 두지 않는다.
+    """
+    if not request.sim_run_id:
+        raise ValueError("실행 ID(sim_run_id)가 정해지지 않은 요청이다 — HTTP 입구가 정한다.")
+    return request.sim_run_id
 
 
 def _item_of(request_id: str) -> str | None:

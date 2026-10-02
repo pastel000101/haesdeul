@@ -18,6 +18,7 @@ import {
   StatRow,
   TabButtons,
 } from "@/components/console/Blocks";
+import { ShownRunGate } from "@/components/console/ShownRun";
 import { useTab } from "@/components/console/useTab";
 //  기준일 한 줄은 재무·판매 탭이 쓰는 부품 그대로다 — 새로 만들지 않는다.
 import { DataBasis } from "@/app/console/finance/TechDetails";
@@ -27,15 +28,21 @@ import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
 import { logistics, type LogisticsTab } from "@/lib/screen";
 
 export default function InventoryPage() {
+  return <ShownRunGate what="재고">{(simRun) => <InventoryBody simRun={simRun} />}</ShownRunGate>;
+}
+
+function InventoryBody({ simRun }: { simRun: string }) {
   //  기본은 「한눈에 보기」다 (#675). 값의 주인은 백엔드 `PANES` 이고 여기서는
   //    첫 요청에 실을 값만 고른다 — 탭 목록도 `data.panes` 가 그대로 준다.
   const [pane, setPane] = useState("summary");
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
   //  작은 탭을 바꿔도 다시 받지 않는다. 응답에는 네 pane 이 다 실려 있고 `pane` 은
-  //     서버가 `selected` 한 칸에 되돌려 줄 뿐이라, 키를 `asOf` 로만 두면 탭 클릭은
+  //     서버가 `selected` 한 칸에 되돌려 줄 뿐이라, 키를 실행 · 기준일로만 두면 탭 클릭은
   //     요청 0회다 — 한 판을 통째로 다시 받으면 1.1 s 가 든다 (2026-09-15 실측).
-  //     기준일이 바뀌면 키가 바뀌어 그때만 다시 받는다.
-  const { data, error } = useTab<LogisticsTab>(asOf, () => logistics(asOf, pane));
+  //     실행 · 기준일이 바뀌면 키가 바뀌어 그때만 다시 받는다.
+  const { data, error } = useTab<LogisticsTab>(`${simRun}:${asOf}`, () =>
+    logistics(asOf, pane, simRun),
+  );
 
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading what="재고" />;

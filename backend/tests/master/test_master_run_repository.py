@@ -365,6 +365,7 @@ def test_조회_경로가_적재를_부른다(monkeypatch):
     ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
+        sim_run_id="SIM-TEST-RUN",
         policy_version="v1.3",
         budget=12,
         intent=Intent(action="STATUS_QUERY", agents=["finance"], confidence="HIGH"),
@@ -392,6 +393,7 @@ def test_어댑터가_없어_못_물어본_날도_남는다(monkeypatch):
     ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
+        sim_run_id="SIM-TEST-RUN",
         policy_version="v1.3",
         budget=12,
         intent=Intent(action="STATUS_QUERY", agents=["inventory"], confidence="HIGH"),
@@ -423,6 +425,7 @@ def test_미등록이_없는_정상_경로도_적재한다(monkeypatch):
     ask._run_status(
         request_id="REQ-20251231-0001",
         as_of=date(2025, 12, 31),
+        sim_run_id="SIM-TEST-RUN",
         policy_version="v1.3",
         budget=12,
         intent=Intent(action="STATUS_QUERY", agents=[], confidence="HIGH"),

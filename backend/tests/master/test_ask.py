@@ -29,6 +29,8 @@ from app.master.service import decision
 from app.master.service.ask import ask
 
 AS_OF = "2026-08-27"
+#: 서비스를 직접 부르는 검사가 싣는 실행 ID. HTTP 입구를 거치지 않으므로 직접 싣는다.
+TEST_RUN = "SIM-TEST-RUN"
 #: 결정 대상 실행의 업무 키. **발화문에 없으므로 화면이 싣는다.**
 TARGET = "REQ-20260827-0001"
 
@@ -165,7 +167,9 @@ def ask_body(**kw) -> dict:
 
 def run(utterance: str, response: str):
     return ask(
-        AskRequest(utterance=utterance, as_of=AS_OF, policy_version="v1.3"),
+        AskRequest(
+            utterance=utterance, as_of=AS_OF, policy_version="v1.3", sim_run_id=TEST_RUN
+        ),
         service=svc(response),
     )
 
@@ -292,7 +296,9 @@ def test_LLM_이_죽어도_200_으로_되묻는다():
             raise RuntimeError("키가 없다")
 
     result = ask(
-        AskRequest(utterance="오늘 뭐 사지", as_of=AS_OF, policy_version="v1.3"),
+        AskRequest(
+            utterance="오늘 뭐 사지", as_of=AS_OF, policy_version="v1.3", sim_run_id=TEST_RUN
+        ),
         service=IntentService(SETTINGS, Boom()),
     )
 
@@ -680,6 +686,7 @@ def test_finance_report_domain_action_returns_structured_facts_without_markdown(
             domain_action="FINANCE_REPORT_GENERATE",
         ),
         as_of=date(2026, 9, 1),
+        sim_run_id=TEST_RUN,
     )
     assert result.data == facts
     assert result.markdown is None
@@ -730,6 +737,7 @@ def test_sales_report_domain_action_returns_structured_facts_without_markdown(mo
             domain_action="SALES_REPORT_GENERATE",
         ),
         as_of=date(2026, 9, 1),
+        sim_run_id=TEST_RUN,
     )
     assert result.data == facts
     assert result.markdown is None
@@ -753,6 +761,7 @@ def test_logistics_report_domain_action_returns_structured_facts_without_markdow
             domain_action="LOGISTICS_REPORT_GENERATE",
         ),
         as_of=date(2026, 9, 1),
+        sim_run_id=TEST_RUN,
     )
     assert result.domain == "logistics"
     assert result.data == facts
@@ -786,6 +795,7 @@ def test_logistics_report_passes_existing_period_to_renderer(monkeypatch):
             slots=DomainSlots(period="THIS_WEEK"),
         ),
         as_of=as_of,
+        sim_run_id=TEST_RUN,
     )
     assert (seen["start_date"], seen["end_date"]) == ask_parsers.period_of(
         Intent(
@@ -1224,6 +1234,7 @@ def test_logistics_report_takes_the_period_the_user_picked_on_screen(monkeypatch
             utterance="재고·물류 보고서 만들어줘",
             as_of=AS_OF,
             policy_version="v1.3",
+            sim_run_id=TEST_RUN,
             date_from=date(2026, 6, 1),
             date_to=date(2026, 6, 10),
         ),

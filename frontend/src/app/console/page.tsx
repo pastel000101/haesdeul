@@ -21,6 +21,7 @@ import {
   SourceTag,
   StatRow,
 } from "@/components/console/Blocks";
+import { ShownRunGate } from "@/components/console/ShownRun";
 import { useTab } from "@/components/console/useTab";
 //  주의: 시연용 기준일 (`#431`). 시연이 끝나면 이 줄과 아래 `asOf` 를 지우고
 //     `useTab` 의 `AS_OF` 로 되돌린다.
@@ -28,8 +29,12 @@ import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
 import { dashboard, type DashboardTab } from "@/lib/screen";
 
 export default function DashboardPage() {
+  return <ShownRunGate what="대시보드">{(simRun) => <DashboardBody simRun={simRun} />}</ShownRunGate>;
+}
+
+function DashboardBody({ simRun }: { simRun: string }) {
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
-  const { data, error } = useTab<DashboardTab>(asOf, () => dashboard(asOf));
+  const { data, error } = useTab<DashboardTab>(`${simRun}:${asOf}`, () => dashboard(asOf, simRun));
 
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading what="대시보드" />;

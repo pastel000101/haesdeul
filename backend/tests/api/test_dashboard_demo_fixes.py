@@ -23,6 +23,7 @@ from app.api.dashboard import presenter as dashboard_presenter
 from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
 from app.contracts.core import ITEMS
+from app.core.settings import SHOWN_SIM_RUN_ID
 
 AS_OF = date(2026, 1, 26)
 _QUERY = Path(dashboard_presenter.__file__)
@@ -88,11 +89,11 @@ def stub(monkeypatch):
         lambda as_of, sim_run_id=None, **_: SimpleNamespace(plans=plans, source=_source("매입")),
     )
     monkeypatch.setattr(
-        dashboard_presenter.finance_presenter, "build", lambda as_of, s: state["finance"]
+        dashboard_presenter.finance_presenter, "build", lambda as_of, s, **_: state["finance"]
     )
     monkeypatch.setattr(
         dashboard_presenter.logistics_presenter, "build",
-        lambda as_of, pane: SimpleNamespace(
+        lambda as_of, pane, **_: SimpleNamespace(
             #  ★ 대시보드는 **열쇠로** 재고 칸을 집는다 (#675). 자리로 집던 때의
             #    대역이라 `key` 가 없었다.
             panes=[
@@ -102,21 +103,26 @@ def stub(monkeypatch):
     )
     monkeypatch.setattr(
         dashboard_presenter.sales_presenter, "build",
-        lambda as_of: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
+        lambda as_of, **_: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
                                       source=_source("판매")),
     )
     #  🔴 실 DB 에 안 닿는다 — 실매입 기록 읽기도 대역으로 막는다.
     monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan", lambda **_: {})
     monkeypatch.setattr(
-        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis: _chart()
+        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis, **_: _chart()
     )
     monkeypatch.setattr(dashboard_presenter.logistics_presenter, "dashboard_stock",
-                        lambda n, at, as_of: _chart())
+                        lambda n, at, as_of, **_: _chart())
     return SimpleNamespace(plans=plans, state=state)
 
 
+def _dashboard():
+    """HTTP 입구가 실행 ID 를 채워 부르는 것과 같은 모양으로 대시보드를 만든다."""
+    return dashboard_presenter.build(AS_OF, sim_run_id=SHOWN_SIM_RUN_ID)
+
+
 def test_매입_표_품목과_ML_가격은_안마다_그_안의_품목_것이다(stub):
-    rows = dashboard_presenter.build(AS_OF).purchase.rows
+    rows = _dashboard().purchase.rows
     expected = [ITEM_A, ITEM_B, ITEM_A, ITEM_B]
     assert [r["item"] for r in rows] == expected
     assert [r["ml"] for r in rows] == [f"{PRICE[i]:,}" for i in expected]
@@ -125,13 +131,13 @@ def test_매입_표_품목과_ML_가격은_안마다_그_안의_품목_것이다
 
 def test_계약_밖_품목은_공란이다(stub):
     stub.plans[:] = [_plan("없는품목 · 기본")]
-    row = dashboard_presenter.build(AS_OF).purchase.rows[0]
+    row = _dashboard().purchase.rows[0]
     assert row["item"] is None
     assert row["ml"] is None
 
 
 def test_승인_대기_칸에_두_안_고정_꼬리가_없다(stub):
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     stat = next(s for s in tab.stats if s.label == "매입 승인 대기")
     assert "두 안" not in stat.detail
     #  🔴 상세 모양이 바뀌었다 (2026-09-18) — 「안 이름들 · N안」 → 「N안 중 M건 대기」.
@@ -148,7 +154,7 @@ def test_승인_대기_상세가_값과_같은_수를_센다(stub, 대기):
     """
     for i, plan in enumerate(stub.plans):
         plan.pending = i < 대기
-    stat = next(s for s in dashboard_presenter.build(AS_OF).stats if s.label == "매입 승인 대기")
+    stat = next(s for s in _dashboard().stats if s.label == "매입 승인 대기")
 
     assert stat.raw == 대기
     assert stat.detail == f"{len(stub.plans)}안 중 {대기}건 대기"
@@ -158,7 +164,7 @@ def test_승인_대기_상세가_값과_같은_수를_센다(stub, 대기):
 
 def test_안이_없는_날은_상세가_그대로다(stub):
     stub.plans.clear()
-    stat = next(s for s in dashboard_presenter.build(AS_OF).stats if s.label == "매입 승인 대기")
+    stat = next(s for s in _dashboard().stats if s.label == "매입 승인 대기")
     assert (stat.raw, stat.detail) == (0, "오늘 낸 안 없음")
 
 
@@ -173,17 +179,17 @@ def test_안이_없는_날_배지가_승인_완료라고_말하지_않는다(stu
     ★ 안이 **아예 없는** 날을 「오늘 승인 완료」로 말했다 — 승인이 하나도 없는 날이다.
     """
     stub.plans.clear()
-    badge = _매입_배지(dashboard_presenter.build(AS_OF))
+    badge = _매입_배지(_dashboard())
 
     assert badge.text == "오늘 낸 매입안 없음"
     assert badge.tone == "neutral"
-    assert "오늘 승인 완료" not in " ".join(b.text for b in dashboard_presenter.build(AS_OF).badges)
+    assert "오늘 승인 완료" not in " ".join(b.text for b in _dashboard().badges)
 
 
 def test_안이_없는_날_안내문이_끊긴_상한가_문장을_안_짓는다(stub):
     """🔴 `join` 이 빈 문자열이라 「… 다릅니다 —  원/kg.」 로 끊겼다 (2026-09-21)."""
     stub.plans.clear()
-    note = dashboard_presenter.build(AS_OF).purchase_note
+    note = _dashboard().purchase_note
 
     assert note.text == "오늘 낸 매입안이 없어 상한가도 없습니다."
     assert "상한가(" not in note.text
@@ -196,7 +202,7 @@ def test_안이_있고_대기_0_인_날은_여전히_승인_완료다(stub):
     """★ 회귀 방지 — 고친 뒤에도 «전부 승인된 날» 은 그대로 「오늘 승인 완료」여야 한다."""
     for plan in stub.plans:
         plan.pending = False
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     badge = _매입_배지(tab)
 
     assert (badge.text, badge.tone) == ("오늘 승인 완료", "good")
@@ -209,7 +215,7 @@ def test_안이_있고_대기_0_인_날은_여전히_승인_완료다(stub):
 def test_대기가_있는_날은_여전히_승인_대기_N건이다(stub, 대기):
     for i, plan in enumerate(stub.plans):
         plan.pending = i < 대기
-    badge = _매입_배지(dashboard_presenter.build(AS_OF))
+    badge = _매입_배지(_dashboard())
 
     assert (badge.text, badge.tone) == (f"승인 대기 {대기}건", "warn")
 
@@ -219,7 +225,7 @@ def test_배지의_수와_승인_대기_Stat_의_raw_가_같은_수다(stub, 대
     """🔴 `pending` 을 안 건드렸다는 잠금. 배지와 Stat 은 **같은 사실**을 말한다."""
     for i, plan in enumerate(stub.plans):
         plan.pending = i < 대기
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     stat = next(s for s in tab.stats if s.label == "매입 승인 대기")
     badge = _매입_배지(tab)
 
@@ -232,7 +238,7 @@ def test_배지의_수와_승인_대기_Stat_의_raw_가_같은_수다(stub, 대
 
 
 def test_지어낸_배지_문구가_없다(stub):
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     texts = " ".join(b.text for b in tab.badges)
     source = _QUERY.read_text(encoding="utf-8")
     for fixed in ("06:10", "ML 배치", "open_day", "전일 승계"):
@@ -245,7 +251,7 @@ def test_지어낸_배지_문구가_없다(stub):
 @pytest.mark.parametrize(("selected", "basis"), [("loan", "대출 포함"), ("base", "대출 제외")])
 def test_운영_여유는_기준을_밝히고_값은_그대로다(stub, selected, basis):
     stub.state["finance"] = _finance(selected, [(selected, "재무 이름")])
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     stat = next(s for s in tab.stats if s.label.startswith("운영 여유"))
     assert basis in stat.label
     original = stub.state["finance"].stats[0]
@@ -254,6 +260,6 @@ def test_운영_여유는_기준을_밝히고_값은_그대로다(stub, selected
 
 def test_모르는_재무_키면_재무가_준_상태_이름을_쓴다(stub):
     stub.state["finance"] = _finance("other", [("other", "다른 기준")])
-    tab = dashboard_presenter.build(AS_OF)
+    tab = _dashboard()
     stat = next(s for s in tab.stats if s.label.startswith("운영 여유"))
     assert "다른 기준" in stat.label

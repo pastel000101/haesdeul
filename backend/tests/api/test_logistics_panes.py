@@ -198,7 +198,7 @@ def 화면(monkeypatch):
 
         monkeypatch.setattr(console_readmodel, "live_exceptions_at", 살아있는)
         monkeypatch.setattr(console_readmodel, "resolved_exceptions_on", 닫힌)
-        return logistics_presenter.build_result(AS_OF, "summary")
+        return logistics_presenter.build_result(AS_OF, "summary", sim_run_id=SHOWN_SIM_RUN_ID)
 
     세우기.잡은 = 잡은  # type: ignore[attr-defined]
     return 세우기
@@ -256,7 +256,7 @@ def test_그날이_없는_날도_한눈에_보기로_연다(monkeypatch):
             as_of=AS_OF, has_snapshot=False, first_as_of=AS_OF, last_as_of=AS_OF
         ),
     )
-    result = logistics_presenter.build_result(AS_OF, "summary")
+    result = logistics_presenter.build_result(AS_OF, "summary", sim_run_id=SHOWN_SIM_RUN_ID)
     tab = result.tab
     assert tab.selected == "summary"
     assert [p.key for p in tab.panes] == ["summary", "stock", "inbound", "outbound"]
@@ -734,7 +734,7 @@ def test_화면_한_판은_커넥션_하나로_읽는다(화면, monkeypatch):
     result = 화면(live=(), resolved=())
     assert result.http_status == 200
     monkeypatch.setattr(console_readmodel.core_db, "connection", 세는_커넥션)
-    logistics_presenter.build_result(AS_OF, "summary")
+    logistics_presenter.build_result(AS_OF, "summary", sim_run_id=SHOWN_SIM_RUN_ID)
     assert len(열린것) == 1
 
 
@@ -953,7 +953,7 @@ def test_화면_한_판은_연결_하나_트랜잭션_하나로_읽는다(
     for 함수, (이름, 결과) in 대역들.items():
         monkeypatch.setattr(console_readmodel, 함수, _조회_대역(기록, 이름, 결과, 실패))
 
-    result = logistics_presenter.build_result(AS_OF, "summary")
+    result = logistics_presenter.build_result(AS_OF, "summary", sim_run_id=SHOWN_SIM_RUN_ID)
 
     assert 기록 == 기대_기록
     assert result.http_status == 기대_코드
@@ -992,7 +992,7 @@ def test_read_failure_status_separates_unreachable_db_from_broken_code(
     monkeypatch.setattr(console_readmodel, "reservation_state_at", lambda *a, **k: ())
     monkeypatch.setattr(console_readmodel, "get_inventory_console", fail)
 
-    result = logistics_presenter.build_result(AS_OF, "summary")
+    result = logistics_presenter.build_result(AS_OF, "summary", sim_run_id=SHOWN_SIM_RUN_ID)
     lead = 카드(한눈에(result.tab.panes), "state").lead
 
     assert result.http_status == status
@@ -1040,7 +1040,7 @@ def test_재고_그래프는_판정_누계_도착표시를_블록_셋으로_읽�
     for 함수, (이름, 결과) in 대역들.items():
         monkeypatch.setattr(console_readmodel, 함수, _조회_대역(기록, 이름, 결과, 실패))
 
-    chart = logistics_presenter.dashboard_stock(10, 5, AS_OF)
+    chart = logistics_presenter.dashboard_stock(10, 5, AS_OF, sim_run_id=SHOWN_SIM_RUN_ID)
 
     assert 기록 == 기대_기록
     assert chart.note is not None

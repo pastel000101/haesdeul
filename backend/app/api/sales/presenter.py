@@ -19,7 +19,6 @@ from app.api.primitives import (
     three_ticks,
 )
 from app.api.sales.schema import SalesTab
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
 from app.sales.readmodel.dashboard import get_sales_dashboard
 
@@ -30,11 +29,11 @@ _ORDER_STATUS_LABELS = {
 }
 
 
-def build(as_of: date) -> SalesTab:
+def build(as_of: date, *, sim_run_id: str) -> SalesTab:
     #  이 조회는 판매 readmodel(`sales/readmodel/dashboard.py`)이 공통 풀에서 조회 연결
     #     하나를 빌려 읽는다. 조회마다 연결을 새로 열면 한 판에 6개(원격 DB · 개당 14~22ms)인데,
     #     풀이 연결을 재사용한다.
-    dash = get_sales_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
+    dash = get_sales_dashboard(sim_run_id=sim_run_id, as_of=as_of)
     summary = dash.summary
     quantity_detail = f"고객 {summary.customer_count}곳 · 총 {_kg(summary.total_sales_quantity_kg)}"
     receivable_detail = (
@@ -92,7 +91,7 @@ def build(as_of: date) -> SalesTab:
             owner="판매",
             note=(
                 f"판매 확정 내역과 수금 장부 기준 · {dash.meta.as_of}"
-                f" · 보고 있는 실행: {SHOWN_SIM_RUN_ID} · 기준일: {as_of.isoformat()}"
+                f" · 보고 있는 실행: {sim_run_id} · 기준일: {as_of.isoformat()}"
             ),
         ),
     )

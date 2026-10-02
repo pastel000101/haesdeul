@@ -394,16 +394,21 @@ export interface SalesTab {
 
 /* ── 부르는 곳 ────────────────────────────────────────────────────────── */
 
-export const dashboard = (as_of: string) => get<DashboardTab>("/dashboard", { as_of });
+//  실행 ID(`sim_run_id`)는 백엔드가 준 화면 실행 ID 다(`lib/run_context.ts`). 가격 예측은
+//    실행과 무관한 ML 결과라 싣지 않는다.
+export const dashboard = (as_of: string, sim_run_id: string) =>
+  get<DashboardTab>("/dashboard", { as_of, sim_run_id });
 export const forecast = (
   as_of: string,
   item: string,
   kind = "auc",
   base_dt?: string,
 ) => get<ForecastTab>("/forecast", { as_of, item, kind, ...(base_dt ? { base_dt } : {}) });
-export const purchase = (as_of: string) => get<PurchaseTab>("/purchase", { as_of });
-export const finance = (as_of: string, state = "base") =>
-  get<FinanceTab>("/finance", { as_of, state });
-export const logistics = (as_of: string, pane: string) =>
-  get<LogisticsTab>("/logistics", { as_of, pane });
-export const sales = (as_of: string) => get<SalesTab>("/sales", { as_of });
+export const purchase = (as_of: string, sim_run_id: string) =>
+  get<PurchaseTab>("/purchase", { as_of, sim_run_id });
+export const finance = (as_of: string, sim_run_id: string, state = "base") =>
+  get<FinanceTab>("/finance", { as_of, state, sim_run_id });
+export const logistics = (as_of: string, pane: string, sim_run_id: string) =>
+  get<LogisticsTab>("/logistics", { as_of, pane, sim_run_id });
+export const sales = (as_of: string, sim_run_id: string) =>
+  get<SalesTab>("/sales", { as_of, sim_run_id });

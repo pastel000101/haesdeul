@@ -22,6 +22,7 @@ import {
   StatRow,
 } from "@/components/console/Blocks";
 import { Table as PagedTable, type Column as PagedColumn } from "@/components/console/ConsoleData";
+import { ShownRunGate } from "@/components/console/ShownRun";
 import { useTab } from "@/components/console/useTab";
 //  시연용 기준일 (`#431`). 시연이 끝나면 이 줄과 아래 `asOf` 를 지우고
 //  `useTab` 의 `AS_OF` 로 되돌린다.
@@ -424,8 +425,12 @@ function PlanCard({ plan }: { plan: Plan }) {
 }
 
 export default function PurchasePage() {
+  return <ShownRunGate what="매입">{(simRun) => <PurchaseBody simRun={simRun} />}</ShownRunGate>;
+}
+
+function PurchaseBody({ simRun }: { simRun: string }) {
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
-  const { data, error } = useTab<PurchaseTab>(asOf, () => purchase(asOf));
+  const { data, error } = useTab<PurchaseTab>(`${simRun}:${asOf}`, () => purchase(asOf, simRun));
 
   if (error) return <ErrorBox message={error} />;
   if (!data) return <Loading what="매입" />;

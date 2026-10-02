@@ -36,6 +36,7 @@ from app.api.dashboard import presenter as dashboard_presenter
 from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
 from app.contracts.core import ITEMS
+from app.core.settings import SHOWN_SIM_RUN_ID
 from app.master.readmodel.purchase_record import RecordedTotals
 
 AS_OF = date(2026, 4, 13)
@@ -98,27 +99,27 @@ def screen(monkeypatch):
     )
     monkeypatch.setattr(
         dashboard_presenter.finance_presenter, "build",
-        lambda as_of, s: SimpleNamespace(
+        lambda as_of, s, **_: SimpleNamespace(
             stats=[Stat(label="운영 여유", value="1", raw=1)],
             states=[SimpleNamespace(key="base", label="대출 제외")],
             selected="base", source=_source("재무")),
     )
     monkeypatch.setattr(
         dashboard_presenter.logistics_presenter, "build",
-        lambda as_of, pane: SimpleNamespace(
+        lambda as_of, pane, **_: SimpleNamespace(
             panes=[SimpleNamespace(key="stock", stats=[Stat(label="재고", value="1", raw=1)])],
             source=_source("물류")),
     )
     monkeypatch.setattr(
         dashboard_presenter.sales_presenter, "build",
-        lambda as_of: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
+        lambda as_of, **_: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
                                       source=_source("판매")),
     )
     monkeypatch.setattr(
-        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis: _chart()
+        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis, **_: _chart()
     )
     monkeypatch.setattr(dashboard_presenter.logistics_presenter, "dashboard_stock",
-                        lambda n, at, as_of: _chart())
+                        lambda n, at, as_of, **_: _chart())
     #  🔴 실매입 기록도 대역이다 — 표가 아니라 **읽어 온 값을 어떻게 쓰는가**를 잰다.
     monkeypatch.setattr(dashboard_presenter, "recorded_totals_by_plan",
                         lambda **_: state["records"])
@@ -133,12 +134,17 @@ def _row(screen, item: str, label: str = "기본", *, approved: bool, recorded: 
         if recorded
         else {}
     )
-    return dashboard_presenter.build(AS_OF).purchase.rows[0]
+    return _dashboard().purchase.rows[0]
 
 
 # ══════════════════════════════════════════════════════════════════════════
 #  ① ~ ③  상태 어휘가 실제 상태를 가린다
 # ══════════════════════════════════════════════════════════════════════════
+
+def _dashboard():
+    """HTTP 입구가 실행 ID 를 채워 부르는 것과 같은 모양으로 대시보드를 만든다."""
+    return dashboard_presenter.build(AS_OF, sim_run_id=SHOWN_SIM_RUN_ID)
+
 
 def test_결정이_없으면_후보다(screen):
     """양파 줄이 이랬다 — 이 줄만 고치기 전에도 맞았다."""
@@ -195,7 +201,7 @@ def test_단가가_정수로_안_떨어지면_지어내지_않는다(screen):
         (CABBAGE, "기본"): RecordedTotals(qty_kg=300.0, amount_krw=271_000, unit_price=None)
     }
 
-    row = dashboard_presenter.build(AS_OF).purchase.rows[0]
+    row = _dashboard().purchase.rows[0]
 
     assert row["unit_qty"].startswith("—"), row["unit_qty"]
     assert row["amount"] == "271,000", "금액은 사람이 실제로 낸 돈 그대로다"
@@ -220,7 +226,7 @@ def test_다른_안의_기록을_이_안에_붙이지_않는다(screen):
                                           unit_price=기록_단가)
     }
 
-    row = dashboard_presenter.build(AS_OF).purchase.rows[0]
+    row = _dashboard().purchase.rows[0]
 
     assert row["state"] == "승인됨"
     assert row["amount"] == f"{제안_금액:,}"
@@ -242,7 +248,7 @@ def test_화면에_상태_코드를_쓰지_않는다(screen):
                                           unit_price=기록_단가)
     }
 
-    states = [r["state"] for r in dashboard_presenter.build(AS_OF).purchase.rows]
+    states = [r["state"] for r in _dashboard().purchase.rows]
 
     assert states == ["후보", "승인됨", "매입 기록됨"]
     assert set(states) <= set(dashboard_presenter.PLAN_STATES)

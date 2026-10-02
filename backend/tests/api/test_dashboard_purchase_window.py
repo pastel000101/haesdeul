@@ -42,6 +42,7 @@ from app.api.forecast.schema import ItemCard
 from app.api.primitives import Chart, Source, Stat
 from app.api.purchase import presenter as purchase_presenter
 from app.contracts.core import ITEMS
+from app.core.settings import SHOWN_SIM_RUN_ID
 
 AS_OF = date(2026, 4, 13)
 AXIS = "SIM-CHECK-HOLIDAY-0916"
@@ -158,27 +159,27 @@ def screen(monkeypatch):
     )
     monkeypatch.setattr(
         dashboard_presenter.finance_presenter, "build",
-        lambda as_of, s: SimpleNamespace(
+        lambda as_of, s, **_: SimpleNamespace(
             stats=[Stat(label="운영 여유", value="1", raw=1)],
             states=[SimpleNamespace(key="base", label="대출 제외")],
             selected="base", source=_source("재무")),
     )
     monkeypatch.setattr(
         dashboard_presenter.logistics_presenter, "build",
-        lambda as_of, pane: SimpleNamespace(
+        lambda as_of, pane, **_: SimpleNamespace(
             panes=[SimpleNamespace(key="stock", stats=[Stat(label="재고", value="1", raw=1)])],
             source=_source("물류")),
     )
     monkeypatch.setattr(
         dashboard_presenter.sales_presenter, "build",
-        lambda as_of: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
+        lambda as_of, **_: SimpleNamespace(stats=[Stat(label="판매", value="1", raw=1)],
                                       source=_source("판매")),
     )
     monkeypatch.setattr(
-        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis: _chart()
+        dashboard_presenter.finance_presenter, "dashboard_cash", lambda axis, **_: _chart()
     )
     monkeypatch.setattr(dashboard_presenter.logistics_presenter, "dashboard_stock",
-                        lambda n, at, as_of: _chart())
+                        lambda n, at, as_of, **_: _chart())
     return monkeypatch
 
 
@@ -219,7 +220,7 @@ def _dashboard_with(screen, window_days: int | None):
         lambda as_of, sim_run_id=None, **_: 진짜(
             as_of, sim_run_id, window_days=window_days),
     )
-    return dashboard_presenter.build(AS_OF)
+    return dashboard_presenter.build(AS_OF, sim_run_id=SHOWN_SIM_RUN_ID)
 
 
 def test_창을_0_으로_둬도_대시보드_응답이_그대로다(screen):

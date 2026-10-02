@@ -10,13 +10,10 @@ RUN npm ci
 
 COPY . .
 
-# 시뮬레이션 축과 기준일은 빌드 때 박는다.
+# 화면의 기본 기준일은 빌드 때 박는다.
 # 프런트는 정적 내보내기라 `next start` 가 없다. 런타임 env 가 안 닿는다.
-# 기본값을 여기 두어 인자를 안 줘도 멘토 축으로 빌드된다.
-# ★ 발표 전 되돌릴 자리 — 원래 값은 SIM-CHAIN-FINAL-0918 · 2026-09-17.
-ARG NEXT_PUBLIC_SIM_RUN_ID=SIM-MENTOR-0918
+# 화면 실행 ID 는 빌드에 박지 않는다 — 화면이 백엔드(`GET /api/console/shown-run`)에서 받는다.
 ARG NEXT_PUBLIC_AS_OF=2026-09-17
-ENV NEXT_PUBLIC_SIM_RUN_ID=$NEXT_PUBLIC_SIM_RUN_ID
 ENV NEXT_PUBLIC_AS_OF=$NEXT_PUBLIC_AS_OF
 
 RUN npm run build

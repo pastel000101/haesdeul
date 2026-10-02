@@ -64,7 +64,6 @@ from app.api.primitives import (
 )
 from app.contracts.core import ITEMS
 from app.core.db import is_unavailable
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.logistics.domain.console_rules import severity_at, still_working
 from app.logistics.readmodel.console import (
     get_fefo_candidates_by_item,
@@ -1383,7 +1382,7 @@ def _http_status_for_error(error: BaseException) -> int:
     )
 
 
-def build_result(as_of: date, pane: str) -> LogisticsTabResult:
+def build_result(as_of: date, pane: str, *, sim_run_id: str) -> LogisticsTabResult:
     """재고·물류 탭 한 판 + HTTP 코드. 네 조회가 같은 `(sim_run_id, as_of)` 축에 선다.
 
     실패를 예시값으로 바꾸지 않는다. 예외는 통째로 잡는다 —
@@ -1395,7 +1394,7 @@ def build_result(as_of: date, pane: str) -> LogisticsTabResult:
        그 판정은 안 연 날을 열렸다고 하고(실측 31일) 열린 날을 모른다고 한다
        (실측 245일). 입·출고가 0 건인 정상 하루는 물리 사실을 아예 안 남긴다.
     """
-    run = SHOWN_SIM_RUN_ID
+    run = sim_run_id
     try:
         #  연결은 한 판에 하나다. 조회마다 · FEFO 예약마다 새로 열면 한 판에 23개 · 388 ms
         #     였다 (원격 DB · 연결당 14~22 ms). 그 하나를 `readmodel/console.read_console_page`
@@ -1471,12 +1470,12 @@ def build_result(as_of: date, pane: str) -> LogisticsTabResult:
     )
 
 
-def build(as_of: date, pane: str) -> LogisticsTab:
+def build(as_of: date, pane: str, *, sim_run_id: str) -> LogisticsTab:
     """탭 본문만. 대시보드가 쓰는 진입점이다 (HTTP 코드가 필요 없다).
 
     계산은 `build_result` 하나가 한다 — 같은 판을 두 벌 만들지 않는다.
     """
-    return build_result(as_of, pane).tab
+    return build_result(as_of, pane, sim_run_id=sim_run_id).tab
 
 
 def _ceiling(value: float) -> float:
@@ -1537,7 +1536,7 @@ def _onhand_series(
     return data
 
 
-def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
+def dashboard_stock(n: int, at: int, as_of: date, *, sim_run_id: str) -> Chart:
     """대시보드에 얹을 재고 그래프.
 
     대시보드가 아니라 여기서 만듭니다. 요약 숫자와 같은 곳에서 나와야
@@ -1554,7 +1553,7 @@ def dashboard_stock(n: int, at: int, as_of: date) -> Chart:
         #  판정 · 누계 · 도착 표시는 `read_stock_chart` 가 읽는다. 이 함수는 연결을 쥐지
         #    않는다.
         facts = read_stock_chart(
-            sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, start=as_of - timedelta(days=at)
+            sim_run_id=sim_run_id, as_of=as_of, start=as_of - timedelta(days=at)
         )
         if isinstance(facts, RuntimeSnapshotCoverage):
             coverage = facts

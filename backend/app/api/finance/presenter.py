@@ -20,7 +20,6 @@ from app.api.primitives import (
     spread_labels,
     three_ticks,
 )
-from app.core.settings import SHOWN_SIM_RUN_ID
 from app.core.text import format_manwon, format_won
 from app.finance.readmodel.dashboard import get_finance_cashflow, get_finance_dashboard
 from app.finance.schemas.dashboard import (
@@ -39,11 +38,11 @@ _STATE_LABELS = {
 _MILLION = Decimal(1_000_000)
 
 
-def build(as_of: date, state: str) -> FinanceTab:
+def build(as_of: date, state: str, *, sim_run_id: str) -> FinanceTab:
     #  두 조회 안의 `fetch_*` 는 공통 풀에서 연결을 빌려 쓴다. 조회마다 연결을 새로 열면
     #     한 판에 12개(원격 DB · 개당 14~22ms)인데, 풀이 연결을 재사용한다.
-    dash = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
-    flow = get_finance_cashflow(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, days=30)
+    dash = get_finance_dashboard(sim_run_id=sim_run_id, as_of=as_of)
+    flow = get_finance_cashflow(sim_run_id=sim_run_id, as_of=as_of, days=30)
     selected_key, selected = _select_state(dash, state)
     state_as_of = None if selected is None else selected.state_date
     latest_closing_as_of = max((row.close_date for row in dash.recent_closings), default=None)
@@ -160,13 +159,13 @@ def build(as_of: date, state: str) -> FinanceTab:
             owner="재무",
             note=(
                 "근거 · 재무 마감 / 수금·지급 장부 · "
-                f"보고 있는 실행: {SHOWN_SIM_RUN_ID} · 기준일: {as_of.isoformat()}"
+                f"보고 있는 실행: {sim_run_id} · 기준일: {as_of.isoformat()}"
             ),
         ),
     )
 
 
-def dashboard_cash(axis: CalendarAxis) -> Chart:
+def dashboard_cash(axis: CalendarAxis, *, sim_run_id: str) -> Chart:
     """대시보드에 얹을 현금 그래프. 재무가 만듭니다 — 대시보드가 아닙니다.
 
     재무 탭 현금 그래프(`_cash_chart`)와 같은 일마감 행의 같은 칸을 씁니다.
@@ -176,8 +175,7 @@ def dashboard_cash(axis: CalendarAxis) -> Chart:
     앞 값으로 메우지 않고, 추정선을 지어내지 않습니다.
     """
     as_of = date.fromisoformat(axis.as_of)
-    run = SHOWN_SIM_RUN_ID
-    flow = get_finance_cashflow(sim_run_id=run, as_of=as_of, days=len(axis.days))
+    flow = get_finance_cashflow(sim_run_id=sim_run_id, as_of=as_of, days=len(axis.days))
     by_date = {row.close_date: row for row in flow.cashflow if row.close_date <= as_of}
     rows = [by_date.get(date.fromisoformat(day.date)) for day in axis.days]
 
