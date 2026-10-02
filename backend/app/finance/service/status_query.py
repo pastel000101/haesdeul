@@ -1,8 +1,6 @@
 """STATUS_QUERY — «지금 자금 상황» 조회.
 
-★ 2026-09-29 재구성 BL-014: `finance/adapter.py` 에서 옮겼다(몸통 그대로). 계산 도우미는
-  `domain/status_facts.py`,
-  회신 · 이력 도우미는 `service/agent_replies.py`.
+계산 도우미는 `domain/status_facts.py`, 회신 · 이력 도우미는 `service/agent_replies.py`.
 """
 
 from __future__ import annotations
@@ -46,17 +44,16 @@ from app.finance.service.agent_run import load_runtime_context
 
 
 def answer_status_query(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
-    """묻기만 하는 요청. **경계가 아니라 상태**를 돌려준다.
+    """묻기만 하는 요청. 경계가 아니라 상태를 돌려준다.
 
-    ★ `PRE_PURCHASE` 와 계산은 같고 **싣는 것이 다르다.** `finance_cap` ·
-      `purchase_payment_days` 같은 값은 *매입 판단을 위한 경계*라 "지금 자금 상황"
-      을 묻는 사람에게는 답이 아니다.
+    `PRE_PURCHASE` 와 계산은 같고 싣는 것이 다르다. `finance_cap` · `purchase_payment_days`
+    같은 값은 매입 판단을 위한 경계라 "지금 자금 상황" 을 묻는 사람에게는 답이 아니다.
 
-    ★ **급여 출처가 없어도 답을 낸다 — 다만 낼 수 있는 것만.**
-      `PRE_PURCHASE` 는 급여 출처가 없으면 통째로 멈춘다. 급여 유출이 빠진 투영으로
-      만든 `finance_cap` 은 **낙관적으로 틀리고**, 그 상한으로 매입이 실행되기 때문이다.
-      조회는 실행으로 이어지지 않으므로 **현재 현금처럼 투영이 필요 없는 값은 답하고**,
-      투영이 필요한 값만 빼고 이름을 밝힌다 (§3.7.6 — 못 한 것을 한 척하지 않는다).
+    급여 출처가 없어도 답을 낸다 — 다만 낼 수 있는 것만. `PRE_PURCHASE` 는 급여 출처가 없으면
+    통째로 멈춘다. 급여 유출이 빠진 투영으로 만든 `finance_cap` 은 낙관적으로 틀리고, 그
+    상한으로 매입이 실행되기 때문이다. 조회는 실행으로 이어지지 않으므로 현재 현금처럼 투영이
+    필요 없는 값은 답하고, 투영이 필요한 값만 빼고 이름을 밝힌다(§3.7.6 — 못 한 것을 한 척하지
+    않는다).
     """
     as_of = request.context.as_of
     run_id = new_run_id(request)
@@ -101,8 +98,8 @@ def answer_status_query(request: AgentRequest) -> tuple[AgentReply, ExecutionMet
         ),
     )
 
-    # 🔴 값이 Policy 에서 왔으면 근거도 Policy 를 가리켜야 한다. 출처가 없으면
-    #    스냅샷 id 로 때우지 않고 **값과 근거를 함께 뺀다** (`policy_ref` 참조).
+    # 값이 Policy 에서 왔으면 근거도 Policy 를 가리켜야 한다. 출처가 없으면 스냅샷 id 로
+    # 때우지 않고 값과 근거를 함께 뺀다(`domain/status_facts.py` 의 `policy_ref` 참조).
     minimum_cash_ref = policy_ref(policy, "minimum_cash_balance_krw", missing)
     if minimum_cash_ref is not None:
         payload["minimum_cash_balance_krw"] = as_float(policy.minimum_cash_balance_krw)
@@ -186,9 +183,8 @@ def answer_status_query(request: AgentRequest) -> tuple[AgentReply, ExecutionMet
             evidences = (
                 *evidences,
                 evidence_item(
-                    # ★ 목록의 **개수**가 아니라 그 목록을 만든 **임계값**을 넣는다
-                    #   (`evidence_item` 규율). 개수를 넣으면 "왜 그날이 위험일인가" 에 아무
-                    #   답이 안 된다.
+                    # 목록의 개수가 아니라 그 목록을 만든 임계값을 넣는다(`evidence_item`
+                    # 규율). 개수를 넣으면 "왜 그날이 위험일인가" 에 아무 답이 안 된다.
                     "critical_payment_dates",
                     policy.minimum_cash_balance_krw,
                     "KRW",

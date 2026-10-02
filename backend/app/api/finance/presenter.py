@@ -40,9 +40,8 @@ _MILLION = Decimal(1_000_000)
 
 
 def build(as_of: date, state: str) -> FinanceTab:
-    #  🔵 두 조회 안의 `fetch_*` 는 공통 풀에서 연결을 빌려 쓴다 (2026-09-29 풀 전환).
-    #     종전(2026-09-17)에는 재무 읽기 범위로 한 판의 연결을 하나로 묶었다 — 조회마다
-    #     새로 열면 한 판에 12개였다(원격 DB · 개당 14~22ms). 이제 그 재사용을 풀이 한다.
+    #  두 조회 안의 `fetch_*` 는 공통 풀에서 연결을 빌려 쓴다. 조회마다 연결을 새로 열면
+    #     한 판에 12개(원격 DB · 개당 14~22ms)인데, 풀이 연결을 재사용한다.
     dash = get_finance_dashboard(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of)
     flow = get_finance_cashflow(sim_run_id=SHOWN_SIM_RUN_ID, as_of=as_of, days=30)
     selected_key, selected = _select_state(dash, state)
@@ -168,13 +167,13 @@ def build(as_of: date, state: str) -> FinanceTab:
 
 
 def dashboard_cash(axis: CalendarAxis) -> Chart:
-    """대시보드에 얹을 현금 그래프. **재무가 만듭니다** — 대시보드가 아닙니다.
+    """대시보드에 얹을 현금 그래프. 재무가 만듭니다 — 대시보드가 아닙니다.
 
-    ★ 재무 탭 현금 그래프(`_cash_chart`)와 같은 일마감 행의 같은 칸을 씁니다.
-      대출 제외 = `base_cash_balance_krw` · 대출 포함 = `loan_cash_balance_krw` ·
-      최소 운영현금 = `minimum_operating_cash_krw` (행에 있을 때만).
-    🔴 날짜축 칸에 그날 마감 행이 없거나 기준일 뒤이면 공란(`None`)입니다.
-       앞 값으로 메우지 않고, 추정선을 지어내지 않습니다.
+    재무 탭 현금 그래프(`_cash_chart`)와 같은 일마감 행의 같은 칸을 씁니다.
+    대출 제외 = `base_cash_balance_krw` · 대출 포함 = `loan_cash_balance_krw` ·
+    최소 운영현금 = `minimum_operating_cash_krw` (행에 있을 때만).
+    날짜축 칸에 그날 마감 행이 없거나 기준일 뒤이면 공란(`None`)입니다.
+    앞 값으로 메우지 않고, 추정선을 지어내지 않습니다.
     """
     as_of = date.fromisoformat(axis.as_of)
     run = SHOWN_SIM_RUN_ID
@@ -534,7 +533,7 @@ def _closings_table(rows: list[FinanceClosingItem]) -> Table:
                 "buy": format_won(row.purchase_cash_out_krw),
                 "log": format_won(row.logistics_cash_out_krw),
                 "pay": format_won(row.payroll_interest_cash_out_krw),
-                #  🔴 **기록하지 않은 날을 0원이라고 적지 않는다.** 그 실행이 이 축을
+                #  기록하지 않은 날을 0원이라고 적지 않는다. 그 실행이 이 축을
                 #     세지 않았다는 사실과 세어 보니 없었다는 사실은 다르다.
                 "ope": (
                     "기록 없음"

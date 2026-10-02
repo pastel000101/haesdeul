@@ -1,13 +1,9 @@
 -- v_current_finance_state — 재무
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/10_domain_schema.sql` (2026-08-30 test DB 에서 뜬 pg_dump 스냅샷)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
--- 2026-09-30 BL-021 보완: 새 DB 목록 끝에서 따로 돌던 이관판의 최종 효과를 이 파일에 담았다 —
---   `migrations/finance/finance_current_state_view.sql` 의 뷰 본문과 뷰 주석. 스냅샷 판은
---   `finance_state_id = 'FIN-DAY30-LOAN'` 한 행에 묶여 있었다. 축을 `sim_runs` 에서 잇는 이유와
---   같은 날짜의 두 행을 하나로 줄이지 않는 이유는 그 이관판 머리말에 있다.
---   이미 쓰는 DB 는 그 이관판을 그대로 쓴다(`database/README.md` §2).
+-- 적용 순서는 `database/new_database_order.txt`.
+-- 이 파일은 `migrations/finance/finance_current_state_view.sql` 의 최종 효과인 뷰 본문과 뷰 주석을
+--   담는다. 축을 `sim_runs` 에서 잇는 이유와 같은 날짜의 두 행을 하나로 줄이지 않는 이유는 그
+--   이관판 머리말에 있다. 이미 쓰는 DB 는 그 이관판을 쓴다(`database/README.md` §2).
 
 BEGIN;
 

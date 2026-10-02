@@ -1,11 +1,11 @@
 """Finance operations-console receivable read model; strictly run-scoped.
 
-🔴 **기준일 시점의 상태를 복원해서 읽는다** (`app.finance.receivable_history`).
-   `receivables` 행의 수금 칸은 덮여 쓰이므로 그대로 읽으면 과거 화면에 미래 수금이
-   실린다 — 그 모듈의 머리말에 V13 실측이 적혀 있다.
+기준일 시점의 상태를 복원해서 읽는다(`repository/receivable_history.py`). `receivables` 행의
+수금 칸은 덮여 쓰이므로 그대로 읽으면 과거 화면에 미래 수금이 실린다 — 그 모듈의 머리말에 V13
+실측이 적혀 있다.
 
-★ 2026-09-29 재구성 BL-014: 응답 모델은 `schemas/console_receivables.py`, SQL 은
-  `repository/console_receivables.py`, 상태 규칙은 계약 `app/contracts/receivable_history.py`.
+응답 모델은 `schemas/console_receivables.py`, SQL 은 `repository/console_receivables.py`, 상태
+규칙은 계약 `app/contracts/receivable_history.py`.
 """
 
 from datetime import date
@@ -59,8 +59,8 @@ def get_console_receivables(
                     due_date=raw["due_date"],
                     days_overdue=overdue,
                     aging_bucket=bucket,
-                    #  🔴 저장된 status 를 읽지 않는다. 그 칸도 덮여 쓰인다 —
-                    #     복원한 금액과 갈리면 «미수 282,426 인데 COLLECTED» 가 된다.
+                    # 저장된 status 를 읽지 않는다. 그 칸도 덮여 쓰인다 —
+                    # 복원한 금액과 갈리면 «미수 282,426 인데 COLLECTED» 가 된다.
                     status=projected_status(
                         original_amount_krw=original, received_amount_krw=received
                     ),

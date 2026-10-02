@@ -1,9 +1,6 @@
 """발화 슬롯 해석 — 금액 · 정수 · 날짜 · 기간 · 빠진 슬롯을 입력값만으로 판정한다(DB · LLM 없음).
 
-★ 2026-09-30 재구성 BL-018: `master/ask_service.py` 에서 옮겼다 — `_DOMAIN_REQUIRED`,
-  `DomainClarification`, `slots_of`, `_slot`, `missing_domain_slots`, `_SLOT_LABELS`,
-  `missing_message`, `dump`, `won`, `money`, `integer`, `user_date`, `period_of`,
-  `has_report_period`.
+발화 처리 흐름은 `service/ask.py` 다.
 """
 
 from __future__ import annotations

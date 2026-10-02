@@ -1,14 +1,14 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: ACTIVE — /critic API (2026-08-26)
-#   오케 T3/S3 를 재현한 뒤 검증한다. 마스터가 검증을 부를 때는 HTTP 가 아니라
-#   `critic_v0_4.run_critic_v04` 를 직접 부른다 — 이 파일은 외부 노출 계약이다.
+# STATUS: ACTIVE — Critic A/B 진입점
+#   T3/S3 결합·클리핑을 재현한 뒤 검증한다. 부르는 곳은 둘이다.
+#     HTTP              app/api/critic/verdicts.py
+#     마스터 판단 안     service/verifier.py 가 adapters/critic_bridge.py 로 요청을 만들어
+#                       `run_critic_procurement` · `run_critic_sales` 를 직접 부른다
 # ─────────────────────────────────────────────────────────────────────────────
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
+"""Critic A/B 검증 서비스.
 
-Critic A/B 검증 서비스.
-
-★ DB 미접근. 요청 본문만으로 오케 T3 결합·클리핑을 재현한 뒤 6레이어로 검증한다.
-  Critic 은 숫자를 바꾸지 않는다 - 판정(status)·발견(findings)·커버리지만 낸다.
+DB 미접근. 요청 본문만으로 T3/S3 결합·클리핑을 재현한 뒤 6레이어로 검증한다.
+Critic 은 숫자를 바꾸지 않는다 - 판정(status)·발견(findings)·커버리지만 낸다.
 """
 
 from __future__ import annotations
@@ -108,12 +108,11 @@ def _to_check(chk, dept: str) -> CheckResult:
 def _evidence_resolver(replies: list[DeptReplyIn]):
     """회신이 제출한 evidence 로 `{(ref_id, claim): value}` 를 만든다.
 
-    ★ 소스 DB 재조회 계층이 아니므로 값의 진위는 회신을 신뢰한다. Critic 은 근거의
-      구조·바인딩(ref_id 존재, 대조 대상 존재)을 검증한다.
+    소스 DB 재조회 계층이 아니므로 값의 진위는 회신을 신뢰한다. Critic 은 근거의
+    구조·바인딩(ref_id 존재, 대조 대상 존재)을 검증한다.
 
-    🔴 **키에 `claim` 이 반드시 들어간다.** 전에는 `{ref_id: value}` 였는데, ref_id
-      하나가 여러 주장을 뒷받침하는 것이 **정상**이라 두 번째 주장부터 **첫 주장의 값과
-      비교**됐다.
+    키에 `claim` 이 반드시 들어간다. ref_id 하나가 여러 주장을 뒷받침하는 것이
+    정상이라, `ref_id` 만 키로 쓰면 두 번째 주장부터 첫 주장의 값과 비교된다.
 
     ```text
     DB:logistics_runtime_fixture/... 를 셋이 함께 가리킨다
@@ -122,7 +121,7 @@ def _evidence_resolver(replies: list[DeptReplyIn]):
       cap_by_date        18       → 363.28 과 비교되어 불일치로 보고
     ```
 
-    실측(2026-08-29)에서 이 거짓 양성 3건 때문에 **통과안 3개가 반려**됐다.
+    2026-08-29 측정에서 이 거짓 양성 3건 때문에 통과안 3개가 반려됐다.
     같은 주장을 같은 근거로 두 값으로 내는 진짜 모순은 여전히 잡힌다.
     """
     mapping: dict[tuple[str, str], float] = {}
@@ -131,14 +130,14 @@ def _evidence_resolver(replies: list[DeptReplyIn]):
             for e in chk.evidences:
                 for rid in e.ref_ids:
                     mapping.setdefault((rid, e.claim), e.value)
-    # ★ 이 배선에서는 L2 가 묻는 (ref_id, claim) 이 **항상 여기 있다** — 대조표를 같은
-    #   evidences 로 만들기 때문이다. `None` 은 다른 resolver 가 주입됐을 때만 의미가
-    #   있고, 그때는 "지어낸 근거" 가 맞다.
+    # 이 연결에서는 L2 가 묻는 (ref_id, claim) 이 항상 여기 있다 — 대조표를 같은
+    # evidences 로 만들기 때문이다. `None` 은 다른 resolver 가 주입됐을 때만 의미가
+    # 있고, 그때는 "지어낸 근거" 가 맞다.
     return lambda ref_id, claim: mapping.get((ref_id, claim))
 
 
 def _to_reply(reply: DeptReplyIn, as_of) -> T2Reply:
-    # ★ Critic 은 회신 as_of 로 스냅샷 바인딩을 대조한다. 요청 as_of 로 맞춘다.
+    # Critic 은 회신 as_of 로 스냅샷 바인딩을 대조한다. 요청 as_of 로 맞춘다.
     return T2Reply(
         dept=reply.dept,
         as_of=as_of,
@@ -167,7 +166,7 @@ def _to_scenario(scenario: ScenarioIn) -> MinimalScenario:
             offset_days=leg.offset_days,
             qty_kg=leg.qty_kg,
             expected_arrival_date=leg.expected_arrival_date,
-            # ★ 실려 있으면 넘긴다. 없으면 None 그대로다 - 여기서 만들지 않는다.
+            # 실려 있으면 넘긴다. 없으면 None 그대로다 - 여기서 만들지 않는다.
             amount_krw=leg.amount_krw,
         )
         for leg in scenario.split_plan
@@ -205,14 +204,16 @@ def _dept_meta(req) -> dict:
 
 
 def _rationale(req: CriticProcurementRequest | CriticSalesRequest) -> str:
-    """L5 가 검사할 **결정 근거**.
+    """L5 가 검사할 결정 근거.
 
-    ★ 부서 회신(`reasoning`)을 쓰면 안 된다. 부서 문장은 클리핑 **이전**에 작성되므로
-      클리핑 후에야 정해지는 binding_constraints 를 언급할 수 없고, 그것을 누락으로
-      판정하면 정상 실행마다 E-LOGIC CONCERN 이 붙어 소음이 된다 (실측 확인).
+    부서 회신(`reasoning`)을 쓰면 안 된다. 부서 문장은 클리핑 이전에 작성되므로
+    클리핑 후에야 정해지는 binding_constraints 를 언급할 수 없고, 그것을 누락으로
+    판정하면 정상 실행마다 E-LOGIC CONCERN 이 붙어 소음이 된다 (측정으로 확인).
 
-      검사 대상은 오케 selector 가 쓴 문장(`rationale_per_id[선택안]`)이며 요청으로 받는다.
-      Critic 은 설명문을 만들지 않는다 — 미제출이면 검사할 것이 없으므로 skipped 다.
+    검사 대상은 선택안을 고른 쪽이 쓴 결정 근거 문장이며 요청의 `rationale` 로 받는다.
+    Critic 은 설명문을 만들지 않는다 — 미제출이면 검사할 것이 없으므로 skipped 다.
+    마스터 판단 경로(`adapters/critic_bridge.py`)는 그 문장을 쓰는 단계가 없어 빈
+    문자열을 보낸다.
     """
     return req.rationale.strip()
 
@@ -225,8 +226,8 @@ def _verdict_out(
 ) -> CriticVerdictOut:
     """결정론 판정 + LLM 상태를 합쳐 응답으로 만든다.
 
-    ⚠️ `skipped`(미검사 항목·coverage)와 `llm_status`(LLM 호출 결과)는 다른 것이다.
-      L5 가 안 돌면 둘 다 나타난다 — 감추지 않는다 (설계서 §8).
+    주의: `skipped`(미검사 항목·coverage)와 `llm_status`(LLM 호출 결과)는 다른 것이다.
+    L5 가 안 돌면 둘 다 나타난다 — 감추지 않는다 (설계서 §8).
     """
     llm_fields: dict = {}
     if judge is not None and judge.result is not None:

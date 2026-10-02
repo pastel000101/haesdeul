@@ -1,7 +1,6 @@
 """재고 원장 SQL — Lot 잔량 잠금 · 읽기 · 기존 Move/Line · INSERT · 잔량 UPDATE.
 
-★ 2026-09-30 재구성 BL-015: `logistics/ledger.py` 에서 옮겼다. 받은 연결로 실행만 하고 commit 하지
-  않는다.
+받은 연결로 실행만 하고 commit 하지 않는다.
 """
 
 from __future__ import annotations
@@ -26,26 +25,26 @@ def lock_lot_row(
 ) -> tuple[Decimal, Decimal]:
     """대상 Lot 을 잠그고 (현재 잔량, 최초 수량)을 읽는다.
 
-    ★ **이 모듈의 동시성 방어는 잠금 둘이 나눠 맡는다.**
+    이 모듈의 동시성 방어는 잠금 둘이 나눠 맡는다.
 
     ```text
     lock_ledger_writes()   원장 쓰기 전체를 전역으로 직렬화한다 (advisory xact lock)
     여기의 FOR UPDATE       수량을 바꾸는 그 Lot 행을 잡아 둔다
     ```
 
-    🔴 **둘 다 바깥 트랜잭션이 끝날 때까지 풀리지 않는다.** 그래서 잠금 순서가
-       **원장 잠금 → Lot 행** 한 방향으로 고정되어야 하고, 이 함수는 원장 잠금을 이미
-       쥔 뒤에만 불린다 (`record_inventory_move` 의 ② → ④).
+    잠금 순서: 둘 다 바깥 트랜잭션이 끝날 때까지 풀리지 않는다. 그래서 잠금 순서가
+    원장 잠금 → Lot 행 한 방향으로 고정되어야 하고, 이 함수는 원장 잠금을 이미 쥔
+    뒤에만 불린다(`service/ledger.py` 의 `record_inventory_move` 의 ② → ④).
 
-    ⚠️ **전역 직렬화가 있으니 이 행 잠금이 남아도는 것은 아니다.** 원장 잠금은 이 모듈을
-       지나는 쓰기만 세우고, `inventory_lots` 는 원장 밖에서도 갱신될 수 있는 표다
-       (`database/seed/demo/mvp_demo_remove_pimanul.sql` 같은 직접 UPDATE 가 실제로 있었다).
-       행 잠금이 없으면 그런 경로와 겹칠 때 두 쪽이 같은 잔량을 읽고 각자 빼서, 각각은
-       검사를 통과하는데 합쳐 놓으면 음수가 된다 — DB CHECK 이 마지막에 잡더라도 그때는
-       어느 쪽이 틀렸는지 알 수 없다.
+    전역 직렬화가 있다고 이 행 잠금이 남아도는 것은 아니다. 원장 잠금은 이 모듈을
+    지나는 쓰기만 세우고, `inventory_lots` 는 원장 밖에서도 갱신될 수 있는 표다
+    (`database/seed/demo/mvp_demo_remove_pimanul.sql` 같은 직접 UPDATE 가 있다).
+    행 잠금이 없으면 그런 경로와 겹칠 때 두 쪽이 같은 잔량을 읽고 각자 빼서, 각각은
+    검사를 통과하는데 합쳐 놓으면 음수가 된다 — DB CHECK 이 마지막에 잡더라도 그때는
+    어느 쪽이 틀렸는지 알 수 없다.
 
-    ★ `sim_run_id` 를 조건에 넣는다 — 잔량을 바꾸는 쪽은 *"어느 실행의 장부인가"* 를
-      알고 부른다 (`transition.persist_inventory` 의 WHERE 와 같은 규율).
+    `sim_run_id` 를 조건에 넣는다 — 잔량을 바꾸는 쪽은 "어느 실행의 장부인가" 를
+    알고 부른다(`service/transition.py` 의 `persist_inventory` 의 WHERE 와 같은 규율).
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -72,10 +71,10 @@ def lock_lot_row(
 def select_current_remaining(
     conn: Any, *, lot_id: str, sim_run_id: str
 ) -> Decimal:
-    """Lot 잔량을 **읽기만** 한다. 멱등 재시도가 현재값을 돌려줄 때 쓴다.
+    """Lot 잔량을 읽기만 한다. 멱등 재시도가 현재값을 돌려줄 때 쓴다.
 
-    ★ `FOR UPDATE` 를 걸지 않는다 — 이 경로는 아무것도 바꾸지 않는다. 바꾸지 않는데
-      행 잠금을 잡으면 교착이 날 수 있는 면적만 넓어진다.
+    `FOR UPDATE` 를 걸지 않는다 — 이 경로는 아무것도 바꾸지 않는다. 바꾸지 않는데
+    행 잠금을 잡으면 교착이 날 수 있는 면적만 넓어진다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -101,8 +100,8 @@ def select_current_remaining(
 def select_existing_move(conn: Any, *, move_id: str) -> dict[str, Any] | None:
     """같은 `move_id` 가 이미 있으면 그 사실들을 돌려준다.
 
-    ★ 새 멱등 컬럼을 만들지 않았다 — `inventory_moves_pkey` 가 이미 `move_id` 라
-      그 하나로 *"같은 건인가"* 를 물을 수 있다. 마이그레이션이 필요 없다.
+    멱등: 별도 멱등 컬럼이 없다 — `inventory_moves_pkey` 가 이미 `move_id` 라
+    그 하나로 "같은 건인가" 를 물을 수 있다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -128,9 +127,9 @@ def select_existing_move_lines(
 ) -> list[tuple[Any, ...]]:
     """이미 있는 Move 의 Line 사실들.
 
-    ★ **중복 판정에 걸렸을 때만 읽는다.** 정상 경로(새 Move)는 이 조회를 지나지 않는다.
-    ★ `ORDER BY` 를 걸지 않는다 — 순서는 업무 사실이 아니라서 multiset 으로 대조한다
-      (`assert_same_move_lines`). 정렬해도 결과가 같으니 DB 에 일을 시키지 않는다.
+    중복 판정에 걸렸을 때만 읽는다. 정상 경로(새 Move)는 이 조회를 지나지 않는다.
+    `ORDER BY` 를 걸지 않는다 — 순서는 업무 사실이 아니라서 multiset 으로 대조한다
+    (`assert_same_move_lines`). 정렬해도 결과가 같으니 DB 에 일을 시키지 않는다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -155,8 +154,8 @@ def insert_move(
 ) -> None:
     """원장 Header 한 줄.
 
-    ★ `ON CONFLICT` 를 쓰지 않는다 — 중복은 위에서 이미 사실 대조로 가렸다.
-      여기서 조용히 넘기면 *"같은 id 인데 다른 사실"* 이 통과한다.
+    `ON CONFLICT` 를 쓰지 않는다 — 중복은 위에서 이미 사실 대조로 가렸다.
+    여기서 조용히 넘기면 "같은 id 인데 다른 사실" 이 통과한다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -193,10 +192,10 @@ def insert_move_line(
 ) -> None:
     """Pallet 단위 내역 한 줄.
 
-    ★ `lot_id` 는 Header 의 것을 그대로 쓴다 — 호출자가 따로 주지 않는다.
-      복합 FK 둘(`fk_move_lines_move_lot` · `fk_move_lines_pallet_lot`)이 Line 의 Lot 을
-      Header·Pallet 과 일치시키는데, 호출자가 다른 Lot 을 넣을 수 있게 두면
-      그 제약에 걸리는 것이 **업무 실수가 아니라 API 실수**가 된다.
+    `lot_id` 는 Header 의 것을 그대로 쓴다 — 호출자가 따로 주지 않는다.
+    복합 FK 둘(`fk_move_lines_move_lot` · `fk_move_lines_pallet_lot`)이 Line 의 Lot 을
+    Header·Pallet 과 일치시키는데, 호출자가 다른 Lot 을 넣을 수 있게 두면
+    그 제약에 걸리는 것이 업무 실수가 아니라 API 실수가 된다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
@@ -222,16 +221,16 @@ def update_lot_remaining(
 ) -> None:
     """Lot 잔량을 반영값으로 놓는다.
 
-    ★ `status` 를 건드리지 않는다 — 잔량이 0 이 돼도 `DEPLETED` 로 바꾸지 않고,
-      IN 이 들어와도 `ACTIVE` 로 되돌리지 않는다. 상태 결정은 입고·출고 단계 소유다
-      (미결 사항으로 보고했다).
+    `status` 를 건드리지 않는다 — 잔량이 0 이 돼도 `DEPLETED` 로 바꾸지 않고,
+    IN 이 들어와도 `ACTIVE` 로 되돌리지 않는다. 상태 결정은 입고·출고 단계 소유다
+    (미결 사항이다).
 
-      ⚠️ 그래도 기존 Agent 계약은 깨지지 않는다 —
+      그래도 Agent 계약은 깨지지 않는다 —
       `readmodel/current.get_current_logistics_read()` 가 `remaining_qty_kg > 0` 으로 거르므로
       잔량 0 인 Lot 은 status 와 무관하게 Snapshot 에서 빠진다.
 
-    ★ `rowcount` 를 본다. 잠글 때 있던 행이라 0 이 나올 수 없지만, 나오면 잠금 조건과
-      쓰기 조건이 갈렸다는 뜻이라 조용히 지나가면 안 된다.
+    `rowcount` 를 본다. 잠글 때 있던 행이라 0 이 나올 수 없지만, 나오면 잠금 조건과
+    쓰기 조건이 갈렸다는 뜻이라 조용히 지나가면 안 된다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:

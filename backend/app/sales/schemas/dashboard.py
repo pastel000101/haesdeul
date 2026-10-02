@@ -1,7 +1,4 @@
-"""판매 현황(대시보드) 응답 — `readmodel/dashboard.py` 가 채운다.
-
-★ 2026-09-29 BL-013: `sales/schemas.py` 에서 옮겼다.
-"""
+"""판매 현황(대시보드) 응답 — `readmodel/dashboard.py` 가 채운다."""
 
 from datetime import date
 from decimal import Decimal

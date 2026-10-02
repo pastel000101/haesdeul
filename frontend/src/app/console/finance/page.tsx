@@ -3,15 +3,15 @@
 /**
  * 재무 운영 콘솔.
  *
- * 🔴 **legacy `/api/screen/finance` 를 더 이상 부르지 않는다.** 그 계약은 문장·색·표를
- *    미리 만들어 주는 옛 화면용이고, 실행 축(`sim_run_id`)이 없다. 운영 콘솔은
- *    `/api/console/finance/…` 만 쓴다 — 옛 API 자체는 남겨 둔다.
+ * legacy `/api/screen/finance` 를 부르지 않는다. 그 계약은 문장·색·표를 미리 만들어
+ * 주는 옛 화면용이고, 실행 축(`sim_run_id`)이 없다. 운영 콘솔은
+ * `/api/console/finance/…` 만 쓴다 — 옛 API 자체는 남겨 둔다.
  *
- * 🔴 **화면이 숫자를 만들지 않는다.** 합계·연체·마진은 백엔드가 낸 값을 적기만 한다.
+ * 화면이 숫자를 만들지 않는다. 합계·연체·마진은 백엔드가 낸 값을 적기만 한다.
  *
- * ★ **사용자가 먼저 알아야 하는 것을 먼저 놓는다** (2026-09-14). 돈이 얼마나 있고,
- *   앞으로 부족한지, 받을 돈과 줄 돈이 얼마인지가 첫 화면이다. Runtime · Verdict ·
- *   LLM 같은 내부 상태는 **기술 상세 안**으로 내렸다 — 지우지 않고 옮겼다.
+ * 사용자가 먼저 알아야 하는 것을 먼저 놓는다. 돈이 얼마나 있고, 앞으로 부족한지,
+ * 받을 돈과 줄 돈이 얼마인지가 첫 화면이다. Runtime · Verdict · LLM 같은 내부 상태는
+ * 지우지 않고 기술 상세 안에 둔다.
  */
 
 import { useState, useSyncExternalStore } from "react";
@@ -86,14 +86,14 @@ export default function FinancePage() {
 }
 
 /**
- * 기준일까지의 **가장 최근** 일마감.
+ * 기준일까지의 가장 최근 일마감.
  *
- * 🔴 **`at(-1)` 은 가장 오래된 행이다.** 백엔드 `load_recent_closings` 가
- *    `ORDER BY close_date DESC` 로 주기 때문에, 배열 끝을 «마지막 마감» 으로 읽으면
- *    2026-01-26 화면이 2026-01-15 잔액을 적는다 (실측).
+ * 주의: `at(-1)` 은 가장 오래된 행이다. 백엔드 `load_recent_closings` 가
+ * `ORDER BY close_date DESC` 로 주기 때문에, 배열 끝을 «마지막 마감» 으로 읽으면
+ * 2026-01-26 화면이 2026-01-15 잔액을 적는다 (실측).
  *
- * ★ 순서 계약을 믿고 `[0]` 을 쓰는 대신 **날짜로 고른다.** 정렬이 바뀌는 날에도
- *   이 화면은 틀리지 않는다. 미래 마감은 애초에 고르지 않는다.
+ * 순서 계약을 믿고 `[0]` 을 쓰는 대신 날짜로 고른다. 정렬이 바뀌는 날에도
+ * 이 화면은 틀리지 않는다. 미래 마감은 애초에 고르지 않는다.
  */
 function latestClosing(rows: ClosingItem[] | undefined, asOf: string): ClosingItem | null {
   if (!rows || rows.length === 0) return null;
@@ -142,7 +142,7 @@ function Overview({ simRun, asOf, onTab }: { simRun: string; asOf: string; onTab
     true,
   );
   const state = summary.data?.states[0];
-  //  🔴 배열 끝이 아니라 **날짜로** 고른다 — 백엔드가 최신부터 주기 때문이다.
+  //  배열 끝이 아니라 날짜로 고른다 — 백엔드가 최신부터 주기 때문이다.
   const closing = latestClosing(summary.data?.recent_closings, asOf);
 
   return (
@@ -159,7 +159,7 @@ function Overview({ simRun, asOf, onTab }: { simRun: string; asOf: string; onTab
           <EmptyRows what="재무 상태" />
         ) : (
           <>
-            {/* 🔴 **두 기준일을 한 줄에 섞지 않는다.** 재무 상태와 일마감은 서로 다른
+            {/* 두 기준일을 한 줄에 섞지 않는다. 재무 상태와 일마감은 서로 다른
                 날짜를 가질 수 있고, 사용자는 같은 시점 숫자로 읽는다. 묶음을 나누고
                 각 묶음이 어느 날짜의 값인지 제목에 적는다. */}
             <BasisGroup title="재무 상태" basis={state.state_date}>
@@ -253,10 +253,10 @@ function Overview({ simRun, asOf, onTab }: { simRun: string; asOf: string; onTab
 }
 
 /**
- * 같은 기준일을 공유하는 숫자 묶음. **날짜를 묶음 제목에 적는다.**
+ * 같은 기준일을 공유하는 숫자 묶음. 날짜를 묶음 제목에 적는다.
  *
- * ⚠️ 지표마다 작은 글씨로 날짜를 붙이면 사용자는 그것을 «부가 설명» 으로 읽고 넘긴다.
- *   기준일이 다른 숫자를 한 줄에 섞지 않는 것이 목적이라, 묶음 자체를 나눈다.
+ * 지표마다 작은 글씨로 날짜를 붙이면 사용자는 그것을 «부가 설명» 으로 읽고 넘긴다.
+ * 기준일이 다른 숫자를 한 줄에 섞지 않는 것이 목적이라, 묶음 자체를 나눈다.
  */
 function BasisGroup({
   title,
@@ -280,8 +280,8 @@ function BasisGroup({
 /**
  * 현금이 최소 운영현금 위인지 아래인지 한 문장으로 말한다.
  *
- * 🔴 **여유를 화면이 빼서 만들지 않는다.** `operating_cash_buffer_krw` 가 백엔드
- *    정본이고, 여기서는 그 값의 **부호만** 읽어 문장을 고른다.
+ * 여유를 화면이 빼서 만들지 않는다. `operating_cash_buffer_krw` 가 백엔드
+ * 정본이고, 여기서는 그 값의 부호만 읽어 문장을 고른다.
  */
 function CashBufferNote({
   cash,
@@ -319,10 +319,10 @@ function CashBufferNote({
 }
 
 /**
- * Finance Agent 카드 — **사용자 문장이 먼저, 원본 값은 접기 안.**
+ * Finance Agent 카드 — 사용자 문장이 먼저, 원본 값은 접기 안.
  *
- * 🔴 Runtime 은 *"돌 수 있었나"*, Verdict 는 *"업무 판정이 무엇인가"* 다. 합치면
- *    «판정 없음» 과 «못 돌았음» 이 같은 칸이 된다 — 그래서 **문장도 두 줄**이다.
+ * Runtime 은 "돌 수 있었나", Verdict 는 "업무 판정이 무엇인가" 다. 합치면
+ * «판정 없음» 과 «못 돌았음» 이 같은 칸이 된다 — 그래서 문장도 두 줄이다.
  */
 function AgentCard({
   state,
@@ -343,14 +343,14 @@ function AgentCard({
             <Metric label="판단 결과" value={verdictText(state.data.verdict)} />
             <Metric label="조회 상태" value={runtimeText(state.data.runtime_status)} />
           </div>
-          {/* 🔴 **화면 위의 데이터 기준일과 다른 축이다.** 이 카드는 실행 전체에서 가장
+          {/* 화면 위의 데이터 기준일과 다른 축이다. 이 카드는 실행 전체에서 가장
               최근 판단을 읽으므로, 날짜만 작게 붙여 두면 사용자가 같은 기준일로 읽는다. */}
           <p className="mb-0 mt-2 text-[15.5px] text-ink2">
             이 실행에서 가장 최근에 내려진 판단이며, 판단 기준일은{" "}
             <b className="text-ink tabular-nums">{state.data.as_of}</b> 입니다 - 화면 위의 데이터
             기준일과 다를 수 있습니다.
           </p>
-          {/* ⚠️ 실행별 LLM 설명은 저장되지 않는다. 없으면 없다고 적고 지어내지 않는다. */}
+          {/* 실행별 LLM 설명은 저장되지 않는다. 없으면 없다고 적고 지어내지 않는다. */}
           {state.data.interpretation && (
             <p className="mb-0 mt-3 text-[16px] leading-relaxed text-ink2">
               {state.data.interpretation}
@@ -385,11 +385,11 @@ function AgentCard({
 }
 
 /**
- * 결정론 결과를 **key/value 표**로 편다.
+ * 결정론 결과를 key/value 표로 편다.
  *
- * 🔴 **`JSON.stringify` 로 통째로 뱉지 않는다.** 실제로 어떤 키가 오는지는 실행마다
- *    다르고 계약도 없다(`Record<string, unknown>`). 그래서 **키를 지어내 골라내지도
- *    않는다** — 온 것을 이름과 값으로 편평하게 적고, 객체는 접어 둔다.
+ * `JSON.stringify` 로 통째로 뱉지 않는다. 실제로 어떤 키가 오는지는 실행마다
+ * 다르고 계약도 없다(`Record<string, unknown>`). 그래서 키를 지어내 골라내지도
+ * 않는다 — 온 것을 이름과 값으로 편평하게 적고, 객체는 접어 둔다.
  */
 function DeterministicRows({ result }: { result: Record<string, unknown> | null }) {
   if (!result) {
@@ -419,7 +419,7 @@ function scalar(value: unknown): string {
 
 /* ── 자금 흐름 ─────────────────────────────────────────────────────────── */
 
-/** 볼 수 있는 기간. **백엔드 상한(400일) 안에서만 고른다.** */
+/** 볼 수 있는 기간. 백엔드 상한(400일) 안에서만 고른다. */
 const RANGES = [
   { key: 30, label: "30일" },
   { key: 90, label: "90일" },
@@ -474,7 +474,7 @@ function Cashflow({ simRun, asOf }: { simRun: string; asOf: string }) {
       </Panel>
 
       <Panel title="돈이 어디서 들어오고 나갔나" subtitle="같은 일마감 행의 유입·유출 칸입니다">
-        {/* 🔴 **위 패널과 같은 조회다.** 실패했는데 여기서 «0건» 을 띄우면 같은 사고가
+        {/* 위 패널과 같은 조회다. 실패했는데 여기서 «0건» 을 띄우면 같은 사고가
             한 화면에서 오류와 빈 데이터로 갈려 보인다 — 순서는 loading, error,
             empty, success 로 고정한다. */}
         {state.loading ? (
@@ -502,10 +502,10 @@ function Cashflow({ simRun, asOf }: { simRun: string; asOf: string }) {
               { key: "date", label: "마감일", mono: true, render: (row) => row.close_date },
               { key: "out", label: "매입대금", align: "right", render: (row) => moneyWon(row.purchase_cash_out_krw) },
               { key: "log", label: "물류비", align: "right", render: (row) => moneyWon(row.logistics_cash_out_krw) },
-              //  🔴 그래프가 다루는 칸은 표에도 있어야 한다. 빠지면 그래프의 한 줄을
+              //  그래프가 다루는 칸은 표에도 있어야 한다. 빠지면 그래프의 한 줄을
               //     상세에서 되짚을 수 없다.
               { key: "pay", label: "급여·이자", align: "right", render: (row) => moneyWon(row.payroll_interest_cash_out_krw) },
-              //  🔴 기록하지 않은 날을 0원으로 적지 않는다 — 두 사실이 다르다.
+              //  기록하지 않은 날을 0원으로 적지 않는다 — 두 사실이 다르다.
               {
                 key: "ope",
                 label: "운영비",
@@ -521,7 +521,7 @@ function Cashflow({ simRun, asOf }: { simRun: string; asOf: string }) {
               { key: "loan", label: "대출 포함 잔액", align: "right", render: (row) => moneyWon(row.loan_cash_balance_krw) },
               {
                 key: "min",
-                //  ⚠️ 최소 운전자금은 없을 수 있다. 0 으로 적으면 «한도 0» 으로 읽힌다.
+                //  주의: 최소 운전자금은 없을 수 있다. 0 으로 적으면 «한도 0» 으로 읽힌다.
                 label: "최소 운영현금",
                 align: "right",
                 render: (row) => moneyWon(row.minimum_operating_cash_krw),
@@ -550,7 +550,7 @@ function Receivables({ simRun, asOf }: { simRun: string; asOf: string }) {
   if (state.error) return <Failed what="받을 돈" message={state.error} />;
   if (!state.data) return <EmptyRows what="받을 돈" />;
   const data = state.data;
-  //  🔴 **지금 받을 돈과 이미 받은 돈을 가른다.** 둘을 한 표에 두면 «받을 돈 0원» 이라고
+  //  지금 받을 돈과 이미 받은 돈을 가른다. 둘을 한 표에 두면 «받을 돈 0원» 이라고
   //     적은 화면 아래에 수금 완료 행이 잔뜩 남아 모순처럼 보인다. 지우는 것이 아니라
   //     아래 이력으로 옮긴다.
   const open = data.rows.filter((row) => (toNumber(row.outstanding_amount_krw) ?? 0) > 0);
@@ -650,7 +650,7 @@ function Payables({ simRun, asOf }: { simRun: string; asOf: string }) {
   if (state.error) return <Failed what="줄 돈" message={state.error} />;
   if (!state.data) return <EmptyRows what="줄 돈" />;
   const data = state.data;
-  //  🔴 **잔액이 남은 것과 정산이 끝난 것을 가른다.** 끝난 건에 «64일 초과» 를 붙이면
+  //  잔액이 남은 것과 정산이 끝난 것을 가른다. 끝난 건에 «64일 초과» 를 붙이면
   //     사용자는 지금 연체된 돈으로 읽는다 — 잔액은 0이고 이미 낸 돈이다.
   const open = data.rows.filter((row) => (toNumber(row.outstanding_amount_krw) ?? 0) > 0);
   const done = data.rows.filter((row) => (toNumber(row.outstanding_amount_krw) ?? 0) <= 0);
@@ -720,7 +720,7 @@ function Payables({ simRun, asOf }: { simRun: string; asOf: string }) {
               { key: "status", label: "상태", render: (row) => payableStatusText(row.status) },
             ]}
           />
-          {/* ⚠️ 며칠 늦게 정산됐는지는 업무상 필요할 수 있지만 기본 화면의 «연체» 와
+          {/* 며칠 늦게 정산됐는지는 업무상 필요할 수 있지만 기본 화면의 «연체» 와
               같은 자리에 두지 않는다. 지금 밀린 돈이 아니다. */}
           <div className="mt-3">
             <TechDetails summary="정산 지연 일수">
@@ -754,9 +754,10 @@ function Payables({ simRun, asOf }: { simRun: string; asOf: string }) {
 /**
  * 비용 탭.
  *
- * 🔴 **«아직 안 나간 돈» 과 «이미 나간 돈» 을 한 숫자로 합치지 않는다.** 예전에는
- *    «누적 비용» 한 칸뿐이라 취소한 비용까지 그 안에 있었다 — 나가지 않기로 한 돈이
- *    섞인 숫자로는 아무 판단도 못 한다. 합계는 모두 백엔드가 센 값이다.
+ * «아직 안 나간 돈» 과 «이미 나간 돈» 을 한 숫자로 합치지 않는다. «누적 비용» 한
+ * 칸만 두면 취소한 비용까지 그 안에 든다 — 나가지 않기로 한 돈이 섞인 숫자로는 아무
+ * 판단도 못 한다. 그래서 지급 예정 · 지급 완료 · 취소됨을 따로 적는다. 합계는 모두
+ * 백엔드가 센 값이다.
  */
 function Expenses({ simRun, asOf }: { simRun: string; asOf: string }) {
   const [reloadKey, setReloadKey] = useState(0);
@@ -765,7 +766,7 @@ function Expenses({ simRun, asOf }: { simRun: string; asOf: string }) {
     () => financeConsole.expenses(simRun, asOf),
     true,
   );
-  //  ★ 지급은 그 기준일 장부의 현금을 줄인다 — 어느 장부인지 사용자가 골라야 한다.
+  //  지급은 그 기준일 장부의 현금을 줄인다 — 어느 장부인지 사용자가 골라야 한다.
   const summary = useConsoleData<FinanceSummaryResponse>(
     `sum-for-exp:${simRun}:${asOf}`,
     () => financeConsole.summary(simRun, asOf),
@@ -827,7 +828,7 @@ function Expenses({ simRun, asOf }: { simRun: string; asOf: string }) {
           <Table
             rows={data.rows}
             columns={[
-              //  ★ 공용 표는 글자만 받는다. 색 있는 표시는 지급 대기 목록이 맡는다 —
+              //  공용 표는 글자만 받는다. 색 있는 표시는 지급 대기 목록이 맡는다 —
               //    공용 컴포넌트 계약을 이 화면 하나 때문에 넓히지 않는다.
               { key: "state", label: "상태", render: (row) => expenseStatusText(row.status) },
               { key: "cat", label: "분류", render: (row) => row.display_category },
@@ -860,9 +861,9 @@ const CATEGORY_COLORS = [
 /* ── 차입 ─────────────────────────────────────────────────────────────── */
 
 /**
- * 🔴 **차입 상세 원장이 없다.** authoritative 값은 `finance_states.current_debt_krw`
- *    수준이고, `loan_id` · 이자율 · 실행일 · 만기 · 상환 일정은 **저장소에 없다.**
- *    화면이 그것을 만들면 존재하지 않는 대출이 보고서에 실린다.
+ * 차입 상세 원장이 없다. authoritative 값은 `finance_states.current_debt_krw`
+ * 수준이고, `loan_id` · 이자율 · 실행일 · 만기 · 상환 일정은 저장소에 없다.
+ * 화면이 그것을 만들면 존재하지 않는 대출이 보고서에 실린다.
  */
 function Loans({ simRun, asOf }: { simRun: string; asOf: string }) {
   const summary = useConsoleData<FinanceSummaryResponse>(
@@ -885,9 +886,9 @@ function Loans({ simRun, asOf }: { simRun: string; asOf: string }) {
           </Metrics>
         )}
       </Panel>
-      {/* 🔴 공용 `Unsupported` 는 «UNSUPPORTED» 를 화면에 찍는다. 뜻은 같지만 사용자
-          화면에 내부 상태 이름을 남기지 않으려고 같은 내용을 문장으로 적는다.
-          공용 컴포넌트는 이번 판의 수정 범위 밖이라 고치지 않고 쓰지 않는다. */}
+      {/* 공용 `Unsupported` 는 «UNSUPPORTED» 를 화면에 찍는다. 뜻은 같지만 사용자
+          화면에 내부 상태 이름을 남기지 않으려고, 공용 컴포넌트를 쓰지 않고 같은
+          내용을 문장으로 적는다. */}
       <Panel title="차입 상세">
         <p className="m-0 text-[16px] leading-relaxed text-ink2">
           대출 건별 이자율·실행일·만기·상환 일정은 아직 기록되지 않습니다. 없는 값을 화면이
@@ -927,7 +928,7 @@ function Runs({ simRun }: { simRun: string }) {
         <Table
           rows={data.rows}
           columns={[
-            //  🔴 **«기준일» 이라고 부르지 않는다.** 화면 위의 데이터 기준일과 같은 말로
+            //  «기준일» 이라고 부르지 않는다. 화면 위의 데이터 기준일과 같은 말로
             //     읽히지만, 이 값은 그 판단이 어느 날짜를 두고 내려졌는지다.
             { key: "as_of", label: "판단 기준일", mono: true, render: (row) => row.as_of },
             {

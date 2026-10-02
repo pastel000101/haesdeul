@@ -1,9 +1,6 @@
 """판매 에이전트 실행이력 — `GET /sales/runs` · `GET /sales/runs/{run_id}`.
 
 HTTP 만: 조회는 `sales/readmodel/runs.py` 가 한다.
-
-★ 2026-09-30 재구성 BL-019: `app/sales/router.py` 에서 옮겼다 — 핸들러 이름 · docstring(OpenAPI
-  설명) · URL · 상태 코드 · 문구 그대로.
 """
 
 from datetime import date

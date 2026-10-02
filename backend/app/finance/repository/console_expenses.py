@@ -1,7 +1,4 @@
-"""운영 콘솔 운영비 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_expenses.py` 에서 옮겼다(문면 그대로).
-"""
+"""운영 콘솔 운영비 SQL."""
 
 from datetime import date
 from typing import Any
@@ -24,9 +21,9 @@ def load_console_expenses(
 ) -> list[dict[str, object]]:
     """Expense rows for one run.  `as_of` is the ceiling the run has reached.
 
-    ★ **발생일로 자른다.** `as_of` 는 그 실행이 도달한 날이고, 그날까지 «생긴» 비용을
-      보여 준다 — 지급 예정일이 그 뒤인 `ACCRUED` 도 포함이다. 앞으로 나갈 돈을 화면에서
-      빼면 이 칸을 만든 이유가 없어진다.
+    발생일로 자른다. `as_of` 는 그 실행이 도달한 날이고, 그날까지 «생긴» 비용을 보여 준다 —
+    지급 예정일이 그 뒤인 `ACCRUED` 도 포함이다. 앞으로 나갈 돈을 화면에서 빼면 이 칸을 만든
+    이유가 없어진다.
     """
     schema = get_db_schema()
     conditions: list[sql.Composable] = [

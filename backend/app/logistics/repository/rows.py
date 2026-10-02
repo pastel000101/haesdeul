@@ -1,22 +1,18 @@
 """물류 repository 의 공용 도우미 — 스키마 이름 · 행 읽기.
 
-★ 2026-09-30 재구성 BL-015: 모듈마다 손으로 복제돼 있던 도우미를 모았다.
-
   ```text
-  get_db_schema      logistics/db.py — `.env` 를 프로세스에서 한 번만 적재한다
-  schema_identifier  `_schema()` 네 벌 (console_service · historical_repository ·
-                     inbound_schedules · monitoring/exceptions)
-  cell               `_cell()` 열한 벌 — Mapping 판정 8 · dict 판정 3
-                     (행이 dict 나 튜플이면 결과 같다)
-  dict_rows          `_rows()` 다섯 벌 — 행을 dict 로 편다
-  named_rows         `outbound._rows()` — 칸 이름 목록으로 편다(튜플 행도 읽는다)
+  get_db_schema      `.env` 를 프로세스에서 한 번만 적재하고 스키마 이름을 읽는다
+  schema_identifier  스키마 이름을 SQL 식별자로
+  cell               행 한 칸 — 매핑이면 이름으로, 아니면 순서로
+  dict_rows          행을 dict 로 편다
+  named_rows         칸 이름 목록으로 편다(튜플 행도 읽는다)
   ```
 
-  예외 종류 · 문구가 모듈마다 다른 `_quantity` · `_require_text` · `_one` 류는 합치지 않았다 —
-  같은 이름이어도 규약(어느 실패로 멈추나 · 0 이하를 받나)이 갈린다.
+예외 종류 · 문구가 모듈마다 다른 `_quantity` · `_require_text` · `_one` 류는 여기로 합치지
+않는다 — 같은 이름이어도 규약(어느 실패로 멈추나 · 0 이하를 받나)이 갈린다.
 
-★ 행 모양을 강요하지 않는다. 공통 풀은 연결을 `dict_row` 로 만들지만 검사 대역은 튜플 행을 주기도
-  한다 — `cell` · `named_rows` 는 둘 다 읽는다(종전 `_cell` 과 같다).
+행 모양을 강요하지 않는다. 공통 풀은 연결을 `dict_row` 로 만들지만 검사 대역은 튜플 행을 주기도
+한다 — `cell` · `named_rows` 는 둘 다 읽는다.
 """
 
 from collections.abc import Mapping, Sequence
@@ -28,12 +24,11 @@ from app.core import settings
 
 
 def get_db_schema() -> str:
-    """물류 SQL 이 쓸 스키마 이름. `.env` 는 프로세스에서 **한 번만** 적재하고 값은 매번 읽는다.
+    """물류 SQL 이 쓸 스키마 이름. `.env` 는 프로세스에서 한 번만 적재하고 값은 매번 읽는다.
 
-    ★ 종전 `logistics/db.py` 의 동작 그대로다 — 대시보드 한 요청에 스키마 이름을 550번 읽으며 매번
-      `.env` 를 파싱해 7.8초를 쓴 일이 있어 물류만 한 번 적재한다
-      (`core/settings.load_env_file_once`).
-      적재 뒤 값은 환경변수에서 매번 읽으므로 검사가 `DB_SCHEMA` 를 바꾸면 그대로 따라간다.
+    대시보드 한 요청에 스키마 이름을 550번 읽으며 매번 `.env` 를 파싱해 7.8초를 쓴 일이 있어
+    물류는 한 번만 적재한다(`core/settings.load_env_file_once`).
+    적재 뒤 값은 환경변수에서 매번 읽으므로 검사가 `DB_SCHEMA` 를 바꾸면 그대로 따라간다.
     """
     return settings.get_db_schema(load=settings.load_env_file_once)
 

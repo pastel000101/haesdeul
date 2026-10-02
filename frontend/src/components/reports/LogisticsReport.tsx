@@ -20,27 +20,27 @@ import {
 } from "./logisticsReportLabels";
 
 /**
- * 재고·물류 운영 보고서 — **창고 운영자가 그대로 읽는 문서.**
+ * 재고·물류 운영 보고서 — 창고 운영자가 그대로 읽는 문서.
  *
- * ★ **화면이 업무 숫자를 만들지 않는다.** 합계·창고 사용량·신선도·회전·예약 상태는 전부
- *   `backend/app/master/report/chat_reports.py::render_logistics_chat_report` 가 기존 재고·물류
- *   read model 에서 낸 값이다. 여기서 다시 세거나 다시 판정하면 화면과 문서가 **다른
- *   숫자**를 말하게 된다 (Finance/Sales 보고서와 같은 규율).
+ * 화면이 업무 숫자를 만들지 않는다. 합계·창고 사용량·신선도·회전·예약 상태는 전부
+ * `backend/app/master/report/chat_reports.py::render_logistics_chat_report` 가 기존 재고·물류
+ * read model 에서 낸 값이다. 여기서 다시 세거나 다시 판정하면 화면과 문서가 다른
+ * 숫자를 말하게 된다 (Finance/Sales 보고서와 같은 규율).
  *
- * 🔴 **내부 ID·영문 상태 코드를 본문에 싣지 않는다.** `LOT-RCPT-…` · `RSV-SI-SALE-…` ·
- *    `PUTAWAY_DONE` · `FEFO_AUTO_SELECTED` · `COLD_DRY_0_1` 은 사람이 읽을 말이 아니다.
- *    추적용으로 facts 에는 그대로 남아 있고 이 컴포넌트가 안 그릴 뿐이다.
+ * 내부 ID·영문 상태 코드를 본문에 싣지 않는다. `LOT-RCPT-…` · `RSV-SI-SALE-…` ·
+ * `PUTAWAY_DONE` · `FEFO_AUTO_SELECTED` · `COLD_DRY_0_1` 은 사람이 읽을 말이 아니다.
+ * 추적용으로 facts 에는 그대로 남아 있고 이 컴포넌트가 안 그릴 뿐이다.
  *
- * 🔴 **`null` 을 0 으로 바꾸지 않는다.** `kg()`·`days()` 는 못 읽은 칸을 「—」로 둔다.
+ * `null` 을 0 으로 바꾸지 않는다. `kg()`·`days()` 는 못 읽은 칸을 「—」로 둔다.
  *
- * ★ **기준일 Snapshot 과 기간 발생 내역을 섞지 않는다.** 재고·Lot·예약은 `as_of` 상태이고
- *   입고 실적과 추이는 `start_date~end_date` 에 일어난 일이다.
+ * 기준일 Snapshot 과 기간 발생 내역을 섞지 않는다. 재고·Lot·예약은 `as_of` 상태이고
+ * 입고 실적과 추이는 `start_date~end_date` 에 일어난 일이다.
  */
 
 /** 본문에 펼치는 최대 행수. 넘치면 «외 N건» 으로 알린다 — 전체 원장을 붓지 않는다. */
 const MAX_ROWS = 10;
 
-/** 표 아래 «외 N건». 🔴 **건수를 추정하지 않는다** — facts 의 total 을 쓴다. */
+/** 표 아래 «외 N건». 건수를 추정하지 않는다 — facts 의 total 을 쓴다. */
 function More({ total, shown }: { total: number; shown: number }) {
   if (!Number.isFinite(total) || total <= shown) return null;
   return <p className="m-0 mt-1 text-[14px] text-[#70857b]">외 {(total - shown).toLocaleString("ko-KR")}건</p>;
@@ -63,16 +63,16 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
   const receiptRollup = rows(inbound.period_receipt_rollup);
   const reservations = rows(outbound.working_reservations);
   const inTransit = rows(inbound.in_transit);
-  // ★ `null`(못 확인)과 `[]`(0건 확인)은 다른 사실이라 문장을 다르게 쓴다.
+  // `null`(못 확인)과 `[]`(0건 확인)은 다른 사실이라 문장을 다르게 쓴다.
   const inTransitUnresolved = inbound.in_transit === null || inbound.in_transit === undefined;
 
   const availableKnown =
     summary.total_available_qty_kg !== null && summary.total_available_qty_kg !== undefined;
-  // 🔴 하루짜리 보고서는 점 하나뿐이라 선을 그리지 않는다 — Snapshot 숫자로 답한다.
+  // 하루짜리 보고서는 점 하나뿐이라 선을 그리지 않는다 — Snapshot 숫자로 답한다.
   const showTrend = summary.trend_is_single_day !== true && trend.length > 1;
 
-  // ★ 운영 확인사항 — **facts 에 이미 있는 값의 단순 사실 비교다.** 새 등급도 KPI 도 아니고
-  //   LLM 도 쓰지 않는다. 숫자는 전부 Backend 가 낸 것을 그대로 읽는다.
+  // 운영 확인사항 — facts 에 이미 있는 값의 단순 사실 비교다. 새 등급도 KPI 도 아니고
+  // LLM 도 쓰지 않는다. 숫자는 전부 Backend 가 낸 것을 그대로 읽는다.
   const notes: string[] = [];
   if (Number(summary.total_unallocated_reserved_qty_kg) > 0) {
     notes.push(`아직 Lot 을 고르지 않은 예약이 ${kg(summary.total_unallocated_reserved_qty_kg)} 남아 있습니다.`);
@@ -100,7 +100,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
           detail={availableKnown ? "예약을 뺀 팔 수 있는 양" : `확인 못 함 — ${label(AVAILABLE_UNRESOLVED_TEXT, summary.available_qty_unresolved_reason, "사유 없음")}`}
         />
         <Metric label="활성 예약 수량" value={kg(summary.total_reserved_qty_kg)} detail={`현재 활성 예약이 요구하는 양 · 미할당 ${kg(summary.total_unallocated_reserved_qty_kg)}`} />
-        {/* 🔴 사용률 %를 화면이 새로 정의하지 않는다 — 원천 값을 그대로 보여준다. */}
+        {/* 사용률 %를 화면이 새로 정의하지 않는다 — 원천 값을 그대로 보여준다. */}
         <Metric label="창고 사용량" value={kg(summary.used_capacity_kg)} detail={`보장 ${kg(summary.guaranteed_capacity_kg)} · 최대 ${kg(summary.burst_capacity_kg)}`} />
       </div>
 
@@ -113,7 +113,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
       <Section title={showTrend ? "기간 재고 추이" : "기준일 재고"}>
         {showTrend
           ? <div className="h-56 rounded-lg border border-[#dbe7e0] p-3">
-              {/* 🔴 빈 날은 0kg 이 아니라 «안 연 날» 이다 — 선을 잇지 않는다. */}
+              {/* 빈 날은 0kg 이 아니라 «안 연 날» 이다 — 선을 잇지 않는다. */}
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trend}>
                   <XAxis dataKey="date" tick={{ fontSize: 14 }} />
@@ -146,7 +146,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
     <ReportChrome title="재고·물류 운영 보고서" subtitle="입고 · 검수" facts={facts} page={2}>
       <p className="m-0 mb-3 text-[15px] text-[#70857b]">창고 도착 전 입고 예정과 검수 진행 상황을 보여줍니다.</p>
       <div className="grid grid-cols-4 gap-3">
-        {/* 🔴 「오늘」이 아니다 — 이 보고서는 과거 `as_of` 도 조회한다 (화면 「기준일」과 같은 말). */}
+        {/* 「오늘」이 아니다 — 이 보고서는 과거 `as_of` 도 조회한다 (화면 「기준일」과 같은 말). */}
         <Metric label="도착 예정" value={`${text(arrival.due_count, "0")}건`} detail={Number(arrival.due_count) > 0 ? "기준일에 받을 수 있는 입고" : "예정된 입고 없음"} />
         <Metric label="도착 지연" value={`${text(arrival.overdue_count, "0")}건`} detail={Number(arrival.overdue_count) > 0 ? "예정일이 지난 입고" : "지연된 입고 없음"} />
         {/* 내부 BLOCKED 를 그대로 쓰지 않는다 — 사람이 읽을 말로만 적는다. */}
@@ -154,7 +154,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
         <Metric label="판정 불가" value={`${text(arrival.unresolved_count, "0")}건`} detail={`입고 상태 확인에 필요한 정보 부족 · 대기 ${text(arrival.not_due_count, "0")}건`} />
       </div>
 
-      {/* ⚠️ 내부 이름은 `in_transit` 이지만 차량 운송이 아니라 **도착 전 물량**이다. */}
+      {/* 내부 이름은 `in_transit` 이지만 차량 운송이 아니라 도착 전 물량이다. */}
       <Section title="입고 예정">
         {inTransitUnresolved || inTransit.length === 0
           ? <Empty>{label(IN_TRANSIT_STATUS_TEXT, inbound.in_transit_status, "예정된 입고 없음")}</Empty>
@@ -164,7 +164,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
                   <td className="px-2 py-2">{text(row.item)}</td>
                   <td>{kg(row.quantity_kg)}</td>
                   <td>{monthDay(row.expected_arrival_date)}</td>
-                  {/* 🔴 날짜를 보고 화면이 정하지 않는다 — Backend 가 준 표시 상태를 옮긴다. */}
+                  {/* 날짜를 보고 화면이 정하지 않는다 — Backend 가 준 표시 상태를 옮긴다. */}
                   <td>{label(ARRIVAL_DISPLAY_STATE_LABEL, row.arrival_display_state)}</td>
                 </tr>)}
               </Table>
@@ -176,7 +176,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
         {receiptRollup.length === 0
           ? <Empty>해당 기간 입고 없음</Empty>
           : <>
-              {/* ★ 원장 한 줄씩이 아니라 「입고일 + 품목」 실적이다 — 내부 Receipt ID 를 싣지 않는다. */}
+              {/* 원장 한 줄씩이 아니라 「입고일 + 품목」 실적이다 — 내부 Receipt ID 를 싣지 않는다. */}
               <Table headers={["입고일", "품목", "입고 건수", "주문량", "합격", "보류", "거절", "검수 결과", "재고 처리"]}>
                 {receiptRollup.slice(0, MAX_ROWS).map((row) => <tr key={`${text(row.arrived_at)}-${text(row.item)}`} className="border-t border-[#e6eee9]">
                   <td className="px-2 py-2">{monthDay(row.arrived_at)}</td>
@@ -187,7 +187,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
                   <td>{kg(row.hold_qty_kg)}</td>
                   <td>{kg(row.rejected_qty_kg)}</td>
                   <td>{verdictText(row.inspection_verdicts, row.inspection_unknown_count)}</td>
-                  {/* 🔴 완료의 형태가 둘이다 — 「반영할 재고 없음」도 정상 완료다 (#805). 세는 것은 Backend 다. */}
+                  {/* 완료의 형태가 둘이다 — 「반영할 재고 없음」도 정상 완료다 (#805). 세는 것은 Backend 다. */}
                   <td>{stockApplyText(row)}</td>
                 </tr>)}
               </Table>
@@ -208,7 +208,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
         {reservations.length === 0
           ? <Empty>기준일에 아직 처리할 예약이 없습니다.</Empty>
           : <>
-              {/* 🔴 Reservation ID · Sale UUID · Allocation ID 는 본문에 싣지 않는다 (facts 에는 남아 있다). */}
+              {/* Reservation ID · Sale UUID · Allocation ID 는 본문에 싣지 않는다 (facts 에는 남아 있다). */}
               <Table headers={["품목", "필요 수량", "예약 수량", "할당 수량", "미할당 수량", "할당 Lot", "납기일", "처리 상태"]}>
                 {reservations.slice(0, MAX_ROWS).map((row, index) => <tr key={`${text(row.reservation_id, String(index))}`} className="border-t border-[#e6eee9]">
                   <td className="px-2 py-2">{text(row.item_name, text(row.item_id))}</td>
@@ -238,7 +238,7 @@ export function LogisticsReport({ facts }: { facts: ReportFacts }) {
         {lots.length === 0
           ? <Empty>기준일에 남아 있는 Lot 이 없습니다.</Empty>
           : <>
-              {/* 🔴 raw Lot ID · 내부 Zone 코드 · ACTIVE 는 싣지 않는다. 신선도 숫자로 상태를 새로 매기지도 않는다. */}
+              {/* raw Lot ID · 내부 Zone 코드 · ACTIVE 는 싣지 않는다. 신선도 숫자로 상태를 새로 매기지도 않는다. */}
               <Table headers={["Lot", "품목", "등급", "잔량", "입고일", "신선도 잔여", "회전 잔여", "회전 상태", "관리 조치"]}>
                 {lots.slice(0, MAX_ROWS).map((row, index) => <tr key={`${text(row.lot_id, String(index))}`} className="border-t border-[#e6eee9]">
                   <td className="px-2 py-2">{lotDisplayName(row)}</td>

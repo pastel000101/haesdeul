@@ -1,22 +1,15 @@
-"""★ **`app/orchestrator/` 에서 옮겼다** (2026-09-07 · 지시). 옛 경로는 없다.
+"""오케스트레이터 · Critic 실행이력(`orchestrator_agent_runs`) SQL. 받은 연결로 실행한다.
 
-⚠️ **`cycle_` 는 이름이 겹쳐서 붙였다** — `app/master/run_repository.py` 가 이미 있다.
-  그대로 옮기면 덮어쓴다.
+코어의 DB 미접근 원칙(§5.1)은 그대로다. 여기는 계산이 끝난 뒤 요청·응답을 적는 감사
+기록이며, 저장한 값을 계산 입력으로 되읽지 않는다.
 
-오케스트레이터 · Critic 실행이력 Repository.
+실패 처리: 적재 실패가 API 를 죽이지 않는다. 이력이 없는 것보다 결과를 못 주는 것이
+나쁘다 — 저장은 `service/cycle_persistence.py` 의 `try_save_run` 을 통해 best-effort 로 부른다.
 
-★ 코어의 DB 미접근 원칙(§5.1)은 그대로다. 여기는 **계산이 끝난 뒤** 요청·응답을 적는
-  감사 기록이며, 저장한 값을 계산 입력으로 되읽지 않는다.
+Finance / Logistics 의 `repository/runs.py` 와 같은 모양이되, `agent` 축이 하나 더 있다.
 
-★ 적재 실패가 API 를 죽이지 않는다. 이력이 없는 것보다 결과를 못 주는 것이 나쁘다 —
-  저장은 `try_save_run` 을 통해 best-effort 로 부른다.
-
-Finance / Logistics 의 `run_repository` 와 같은 모양이되, `agent` 축이 하나 더 있다.
-
-★ 2026-09-30 재구성 BL-018: `master/cycle_run_repository.py` 에서 SQL 만 남겼다 — 받은 연결로
-  실행한다. 종전 `master/db.py` 헬퍼처럼 연결은 부르는 쪽이 호출마다 빌린다: 조회는
-  `readmodel/cycle_runs.py`(조회 연결), 적재는 `service/cycle_persistence.py`(연결 하나 · 트랜잭션
-  하나). 행 모양 · 어휘는 `schemas/cycle.py`.
+연결은 부르는 쪽이 호출마다 빌린다: 조회는 `readmodel/cycle_runs.py`(조회 연결), 적재는
+`service/cycle_persistence.py`(연결 하나 · 트랜잭션 하나). 행 모양 · 어휘는 `schemas/cycle.py`.
 """
 
 from __future__ import annotations
@@ -87,7 +80,7 @@ def insert_cycle_run(
     request_id: str | None,
     plan: list[dict[str, object]] | None,
 ) -> dict[str, Any]:
-    """실행 1건 INSERT … RETURNING. **행이 안 나오면 예외다** — 문구는 종전 헬퍼와 같다."""
+    """실행 1건 INSERT … RETURNING. 행이 안 나오면 예외다."""
     query = sql.SQL(
         """
         INSERT INTO {}.{} (

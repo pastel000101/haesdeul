@@ -1,7 +1,7 @@
 """판매 추이 응답 — 날짜별로 접은 판매 사실. `readmodel/console_trend.py` 가 채운다.
 
-★ 2026-09-29 BL-013: `sales/console_trend.py` 에서 옮겼다. `MAX_TREND_DAYS` 는 화면 라우트의
-  쿼리 상한과 조회가 함께 쓰는 값이라 응답 모델과 같은 자리에 둔다.
+`MAX_TREND_DAYS` 는 화면 라우트의 쿼리 상한과 조회가 함께 쓰는 값이라 응답 모델과 같은
+자리에 둔다.
 """
 
 from datetime import date
@@ -14,7 +14,7 @@ MAX_TREND_DAYS = 400
 
 
 class SalesTrendPoint(BaseModel):
-    """하루치 판매. **없는 날은 행이 없다** — 0 으로 채우지 않는다."""
+    """하루치 판매. 판매가 없는 날은 행이 없다 — 0 으로 채우지 않는다."""
 
     model_config = ConfigDict(extra="forbid")
 

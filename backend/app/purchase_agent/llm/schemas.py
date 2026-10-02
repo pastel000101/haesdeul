@@ -1,20 +1,20 @@
 """⑤ 등급 조합 판단의 LLM 계약 (상세설계 §4-⑤ E3-2 확정).
 
-**출력 스키마에 비율·수량·단가 필드가 없다 — 이것이 안전장치의 전부다.**
-orchestrator의 ``SelectionInterpretation``이 쓴 방법 그대로다("수량·금액 필드가
-**존재하지 않으므로** 생성이 불가능하다. §1.2-3을 프롬프트가 아니라 타입으로 보장하는
-방법이다"). 프롬프트로 "숫자를 만들지 마"라고 부탁하는 것과 달리, 타입은 어긴 출력을
-파싱 단계에서 되돌려보낸다.
+출력 스키마에 비율·수량·단가 필드가 없다 — 이것이 안전장치의 전부다.
+마스터 사이클 선정 계약(``master/cycle_llm/schemas.py`` 의 ``SelectionInterpretation``)과
+같은 방법이다 — 수량·금액 필드가 존재하지 않으므로 생성이 불가능하고, §1.2-3을
+프롬프트가 아니라 타입으로 보장한다. 프롬프트로 "숫자를 만들지 마"라고 부탁하는 것과
+달리, 타입은 어긴 출력을 파싱 단계에서 되돌려보낸다.
 
-LLM이 돌려주는 건 **후보 id 하나와 사유 문장**뿐이고, 비율은 규칙이 만든 후보의 것을
+LLM이 돌려주는 건 후보 id 하나와 사유 문장뿐이고, 비율은 규칙이 만든 후보의 것을
 그대로 쓴다 (CLAUDE.md 규칙 6 · 정의서 §1.2-3).
 
 ``SanitizedLLMContext``에도 숫자를 싣지 않는다 — 스프레드·신선도·납품량을 전부 라벨로
-바꿔 넣는다. orchestrator의 ``classify_clip``이 클리핑 강도를 3구간 라벨로 바꾼 것과
+바꿔 넣는다. 사이클 선정 계약이 클리핑 강도를 라벨(``ClipMagnitude``)로 넘기는 것과
 같은 이유다: 컨텍스트에 숫자가 없으면 LLM이 베껴 쓸 숫자도 없다.
 
 상태 필드 5종(``llm_status``~``llm_fallback_used``)은 finance/logistics/orchestrator/
-critic과 **동일하다** — 팀 공용 AI 카드가 수정 없이 동작한다.
+critic과 동일하다 — 팀 공용 AI 카드가 수정 없이 동작한다.
 """
 
 from typing import Literal
@@ -31,7 +31,7 @@ FreshnessLabel = Literal["SHELF_AMPLE", "SHELF_TIGHT", "SHELF_UNKNOWN"]
 
 
 class MixCandidate(BaseModel):
-    """규칙이 만든 후보 1건. **비율도 수량도 담지 않는다** — id와 라벨뿐이다.
+    """규칙이 만든 후보 1건. 비율도 수량도 담지 않는다 — id와 라벨뿐이다.
 
     실제 비율은 노드가 같은 id로 들고 있다. LLM에 비율을 보여주면 사유에 숫자가 새고,
     검증기의 숫자 금지 규칙에 걸려 매번 재시도가 돈다.
@@ -64,17 +64,17 @@ class GradeMixInterpretation(BaseModel):
 
 #: 우열표가 ⑤ 의 후보를 하나로 좁힌 날의 신호 (E3-12).
 #:
-#: 🔴 **여기 두는 이유는 import 방향이다.** 값을 세우는 곳은 ``service/nodes/allocate_sourcing``
+#: 여기 두는 이유는 import 방향이다. 값을 세우는 곳은 ``service/nodes/allocate_sourcing``
 #: 이고 읽는 곳은 ``llm/runtime.needs_llm`` 인데, ``runtime`` 은 노드를 못 가져온다
 #: (노드가 ``runtime`` 을 가져온다). 둘 다 가져오는 가장 아래가 이 파일이다.
 #:
-#: ⚠️ 문자열을 두 곳에 적지 않는다 — 한쪽만 바뀌면 «좁혔는데 안 부르는» 날이 생기고,
+#: 문자열을 두 곳에 적지 않는다 — 한쪽만 바뀌면 «좁혔는데 안 부르는» 날이 생기고,
 #: 그날은 근거 한 줄이 사라진 채 아무도 모른다.
 MIX_PRECEDENCE_SIGNAL = "MIX_PRECEDENCE_APPLIED"
 
 
 class SanitizedLLMContext(BaseModel):
-    """LLM에 주는 판단 재료. **숫자가 하나도 없다.**"""
+    """LLM에 주는 판단 재료. 숫자가 하나도 없다."""
 
     model_config = ConfigDict(extra="forbid")
 

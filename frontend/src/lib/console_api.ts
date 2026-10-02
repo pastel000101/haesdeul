@@ -1,20 +1,20 @@
 /**
  * 운영 콘솔 read API 클라이언트 (`/api/console/…`).
  *
- * ★ **`lib/screen.ts` 와 다른 계약이다.** 저쪽(`/api/screen/…`)은 화면용으로 미리
- *   문장·색·표를 만들어 주는 옛 계약이고, 이쪽은 **저장된 사실을 그대로** 준다.
- *   운영 콘솔은 이쪽만 쓴다 — 옛 API 는 지우지 않되 여기서 부르지 않는다.
+ * `lib/screen.ts` 와 다른 계약이다. 저쪽(`/api/screen/…`)은 화면용으로 미리
+ * 문장·색·표를 만들어 주는 옛 계약이고, 이쪽은 저장된 사실을 그대로 준다.
+ * 운영 콘솔은 이쪽만 쓴다 — 옛 API 는 지우지 않되 여기서 부르지 않는다.
  *
- * 🔴 **모든 호출이 `sim_run_id` 를 싣는다.** 실행 축이 없으면 부르지 않는다
- *    (`lib/run_context.ts`). 기본 실행으로 대신 답하는 길을 만들지 않는다.
+ * 모든 호출이 `sim_run_id` 를 싣는다. 실행 축이 없으면 부르지 않는다
+ * (`lib/run_context.ts`). 기본 실행으로 대신 답하는 길을 만들지 않는다.
  *
- * 🔴 **숫자를 여기서 만들지 않는다.** 합계·마진·연체는 백엔드가 낸 값을 그대로
- *    나른다. 화면이 다시 세면 두 곳이 서로 다른 답을 갖게 된다.
+ * 숫자를 여기서 만들지 않는다. 합계·마진·연체는 백엔드가 낸 값을 그대로
+ * 나른다. 화면이 다시 세면 두 곳이 서로 다른 답을 갖게 된다.
  */
 
 const BASE = process.env.NEXT_PUBLIC_CONSOLE_BASE ?? "/api/console";
 
-/** `lib/screen.ts` 와 같은 상한. 하는 일은 *"영영 안 끝나는 요청을 끝내는 것"* 이다. */
+/** `lib/screen.ts` 와 같은 상한. 하는 일은 "영영 안 끝나는 요청을 끝내는 것" 이다. */
 const TIMEOUT_MS = 20_000;
 
 export class ConsoleError extends Error {
@@ -43,7 +43,7 @@ async function get<T>(path: string, params: Params): Promise<T> {
         signal: controller.signal,
       });
     } catch {
-      //  ⚠️ 끊은 것과 못 닿은 것은 다른 사고다. 뭉치면 엉뚱한 조치를 하게 된다.
+      // 끊은 것과 못 닿은 것은 다른 사고다. 뭉치면 엉뚱한 조치를 하게 된다.
       throw controller.signal.aborted
         ? new ConsoleError(0, `${TIMEOUT_MS / 1000}초 안에 응답이 오지 않아 끊었습니다.`)
         : new ConsoleError(0, "백엔드에 닿지 못했습니다 — 서버가 떠 있는지 확인해 주세요.");
@@ -68,8 +68,8 @@ async function get<T>(path: string, params: Params): Promise<T> {
 /* ── 공통 ──────────────────────────────────────────────────────────────── */
 
 /**
- * 돈과 수량. **백엔드는 `Decimal` 로 셈하고 전선에서는 문자열 또는 숫자로 온다.**
- * 화면은 그것을 산술에 쓰지 않고 **표기만** 한다 (`lib/vocab.ts` 의 규율과 같다).
+ * 돈과 수량. 백엔드는 `Decimal` 로 셈하고 전선에서는 문자열 또는 숫자로 온다.
+ * 화면은 그것을 산술에 쓰지 않고 표기만 한다 (`lib/vocab.ts` 의 규율과 같다).
  */
 export type Money = string | number;
 
@@ -115,7 +115,7 @@ export interface ExpenseRow {
   status: ExpenseStatus;
   /** 지급하기로 한 날. 이 칸이 생기기 전 행은 `null` 이다. */
   due_date: string | null;
-  /** 🔴 실제 지급일. **모르면 `null` 이고 화면이 발생일로 메우지 않는다.** */
+  /** 실제 지급일. 모르면 `null` 이고 화면이 발생일로 메우지 않는다. */
   paid_date: string | null;
   /** 지급일을 아는가. `PAID` 인데 거짓이면 «지급일 미상» 인 기존 데이터다. */
   paid_date_known: boolean;
@@ -128,7 +128,7 @@ export interface ExpensesResponse extends RunScope {
     accrued_krw: Money;
     /** 실제로 나간 돈. */
     paid_krw: Money;
-    /** 나가지 않기로 한 돈. **현금과 무관하다.** */
+    /** 나가지 않기로 한 돈. 현금과 무관하다. */
     cancelled_krw: Money;
     accrued_count: number;
     category_totals: {
@@ -209,8 +209,8 @@ export interface ClosingItem {
   /**
    * 일반 운영비 현금유출.
    *
-   * 🔴 **`null` 은 «그 실행이 이 축을 기록하지 않았다» 다 — 0원이 아니다.** 화면이 0 으로
-   *    적으면 «세어 보니 없었다» 가 되고, 아무도 그날 운영비를 다시 묻지 않는다.
+   * `null` 은 «그 실행이 이 축을 기록하지 않았다» 다 — 0원이 아니다. 화면이 0 으로
+   * 적으면 «세어 보니 없었다» 가 되고, 아무도 그날 운영비를 다시 묻지 않는다.
    */
   operating_expense_cash_out_krw: Money | null;
   sales_recognized_krw: Money;
@@ -332,7 +332,7 @@ export interface PartnerDetail extends RunScope {
     aging_bucket: AgingBucket;
     status: string;
   }[];
-  /** 🔴 여신은 재무 정본이다. 판매가 `한도 − 채권` 으로 만들지 않는다. */
+  /** 여신은 재무 정본이다. 판매가 `한도 − 채권` 으로 만들지 않는다. */
   credit: null;
   credit_status: string;
 }
@@ -399,9 +399,9 @@ export const salesConsole = {
 };
 
 /**
- * 표기 전용 포맷터. **여기서 계산하지 않는다** — 반올림도 통화 변환도 없다.
+ * 표기 전용 포맷터. 여기서 계산하지 않는다 — 반올림도 통화 변환도 없다.
  *
- * ⚠️ `null` 은 `0` 이 아니다. 값이 없으면 «데이터 없음» 이고, 0 은 실제 0 이다.
+ * `null` 은 `0` 이 아니다. 값이 없으면 «데이터 없음» 이고, 0 은 실제 0 이다.
  */
 export function money(value: Money | null | undefined): string {
   if (value === null || value === undefined) return "데이터 없음";
@@ -434,8 +434,8 @@ export const AGING_LABELS: Record<AgingBucket, string> = {
 /**
  * 고를 수 있는 실행.
  *
- * 🔴 **정책 버전 칸이 없다.** `sim_runs` 가 그 값을 들고 있지 않다 — 이름만 내면
- *    받는 쪽이 «언젠가 올 값» 으로 읽고 자리를 비워 둔다.
+ * 정책 버전 칸이 없다. `sim_runs` 가 그 값을 들고 있지 않다 — 이름만 내면
+ * 받는 쪽이 «언젠가 올 값» 으로 읽고 자리를 비워 둔다.
  */
 export interface ConsoleRun {
   sim_run_id: string;
@@ -487,7 +487,7 @@ export interface SaleLifecycle extends RunScope {
   stages: LifecycleStage[];
 }
 
-/** 단계 이름의 한글 표기. **상태는 백엔드 값이고 여기서는 이름만 붙인다.** */
+/** 단계 이름의 한글 표기. 상태는 백엔드 값이고 여기서는 이름만 붙인다. */
 export const STAGE_LABELS: Record<string, string> = {
   candidate: "후보",
   finance_validation: "재무 검증",

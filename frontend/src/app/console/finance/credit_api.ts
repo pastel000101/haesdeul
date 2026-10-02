@@ -1,10 +1,10 @@
 /**
- * 재무 화면이 부르는 **거래처 여신 현황** 계약.
+ * 재무 화면이 부르는 거래처 여신 현황 계약.
  *
- * ★ `lib/console_api.ts` 는 여러 도메인이 함께 쓰는 공용 클라이언트라 이 판에서 고치지
- *   않는다. 재무 화면만 쓰는 계약은 재무 화면 옆에 둔다 (`sales/sales_api.ts` 와 같은 자리).
+ * `lib/console_api.ts` 는 여러 도메인이 함께 쓰는 공용 클라이언트다. 재무 화면만 쓰는
+ * 계약은 재무 화면 옆에 둔다 (`sales/sales_api.ts` 와 같은 자리).
  *
- * 🔴 **숫자를 여기서 만들지 않는다.** 가용 여신·사용률·수금 뒤 여신은 백엔드가 센 값이다.
+ * 숫자를 여기서 만들지 않는다. 가용 여신·사용률·수금 뒤 여신은 백엔드가 센 값이다.
  */
 
 const CONSOLE_BASE = process.env.NEXT_PUBLIC_CONSOLE_BASE ?? "/api/console";
@@ -146,9 +146,9 @@ export function recordCashAdjustment(input: {
 /**
  * 일반 운영비 생명주기.
  *
- * 🔴 **화면이 상태를 정하지 않는다.** 아래 셋은 백엔드에 «이렇게 해 달라» 고 말할 뿐이고,
- *    실제 전이 가능 여부와 현금 차감은 재무가 원장 잠금 안에서 판단한다. 버튼을 비활성으로
- *    두는 것은 **안내**이지 검증이 아니다.
+ * 화면이 상태를 정하지 않는다. 아래 셋은 백엔드에 «이렇게 해 달라» 고 말할 뿐이고,
+ * 실제 전이 가능 여부와 현금 차감은 재무가 원장 잠금 안에서 판단한다. 버튼을 비활성으로
+ * 두는 것은 안내이지 검증이 아니다.
  */
 
 export interface ExpenseSettleResult {
@@ -156,7 +156,7 @@ export interface ExpenseSettleResult {
   status: "PAID";
   paid_date: string;
   amount_krw: Money;
-  /** 지급 뒤 남은 현금. **재무가 센 값이다** — 화면이 빼지 않는다. */
+  /** 지급 뒤 남은 현금. 재무가 센 값이다 — 화면이 빼지 않는다. */
   current_cash_krw: Money;
 }
 

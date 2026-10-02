@@ -1,7 +1,4 @@
-"""판매 운영 콘솔의 거래처 응답 — `readmodel/console_partners.py` 가 채운다.
-
-★ 2026-09-29 BL-013: `sales/console_partners.py` 에서 옮겼다.
-"""
+"""판매 운영 콘솔의 거래처 응답 — `readmodel/console_partners.py` 가 채운다."""
 
 from datetime import date
 from decimal import Decimal
@@ -99,7 +96,7 @@ class ConsolePartnerDetailResponse(BaseModel):
     recent_sales: list[ConsolePartnerSaleRow]
     item_summary: list[ConsolePartnerItemRow]
     receivables: list[ConsolePartnerReceivableRow]
-    #: 🔴 Credit is Finance's number.  Sales does not compute it from receivables —
+    #: Credit is Finance's number.  Sales does not compute it from receivables —
     #: a second formula here would quietly become a second credit policy.
     credit: None = None
     credit_status: str = "UNSUPPORTED"

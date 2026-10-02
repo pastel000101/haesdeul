@@ -1,7 +1,4 @@
-"""판매 운영 콘솔의 수금 응답 — `readmodel/console_collections.py` 가 채운다.
-
-★ 2026-09-29 BL-013: `sales/console_collections.py` 에서 옮겼다.
-"""
+"""판매 운영 콘솔의 수금 응답 — `readmodel/console_collections.py` 가 채운다."""
 
 from datetime import date
 from decimal import Decimal

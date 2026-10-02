@@ -16,11 +16,11 @@ import { SalesConversation } from "@/components/console/SalesConversation";
 import { Markdownish } from "@/components/console/ml/Markdownish";
 import { ApiError, ask, execute } from "@/lib/api";
 import { useSimRun } from "@/components/console/RunPicker";
-//  🔴 시연용 기준일 (`#431`). 시연이 끝나면 이 줄을 지우고 `AS_OF` 로 되돌린다.
+//  시연용 기준일(`#431`). 시연이 끝나면 이 줄을 지우고 `AS_OF` 로 되돌린다.
 import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
 import { formatKoreanDate, userErrorText } from "@/lib/procurementLabels";
-//  🔴 말로 한 승인이 **그날 서 있는 안**을 짚을 때 읽는다. 매입 화면과 **같은 조회**라
-//     콘솔이 보는 안과 매입 탭이 보이는 안이 갈리지 않는다.
+//  말로 한 승인이 그날 서 있는 안을 짚을 때 읽는다. 매입 화면과 같은 조회라
+//  콘솔이 보는 안과 매입 탭이 보이는 안이 갈리지 않는다.
 import { purchase } from "@/lib/screen";
 import { CAN, type Session } from "@/lib/session";
 import {
@@ -34,25 +34,19 @@ import {
 } from "@/lib/types";
 
 /**
- * 마스터에게 묻는 자리 — **화면 아래 서랍(dock) 안에 들어간다.**
+ * 마스터에게 묻는 자리 — 화면 아래 서랍(dock) 안에 들어간다. 표와 그래프가 화면을
+ * 차지하고, 대화는 필요할 때 아래에서 꺼내 쓴다.
  *
- * ★ 예전에는 이것이 화면 전체였습니다 (`/console` 한 장). 데모 기준으로
- *   바꾸면서 **주연과 조연이 바뀌었습니다** — 이제 표와 그래프가 화면을
- *   차지하고, 대화는 필요할 때 아래에서 꺼내 씁니다.
+ * 2단계다. `/ask` 가 `confirm_required` 로 되묻고, 사람이 누르면 `/ask/execute`
+ * 가 돈다. 그때 받은 `intent` 를 그대로 되돌려보낸다 — 서버는 재분류하지 않고,
+ * 그래야 사용자가 확인한 것이 실행된다.
  *
- * ★ **한 줄도 안 버렸습니다.** `/ask` → 되묻기 → `/ask/execute` 로 이어지는
- *   흐름은 지금 mainproject 에서 실제로 도는 유일한 것이라, 자리만 옮겼습니다.
- *
- * ★ **2단계다.** `/ask` 가 `confirm_required` 로 되묻고, 사람이 누르면 `/ask/execute`
- *   가 돈다. 그때 **받은 `intent` 를 그대로 되돌려보낸다** — 서버는 재분류하지 않고,
- *   그래야 사용자가 확인한 것이 실행된다.
- *
- * ★ **값을 만들지 않는다.** 수량·금액·결론은 전부 서버가 정하고 화면은 그리기만 한다.
+ * 값을 만들지 않는다. 수량·금액·결론은 전부 서버가 정하고 화면은 그리기만 한다.
  */
 
 type Turn =
   | { kind: "me"; text: string }
-  //   `trace` 는 **①(의도 분류)가 무엇을 했는지**다. 되묻는 답에도 실어야 한다 —
+  //   `trace` 는 ①(의도 분류)가 무엇을 했는지다. 되묻는 답에도 실어야 한다 —
   //   "못 알아들었습니다" 만 적으면 모델이 안 돈 것처럼 보인다.
   | {
       kind: "bot";
@@ -64,9 +58,9 @@ type Turn =
       //   가격 예측만 물었으면 규칙 머리글(`text`)은 본문과 겹치므로 감춘다.
       hideText?: boolean;
     }
-  // 🔴 `done` 이 필요한 이유 — 누른 뒤에도 버튼이 살아 있으면 **같은 실행을 두 번**
-  //    돌릴 수 있다. 실측에서 첫 매입 확인을 다시 눌러 같은 업무 키로 재실행됐고,
-  //    그게 바로 `DECISION-COLLISION` 이 잡는 상황이다.
+  // `done` 이 필요한 이유 — 누른 뒤에도 버튼이 살아 있으면 같은 실행을 두 번
+  // 돌릴 수 있다. 실측에서 첫 매입 확인을 다시 눌러 같은 업무 키로 재실행됐고,
+  // 그게 바로 `DECISION-COLLISION` 이 잡는 상황이다.
   | {
       kind: "confirm";
       text: string;
@@ -79,25 +73,25 @@ type Turn =
     }
   | { kind: "run"; run: ProcurementRunResponse }
   //   판매가 답한 조회. 요약 → 판매안 확인 → 카드 → 선택 → 최종 확인 → 확정까지 이 턴이 끈다.
-  //   마스터가 만든 원문 답 · 실행 축 · 분류 흔적은 실제 서비스 화면에 싣지 않는다 (2026-09-15 결정).
+  //   마스터가 만든 원문 답 · 실행 축 · 분류 흔적은 실제 서비스 화면에 싣지 않는다.
   | {
       kind: "sales";
       asOf: string;
       detail: { text: string; note?: string | null; trace?: LlmTraceData };
     }
-  //   승인 직후 "무엇을 하기로 한 것인가". **"오늘 산 것" 이 아니다** — 승인은
+  //   승인 직후 "무엇을 하기로 한 것인가". "오늘 산 것" 이 아니다 — 승인은
   //   기록이고 발주는 이 시스템 밖이다 (`ApprovedPlan` 이 그 사실을 적는다).
   //
-  // 🔴 `scenario` 는 **있을 때만 온다.** 모달로 누른 승인은 안 전체를 들고 있지만,
-  //    말로 한 승인은 라벨만 안다 — 그때 빈 안을 지어내 넘기면 화면이 0 과 빈 칸을
-  //    «사실» 로 그린다. 없으면 `ApprovedPlan` 을 안 그리고 한 줄만 적는다.
-  //    `item` 은 그 한 줄에 쓸 품목이다 (그날 서 있던 안의 품목 또는 분류가 읽은 품목).
+  // `scenario` 는 있을 때만 온다. 모달로 누른 승인은 안 전체를 들고 있지만,
+  // 말로 한 승인은 라벨만 안다 — 그때 빈 안을 지어내 넘기면 화면이 0 과 빈 칸을
+  // «사실» 로 그린다. 없으면 `ApprovedPlan` 을 안 그리고 한 줄만 적는다.
+  // `item` 은 그 한 줄에 쓸 품목이다 (그날 서 있던 안의 품목 또는 분류가 읽은 품목).
   | { kind: "approved"; scenario?: Scenario; decision: DecisionOut; item?: string }
   | { kind: "domain"; result: DomainActionAnswer; trace?: LlmTraceData; note?: string | null }
   | { kind: "error"; text: string };
 
 /**
- * 화면이 쥐고 있을 ① 분류 흔적. **응답에 이미 있던 것만 추린다** — 여기서 값을
+ * 화면이 쥐고 있을 ① 분류 흔적. 응답에 이미 있던 것만 추린다 — 여기서 값을
  * 만들면 화면이 서버와 다른 이야기를 하게 된다.
  */
 type LlmTraceData = Pick<
@@ -158,9 +152,7 @@ function readChatSnapshot(): { turns: PersistedTurn[]; reportPeriod: ReportPerio
 }
 
 /**
- * 판매가 답했는가. **구조화된 조회 답(`status.answers.sales`)으로 가른다** — 문장을 긁지 않는다.
- *
- * ⚠️ 화면 타입의 부서 목록(`AgentName`)에 판매가 아직 없다. 공용 계약이라 넓히지 않고 여기서 읽는다.
+ * 판매가 답했는가. 구조화된 조회 답(`status.answers.sales`)으로 가른다 — 문장을 긁지 않는다.
  */
 function salesAnswered(intent: Intent | undefined, status: unknown): boolean {
   const answers = (status as { answers?: Record<string, unknown> } | null | undefined)?.answers;
@@ -169,9 +161,7 @@ function salesAnswered(intent: Intent | undefined, status: unknown): boolean {
 }
 
 /**
- * 가격 예측 본문이 있는 답의 화면 칸. **구조화된 `answer.markdown` 으로 가른다** — 문장을 긁지 않는다.
- *
- * ⚠️ 화면 타입의 부서 목록(`AgentName`)에 가격 예측이 없다. 판매와 같은 이유로 넓히지 않고 여기서 읽는다.
+ * 가격 예측 본문이 있는 답의 화면 칸. 구조화된 `answer.markdown` 으로 가른다 — 문장을 긁지 않는다.
  */
 function mlParts(intent: Intent | undefined, answer: AskResponse["answer"] | undefined) {
   const markdown = answer?.markdown ?? null;
@@ -180,24 +170,24 @@ function mlParts(intent: Intent | undefined, answer: AskResponse["answer"] | und
 }
 
 /**
- * **분류가 못 돌았는가.** 「못 알아들었다」와 갈라야 하는 것이 이것이다.
+ * 분류가 못 돌았는가. 「못 알아들었다」와 갈라야 하는 것이 이것이다.
  *
- * 🔴 두 상태가 지금까지 한 화면이었다 (2026-09-16 실측 — 공용 키가 분당 한도에 걸려
- *    5개 중 4개가 막혔다). 분류기가 못 돈 것인데 화면은 되묻는 문장만 보여 줘서,
- *    사람이 **자기 말이 이상한 줄 알고 말을 바꿨다.** 말은 멀쩡했다.
+ * 두 상태를 한 화면에 두면, 분류기가 못 돈 것인데 화면은 되묻는 문장만 보여 줘서
+ * 사람이 자기 말이 이상한 줄 알고 말을 바꾼다. 말은 멀쩡하다(2026-09-16 실측: 공용
+ * 키가 분당 한도에 걸려 5개 중 4개가 막혔다).
  *
  *    llm_status="SUCCESS" + action="UNKNOWN"   진짜 못 알아들었다 → 말을 바꾸면 된다
  *    llm_status="FALLBACK"                     분류기가 못 돌았다 → 말을 바꿔도 소용없다
  *
- * ⚠️ `DISABLED`(일부러 끈 것)는 여기 안 걸린다 — 서버가 그때 `fallback=False` 로 낸다
- *    (`app/master/llm/runtime.py`). 끈 배포의 되묻기는 지금 동작이 맞다.
+ * `DISABLED`(일부러 끈 것)는 여기 안 걸린다 — 서버가 그때 `fallback=False` 로 낸다
+ * (`app/core/llm/runtime.py` 의 `run_with_fallback`). 끈 배포의 되묻기는 지금 동작이 맞다.
  */
 function classifyFailed(res: Pick<AskResponse, "llm_status" | "llm_fallback_used">): boolean {
   return res.llm_status === "FALLBACK" || res.llm_fallback_used === true;
 }
 
 /**
- * 분류가 못 돌았을 때 화면에 내는 문장. **마지막 줄이 요점이다** — 사람이 말을
+ * 분류가 못 돌았을 때 화면에 내는 문장. 마지막 줄이 요점이다 — 사람이 말을
  * 바꾸지 않게 해야 한다.
  */
 const CLASSIFY_FAILED_TEXT =
@@ -205,9 +195,9 @@ const CLASSIFY_FAILED_TEXT =
   "— 입력하신 말은 문제가 없습니다.";
 
 /**
- * 되묻는 자리에 실제로 적을 문장. **`clarification` 을 그대로 쓰던 자리는 전부 여기를 지난다.**
+ * 되묻는 자리에 실제로 적을 문장. `clarification` 을 화면에 적는 자리는 전부 여기를 지난다.
  *
- * ★ 문구를 두 곳에 적지 않는다 — 이 함수 하나가 주인이고 부르는 쪽은 그대로 쓴다.
+ * 문구를 두 곳에 적지 않는다 — 이 함수 하나가 주인이고 부르는 쪽은 그대로 쓴다.
  */
 function clarificationText(
   res: Pick<AskResponse, "llm_status" | "llm_fallback_used" | "clarification">,
@@ -217,13 +207,13 @@ function clarificationText(
   return res.clarification ?? fallback;
 }
 
-/** 분류가 못 돈 뒤 보내기를 더 잠가 두는 시간(초). **자동 재시도는 없다 — 사람이 누른다.** */
+/** 분류가 못 돈 뒤 보내기를 더 잠가 두는 시간(초). 자동 재시도는 없다 — 사람이 누른다. */
 const FALLBACK_COOLDOWN_SEC = 5;
 
 /**
  * 바닥에서 이만큼 안이면 «바닥을 보고 있다» 로 본다(px).
  *
- * **이 값은 알림 버튼에만 쓴다.** 스크롤을 움직일지 말지는 여기서 안 정한다 —
+ * 이 값은 알림 버튼에만 쓴다. 스크롤을 움직일지 말지는 여기서 안 정한다 —
  * 판은 «내 글» 일 때만 내려간다.
  *
  * 딱 0 으로 두면 안 된다 — 한 줄 반쯤 남은 자리, 소수점 높이, 확대 배율 때문에
@@ -244,11 +234,12 @@ function traceOf(res: AskResponse): LlmTraceData {
 
 /**
  * 매입안 이름을 가른 자리. 매입 API 가 `key = "{품목} · {안 이름}"` 으로 짓는다
- * (`app/api/purchase/query._plan` — 이 탭에 품목 축이 없어 이름 앞에 넣는다).
+ * (`app/api/purchase/presenter.py` 의 `_plan` — 이 탭에 품목 축이 없어 이름 앞에 넣는다).
  *
- * 🔴 **맨 앞 하나만 가른다.** 안 이름에 같은 구분자가 들어와도 품목은 앞 한 칸이다.
- * ⚠️ 이 규칙이 바뀌면 여기가 조용히 빗나간다. 매입 스키마에 품목 칸이 서는 날
- *   이 둘을 그 칸 읽기로 바꾼다 — 서버 쪽 `app/master/domain/plan_state.py` 가 같은 대기 중이다.
+ * 맨 앞 하나만 가른다. 안 이름에 같은 구분자가 들어와도 품목은 앞 한 칸이다.
+ * 주의: 이 규칙이 바뀌면 여기가 조용히 빗나간다. 매입 스키마에 품목 칸이 서는 날
+ * 이 둘을 그 칸 읽기로 바꾼다 — 서버 쪽 `app/api/purchase/presenter.py` 의
+ * `plan_item` · `plan_label` 도 같은 이름을 가른다.
  */
 const PLAN_KEY_SEP = " · ";
 
@@ -271,11 +262,11 @@ const SHORTCUT: Record<string, string> = {
 };
 
 export function MasterConsole({ session }: { session: Session }) {
-  //  🔴 시연용 기준일 (`#431`). `ask` · `execute` 가 실제로 싣는 값과 같은 곳을 읽는다
-  //     — 머리에 적힌 날짜와 서버에 보내는 날짜가 갈리면 안 된다.
+  //  시연용 기준일(`#431`). `ask` · `execute` 가 실제로 싣는 값과 같은 곳을 읽는다
+  //  — 머리에 적힌 날짜와 서버에 보내는 날짜가 갈리면 안 된다.
   const asOf = useSyncExternalStore(subscribeAsOf, asOfSnapshot, serverAsOf);
   const simRun = useSimRun();
-  //  세션 판정(하이드레이션 · 로그인 리다이렉트)은 **셸이 이미 했다**
+  //  세션 판정(하이드레이션 · 로그인 리다이렉트)은 셸이 이미 했다
   //  (`app/console/layout.tsx`). 여기까지 왔으면 사람이 있다.
   const [tab, setTab] = useState<"master" | "runs">("master");
   const [chatSnapshot] = useState(() => readChatSnapshot());
@@ -285,9 +276,9 @@ export function MasterConsole({ session }: { session: Session }) {
   const [resetOpen, setResetOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  // 🔴 분류가 못 돈 뒤 남은 잠금 시간(초). **연타가 한도를 더 깎는다** — 실측에서
-  //    5개를 연달아 쏘니 4개가 막혔고, 8초씩 띄우니 4개 다 됐다 (2026-09-16).
-  //    **자동으로 다시 쏘지 않는다.** 기다렸다 사람이 누른다.
+  // 분류가 못 돈 뒤 남은 잠금 시간(초). 연타가 한도를 더 깎는다 — 2026-09-16 실측에서
+  // 5개를 연달아 쏘니 4개가 막혔고, 8초씩 띄우니 4개 다 됐다.
+  // 자동으로 다시 쏘지 않는다. 기다렸다 사람이 누른다.
   const [cooldown, setCooldown] = useState(0);
 
   // 승인 모달 — 어느 실행의 어느 안인지 함께 들고 있어야 한다
@@ -296,11 +287,11 @@ export function MasterConsole({ session }: { session: Session }) {
     requestId: string;
     historyRunId: string | null;
   } | null>(null);
-  // 🔴 재요청·승인은 **어느 실행에 대한 것인지**를 화면이 실어야 한다 — 발화문엔 없다.
+  // 재요청·승인은 어느 실행에 대한 것인지를 화면이 실어야 한다 — 발화문엔 없다.
   //
-  //    업무 키만으로는 부족하다. 한 키에 실행이 여러 행이라(실측 75행) 그 사이
-  //    재실행이 있으면 **본 것과 다른 안이 승인된 것으로 남는다.** 그래서 업무 키와
-  //    실행 행 id 를 **짝으로** 들고 다닌다.
+  // 업무 키만으로는 부족하다. 한 키에 실행이 여러 행이라(실측 75행) 그 사이
+  // 재실행이 있으면 본 것과 다른 안이 승인된 것으로 남는다. 그래서 업무 키와
+  // 실행 행 id 를 짝으로 들고 다닌다.
   const [runs, setRuns] = useState<
     { requestId: string; historyRunId: string | null }[]
   >([]);
@@ -322,20 +313,18 @@ export function MasterConsole({ session }: { session: Session }) {
 
   /* ── 자기가 보낸 글에만 내려간다 ──────────────────────────────────────
    *
-   * 예전엔 `turns` 가 늘 때마다 **무조건** 바닥으로 내려갔다. 위로 올려 지난 답을
-   * 읽는 중에 새 글이 하나만 붙어도 읽던 자리가 끌려 내려갔다.
+   * 규칙은 하나뿐이다 — 내려가는 것은 `kind === "me"` 일 때뿐이다.
+   * 답이 도착했을 때는 어디에 있든 판을 움직이지 않는다. 바닥 근처라고 따라
+   * 내려가지도 않는다 — 위로 올려 지난 답을 읽는 중에 새 글이 붙어도 읽던 자리가
+   * 끌려 내려가지 않게 하려는 것이다.
    *
-   * **규칙은 하나뿐이다 — 내려가는 것은 `kind === "me"` 일 때뿐이다.**
-   * 답이 도착했을 때는 **어디에 있든 판을 움직이지 않는다.** 바닥 근처면 따라
-   * 내려가던 규칙은 없앴다 (2026-09-17 지시).
+   * 새 글은 아래에 붙는다. 그러면 브라우저가 `scrollTop` 을 그대로 두므로
+   * 위에 보이던 내용은 한 픽셀도 안 움직인다 — 아무것도 안 하는 것이
+   * 자리를 지키는 것이다. 그래서 `scrollTop` 보정을 따로 두지 않는다.
    *
-   * ★ 새 글은 **아래에 붙는다.** 그러면 브라우저가 `scrollTop` 을 그대로 두므로
-   *   위에 보이던 내용은 한 픽셀도 안 움직인다 — **아무것도 안 하는 것**이
-   *   자리를 지키는 것이다. 그래서 `scrollTop` 보정을 따로 두지 않는다.
-   *
-   * 알림 버튼만 «바닥에서 얼마나 떨어졌나» 를 본다. 🔴 효과가 도는 시점은 새 글이
-   * **이미 붙은 뒤**라 그대로 재면 늘어난 높이만큼 부풀려진다. 그래서 직전 높이
-   * (`seenHeight`)를 들고 있다가 **붙기 전의 틈**을 되살려 잰다.
+   * 알림 버튼만 «바닥에서 얼마나 떨어졌나» 를 본다. 주의: 효과가 도는 시점은 새 글이
+   * 이미 붙은 뒤라 그대로 재면 늘어난 높이만큼 부풀려진다. 그래서 직전 높이
+   * (`seenHeight`)를 들고 있다가 붙기 전의 틈을 되살려 잰다.
    * ------------------------------------------------------------------ */
 
   const scroller = useRef<HTMLDivElement>(null);
@@ -354,9 +343,9 @@ export function MasterConsole({ session }: { session: Session }) {
   /**
    * 판을 바닥으로 민다.
    *
-   * 🔴 **상태를 안 건드린다.** 효과 안에서 부르는 자리라, 여기서 `setUnread` 를
-   *    하면 `react-hooks/set-state-in-effect` 에 걸린다. 버튼은 아래 `onScroll` 이
-   *    바닥에 닿는 순간 스스로 지운다.
+   * 상태를 안 건드린다. 효과 안에서 부르는 자리라, 여기서 `setUnread` 를
+   * 하면 `react-hooks/set-state-in-effect` 에 걸린다. 버튼은 아래 `onScroll` 이
+   * 바닥에 닿는 순간 스스로 지운다.
    */
   const scrollToTail = useCallback(() => {
     tail.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -366,12 +355,12 @@ export function MasterConsole({ session }: { session: Session }) {
     const el = scroller.current;
     if (turns.length === 0 || !el) return;
 
-    //  새 글이 붙기 **전** 의 바닥까지 거리. `scrollTop` 은 아래에 붙는 동안
+    //  새 글이 붙기 전의 바닥까지 거리. `scrollTop` 은 아래에 붙는 동안
     //  안 바뀌므로, 직전 높이로 재면 붙기 전의 틈이 그대로 나온다.
     const gapBefore = seenHeight.current - el.scrollTop - el.clientHeight;
     seenHeight.current = el.scrollHeight;
 
-    //  ① 내가 보낸 글이면 바닥으로. ② 그 밖에는 **판을 건드리지 않는다** —
+    //  ① 내가 보낸 글이면 바닥으로. ② 그 밖에는 판을 건드리지 않는다 —
     //     바닥에서 멀면 «새 메시지» 만 알린다.
     if (turns.at(-1)?.kind === "me") scrollToTail();
     else if (gapBefore > STICK_PX) setUnread(true);
@@ -393,7 +382,7 @@ export function MasterConsole({ session }: { session: Session }) {
     return () => clearTimeout(timer);
   }, [cooldown]);
 
-  //  보내기가 막혀 있나. 요청이 도는 동안과 분류 실패 뒤 몇 초. **Enter 도 이것을 본다.**
+  //  보내기가 막혀 있나. 요청이 도는 동안과 분류 실패 뒤 몇 초. Enter 도 이것을 본다.
   const locked = busy || cooldown > 0;
 
   const can = CAN[session.role];
@@ -403,15 +392,15 @@ export function MasterConsole({ session }: { session: Session }) {
   }
 
   /**
-   * 실패를 화면에 적는다. **서버가 준 사유를 삼키지 않는다.**
+   * 실패를 화면에 적는다. 서버가 준 사유를 삼키지 않는다.
    *
-   * 🔴 사람 말로 된 사유는 **그대로 보인다** (`userErrorText` 가 가른다) —
-   *    「'초공격' 은 이 실행이 내놓은 안이 아니다. 제시된 안: 보수, 기본, 공격」 처럼
-   *    **무엇을 고쳐야 하는지 알려주는 문장**이 사라지면 사람이 손 쓸 데가 없다.
+   * 사람 말로 된 사유는 그대로 보인다(`userErrorText` 가 가른다) —
+   * 「'초공격' 은 이 실행이 내놓은 안이 아니다. 제시된 안: 보수, 기본, 공격」 처럼
+   * 무엇을 고쳐야 하는지 알려주는 문장이 사라지면 사람이 손 쓸 데가 없다.
    *
-   * ★ 코드가 섞인 사유는 그대로 올리지 않는다 (「사람 말만」). 다만 그때도
-   *   **「잠시 뒤 다시 시도해 주세요」 로 덮지 않는다** — 요청 자체가 틀린 것이라
-   *   기다렸다 다시 눌러도 같다. 그 문구는 **연결이 끊겼거나 서버가 탈 났을 때**의 말이다.
+   * 코드가 섞인 사유는 그대로 올리지 않는다(「사람 말만」). 다만 그때도
+   * 「잠시 뒤 다시 시도해 주세요」 로 덮지 않는다 — 요청 자체가 틀린 것이라
+   * 기다렸다 다시 눌러도 같다. 그 문구는 연결이 끊겼거나 서버가 탈 났을 때의 말이다.
    */
   function fail(error: unknown) {
     const status = error instanceof ApiError ? error.status : null;
@@ -428,7 +417,7 @@ export function MasterConsole({ session }: { session: Session }) {
     });
   }
 
-  /** ① 발화문 분류. **확인이 필요하면 아무것도 실행하지 않는다.** */
+  /** ① 발화문 분류. 확인이 필요하면 아무것도 실행하지 않는다. */
   async function send(text: string, context?: { dateFrom?: string; dateTo?: string }) {
     const utterance = text.trim();
     if (!utterance || locked) return;
@@ -470,7 +459,7 @@ export function MasterConsole({ session }: { session: Session }) {
           detail: { text: res.answer.text, note: res.note, trace: traceOf(res) },
         });
       } else if (res.answer) {
-        //   조회면 `note` 가 **어느 실행·기준일을 읽었나** 다. 답 아래에 같이 보인다.
+        //   조회면 `note` 가 어느 실행·기준일을 읽었나 다. 답 아래에 같이 보인다.
         push({
           kind: "bot",
           text: res.answer.text,
@@ -479,8 +468,8 @@ export function MasterConsole({ session }: { session: Session }) {
           ...mlParts(res.intent, res.answer),
         });
       } else {
-        //  🔴 여기가 분류 실패가 떨어지는 자리다 (`outcome="NEEDS_CLARIFICATION"`).
-        //     되묻는 문장만 적으면 사람이 자기 말을 고치러 간다 — `clarificationText` 가 가른다.
+        //  여기가 분류 실패가 떨어지는 자리다(`outcome="NEEDS_CLARIFICATION"`).
+        //  되묻는 문장만 적으면 사람이 자기 말을 고치러 간다 — `clarificationText` 가 가른다.
         push({
           kind: "bot",
           text: clarificationText(res, res.note ?? "답을 받지 못했습니다."),
@@ -495,18 +484,18 @@ export function MasterConsole({ session }: { session: Session }) {
   }
 
   /**
-   * 그날 매입 화면에 **서 있는 안** 중 말한 라벨의 안을 찾는다.
+   * 그날 매입 화면에 서 있는 안 중 말한 라벨의 안을 찾는다.
    *
-   * 🔴 **라벨은 문자열 그대로 견준다.** 부분 일치나 비슷한 말 맞히기를 넣으면
-   *    「보수」를 말했는데 「보수적」 안이 승인되는 날이 온다 — 승인은 되돌리기가
-   *    기록으로 남는 일이라, 못 찾는 쪽이 낫다.
+   * 라벨은 문자열 그대로 견준다. 부분 일치나 비슷한 말 맞히기를 넣으면
+   * 「보수」를 말했는데 「보수적」 안이 승인되는 날이 온다 — 승인은 되돌리기가
+   * 기록으로 남는 일이라, 못 찾는 쪽이 낫다.
    *
-   * 🔴 **못 찾거나 여럿이면 `null` 이고, 부르는 쪽은 실행하지 않는다.** 하나로 좁혀지지
-   *    않은 채 보내면 서버가 고르게 되는데, 그건 사람이 확인한 것과 다를 수 있다.
+   * 못 찾거나 여럿이면 `null` 이고, 부르는 쪽은 실행하지 않는다. 하나로 좁혀지지
+   * 않은 채 보내면 서버가 고르게 되는데, 그건 사람이 확인한 것과 다를 수 있다.
    *
-   * ★ 기준일은 화면 머리에 적힌 그 날이고(`asOf`), 실행 축은 `GET /api/purchase` 가
-   *   다른 네 탭과 같은 자리에서 정한다 (`app/core/settings.py`). **화면이 축을
-   *   새로 지어내지 않는다.**
+   * 기준일은 화면 머리에 적힌 그 날이고(`asOf`), 실행 축은 `GET /api/purchase` 가
+   * 다른 네 탭과 같은 자리에서 정한다(`app/core/settings.py`). 화면이 축을
+   * 새로 지어내지 않는다.
    */
   async function standingRun(intent: Intent) {
     const label = (intent.scenario_label ?? "").trim();
@@ -550,47 +539,48 @@ export function MasterConsole({ session }: { session: Session }) {
     };
   }
 
-  /** ② 확인한 의도를 실행한다. `intent` 를 **그대로** 돌려보낸다. */
+  /** ② 확인한 의도를 실행한다. `intent` 를 그대로 돌려보낸다. */
   async function confirm(
     turn: Extract<Turn, { kind: "confirm" }>,
     index: number,
   ) {
     if (busy || !session || turn.done) return;
     const rerun = turn.intent.action === "RERUN_WITH_CONDITION";
-    //   말로 한 승인. **모달로 누른 승인(`approve`)과 같은 셋을 실어야 한다** —
+    //   말로 한 승인. 모달로 누른 승인(`approve`)과 같은 셋을 실어야 한다 —
     //   빠뜨리면 서버가 422 로 거절하고, 눌러서 한 승인과 말로 한 승인이 갈린다.
     const select = turn.intent.action === "SELECT_SCENARIO";
     /**
-     * 🔴 **발화문에 없어 화면이 실어야 하는 둘** — 어느 실행의 안인가(`target_*`)와
-     *    누가 승인하는가(`decided_by`). `lib/api.ts` 의 「SELECT · RERUN 필수」가
-     *    그것이고, 서버(`ask_service._record_selection`)도 없으면 거절한다.
+     * 발화문에 없어 화면이 실어야 하는 둘 — 어느 실행의 안인가(`target_*`)와
+     * 누가 승인하는가(`decided_by`). `lib/api.ts` 의 「SELECT · RERUN 필수」가
+     * 그것이고, 서버(`app/master/service/ask.py` 의 `_record_selection`)도 없으면
+     * 거절한다.
      */
     const needsTarget = rerun || select;
 
     setBusy(true);
     try {
-      //   이 대화에서 방금 만든 안이 있으면 **그것이 먼저다.**
+      //   이 대화에서 방금 만든 안이 있으면 그것이 먼저다.
       let target = last;
       //   승인 뒤 한 줄에 쓸 품목. 분류가 읽어 낸 것이 먼저 서고, 그날 서 있는 안을
-      //   찾아오면 그 안의 품목으로 바뀐다. **둘 다 없으면 빈 채로 둔다** — 지어내지 않는다.
+      //   찾아오면 그 안의 품목으로 바뀐다. 둘 다 없으면 빈 채로 둔다 — 지어내지 않는다.
       let item = (turn.intent.item ?? "").trim();
 
-      // 🔴 없으면 **그날 매입 화면에 서 있는 안**에서 라벨로 찾는다 (2026-09-16).
+      // 없으면 그날 매입 화면에 서 있는 안에서 라벨로 찾는다.
       //
-      //    9/11 시연이 이 모양이다 — 걷기가 그날 안을 세워 두고, 사람이 콘솔을 새로
-      //    열어 말로 고른다. 전에는 `last` 가 없어 여기서 멈췄다.
+      // 9/11 시연이 이 모양이다 — 걷기가 그날 안을 세워 두고, 사람이 콘솔을 새로
+      // 열어 말로 고른다. 그때는 이 대화에 `last` 가 없다.
       //
-      //    ★ 찾는 것은 **화면**이다. 서버(`/ask/execute`)는 대상이 없으면 422 를 내고
-      //      추측하지 않는다 — 그 규칙은 그대로 산다.
+      // 찾는 것은 화면이다. 서버(`/ask/execute`)는 대상이 없으면 422 를 내고
+      // 추측하지 않는다 — 그 규칙은 그대로 산다.
       if (select && !target) {
         const found = await standingRun(turn.intent);
-        //   못 찾았으면 위에서 사람 말로 적었다. **실행하지 않는다.**
+        //   못 찾았으면 위에서 사람 말로 적었다. 실행하지 않는다.
         if (!found) return;
         target = { requestId: found.requestId, historyRunId: found.historyRunId };
         if (found.item) item = found.item;
       }
 
-      // 🔴 그래도 대상이 없으면 **추측하지 않고 멈춘다.** 서버도 같은 이유로 422 다.
+      // 그래도 대상이 없으면 추측하지 않고 멈춘다. 서버도 같은 이유로 422 다.
       if (needsTarget && !target) {
         push({
           kind: "error",
@@ -623,18 +613,18 @@ export function MasterConsole({ session }: { session: Session }) {
       } else if (res.domain_result) {
         push({ kind: "domain", result: res.domain_result, note: res.note });
       } else if (res.run) {
-        // 재요청 — 결정 기록과 **새로 나온 안**이 함께 온다
+        // 재요청 — 결정 기록과 새로 나온 안이 함께 온다
         rememberRun(res.run);
         push(
           { kind: "bot", text: res.answer?.text ?? "" },
           { kind: "run", run: res.run },
         );
       } else if (select && res.decision) {
-        // 🔴 말로 한 승인도 **모달로 누른 승인과 같은 자리에서 끝난다** (`approve`).
-        //    여기서 갈리면 어느 길로 승인했느냐에 따라 실매입을 적을 칸이 있고 없다 —
-        //    9/11 시연은 말로 승인하고 실매입을 적는 것이 전부다.
+        // 말로 한 승인도 모달로 누른 승인과 같은 자리에서 끝난다(`approve`).
+        // 여기서 갈리면 어느 길로 승인했느냐에 따라 실매입을 적을 칸이 있고 없다 —
+        // 9/11 시연은 말로 승인하고 실매입을 적는 것이 전부다.
         //
-        //    ★ `res.decision` 이 없으면 승인이 안 된 것이라 아래 분기로 그냥 흐른다.
+        // `res.decision` 이 없으면 승인이 안 된 것이라 아래 분기로 그냥 흐른다.
         if (res.answer) push({ kind: "bot", text: res.answer.text });
         push({ kind: "approved", decision: res.decision, item });
       } else if (res.answer && salesAnswered(turn.intent, (res as { status?: unknown }).status)) {
@@ -699,7 +689,7 @@ export function MasterConsole({ session }: { session: Session }) {
     }
   }
 
-  /** 지름길 — 부서 이름을 누르면 **같은 API 를 발화문 없이** 부른다. */
+  /** 지름길 — 부서 이름을 누르면 같은 API 를 발화문 없이 부른다. */
   function shortcut(key: string) {
     const canned = SHORTCUT[key];
     if (canned) {
@@ -712,8 +702,8 @@ export function MasterConsole({ session }: { session: Session }) {
 
   return (
     /**
-     * ★ `h-full` 이다. 예전엔 `h-screen` 이었는데, 이제 서랍 안이라 **서랍이
-     *   정해 준 높이**를 채워야 한다. 화면 높이를 다시 잡으면 서랍 밖으로 넘친다.
+     * `h-full` 이다. 서랍 안이라 서랍이 정해 준 높이를 채워야 한다. 화면 높이
+     * (`h-screen`)를 잡으면 서랍 밖으로 넘친다.
      *
      * 아래 스크롤 영역의 `min-h-0` 은 그대로 둔다 — flex 아이템의 기본
      * `min-height: auto` 는 내용 높이라, 없으면 `flex-1` 이 내용보다 작아지지
@@ -763,10 +753,10 @@ export function MasterConsole({ session }: { session: Session }) {
           </div>
         ) : (
           <>
-            {/* 🔴 하루를 넘기는 자리. **판 머리에 둔다** — 「하루는 이 순서로 돕니다」
+            {/* 하루를 넘기는 자리. 판 머리에 둔다 — 「하루는 이 순서로 돕니다」
                 안내와 같은 자리에서 보이고, 대화가 쌓여도 안 밀린다 (그 안내는
                 대화가 비었을 때만 있는 `Empty` 안에 있다).
-                ★ 허용 목록에 없는 축이면 `DayAdvance` 가 스스로 아무것도 안 그린다. */}
+                허용 목록에 없는 축이면 `DayAdvance` 가 스스로 아무것도 안 그린다. */}
             <DayAdvance asOf={asOf} simRunId={simRun} />
             {/* 안내 버튼이 구르는 판 위에 떠야 해서 `relative` 한 겹을 덧댄다.
                 높이 규칙(`min-h-0 flex-1`)은 덧댄 겹과 안쪽 판이 그대로 이어받는다. */}
@@ -820,7 +810,7 @@ export function MasterConsole({ session }: { session: Session }) {
                       }}
                     />
                     {/* 들고 나갈 수 있는 문서 — 안이 있든 없든 낸다.
-                        **안이 없는 실행도 기록으로 남길 값이 있다** (왜 없는지가 담긴다). */}
+                        안이 없는 실행도 기록으로 남길 값이 있다 (왜 없는지가 담긴다). */}
                     <div className="mt-3">
                       <ReportDownload requestId={turn.run.request_id} />
                     </div>
@@ -957,7 +947,7 @@ function TurnView({
   }
 
   if (turn.kind === "approved") {
-    //  말로 한 승인은 안 전체를 들고 있지 않다. **없는 숫자를 0 으로 그리지 않고**
+    //  말로 한 승인은 안 전체를 들고 있지 않다. 없는 숫자를 0 으로 그리지 않고
     //  무엇을 승인했는지만 적는다 — 안의 값은 매입 화면에 그대로 서 있다.
     const label = turn.decision.scenario_label;
     const what = [(turn.item ?? "").trim(), label ? `'${label}' 안` : "고른 안"]
@@ -1013,12 +1003,12 @@ function TurnView({
   );
 }
 
-//: 하루가 도는 차례. **누르는 순서 그대로** 적는다 (2026-09-16).
+//: 하루가 도는 차례. 누르는 순서 그대로 적는다.
 //
-//  ★ 시연에서 사람이 제일 자주 묻는 것이 «이제 뭘 눌러야 하나» 다. 화면이 그 답을
-//    들고 있으면 진행하는 사람이 순서를 외우지 않아도 된다.
-//  🔴 **여기에 없는 단계를 지어내지 않는다.** 네 자리 전부 사람이 실제로 누르는 것이다 —
-//     승인과 실매입 기록은 매입 화면, 판매 승인은 판매 화면에서 한다.
+//  시연에서 사람이 제일 자주 묻는 것이 «이제 뭘 눌러야 하나» 다. 화면이 그 답을
+//  들고 있으면 진행하는 사람이 순서를 외우지 않아도 된다.
+//  여기에 없는 단계를 지어내지 않는다. 네 자리 전부 사람이 실제로 누르는 것이다 —
+//  승인과 실매입 기록은 매입 화면, 판매 승인은 판매 화면에서 한다.
 const DAY_STEPS = [
   "하루 열기",
   "매입안 승인",
@@ -1028,11 +1018,11 @@ const DAY_STEPS = [
 ];
 
 function Empty({ onPick }: { onPick: (text: string) => void }) {
-  //: 눌러서 바로 답이 나오는 말만 둔다. **순서가 뜻이다** — 잔액 같은 «점» 에서
-  //  «흐름» 을 거쳐 «보고서» 로 간다 (재무 요청 2026-09-16).
+  //: 눌러서 바로 답이 나오는 말만 둔다. 순서가 뜻이다 — 잔액 같은 «점» 에서
+  //  «흐름» 을 거쳐 «보고서» 로 간다(재무 요청).
   //
-  //  🔴 되묻는 말은 넣지 않는다. 「여신 한도 알려줘」는 거래처를 되물어 한 번
-  //     클릭으로 안 끝나고, 「오늘 확정된 판매」는 기준일이 어긋나면 빈손이다.
+  //  되묻는 말은 넣지 않는다. 「여신 한도 알려줘」는 거래처를 되물어 한 번
+  //  클릭으로 안 끝나고, 「오늘 확정된 판매」는 기준일이 어긋나면 빈손이다.
   const samples = [
     "현재 자금 상황 알려줘",
     "받을 돈 보여줘",

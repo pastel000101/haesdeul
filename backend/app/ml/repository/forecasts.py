@@ -6,13 +6,9 @@ upsert_forecasts                                    서비스 창고 ml_price_fo
 latest_forecast_rows                                서비스 창고에서 as_of 이하 최신 기준일 행
 ```
 
-★ **받은 연결로 SQL 만 실행한다.** 연결을 빌리지도 commit 하지도 않는다 — 어느 창고의
-  연결을 빌릴지와 트랜잭션은 부르는 쪽(`service/forecasts.py` · `readmodel/forecasts.py`)이 정한다.
-
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/repository.py`(원본 읽기 · 적재 ·
-  개장일 → 달력일 변환)와 `app/ml/service.py`(`_READ_SQL`)에 나뉘어 있었고, 실행은
-  `app/ml/db.py` 헬퍼가 SQL 마다 연결을 빌려 했다. SQL 문면 · 매개변수는 그대로다.
-  변환은 `domain/forecast_calendar.py` 로 갔다.
+받은 연결로 SQL 만 실행한다. 연결을 빌리지도 commit 하지도 않는다 — 어느 창고의 연결을
+빌릴지와 트랜잭션은 부르는 쪽(`service/forecasts.py` · `readmodel/forecasts.py`)이 정한다.
+개장일 → 달력일 변환은 `domain/forecast_calendar.py` 다.
 """
 
 from __future__ import annotations
@@ -95,9 +91,9 @@ def read_source_predictions(
 def upsert_forecasts(conn: Connection, rows: Sequence[Sequence[object]], schema: str) -> int:
     """서비스 창고에 적재한다. 같은 기준일을 다시 넣으면 덮어쓴다. 적재한 행 수를 돌려준다.
 
-    ★ commit 하지 않는다 — 적재 한 번 = 트랜잭션 하나를 부르는 쪽이 눈에 보이게 연다.
-    ★ `schema` 를 인자로 받는다. 부르는 쪽이 연결을 빌리기 **전에** 스키마 이름을 읽는
-      종전 순서(`DB_SCHEMA` 가 없으면 적재할 행이 없어도 멈춘다)를 그대로 두기 위해서다.
+    commit 하지 않는다 — 적재 한 번 = 트랜잭션 하나를 부르는 쪽이 눈에 보이게 연다.
+    `schema` 를 인자로 받는다. 부르는 쪽이 연결을 빌리기 전에 스키마 이름을 읽게 하려는
+    것이다 — `DB_SCHEMA` 가 없으면 적재할 행이 없어도 멈춘다.
     """
     with conn.cursor() as cursor:
         cursor.executemany(_UPSERT_SQL.format(schema=schema), rows)
@@ -107,7 +103,7 @@ def upsert_forecasts(conn: Connection, rows: Sequence[Sequence[object]], schema:
 def latest_forecast_rows(
     conn: Connection, *, item: str, target_kind: str, as_of: date
 ) -> list[dict[str, Any]]:
-    """서비스 창고에서 ``as_of`` **이하** 의 가장 최근 기준일 행을 대상일 차례로."""
+    """서비스 창고에서 ``as_of`` 이하의 가장 최근 기준일 행을 대상일 차례로."""
     query = _READ_SQL.format(schema=get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(query, (item, target_kind, as_of, item, target_kind, as_of))

@@ -1,4 +1,4 @@
-"""판매 전략 Planner — **자세를 정하는 자리. 숫자를 정하는 자리가 아니다.**
+"""판매 전략 Planner — 자세를 정하는 자리이고, 숫자를 정하는 자리가 아니다.
 
 ```text
 사실 수집 (derive_signals)   물류·재무·ML 이 이미 보낸 것만 읽는다
@@ -9,24 +9,22 @@
 결정론 구체화 (proposal.py)   그 자세를 실제 수량·단가·금액으로 만든다 ← domain/proposal.py
 ```
 
-🔴 **LLM 이 고르는 것은 자세뿐이다.** 단가·수량·금액·마진·판정은 한 글자도
-  건드리지 못한다 — 자세는 닫힌 어휘이고, 어휘 밖 값이 오면 그 계획은 통째로
-  버려지고 템플릿이 대신 선다.
+LLM 이 고르는 것은 자세뿐이다. 단가·수량·금액·마진·판정은 한 글자도 건드리지
+못한다 — 자세는 닫힌 어휘이고, 어휘 밖 값이 오면 그 계획은 통째로 버려지고 템플릿이
+대신 선다.
 
-🔴 **자세가 사실을 이기지 못한다.** 모델이 `DEPLETION` 을 고르더라도 소진 신호가
-  **물류 회신에 없으면** 그 자세는 내려간다 (`_clamp`). 모델이 시장 하단 가격을
-  여는 길을 스스로 만들 수 없다는 뜻이고, 그것이 이 파일의 핵심 방어다.
+자세가 사실을 이기지 못한다. 모델이 `DEPLETION` 을 고르더라도 소진 신호가 물류 회신에
+없으면 그 자세는 내려간다 (`clamp_profiles`). 모델이 시장 하단 가격을 여는 길을 스스로
+만들 수 없다는 뜻이고, 그것이 이 파일의 핵심 방어다.
 
-★ **소진 신호를 되먹임에 의존하지 않는다** (2026-09-16). 종전에는
-  `sell_priority`·`inventory_risk_severity` 를 `domain_replies` 에서만 읽었는데, 그
-  칸은 물류 `PRE_SALES` payload 에 **없다** — 1차 생성에서는 영원히 `None` 이었고
-  (실측: 판매 안 17,364 건 전부 NULL) 그래서 공격안이 한 번도 소진 전략으로 서지
-  못했다. 이제 1차 입력인 `logistics_context` 를 정본으로 읽고, 되먹임 회신은
-  **보조**로만 얹는다.
+소진 신호를 되먹임에 의존하지 않는다. `sell_priority`·`inventory_risk_severity` 칸은
+물류 `PRE_SALES` payload 에 없어서 1차 생성에서는 늘 `None` 이다(실측: 판매 안 17,364 건
+전부 NULL). `domain_replies` 에서만 읽으면 공격안이 소진 전략으로 설 수 없으므로, 1차
+입력인 `logistics_context` 를 정본으로 읽고 되먹임 회신은 보조로만 얹는다.
 
-★ 2026-09-29 BL-013: `sales/strategy.py` 에서 사실 수집 · 템플릿 · 깎기 규칙과 자세를 고르는
-  사실(`StrategySignals`)을 옮겼다. 자세 어휘와 계획 모델은 `schemas/strategy.py`, 모델을 불러
-  계획을 세우는 순서는 `service/strategy.py` 다.
+이 모듈은 사실 수집 · 템플릿 · 깎기 규칙과 자세를 고르는 사실(`StrategySignals`)을 갖는다.
+자세 어휘와 계획 모델은 `schemas/strategy.py`, 모델을 불러 계획을 세우는 순서는
+`service/strategy.py` 다.
 """
 
 from __future__ import annotations
@@ -38,27 +36,27 @@ from typing import Any
 
 from app.sales.schemas.strategy import FRESHNESS_RISK_CODE, PricePosture, StrategyProfile
 
-#: 되먹임 회신에서 읽는 강한 소진 신호. **기존 판정 그대로다** (`_depletion_pressure`).
+#: 되먹임 회신에서 읽는 강한 소진 신호.
 _HIGH_SELL_PRIORITY = "HIGH"
 _SEVERE_INVENTORY_RISK = frozenset({"SEVERE", "CRITICAL"})
 
-#: 자금 압박 라벨. **재무 어휘 그대로다** (`derive_cash_priority`).
+#: 자금 압박 라벨. 재무 어휘 그대로다 (`finance/domain/tools.py` 의 `derive_cash_priority`).
 _TIGHT_CASH = frozenset({"HIGH", "MEDIUM"})
 
 
 @dataclass(frozen=True)
 class StrategySignals:
-    """전략을 고르는 데 쓰는 **사실**. 전부 남이 보낸 값이다.
+    """전략을 고르는 데 쓰는 사실. 전부 남이 보낸 값이다.
 
-    ★ 여기서 정책을 만들지 않는다. 임계값도 점수도 없다 — 물류가 *"위험하다"* 고
-      적은 코드, 재무가 *"압박이 높다"* 고 적은 라벨을 그대로 읽는다.
+    여기서 정책을 만들지 않는다. 임계값도 점수도 없다 — 물류가 "위험하다" 고 적은 코드,
+    재무가 "압박이 높다" 고 적은 라벨을 그대로 읽는다.
     """
 
-    #: 소진 압력. **물류가 낸 신호가 하나라도 있으면 참이다.**
+    #: 소진 압력. 물류가 낸 신호가 하나라도 있으면 참이다.
     depletion_pressure: bool = False
-    #: 그 판단의 근거가 된 코드·로트. 화면과 이력이 *"왜"* 를 말할 수 있게 남긴다.
+    #: 그 판단의 근거가 된 코드·로트. 화면과 이력이 "왜" 를 말할 수 있게 남긴다.
     freshness_risk_codes: tuple[str, ...] = ()
-    #: 그 품목의 로트 이름. **위험 판정이 아니라 «이 품목이 창고에 있는가» 다.**
+    #: 그 품목의 로트 이름. 위험 판정이 아니라 «이 품목이 창고에 있는가» 다.
     item_lot_ids: tuple[str, ...] = ()
     #: 되먹임 회신에서 온 보조 신호 (1차 생성에는 없다).
     sell_priority: str | None = None
@@ -66,12 +64,12 @@ class StrategySignals:
     remaining_freshness_days: int | None = None
     #: 무슨 판매인가. 자세를 고를 때 계약 이행과 현물 판매는 여지가 다르다.
     business_mode: str | None = None
-    #: 사용자가 **말로** 남긴 의도. 없으면 `None` 이고, 값은 해석하지 않는다.
+    #: 사용자가 말로 남긴 의도. 없으면 `None` 이고, 값은 해석하지 않는다.
     #:
-    #: 🔴 **여기서 숫자를 뽑지 않는다** (§16). 수량·가격은 구조화된 칸이 소유하고,
-    #:   이 문장은 *자세* 를 고르는 참고로만 모델에 간다.
+    #: 여기서 숫자를 뽑지 않는다 (§16). 수량·가격은 구조화된 칸이 소유하고,
+    #: 이 문장은 자세를 고르는 참고로만 모델에 간다.
     user_intent_text: str | None = None
-    #: 재무 선행 사실. **`None` 은 못 받았다는 뜻이다** — 0 과 다르다.
+    #: 재무 선행 사실. `None` 은 못 받았다는 뜻이다 — 0 과 다르다.
     payment_pressure: str | None = None
     credit_available_krw: Decimal | None = None
     credit_limit_known: bool = False
@@ -84,7 +82,7 @@ class StrategySignals:
     payables_due_30d_krw: Decimal | None = None
     receivables_total_krw: Decimal | None = None
     partner_receivable_krw: Decimal | None = None
-    #: 물류 사실. 수량은 **물류가 확정한 값 그대로** 나르고 다시 세지 않는다.
+    #: 물류 사실. 수량은 물류가 확정한 값 그대로 나르고 다시 세지 않는다.
     inventory_available_kg: Decimal | None = None
     inventory_cost_basis_known: bool = False
     delivery_status: str | None = None
@@ -92,29 +90,29 @@ class StrategySignals:
     ml_gate_open: bool = False
     ml_target_kind: str | None = None
     ml_use_recommended: bool | None = None
-    #: 자세를 고를 때 보는 **개략 밴드**. 희망 납품일의 점이고, 없으면 전부 `None`.
+    #: 자세를 고를 때 보는 개략 밴드. 희망 납품일의 점이고, 없으면 전부 `None`.
     #:
-    #: 🔴 **가격에 쓰는 밴드가 아니다.** 실제 가격은 `_market_corridor` 가 **확정된
-    #:   납품일**로 다시 고른 점으로 만든다 — 그 날짜는 물류 납기 판정을 거쳐야
-    #:   정해지므로 자세를 고르는 시점에는 아직 없다.
+    #: 가격에 쓰는 밴드가 아니다. 실제 가격은 `domain/proposal.py` 의 `_market_corridor`
+    #: 가 확정된 납품일로 다시 고른 점으로 만든다 — 그 날짜는 물류 납기 판정을 거쳐야
+    #: 정해지므로 자세를 고르는 시점에는 아직 없다.
     ml_lower: Decimal | None = None
     ml_predicted: Decimal | None = None
     ml_upper: Decimal | None = None
-    #: 되먹임 회차에서 부서가 적은 사유 코드. **1차 생성에서는 비어 있다.**
+    #: 되먹임 회차에서 부서가 적은 사유 코드. 1차 생성에서는 비어 있다.
     #:
-    #: ★ 조정 **금액**은 싣지 않는다. 그 숫자의 주인은 재무이고, 그것을 실제로
-    #:   반영하는 것은 결정론 계산이다 — 모델은 *"여신이 막혔다"* 만 알면 된다.
+    #: 조정 금액은 싣지 않는다. 그 숫자의 주인은 재무이고, 그것을 실제로 반영하는
+    #: 것은 결정론 계산이다 — 모델은 "여신이 막혔다" 만 알면 된다.
     feedback_reason_codes: tuple[str, ...] = ()
 
     @property
     def cash_is_tight(self) -> bool:
-        """자금이 빠듯한가. **재무가 낸 판정과 재무가 낸 숫자 둘 다 본다.**
+        """자금이 빠듯한가. 재무가 낸 판정과 재무가 낸 숫자 둘 다 본다.
 
-        ★ 라벨(`payment_pressure`)이 없는 실행이 있다 — 급여 출처가 없으면 재무가
-          투영을 안 낸다. 그때도 투영 최저와 최소현금이 오면 그 둘로 판단할 수 있다.
+        라벨(`payment_pressure`)이 없는 실행이 있다 — 급여 출처가 없으면 재무가 투영을
+        안 낸다. 그때도 투영 최저와 최소현금이 오면 그 둘로 판단할 수 있다.
 
-        🔴 **새 임계값을 만들지 않는다.** *"투영 최저가 최소현금 아래"* 는 재무
-          정책이 이미 정한 선이고, 여기서는 두 값을 비교만 한다.
+        새 임계값을 만들지 않는다. "투영 최저가 최소현금 아래" 는 재무 정책이 이미
+        정한 선이고, 여기서는 두 값을 비교만 한다.
         """
         if self.payment_pressure in _TIGHT_CASH:
             return True
@@ -124,10 +122,10 @@ class StrategySignals:
 
     @property
     def credit_is_exhausted(self) -> bool:
-        """여신 여력이 남지 않았는가. **모르면 참이 아니다** (fail-open 이 아니다).
+        """여신 여력이 남지 않았는가. 모르면 참이 아니다 (fail-open 이 아니다).
 
-        ★ 모르는 것을 *"여력 없음"* 으로 읽으면 한도가 안 선 거래처가 전부 막힌다.
-          한도가 없다는 사실은 `credit_limit_known` 이 따로 나른다.
+        모르는 것을 "여력 없음" 으로 읽으면 한도가 안 선 거래처가 전부 막힌다.
+        한도가 없다는 사실은 `credit_limit_known` 이 따로 나른다.
         """
         return self.credit_available_krw is not None and self.credit_available_krw <= 0
 
@@ -138,10 +136,10 @@ class StrategySignals:
 
 
 def _warning_codes(context: Any) -> tuple[str, ...]:
-    """`soft_warnings[].code` 를 꺼낸다. **물류가 적은 코드 그대로다.**
+    """`soft_warnings[].code` 를 꺼낸다. 물류가 적은 코드 그대로다.
 
-    ★ 모양이 다르면 읽지 않는다. 물류 `PRE_SALES` 는 `{"code": ...}` 로 보내고
-      (`logistics/adapter.py`), 그 약속을 벗어난 항목에서 사실을 만들지 않는다.
+    모양이 다르면 읽지 않는다. 물류 `PRE_SALES` 는 `{"code": ...}` 로 보내고
+    (`logistics/service/pre_sales.py`), 그 약속을 벗어난 항목에서 사실을 만들지 않는다.
     """
     if context is None:
         return ()
@@ -155,31 +153,28 @@ def _warning_codes(context: Any) -> tuple[str, ...]:
 
 
 def _item_lot_ids(context: Any, item: str) -> tuple[str, ...]:
-    """그 품목의 로트 이름. **판정하지 않는다 — 있는지만 센다.**
+    """그 품목의 로트 이름. 판정하지 않는다 — 있는지만 센다.
 
-    🔴 **신선도 임계를 판매가 만들지 않는다** (2026-09-16 실측으로 되돌린 자리).
+    신선도 임계를 판매가 만들지 않는다. `remaining_freshness_days <=
+    effective_freshness_limit_days` 같은 비교는 거꾸로다 — 뒤의 값은 임계가 아니라
+    분모(그 로트가 원래 며칠짜리인가)이고, 앞의 값은 남은 일수다. 그렇게 비교하면
+    `remaining == limit` 인 갓 입고된 최상 로트가 전부 위험으로 읽힌다.
 
-      한때 여기서 `remaining_freshness_days <= effective_freshness_limit_days` 로
-      «한계에 닿은 로트» 를 골랐다. **그 비교는 거꾸로였다.** 뒤의 값은 임계가 아니라
-      **분모**(그 로트가 원래 며칠짜리인가)이고, 앞의 값은 남은 일수다. 그래서
-      `remaining == limit` 인 **갓 입고된 최상 로트**가 전부 위험으로 읽혔다.
+    ```text
+    실측 (`SIM-CHAIN-CHECK-0916` · 2026-09-10)
+    배추 LOT …20260909-배추-1-1   remaining 10 / limit 10   ← 갓 들어온 것
+    → «한계 도달» 로 읽혀 공격안이 시장 하단 1,447원으로 내려갔다
+    ```
 
-      실측 (`SIM-CHAIN-CHECK-0916` · 2026-09-10):
+    물류(`logistics/service/pre_sales.py`)가 그 두 칸을 같이 보내는 이유도 받는 쪽이
+    원값으로 역산해 갓 입고 Lot 을 임박으로 만드는 것을 막기 위해서다.
 
-      ```text
-      배추 LOT …20260909-배추-1-1   remaining 10 / limit 10   ← 갓 들어온 것
-      → 옛 비교로는 «한계 도달» → 공격안이 시장 하단 1,447원으로 내려갔다
-      ```
+    위험 판정의 주인은 물류다. 물류 `domain/rules.py` 가 자기 임계로 재서
+    `FRESHNESS_QUALITY_RISK` 를 낸다. 판매는 그 신호를 읽고, 여기서는 그 신호가 이
+    품목에 걸리는지를 볼 재료(그 품목 로트의 존재)만 만든다.
 
-      물류 `adapter.py` 가 그 두 칸을 같이 보내는 이유는 *"받는 쪽이 원값으로 역산해
-      갓 입고 Lot 을 임박으로 만드는 것"* 을 막기 위해서인데, 정확히 그 사고를 냈다.
-
-    ★ **위험 판정의 주인은 물류다.** 물류 `rules.py` 가 자기 임계로 재서
-      `FRESHNESS_QUALITY_RISK` 를 낸다. 판매는 그 신호를 읽고, 여기서는 **그 신호가
-      이 품목에 걸리는지**를 볼 재료(그 품목 로트의 존재)만 만든다.
-
-    ★ **합산하지 않는다.** 로트를 더해 가용량을 만들면 판매가 물류의 가용 판정을
-      다시 하는 것이 된다 (`_confirmed_sellable_qty` 가 못박은 자리).
+    합산하지 않는다. 로트를 더해 가용량을 만들면 판매가 물류의 가용 판정을 다시 하는
+    것이 된다 (`_confirmed_sellable_qty` 가 못박은 자리).
     """
     if context is None or context.sellable_supply is None:
         return ()
@@ -191,7 +186,7 @@ def _item_lot_ids(context: Any, item: str) -> tuple[str, ...]:
 
 
 def _finance_number(context: Any, path: Sequence[str]) -> Decimal | None:
-    """재무 선행 사실 하나. **없으면 `None` 이고 0 으로 바꾸지 않는다.**"""
+    """재무 선행 사실 하나. 없으면 `None` 이고 0 으로 바꾸지 않는다."""
     current: Any = context.model_dump() if hasattr(context, "model_dump") else context
     for part in path:
         if not isinstance(current, Mapping) or part not in current:
@@ -209,12 +204,12 @@ def _finance_label(context: Any, name: str) -> str | None:
 
 
 def derive_signals(request: Any, replies: Sequence[Any] = ()) -> StrategySignals:
-    """전략이 볼 사실을 모은다. **1차 입력이 정본이고 되먹임은 보조다.**
+    """전략이 볼 사실을 모은다. 1차 입력이 정본이고 되먹임은 보조다.
 
     ```text
     logistics_context   1차 호출부터 있다      ← 소진 신호의 정본
     domain_replies      되먹임 회차에만 있다    ← 있으면 더 강한 신호로 얹는다
-    finance_context     1차 호출부터 있다      ← 2026-09-16 에 연결됐다
+    finance_context     1차 호출부터 있다      ← 자금·여신 선행 사실
     ```
     """
     logistics = request.logistics_context
@@ -223,22 +218,19 @@ def derive_signals(request: Any, replies: Sequence[Any] = ()) -> StrategySignals
     risk_codes = tuple(code for code in codes if code == FRESHNESS_RISK_CODE)
     item_lots = _item_lot_ids(logistics, item)
 
-    # 🔴 **창고 신호를 품목으로 좁힌다** (2026-09-16 실측으로 고친 자리).
+    # 창고 신호를 품목으로 좁힌다. `soft_warnings` 는 코드만 있고 어느 품목인지가
+    # 없어서, 좁히지 않으면 신호 하나로 이 요청의 품목까지 소진 대상이 된다.
     #
-    #   `soft_warnings` 는 코드만 있고 **어느 품목인지가 없다.** 그래서 종전에는
-    #   신호 하나로 이 요청의 품목까지 소진 대상이 됐다.
+    # ```text
+    # 실측 (`SIM-CHAIN-REH-0914` · 2026-09-14)
+    # soft_warnings   [FRESHNESS_QUALITY_RISK]     ← 양파 로트에서 난 신호
+    # 요청 품목        배추                          ← 그날 로트가 하나도 없다
+    # → 배추 공격안이 시장 하단 1,321원으로 내려갔다
+    # ```
     #
-    #   실측 (`SIM-CHAIN-REH-0914` · 2026-09-14):
-    #
-    #   ```text
-    #   soft_warnings   [FRESHNESS_QUALITY_RISK]     ← 양파 로트에서 난 신호
-    #   요청 품목        배추                          ← 그날 로트가 하나도 없다
-    #   → 배추 공격안이 시장 하단 1,321원으로 내려갔다
-    #   ```
-    #
-    # ★ **그 품목 로트가 창고에 있을 때만** 이 신호를 이 품목의 소진 압력으로 읽는다.
-    #   품목을 특정할 수 없는 신호로 가격을 내리는 것은 §7 이 막으려는 «근거 없이
-    #   싸게 파는 것» 그 자체다. 좁히는 방향이라 fail-closed 다.
+    # 그 품목 로트가 창고에 있을 때만 이 신호를 이 품목의 소진 압력으로 읽는다.
+    # 품목을 특정할 수 없는 신호로 가격을 내리는 것은 §7 이 막으려는 «근거 없이
+    # 싸게 파는 것» 그 자체다. 좁히는 방향이라 fail-closed 다.
     warehouse_freshness_risk = bool(risk_codes) and bool(item_lots)
 
     sell_priority, severity, freshness = _reply_ranking_facts(replies)
@@ -294,10 +286,10 @@ def derive_signals(request: Any, replies: Sequence[Any] = ()) -> StrategySignals
 
 
 def _reply_reason_codes(replies: Sequence[Any]) -> tuple[str, ...]:
-    """되먹임 회신이 적은 사유 코드. **부서가 쓴 말 그대로다.**
+    """되먹임 회신이 적은 사유 코드. 부서가 쓴 말 그대로다.
 
-    ★ 조정 금액은 안 읽는다. 자세를 고르는 데 필요한 것은 *"무엇이 막았나"* 이고,
-      얼마까지 되는지는 결정론 계산이 재무 회신에서 직접 읽는다.
+    조정 금액은 안 읽는다. 자세를 고르는 데 필요한 것은 "무엇이 막았나" 이고,
+    얼마까지 되는지는 결정론 계산이 재무 회신에서 직접 읽는다.
     """
     codes: list[str] = []
     for reply in replies:
@@ -309,10 +301,10 @@ def _reply_reason_codes(replies: Sequence[Any]) -> tuple[str, ...]:
 
 
 def _available_qty(supply: Any, item: str) -> Decimal | None:
-    """물류가 확정한 그 품목의 판매 가능 수량. **합산하지 않는다.**
+    """물류가 확정한 그 품목의 판매 가능 수량. 합산하지 않는다.
 
-    ★ `inventory_by_item` 한 줄을 그대로 읽는다 — 로트를 더하면 판매가 물류의 가용
-      판정을 다시 하는 것이 된다 (`proposal._confirmed_sellable_qty` 와 같은 규율).
+    `inventory_by_item` 한 줄을 그대로 읽는다 — 로트를 더하면 판매가 물류의 가용
+    판정을 다시 하는 것이 된다 (`proposal._confirmed_sellable_qty` 와 같은 규율).
     """
     if supply is None:
         return None
@@ -321,14 +313,14 @@ def _available_qty(supply: Any, item: str) -> Decimal | None:
 
 
 def _coarse_band_point(request: Any) -> Any:
-    """자세를 고를 때 보는 **개략 밴드 한 점**.
+    """자세를 고를 때 보는 개략 밴드 한 점.
 
-    🔴 **가격을 만드는 밴드가 아니다.** 실제 가격은 `proposal._market_corridor` 가
-      **확정된 납품일**로 다시 고른 점으로 만든다. 그 날짜는 물류 납기 판정을 거쳐야
-      정해지는데, 자세를 고르는 시점에는 아직 후보가 없어 그 판정도 없다.
+    가격을 만드는 밴드가 아니다. 실제 가격은 `proposal._market_corridor` 가 확정된
+    납품일로 다시 고른 점으로 만든다. 그 날짜는 물류 납기 판정을 거쳐야 정해지는데,
+    자세를 고르는 시점에는 아직 후보가 없어 그 판정도 없다.
 
-    ★ 그래서 희망 납품일로만 찾고, 없으면 밴드를 안 본다 — 아무 날짜나 집어
-      *"시장이 이렇다"* 를 만들지 않는다.
+    그래서 희망 납품일로만 찾고, 없으면 밴드를 안 본다 — 아무 날짜나 집어 "시장이
+    이렇다" 를 만들지 않는다.
     """
     forecast = request.ml_context
     wanted = request.user_request.preferred_delivery_date
@@ -338,7 +330,7 @@ def _coarse_band_point(request: Any) -> Any:
 
 
 def _reply_ranking_facts(replies: Sequence[Any]) -> tuple[str | None, str | None, int | None]:
-    """되먹임 물류 회신의 보조 사실. **없으면 전부 `None` 이다.**"""
+    """되먹임 물류 회신의 보조 사실. 없으면 전부 `None` 이다."""
     for reply in replies:
         if getattr(reply, "source_agent", None) != "logistics":
             continue
@@ -360,10 +352,10 @@ def _reply_ranking_facts(replies: Sequence[Any]) -> tuple[str | None, str | None
 
 
 def template_profiles(signals: StrategySignals) -> list[StrategyProfile]:
-    """규칙만으로 만든 세 자세. **모델이 실패해도 판매는 돈다** (§10).
+    """규칙만으로 만든 세 자세. 모델이 실패해도 판매는 돈다 (§10).
 
-    ★ 공격안의 가격 자세는 **신호가 있을 때만** `DEPLETION` 이다. 신호 없이 시장
-      하단을 여는 것은 근거 없이 싸게 파는 것이다.
+    공격안의 가격 자세는 신호가 있을 때만 `DEPLETION` 이다. 신호 없이 시장 하단을
+    여는 것은 근거 없이 싸게 파는 것이다.
     """
     aggressive_price: PricePosture = "DEPLETION" if signals.depletion_pressure else "MARKET_ALIGNED"
     aggressive_reasons = list(signals.freshness_risk_codes)
@@ -420,13 +412,13 @@ def template_profiles(signals: StrategySignals) -> list[StrategyProfile]:
 def clamp_profiles(
     profiles: Sequence[StrategyProfile], signals: StrategySignals
 ) -> tuple[list[StrategyProfile], list[str]]:
-    """모델이 고른 자세를 **사실로 깎는다. 깎았다는 사실을 남긴다.**
+    """모델이 고른 자세를 사실로 깎고, 깎았다는 사실을 남긴다.
 
-    🔴 **소진 자세는 신호가 있어야 선다.** 없으면 시장 정합으로 내린다 — 모델이
-      *"싸게 팔자"* 를 스스로 여는 길을 막는 자리다.
+    소진 자세는 신호가 있어야 선다. 없으면 시장 정합으로 내린다 — 모델이 "싸게
+    팔자" 를 스스로 여는 길을 막는 자리다.
 
-    ★ **깎기는 한 방향이다.** 모델이 더 보수적인 자세를 골랐으면 그대로 둔다 —
-      사실이 허락한다고 공격을 강요하지 않는다.
+    깎기는 한 방향이다. 모델이 더 보수적인 자세를 골랐으면 그대로 둔다 — 사실이
+    허락한다고 공격을 강요하지 않는다.
     """
     clamped: list[StrategyProfile] = []
     notes: list[str] = []

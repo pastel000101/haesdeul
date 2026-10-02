@@ -1,34 +1,33 @@
-"""매입안 보고서 — **사람이 들고 나가 읽는 문서.**
+"""매입안 보고서 — 사람이 들고 나가 읽는 문서.
 
-`answer.py` 와 무엇이 다른가:
+`domain/answer.py` 와 무엇이 다른가:
 
 ```text
-answer.py   대화창에 붙는 답. 짧게 결론만.
-report.py   들고 나가는 문서. 안마다 매입량·금액·등급·이유와 부서 검토를 편다.
+domain/answer.py           대화창에 붙는 답. 짧게 결론만.
+report/purchase_report.py  들고 나가는 문서. 안마다 매입량·금액·등급·이유와 부서 검토를 편다.
 ```
 
-★ **실제 서비스 사용자에게 필요한 것만 사람 말로 싣는다** (2026-09-15 결정).
-  검증 기록(지적·확인 필요·못 돈 검사·검사 커버리지) · 종료 코드 · 요청 번호 원문 ·
-  입력 출처 · 근거 등급 · 참조 번호 · 영문 코드 · 빈 칸 알림은 **문서에 넣지 않는다.**
-  그 기록은 실행 이력(`response_payload`)에 그대로 남아 있고 이 문서가 주인이 아니다.
+기간 채팅 보고서(재무 · 판매 · 물류)는 `report/chat_reports.py` 가 만든다.
 
-★ **값을 만들지 않는다.** 저장된 실행에 있는 것만 옮긴다 — 합계도 다시 세지 않는다.
-  보고서가 계산을 시작하면 화면과 문서가 **다른 숫자**를 말하게 된다.
-  단위를 바꿔 적는 것(원 → 만 원)은 계산이 아니라 표기다.
+실제 서비스 사용자에게 필요한 것만 사람 말로 싣는다. 검증 기록(지적·확인 필요·못 돈
+검사·검사 커버리지) · 종료 코드 · 요청 번호 원문 · 입력 출처 · 근거 등급 · 참조 번호 ·
+영문 코드 · 빈 칸 알림은 문서에 넣지 않는다. 그 기록은 실행 이력(`response_payload`)에
+그대로 남아 있고 이 문서가 주인이 아니다.
 
-★ **부서가 준 문장은 판단하지 않고 다듬기만 한다.** 알려진 모양이면 짧은 사람 말로
-  바꾸고, 늘 뜨는 개발용 문장은 빼고, 모르는 문장은 원문을 두되 코드·영문·참조 번호만
-  벗긴다. 벗기고 나서 한국어가 안 남으면 뺀다.
+값을 만들지 않는다. 저장된 실행에 있는 것만 옮긴다 — 합계도 다시 세지 않는다.
+보고서가 계산을 시작하면 화면과 문서가 다른 숫자를 말하게 된다. 단위를 바꿔 적는 것
+(원 → 만 원)은 계산이 아니라 표기다.
 
-★ 판정·점검 항목 문구는 화면 사전 `frontend/src/lib/procurementLabels.ts` 와 **같은 뜻**
-  이어야 한다 (`STATUS_LABEL` · `CLAIM_LABEL` · `LOGISTICS_CHECK_LABEL` ·
-  `CHECK_STATUS_LABEL` · `financeSummary` · `logisticsSummary`). 파이썬이라 여기 한 벌을
-  더 두므로 **한쪽을 고치면 다른 쪽도 고친다.**
+부서가 준 문장은 판단하지 않고 다듬기만 한다. 알려진 모양이면 짧은 사람 말로 바꾸고,
+늘 뜨는 개발용 문장은 빼고, 모르는 문장은 원문을 두되 코드·영문·참조 번호만 벗긴다.
+벗기고 나서 한국어가 안 남으면 뺀다.
 
-★ Markdown 이다. 붙여 넣기·메신저·이슈 어디에도 그대로 들어간다.
+판정·점검 항목 문구는 화면 사전 `frontend/src/lib/procurementLabels.ts` 와 같은 뜻
+이어야 한다(`STATUS_LABEL` · `CLAIM_LABEL` · `LOGISTICS_CHECK_LABEL` ·
+`CHECK_STATUS_LABEL` · `financeSummary` · `logisticsSummary`). 파이썬이라 여기 한 벌을
+더 두므로 한쪽을 고치면 다른 쪽도 고친다.
 
-★ 2026-09-30 재구성 BL-018: `master/report.py` 에서 옮겼다. 역할이 다른 부분은 갈랐다 —
-  `report/chat_reports.py`. 무엇이 어디로 갔는지는 설계서 대응표 `master/` 절.
+Markdown 이다. 붙여 넣기·메신저·이슈 어디에도 그대로 들어간다.
 """
 
 from __future__ import annotations
@@ -406,7 +405,7 @@ def _review_block(verdicts: Mapping[str, Any]) -> list[str]:
         reasoning = str(verdict.get("reasoning") or "").strip()
         why = "" if reasoning in _NOISE_REASONING else _clean(reasoning)
         if label is None or verdict.get("runtime_status") not in (None, "READY"):
-            # 🔴 영어 상태 코드를 찍지 않는다. 판정이 없다는 사실은 사람 말로 남긴다.
+            # 영어 상태 코드를 찍지 않는다. 판정이 없다는 사실은 사람 말로 남긴다.
             out.append(f"- {dept} · 판정을 내지 못함 — {why or '사유를 받지 못했습니다.'}")
             continue
         out.append(f"- {dept} · {label}" + (f" — {why}" if why else ""))
@@ -550,7 +549,7 @@ def render_report(
     `item` 은 요청 품목이다 — 매입 회신(`judgment.meta.item`)에 없을 때만 쓴다.
     `decision` 은 이 실행에 붙은 현재 결정이다. 없으면 선택 대기로 적는다.
 
-    ★ 실행이 안을 안 냈으면 **왜 없는지**가 본문이다. 빈 문서는 "아직 안 돌았나" 로 읽힌다.
+    실행이 안을 안 냈으면 왜 없는지가 본문이다. 빈 문서는 "아직 안 돌았나" 로 읽힌다.
     """
     scenarios = [s for s in (run.get("scenarios") or []) if isinstance(s, Mapping)]
     judgment = run.get("judgment") or {}

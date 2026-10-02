@@ -1,12 +1,9 @@
 """ML 가격 예측 설정값 — 예측 일수 · 대상 품목 · 가격 종류별 규격.
 
-예측 계약(``Forecast`` · ``DailyPoint`` · ``TargetKind``)은 2026-09-29
-``app/contracts/forecast.py`` 로 옮겼다 (재구성 BL-011). 판매가 그 계약을 받으려고 ML 을
-import 했기 때문이다. 여기 남은 값은 ML 이 예측을 만들고 읽을 때 쓰는 설정이다.
-
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/schemas.py` 한 파일이었다. ML 이
-  계층으로 나뉘며 `schemas/` 가 패키지가 되어 예측 설정은 이 파일, 질의응답 계약은
-  `schemas/qa.py`, 그래프 상태는 `schemas/qa_state.py` 에 있다. 값은 그대로다.
+예측 계약(``Forecast`` · ``DailyPoint`` · ``TargetKind``)은 ``app/contracts/forecast.py`` 에
+있다. 판매가 그 계약을 받으려고 ML 을 import 하지 않게 하려는 것이다. 이 파일의 값은 ML 이
+예측을 만들고 읽을 때 쓰는 설정이다. 질의응답 계약은 `schemas/qa.py`, 그래프 상태는
+`schemas/qa_state.py` 에 있다.
 """
 
 HORIZON_DAYS = 18

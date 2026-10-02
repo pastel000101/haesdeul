@@ -1,8 +1,7 @@
 """Finance operations-console payable read model; strictly run-scoped.
 
-★ 2026-09-29 재구성 BL-014: 응답 모델은 `schemas/console_payables.py`, SQL 은
-  `repository/dashboard.py`
-  (`load_payables` — 화면 현황과 같은 조회).
+응답 모델은 `schemas/console_payables.py`, SQL 은 `repository/dashboard.py`(`load_payables` —
+화면 현황과 같은 조회).
 """
 
 from datetime import date

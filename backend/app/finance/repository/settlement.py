@@ -1,7 +1,4 @@
-"""매입대금 지급 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/settlement.py` 에서 옮겼다(문면 그대로).
-"""
+"""매입대금 지급 SQL."""
 
 from __future__ import annotations
 
@@ -44,7 +41,7 @@ def lock_recognized_payables(conn: Any, *, sim_run_id: str, as_of: date) -> list
 
 
 def update_payable_settlement(conn: Any, settlement: PayableSettlement, *, as_of: date) -> int:
-    """채무 한 행에 지급을 적는다. **바뀐 행 수**를 돌려준다."""
+    """채무 한 행에 지급을 적는다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -62,7 +59,7 @@ def update_payable_settlement(conn: Any, settlement: PayableSettlement, *, as_of
                 settlement.next_paid_amount_krw,
                 settlement.next_outstanding_amount_krw,
                 settlement.next_status,
-                #  ★ 다 갚은 날만 적는다. 부분 지급은 아직 «끝난 날» 이 아니다.
+                # 다 갚은 날만 적는다. 부분 지급은 아직 «끝난 날» 이 아니다.
                 as_of if settlement.next_status == "SETTLED" else None,
                 settlement.payable_id,
             ],
@@ -96,7 +93,7 @@ def update_state_payment(
     current_cash_krw: Decimal,
     unsettled_purchase_payables_krw: Decimal,
 ) -> int:
-    """재무 상태 행의 현금·미지급 채무를 바꾼다. **바뀐 행 수**를 돌려준다."""
+    """재무 상태 행의 현금·미지급 채무를 바꾼다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

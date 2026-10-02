@@ -1,20 +1,20 @@
 /**
- * 🔴 **진짜 인증이 아니다.**
+ * 진짜 인증이 아니다.
  *
- * 백엔드에 인증이 없다. 결정 API 는 `decided_by` 를 **필수로 요구하지만 그 값을
- * 검증하지 않는다** — 화면이 아무 이름이나 보낼 수 있다.
+ * 백엔드에 인증이 없다. 결정 API 는 `decided_by` 를 필수로 요구하지만 그 값을
+ * 검증하지 않는다 — 화면이 아무 이름이나 보낼 수 있다.
  *
- * 계약에 *"승인자가 없는 승인은 승인이 아니다"* 라고 적어 놓고 정작 **그 사람이
- * 맞는지는 아무도 안 본다.** 토큰에서 `decided_by` 를 꺼내 쓰기 전까지, 승인 이력은
- * **"누군가 이 이름을 적었다"** 까지만 보증한다.
+ * 계약에 "승인자가 없는 승인은 승인이 아니다" 라고 적어 놓고 정작 그 사람이
+ * 맞는지는 아무도 안 본다. 토큰에서 `decided_by` 를 꺼내 쓰기 전까지, 승인 이력은
+ * "누군가 이 이름을 적었다" 까지만 보증한다.
  *
- * 그래서 이 모듈은 **자리를 잡아 두는 것**이 목적이다. 서버 인증이 붙으면 이 파일만
+ * 그래서 이 모듈은 자리를 잡아 두는 것이 목적이다. 서버 인증이 붙으면 이 파일만
  * 바뀌고 화면은 그대로다 — 승인 화면이 `session.name` 을 쓰는 구조는 같기 때문이다.
  */
 
 const KEY = "haetdeul.session";
 
-/** ★ 역할은 관리자 하나다. 로그인 화면에서 역할을 고르지 않는다. */
+/** 역할은 관리자 하나다. 로그인 화면에서 역할을 고르지 않는다. */
 export type Role = "admin";
 
 export interface Session {
@@ -27,19 +27,19 @@ export const ROLE_LABEL: Record<Role, string> = {
   admin: "관리자",
 };
 
-/** 역할이 볼 수 있는 것. **화면에서만 가린다 — 서버는 누구든 부를 수 있다.** */
+/** 역할이 볼 수 있는 것. 화면에서만 가린다 — 서버는 누구든 부를 수 있다. */
 export const CAN: Record<Role, { finance: boolean; approve: boolean; procure: boolean }> = {
   admin: { finance: true, approve: true, procure: true },
 };
 
 /* ── 외부 저장소 구독 ────────────────────────────────────────────────────
  *
- * `localStorage` 는 React 바깥의 저장소라 **`useSyncExternalStore` 로 읽는다.**
+ * `localStorage` 는 React 바깥의 저장소라 `useSyncExternalStore` 로 읽는다.
  * 효과 안에서 `setState` 로 끌어오면 렌더가 한 번 더 돌고, React 19 린트가 그걸
  * 잡는다 — 규칙을 끄는 것보다 맞는 API 를 쓰는 편이 낫다.
  *
- * ★ **스냅샷을 캐시한다.** `useSyncExternalStore` 는 스냅샷이 매번 새 객체면 무한
- *   루프로 본다. 원문(raw 문자열)이 그대로면 앞서 만든 객체를 돌려준다.
+ * 스냅샷을 캐시한다. `useSyncExternalStore` 는 스냅샷이 매번 새 객체면 무한
+ * 루프로 본다. 원문(raw 문자열)이 그대로면 앞서 만든 객체를 돌려준다.
  * ------------------------------------------------------------------------ */
 
 let cachedRaw: string | null = null;
@@ -71,8 +71,8 @@ export function sessionSnapshot(): Session | null {
   if (raw === cachedRaw) return cachedSession;
   cachedRaw = raw;
   try {
-    // 🔴 로그인 화면에서 역할을 고르던 때의 세션이 남아 있어도 권한이 줄면 안 된다.
-    //    원문은 그대로 두고 읽을 때만 관리자로 맞춘다 — 캐시는 원문 기준이라 그대로 돈다.
+    // 저장된 세션에 다른 역할이 남아 있어도 권한이 줄면 안 된다.
+    // 원문은 그대로 두고 읽을 때만 관리자로 맞춘다 — 캐시는 원문 기준이라 그대로 돈다.
     const parsed = raw ? (JSON.parse(raw) as Session | null) : null;
     cachedSession = parsed ? { ...parsed, role: "admin" } : null;
   } catch {
@@ -81,7 +81,7 @@ export function sessionSnapshot(): Session | null {
   return cachedSession;
 }
 
-/** 서버 렌더에는 저장소가 없다. **항상 같은 값을 돌려줘야** 하이드레이션이 안 어긋난다. */
+/** 서버 렌더에는 저장소가 없다. 항상 같은 값을 돌려줘야 하이드레이션이 안 어긋난다. */
 export function serverSnapshot(): Session | null {
   return null;
 }

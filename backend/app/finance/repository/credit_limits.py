@@ -1,8 +1,6 @@
 """거래처 여신한도 SQL — 거래처 확인 · 활성 기간 잠금 · 기간 끝내기 · 새 기간 · 이력.
 
-★ 2026-09-29 재구성 BL-014: `finance/router.py` 핸들러 안의 SQL 을 옮겼다(문면 · 인자 그대로 —
-  거래처 확인 한 문장만 등록 · 조회가 같이 쓰도록 조회 쪽 문면 하나로 모았다). 받은 연결로
-  실행만 한다. commit 하지 않는다.
+거래처 확인 SQL 하나를 등록 · 조회가 같이 쓴다. 받은 연결로 실행만 한다. commit 하지 않는다.
 """
 
 from datetime import date, timedelta
@@ -65,7 +63,7 @@ def lock_active_credit_limits(conn: Any, *, partner_id: str) -> list:
 def close_credit_limit(
     conn: Any, *, partner_credit_limit_id: object, effective_from: date
 ) -> None:
-    """열린 기간을 새 적용일 **전날**로 끝낸다."""
+    """열린 기간을 새 적용일 전날로 끝낸다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

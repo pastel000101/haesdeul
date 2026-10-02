@@ -1,20 +1,19 @@
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
+"""Critic Local LLM contracts and response extension fields.
 
-Critic Local LLM contracts and response extension fields.
+Critic 의 LLM 지점은 L5 논리 일관성 판정 하나뿐이다 (설계서 §6.4). Judge 는 설명문이
+데이터와 모순되는지만 본다. 수량을 바꾸라고 제안하지 않는다 — L5 로 숫자를 바꾸면
+LLM 이 숫자를 만든 것이 되어 §1.2-3 위반이다.
 
-★ Critic 의 LLM 지점은 L5 논리 일관성 판정 하나뿐이다 (설계서 §6.4).
-  Judge 는 **설명문이 데이터와 모순되는지만** 본다. 수량을 바꾸라고 제안하지 않는다 —
-  L5 로 숫자를 바꾸면 LLM 이 숫자를 만든 것이 되어 §1.2-3 위반이다.
+FAIL 이어도 결정을 죽이지 못한다. Critic 판정은 CONCERN 까지만 올라간다.
 
-  FAIL 이어도 결정을 죽이지 못한다. Critic 판정은 CONCERN 까지만 올라간다.
+상태 필드 5종(`llm_status` ~ `llm_fallback_used`)은 재무 · 물류 · 마스터와 같고,
+`llm_status` 어휘는 `app/contracts/envelope.py` 의 `LLMStatus` 다. `summary` 도 공통으로
+유지한다.
 
-  상태 필드 5종(`llm_status` ~ `llm_fallback_used`)은 Finance / Logistics / Orchestrator 와
-  동일하다. `summary` 도 공통으로 유지한다.
-
-  ⚠️ `CriticVerdictOut.skipped` 와 `llm_status="SKIPPED_TEMPLATE"` 는 의미가 다르다.
-     · skipped            — 미검사 항목 목록. coverage 하락으로 드러난다 (설계서 §8)
-     · SKIPPED_TEMPLATE   — LLM 호출이 불필요해 기본값을 썼다
-     L5 judge 미가동이면 **둘 다** 발생한다.
+주의: `CriticVerdictOut.skipped` 와 `llm_status="SKIPPED_TEMPLATE"` 는 의미가 다르다.
+   · skipped            — 미검사 항목 목록. coverage 하락으로 드러난다 (설계서 §8)
+   · SKIPPED_TEMPLATE   — LLM 호출이 불필요해 기본값을 썼다
+   L5 judge 미가동이면 둘 다 발생한다.
 """
 
 from typing import Literal

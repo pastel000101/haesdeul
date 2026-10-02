@@ -1,7 +1,4 @@
-"""재무 일마감 SQL — 실행축 · 상태 · 원장 합계 · 채무 귀속 · 마감 행.
-
-★ 2026-09-29 재구성 BL-014: `finance/closing.py` 에서 옮겼다(문면 그대로).
-"""
+"""재무 일마감 SQL — 실행축 · 상태 · 원장 합계 · 채무 귀속 · 마감 행."""
 
 from __future__ import annotations
 
@@ -76,7 +73,7 @@ def select_exact_state(conn: Any, *, sim_run_id: str, financing_mode: str, as_of
 def select_prior_states(
     conn: Any, *, sim_run_id: str, financing_mode: str, as_of: date
 ) -> list:
-    """마감일 **앞** 같은 축 상태를 늦은 날부터 두 행."""
+    """마감일 앞 같은 축 상태를 늦은 날부터 두 행."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -124,7 +121,7 @@ def select_receivables_outstanding(conn: Any, *, sim_run_id: str, as_of: date):
 
 
 def select_sales_recognized(conn: Any, *, sim_run_id: str, as_of: date):
-    """오늘 판매와, 휴장 뒤 **첫 개장일**에 넘겨받은 판매만 인식한다.
+    """오늘 판매와, 휴장 뒤 첫 개장일에 넘겨받은 판매만 인식한다.
 
     ``sales.sale_date``는 납품 원장 날짜이므로 바꾸지 않는다. Master #714가
     출고 처리에 쓰는 ``master_day_openings`` 정본을 같은 의미로 읽되, Master의
@@ -259,7 +256,7 @@ def select_paid_expenses(conn: Any, *, sim_run_id: str, as_of: date) -> list:
 
 
 def insert_daily_closing(conn: Any, params: dict[str, object]) -> int:
-    """마감 한 행을 새로 적는다(이미 있으면 적지 않는다). **적힌 행 수.**"""
+    """마감 한 행을 새로 적는다(이미 있으면 적지 않는다). 적힌 행 수."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -291,7 +288,7 @@ def insert_daily_closing(conn: Any, params: dict[str, object]) -> int:
 
 
 def update_daily_closing(conn: Any, params: dict[str, object]) -> int:
-    """이미 있는 마감 행을 다시 적는다. **바뀐 행 수.**"""
+    """이미 있는 마감 행을 다시 적는다. 바뀐 행 수."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

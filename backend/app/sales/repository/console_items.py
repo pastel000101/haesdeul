@@ -1,7 +1,4 @@
-"""판매 운영 화면이 고르는 활성 품목 SQL — 공용 `items` 원장.
-
-★ 2026-09-29 BL-013: `sales/console_items.py` 에서 SQL 을 옮겼다.
-"""
+"""판매 운영 화면이 고르는 활성 품목 SQL — 공용 `items` 원장."""
 
 from typing import Any
 

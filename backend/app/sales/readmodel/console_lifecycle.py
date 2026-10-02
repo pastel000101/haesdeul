@@ -1,4 +1,4 @@
-"""판매 한 건의 흐름 — **저장된 연결키로만 잇는다.**
+"""판매 한 건의 흐름 — 저장된 연결키로만 잇는다.
 
 실측(2026-09-11)으로 확인한 연결키다. 각 화살표는 표에 실제로 있는 칸이다:
 
@@ -14,22 +14,20 @@ sales.sale_id
         ← master_collection_events.receivable_id
 ```
 
-★ **확정 앞 구간이 2026-09-11 에 이어졌다.** 마스터가 확정 때 업무 키를 `source_order_id`
-  로 싣기 시작하면서(`sales_approval` — *"확정이 업무 키를 원본 주문으로 싣는다"*),
-  *"어느 판단이 이 판매를 낳았나"* 가 **저장된 값**이 됐다. 실측에서 판매 51건이 그
-  키로 마스터 판단과 이어진다.
+확정 앞 구간은 업무 키로 잇는다. 마스터가 확정 때 업무 키를 `source_order_id` 로
+실으므로(`sales_approval` — "확정이 업무 키를 원본 주문으로 싣는다"), "어느 판단이 이
+판매를 낳았나" 가 저장된 값이다. 실측에서 판매 51건이 그 키로 마스터 판단과 이어진다.
 
-🔴 **그 키가 없는 판매는 여전히 잇지 않는다.** 업무 키를 싣기 전에 만들어진 행과 사람이
-   심은 seed 행은 `source_order_id` 가 마스터 요청이 아니다(실측 23건). 그때는
-   *"같은 날짜 · 같은 품목 · 가장 최근 행"* 으로 이으면 그럴듯하고 틀린 계보가 서고,
-   틀렸다는 사실이 어디에도 남지 않는다. `BLOCKED` 로 두고 왜 막혔는지를 말한다.
+그 키가 없는 판매는 잇지 않는다. 업무 키를 싣기 전에 만들어진 행과 사람이 심은 seed
+행은 `source_order_id` 가 마스터 요청이 아니다(실측 23건). 그때 "같은 날짜 · 같은 품목 ·
+가장 최근 행" 으로 이으면 그럴듯하고 틀린 계보가 서고, 틀렸다는 사실이 어디에도 남지
+않는다. `BLOCKED` 로 두고 왜 막혔는지를 말한다.
 
-★ 부분 상태가 정상이다. 한 화면에서 이어진 구간과 못 이은 구간이 같이 보이는 것이
-  *"전부 된다"* 나 *"전부 안 된다"* 보다 정확하다.
+부분 상태가 정상이다. 한 화면에서 이어진 구간과 못 이은 구간이 같이 보이는 것이
+"전부 된다" 나 "전부 안 된다" 보다 정확하다.
 
-★ 2026-09-29 BL-013: `sales/console_lifecycle.py` 에서 단계 조립을 옮겼다. 연결키마다의 SQL 은
-  `repository/console_lifecycle.py`, 응답 모델은 `schemas/console_lifecycle.py` 다. 조회
-  일곱 개를 한 번 빌린 조회 연결로 종전과 같은 순서로 읽는다.
+연결키마다의 SQL 은 `repository/console_lifecycle.py`, 응답 모델은
+`schemas/console_lifecycle.py` 다. 조회 일곱 개를 한 번 빌린 조회 연결로 읽는다.
 """
 
 from datetime import date
@@ -67,9 +65,9 @@ def _agent_stages(
 ) -> list[LifecycleStage]:
     """업무 키로 이어진 확정 앞 구간.
 
-    🔴 **부서 판정을 여기서 다시 세지 않는다.** 마스터가 그 실행에 적어 둔 `end_code` 와
-       판단 기록을 옮길 뿐이다 — 재무·물류 판정의 주인은 각 부서이고, 그 실행의 계획에
-       이미 남아 있다.
+    부서 판정을 여기서 다시 세지 않는다. 마스터가 그 실행에 적어 둔 `end_code` 와
+    판단 기록을 보여 줄 뿐이다 — 재무·물류 판정의 주인은 각 부서이고, 그 실행의 계획에
+    이미 남아 있다.
     """
     run = load_master_run(conn, sim_run_id=sim_run_id, request_id=request_id)
     if run is None:
@@ -100,8 +98,8 @@ def _agent_stages(
             detail=f"판매 사이클 종료 코드 {end_code}",
             evidence=evidence,
         ),
-        #  ★ 부서 판정은 그 실행의 계획에 남아 있다. 여기서는 **어디를 보면 되는지**만
-        #    가리킨다 — 판정을 옮겨 적으면 두 곳이 서로 다른 말을 하게 된다.
+        # 부서 판정은 그 실행의 계획에 남아 있다. 여기서는 어디를 보면 되는지만
+        # 가리킨다 — 판정을 옮겨 적으면 두 곳이 서로 다른 말을 하게 된다.
         LifecycleStage(
             stage="finance_validation",
             status="DONE",
@@ -258,7 +256,7 @@ def get_console_sale_lifecycle(
                 )
             )
         else:
-            #  ⚠️ 만기 전이면 «아직 아니다» 이고, 만기가 지났으면 «없다» 이다. 다른 사실이다.
+            # 만기 전이면 «아직 아니다» 이고, 만기가 지났으면 «없다» 이다. 다른 사실이다.
             due = receivables[0]["due_date"] if receivables else None
             not_due = due is not None and as_of <= due
             stages.append(

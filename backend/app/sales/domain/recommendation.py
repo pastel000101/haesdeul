@@ -1,9 +1,7 @@
 """판매 제안 그래프의 판단 — 추천 확정 · 자기 점검 · 결정 흔적 · 전략 수렴.
 
-★ 2026-09-29 BL-013: `sales/graph.py` 에서 그래프 상태를 읽지 않는 판단을 옮겼다. 그래프
-  노드(`service/proposal.py`)는 상태에서 값을 꺼내 여기 넘기고 결과를 상태에 담는다.
-  상태 사전을 받던 두 함수(`_resolve_recommendation_id` · `_agent_self_check`)는 필요한 값만
-  인자로 받게 바꿨고 판정 순서와 결과는 그대로다.
+여기 함수들은 그래프 상태를 읽지 않는다. 그래프 노드(`service/proposal.py`)가 상태에서
+필요한 값만 꺼내 인자로 넘기고, 결과를 상태에 담는다.
 """
 
 from __future__ import annotations
@@ -27,11 +25,11 @@ def resolve_recommendation_id(
     terminal_reason: str | None,
     rejected: list[SalesScenario],
 ) -> str | None:
-    """**누가 추천인지 확정한다.** 숫자와 규칙만 쓴다 — 모델은 오지 않는다.
+    """누가 추천인지 확정한다. 숫자와 규칙만 쓴다 — 모델은 오지 않는다.
 
     순위를 거쳐 온 길은 이미 첫 자리를 들고 있다. 순위를 건너뛴 길(입력 미비 ·
     검증 대기)은 여기서 처음 추천을 정한다. 그리고 거절된 안이 추천에 앉아 있으면
-    추천을 **비운다** — 막힌 안을 권할 수는 없다.
+    추천을 비운다 — 막힌 안을 권할 수는 없다.
     """
     if recommendation_id is None and ranked_ids:
         recommendation_id = ranked_ids[0]
@@ -51,7 +49,7 @@ def recommendation_self_check(
     terminal_reason: str | None,
     feedback_reply_count: int,
 ) -> ProposalSelfCheck:
-    """안 목록 점검(`self_check_scenarios`) 위에 **추천 자체**를 되짚는다."""
+    """안 목록 점검(`self_check_scenarios`) 위에 추천 자체를 되짚는다."""
     issues = list(base_check.issue_codes)
     rejected_ids = {candidate.scenario_id for candidate in rejected}
     candidates = {candidate.scenario_id: candidate for candidate in validated}
@@ -91,7 +89,7 @@ def decision_traces(
     recommendation_id: str | None,
     exclusions: dict[str, list[str]],
 ) -> list[SalesDecisionTrace]:
-    """안마다 **왜 이 자리에 섰는지**를 남긴다. 새로 정하는 것은 없다.
+    """안마다 왜 이 자리에 섰는지를 남긴다. 새로 정하는 것은 없다.
 
     ```text
     남은 안          순위 · 추천 여부 · 지배당해 빠진 사유(있으면)
@@ -99,8 +97,7 @@ def decision_traces(
     되먹임이 막은 안  REJECTED_BY_FEEDBACK (앞 두 목록에 없을 때만)
     ```
 
-    ★ 2026-09-29 BL-013: 그래프 최종 조립에서 같은 칸을 세 번 적던 것을 `_trace_facts`
-      하나로 모았다. 칸 · 값 · 순서는 그대로다.
+    세 갈래가 똑같이 싣는 칸은 `_trace_facts` 하나에서 얻는다.
     """
     trace = [
         SalesDecisionTrace(
@@ -140,7 +137,7 @@ def decision_traces(
 
 
 def _trace_facts(scenario: SalesScenario, request: SalesProposalInput) -> dict[str, object]:
-    """흔적 세 갈래가 똑같이 옮겨 담는 칸."""
+    """흔적 세 갈래가 똑같이 싣는 칸."""
     return {
         "finance_verdict": scenario.finance_verdict,
         "profitability_krw": scenario.contribution_margin_krw,
@@ -163,11 +160,11 @@ def _trace_facts(scenario: SalesScenario, request: SalesProposalInput) -> dict[s
 
 
 def strategy_fields(plan: StrategyPlan | None) -> dict[str, object]:
-    """전략 출처 세 칸. **계획이 없으면 "꺼져 있었다" 가 아니라 "안 세웠다" 다.**
+    """전략 출처 세 칸. 계획이 없으면 "꺼져 있었다" 가 아니라 "안 세웠다" 다.
 
-    ★ 입력이 모자라 전략 노드를 지나지 않은 길에서는 계획 자체가 없다 — 그때는
-      `SKIPPED_TEMPLATE` 이다. `DISABLED` 로 적으면 설정을 안 켠 것처럼 읽힌다
-      (envelope §LLMStatus 가 가른 바로 그 둘).
+    입력이 모자라 전략 노드를 지나지 않은 길에서는 계획 자체가 없다 — 그때는
+    `SKIPPED_TEMPLATE` 이다. `DISABLED` 로 적으면 설정을 안 켠 것처럼 읽힌다
+    (envelope §LLMStatus 가 가른 바로 그 둘).
     """
     if plan is None:
         return {"strategy_source": "TEMPLATE_FALLBACK", "strategy_llm_status": "SKIPPED_TEMPLATE"}
@@ -180,18 +177,18 @@ def strategy_fields(plan: StrategyPlan | None) -> dict[str, object]:
 
 
 def strategy_collapse(scenarios) -> dict[str, object]:
-    """자세는 갈렸는데 **숫자가 수렴했는가.** 숫자를 벌리지 않고 원인만 남긴다.
+    """자세는 갈렸는데 숫자가 수렴했는가. 숫자를 벌리지 않고 원인만 남긴다.
 
     ```text
     자세가 한 가지뿐이다          → 수렴이 아니다. 애초에 나뉜 적이 없다
     자세는 여럿인데 단가가 한 가지 → 수렴이다. 무엇이 묶었는지를 적는다
     ```
 
-    🔴 **수렴 원인을 지어내지 않는다.** 코드는 결정론 계산이 실제로 쓴 것
-      (`price_strategy_codes`)에서만 온다 — `MARGIN_FLOOR` 가 세 안을 다 묶었으면
-      그 이름이 거기 있다.
+    수렴 원인을 지어내지 않는다. 코드는 결정론 계산이 실제로 쓴 것
+    (`price_strategy_codes`)에서만 온다 — `MARGIN_FLOOR` 가 세 안을 다 묶었으면
+    그 이름이 거기 있다.
 
-    ★ **단가가 없는 안은 안 센다.** 가격을 못 만든 것과 같은 값에 닿은 것은 다르다.
+    단가가 없는 안은 세지 않는다. 가격을 못 만든 것과 같은 값에 닿은 것은 다르다.
     """
     by_price: dict[object, list] = {}
     for scenario in scenarios:
@@ -205,8 +202,8 @@ def strategy_collapse(scenarios) -> dict[str, object]:
             # 같은 자세끼리 같은 값인 것은 수렴이 아니다 — 애초에 안 나뉜 것이다.
             continue
         collapsed = True
-        # ★ **그 묶임을 다 설명하는 코드만** 원인이다. 한 안에만 있는 코드는
-        #   왜 둘이 같은 값에 닿았는지를 말해 주지 못한다.
+        # 그 묶임을 다 설명하는 코드만 원인이다. 한 안에만 있는 코드는
+        # 왜 둘이 같은 값에 닿았는지를 말해 주지 못한다.
         reasons |= set.intersection(*(set(s.price_strategy_codes) for s in group))
     if not collapsed:
         return {}

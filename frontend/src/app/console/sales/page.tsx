@@ -3,16 +3,16 @@
 /**
  * 판매 운영 콘솔.
  *
- * 🔴 **legacy `/api/screen/sales` 를 더 이상 부르지 않는다.** 운영 콘솔은
- *    `/api/console/sales/…` 만 쓴다 — 옛 API 자체는 남겨 둔다.
+ * legacy `/api/screen/sales` 는 부르지 않는다. 판매 화면의 조회는
+ * `/api/console/sales/…` 로 한다 — legacy API 자체는 남아 있다.
  *
- * 🔴 **추정 연결을 하지 않는다.** *"같은 날짜 · 같은 품목 · 가장 최근 행"* 으로
- *    candidate → finance → logistics → master → sale 을 이어 붙이지 않는다. 그렇게
- *    이은 lifecycle 은 그럴듯하고 틀렸을 수 있으며, 틀렸다는 사실이 화면 어디에도
- *    남지 않는다. 확정된 `sales` · `receivables` 만 LIVE 로 보여 준다.
+ * 추정 연결을 하지 않는다. "같은 날짜 · 같은 품목 · 가장 최근 행" 으로
+ * candidate → finance → logistics → master → sale 을 이어 붙이지 않는다. 그렇게
+ * 이은 lifecycle 은 그럴듯하고 틀렸을 수 있으며, 틀렸다는 사실이 화면 어디에도
+ * 남지 않는다. 확정된 `sales` · `receivables` 만 LIVE 로 보여 준다.
  *
- * ★ **판매 현황이 첫 탭이다** (2026-09-14). 전에는 거래처가 먼저라, 화면을 연 사람이
- *   *"얼마나 팔았나"* 를 알기 전에 거래처 ID 표를 먼저 봤다.
+ * 판매 현황이 첫 탭이다. 화면을 연 사람이 거래처 ID 표보다 "얼마나 팔았나" 를
+ * 먼저 알아야 한다.
  */
 
 import { useState, useSyncExternalStore } from "react";
@@ -196,8 +196,8 @@ function Overview({ simRun, asOf, salesRefresh }: { simRun: string; asOf: string
             <Metric
               label="공헌이익"
               value={moneyWon(summary.data.summary.contribution_profit_krw)}
-              //  🔴 `contribution_margin_pct` 는 **퍼센트 포인트**다 (백엔드 `_pct`).
-              //     비율 formatter 를 쓰면 100 이 한 번 더 곱해져 3483.0% 가 된다.
+              //  `contribution_margin_pct` 는 퍼센트 포인트다 (백엔드 `_pct`).
+              //  비율 formatter 를 쓰면 100 이 한 번 더 곱해져 3483.0% 가 된다.
               hint={`이익률 ${percentPoint(summary.data.summary.contribution_margin_pct)}`}
             />
             <Metric label="미수금" value={moneyWon(summary.data.summary.outstanding_receivables_krw)} />
@@ -265,7 +265,7 @@ function Overview({ simRun, asOf, salesRefresh }: { simRun: string; asOf: string
 
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
         <Panel title="품목별 매출" subtitle="어떤 품목이 잘 팔렸나">
-          {/* 🔴 같은 조회의 실패를 «품목 없음» 으로 보여 주지 않는다. */}
+          {/* 같은 조회의 실패를 «품목 없음» 으로 보여 주지 않는다. */}
           {summary.loading ? (
             <Skeleton what="품목별 매출" />
           ) : summary.error ? (
@@ -326,10 +326,9 @@ function Overview({ simRun, asOf, salesRefresh }: { simRun: string; asOf: string
 /**
  * «아직 만기가 안 된 미수» 를 막대 한 칸으로 보이게 한다.
  *
- * ⚠️ **업무 값이 아니라 표시 조각이다.** 정본은 `total_outstanding_krw` 와
- *   `overdue_krw` 두 칸이고, 여기서는 그 둘의 차이를 **막대 폭**으로만 쓴다. 값이
- *   하나라도 없으면
-ull` 이라 막대에서 빠진다 — 0 으로 채우지 않는다.
+ * 주의: 업무 값이 아니라 표시 조각이다. 정본은 `total_outstanding_krw` 와
+ * `overdue_krw` 두 칸이고, 여기서는 그 둘의 차이를 막대 폭으로만 쓴다. 값이
+ * 하나라도 없으면 `null` 이라 막대에서 빠진다 — 0 으로 채우지 않는다.
  */
 function normalOutstanding(data: CollectionsResponse): number | null {
   const total = Number(data.summary.total_outstanding_krw);
@@ -342,8 +341,8 @@ function normalOutstanding(data: CollectionsResponse): number | null {
 
 function Partners({ simRun, asOf }: { simRun: string; asOf: string }) {
   const [selected, setSelected] = useState<string | null>(null);
-  //  ★ 등록 뒤 목록을 **다시 읽는다.** 키를 바꾸면 `useConsoleData` 가 새로 부른다 —
-  //    화면에만 남은 거래처를 만들지 않는다.
+  //  등록 뒤 목록을 다시 읽는다. 키를 바꾸면 `useConsoleData` 가 새로 부른다 —
+  //  화면에만 남은 거래처를 만들지 않는다.
   const [reloads, setReloads] = useState(0);
   const state = useConsoleData<PartnersResponse>(
     `partners:${simRun}:${asOf}:${reloads}`,
@@ -381,7 +380,7 @@ function Partners({ simRun, asOf }: { simRun: string; asOf: string }) {
                 { key: "overdue", label: "연체", align: "right", render: (row) => moneyWon(row.overdue_balance_krw) },
                 {
                   key: "last",
-                  //  ⚠️ 이 실행에서 판매가 없으면 «없음» 이다. 0 원과 다른 사실이다.
+                  //  이 실행에서 판매가 없으면 «없음» 이다. 0 원과 다른 사실이다.
                   label: "최근 판매일",
                   mono: true,
                   render: (row) => row.latest_sale_date ?? "없음",
@@ -430,8 +429,8 @@ function PartnerDetailPanel({
   asOf: string;
   partnerId: string;
 }) {
-  //  ★ 품목 이름 칸까지 포함해 읽는다 (`sales_api.WithItemNames`) — 공용 타입은
-  //    이번 판의 수정 범위 밖이라 판매 쪽에서 넓혀 읽는다.
+  //  품목 이름 칸까지 포함해 읽는다 (`sales_api.WithItemNames`) — 공용 타입에는
+  //  `item_name` 이 없어 판매 쪽에서 넓혀 읽는다.
   const state = useConsoleData<WithItemNames<PartnerDetail>>(
     `partner:${simRun}:${asOf}:${partnerId}`,
     () =>
@@ -476,9 +475,9 @@ function PartnerDetailPanel({
           <Metric label="공헌이익" value={moneyWon(data.summary.contribution_profit_krw)} />
           <Metric
             label="공헌이익률"
-            //  ⚠️ 매출이 없으면 «데이터 없음» 이다. 0% 는 잰 값이라는 뜻이라 다르다.
-            //  ★ 이 칸은 `contribution_margin_rate` 로 **0~1 비율**이다. 판매 현황의
-            //    `contribution_margin_pct` 와 단위가 다르므로 formatter 도 다르다.
+            //  매출이 없으면 «데이터 없음» 이다. 0% 는 잰 값이라는 뜻이라 다르다.
+            //  이 칸은 `contribution_margin_rate` 로 0~1 비율이다. 판매 현황의
+            //  `contribution_margin_pct` 와 단위가 다르므로 formatter 도 다르다.
             value={percent(data.summary.contribution_margin_rate)}
           />
           <Metric label="미수금" value={moneyWon(data.summary.receivable_balance_krw)} />
@@ -670,9 +669,9 @@ function Orders({ simRun, asOf }: { simRun: string; asOf: string }) {
         ) : state.data!.rows.length === 0 ? (
           <EmptyRows what="확정 판매" />
         ) : (
-          // 🔴 **버튼을 표 밖에 묶어 두지 않는다.** 전에는 이름이 같은 «판매 흐름 보기»
-          //    버튼이 행 수만큼 나열돼, 어느 판매의 버튼인지 알 수 없었다. 행마다
-          //    액션 칸을 두면 누른 버튼과 그 행의 `sale_id` 가 눈으로 이어진다.
+          // 버튼을 표 밖에 묶어 두지 않는다. 이름이 같은 버튼을 표 밖에 행 수만큼
+          // 늘어놓으면 어느 판매의 버튼인지 알 수 없다. 행마다 액션 칸을 두면 누른
+          // 버튼과 그 행의 `sale_id` 가 눈으로 이어진다.
           <ActionTable
             rows={state.data!.rows}
             rowKey={(row) => row.receivable_id}
@@ -716,8 +715,8 @@ function Orders({ simRun, asOf }: { simRun: string; asOf: string }) {
 /**
  * 판매 한 건의 흐름.
  *
- * 🔴 **상태는 전부 백엔드가 낸 값이다.** 화면은 «완료» 를 추론하지 않는다 — 어느
- *    단계가 왜 그 상태인지는 저장된 행이 답한다.
+ * 상태는 전부 백엔드가 낸 값이다. 화면은 «완료» 를 추론하지 않는다 — 어느
+ * 단계가 왜 그 상태인지는 저장된 행이 답한다.
  */
 function Lifecycle({ simRun, asOf, saleId }: { simRun: string; asOf: string; saleId: string }) {
   const state = useConsoleData<SaleLifecycle>(
@@ -919,7 +918,7 @@ function Runs({ simRun }: { simRun: string }) {
                 render: (row) => partnerText(row.partner_name, row.partner_id),
               },
               { key: "runtime", label: "조회 상태", render: (row) => runtimeText(row.runtime_status) },
-              //  🔴 판매는 자기 verdict 를 저장하지 않는다. 없는 것을 만들지 않는다.
+              //  판매는 자기 verdict 를 저장하지 않는다. 없는 것을 만들지 않는다.
               {
                 key: "verdict",
                 label: "판단 결과",

@@ -1,9 +1,4 @@
-"""실매입 기록 요청 · 응답 모델.
-
-★ 2026-09-30 재구성 BL-018: `master/decision.py` 에서 옮겼다 — `PurchaseRecordLegIn`,
-  `PurchaseRecordIn`, `PurchaseRecordLegOut`, `PurchaseRecordPlanOut`, `PurchaseRecordValuesOut`,
-  `PurchaseRecordStatus`, `PurchaseRecordOut`.
-"""
+"""실매입 기록 요청 · 응답 모델."""
 
 from __future__ import annotations
 
@@ -16,42 +11,39 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class PurchaseRecordLegIn(BaseModel):
-    """실매입 한 회차. **선정안 회차(`seq`)마다 하나다** (§3).
+    """실매입 한 회차. 선정안 회차(`seq`)마다 하나다.
 
-    🔴 **사람은 금액이 아니라 단가를 적는다** (사용자 결정 2026-09-16). 매입 원장의
-       `purchase_items.unit_price_krw_per_kg` 는 무조건 정수여야 하는데, 금액을 받으면
-       원장이 **금액 ÷ 수량**으로 단가를 만들어 소수가 난다.
+    사람은 금액이 아니라 단가(원/kg, 정수)를 적는다. 회차 금액은 수량 × 단가로 계산한다.
+    금액을 받으면 원장이 금액 ÷ 수량으로 단가를 만들어 소수가 생긴다. 예를 들어 480kg ·
+    275,000원이면 단가가 572.916667 이 된다. 이 단가를 원장에서 반올림할 수도 없다 — DB
+    CHECK `|line_amount_krw − quantity_kg × unit_price_krw_per_kg| < 0.1` 때문에 573 으로
+    올리면 480 × 573 = 275,040 이라 40원 차이로 거부된다. 그래서 입구에서 정수 수량과
+    정수 단가를 받고, 원장 단가는 적은 단가 그대로 남는다.
 
-       ```text
-       실측  dev@8d1f650 · SIM-CHECK-HOLIDAY-0916 · 2026-04-13 배추
-         기록  480kg · 275,000원
-         원장  purchase_items.unit_price_krw_per_kg = 572.916667   🔴 소수
-       ```
+    금액 칸은 받지 않는다. 금액을 함께 받으면 수량 × 단가와 어긋날 때 어느 쪽이 실제로
+    산 값인지 정할 수 없다.
 
-       ★ **원장에서 반올림할 수 없다.** DB CHECK 가
-         `|line_amount_krw − quantity_kg × unit_price_krw_per_kg| < 0.1` 이라
-         275,000 ÷ 480 을 573 으로 올리면 480 × 573 = 275,040 이라 40원 차이로 거부된다
-         (`ledger._row_for_leg`). 그래서 **입구에서 보장한다** — 수량과 단가가 정수면
-         금액도 정수고, 원장이 만드는 단가는 적은 단가 그대로다.
-
-    🔴 **금액 칸을 받지 않는다.** 같은 사실의 주인은 하나다 — 금액을 같이 받으면
-       수량 × 단가와 어긋나는 날 어느 쪽이 사람이 산 값인지 아무도 모른다.
+    제약: `arrival_date` 는 `purchase_date` 보다 앞설 수 없다.
     """
 
     seq: int
     qty_kg: int = Field(gt=0)
     unit_price_krw: int = Field(
-        gt=0, description="원/kg. **정수다** — 매입 원장 단가 칸의 모양이다."
+        gt=0,
+        description=(
+            "원/kg, 정수. 회차 금액은 qty_kg × unit_price_krw 로 계산하며, 매입 원장의 "
+            "단가는 이 값 그대로 남는다."
+        ),
     )
     purchase_date: date
     arrival_date: date
 
     @property
     def amount_krw(self) -> int:
-        """회차 금액. **수량 × 단가다 — 받는 값이 아니라 나는 값이다.**
+        """회차 금액. 수량 × 단가다 — 받는 값이 아니라 나는 값이다.
 
-        ★ 화면은 이 값을 읽기 전용으로 보여 주고, 아래(약정 사본 · 기록 표 · 원장)로는
-          지금까지와 똑같은 금액이 흐른다.
+        화면은 이 값을 읽기 전용으로 보여 주고, 아래(약정 사본 · 기록 표 · 원장)로는 이
+        금액이 흐른다.
         """
         return self.qty_kg * self.unit_price_krw
 
@@ -68,8 +60,9 @@ class PurchaseRecordLegIn(BaseModel):
 class PurchaseRecordIn(BaseModel):
     """`POST /master/runs/{request_id}/purchase-record` 요청 본문.
 
-    ★ 회차 수와 `seq` 는 **선정안 그대로**다 — 사람은 값만 고친다. 회차 추가 ·
-      삭제 · 부분 기록 · 시장 · 메모는 받지 않는다 (§3 · 사용자 결정 9/15).
+    회차 수와 `seq` 는 선정안 그대로다 — 사람은 값만 고친다. 회차 추가 · 삭제 · 부분
+    기록은 받지 않으며(선정안 회차와 다르면 거절), 시장 · 메모 칸은 없다.
+    같은 회차를 두 번 적을 수 없고, 등급과 기록자는 비어 있으면 안 된다.
     """
 
     decision_seq: int
@@ -96,21 +89,21 @@ class PurchaseRecordLegOut(BaseModel):
     qty_kg: float
 
     unit_price_krw: float | None = None
-    """원/kg. **폼이 미리 채우는 값이고 사람이 고치는 칸이다** (2026-09-16).
+    """원/kg. 폼이 미리 채우는 값이고 사람이 고치는 칸이다.
 
-    ★ 선정안 쪽(`plan.legs[]`)은 안의 `sourcing_plan[].grade_unit_price` 에서 온다 —
-      안에 단가가 없거나 등급 줄이 여럿이면 `None` 이다. 🔴 **금액 ÷ 수량으로 지어내지
-      않는다.** 그 값은 선정안이 적은 단가가 아니라 마스터가 만든 숫자다.
+    선정안 쪽(`plan.legs[]`)은 안의 `sourcing_plan[].grade_unit_price` 에서 온다 — 안에
+    단가가 없거나 등급 줄이 여럿이면 `None` 이다. 금액 ÷ 수량으로 지어내지 않는다. 그
+    값은 선정안이 적은 단가가 아니라 마스터가 만든 숫자다.
 
-    ★ 기록 쪽(`record.legs[]`)은 `master_purchase_records.amount_krw ÷ quantity_kg` 다.
-      입력이 단가라 저장된 금액이 수량 × 단가이므로 이 나눗셈은 **정확히 정수**로
-      떨어진다 — 그래서 표에 칸을 더하지 않는다 (`purchase_record.py`).
+    기록 쪽(`record.legs[]`)은 `master_purchase_records.amount_krw ÷ quantity_kg` 다. 입력이
+    단가라 저장된 금액이 수량 × 단가이므로 이 나눗셈은 정확히 정수로 떨어진다 — 그래서
+    표에 칸을 더하지 않는다 (`readmodel/purchase_record.py`).
     """
 
     amount_krw: float | None = None
-    """회차 금액. **수량 × 단가로 난 값이다** — 사람이 적는 칸이 아니다 (2026-09-16).
+    """회차 금액. 수량 × 단가로 난 값이다 — 사람이 적는 칸이 아니다.
 
-    ★ 화면이 확인용으로 보여 준다. 입력의 주인은 `unit_price_krw` 하나다.
+    화면이 확인용으로 보여 준다. 입력의 주인은 `unit_price_krw` 하나다.
     """
 
     purchase_date: date
@@ -118,7 +111,7 @@ class PurchaseRecordLegOut(BaseModel):
 
 
 class PurchaseRecordPlanOut(BaseModel):
-    """화면이 폼에 미리 채울 **선정안 값**."""
+    """화면이 실매입 기록 폼에 미리 채울 선정안 값."""
 
     grade: str | None = None
     legs: list[PurchaseRecordLegOut] = Field(default_factory=list)

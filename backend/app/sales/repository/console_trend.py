@@ -1,7 +1,6 @@
 """판매 추이 SQL — 날짜별로 접은 판매 사실.
 
-★ 2026-09-29 BL-013: `sales/console_trend.py` 에서 SQL 을 옮겼다. 기간 검증과 상한 계산은
-  `readmodel/console_trend.py` 다.
+기간 검증과 상한 계산은 `readmodel/console_trend.py` 다.
 """
 
 from datetime import date
@@ -16,7 +15,7 @@ from app.sales.repository._cursor import fetch_all
 def load_daily_sales(
     conn: Connection, *, sim_run_id: str, upper: date, from_date: date | None, limit: int
 ) -> list[dict[str, Any]]:
-    """이 실행의 날짜별 판매. **최근 `limit` 일을 골라 오래된 날부터** 돌려준다."""
+    """이 실행의 날짜별 판매. 최근 `limit` 일을 골라 오래된 날부터 돌려준다."""
     schema = get_db_schema()
     query = sql.SQL(
         """

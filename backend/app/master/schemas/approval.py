@@ -1,7 +1,4 @@
-"""현재 승인 모델 — 결정 · 실행 행 · 약정을 한데 묶은 값.
-
-★ 2026-09-30 재구성 BL-018: `master/decision_service.py` 에서 옮겼다 — `CurrentApproval`.
-"""
+"""현재 승인 모델 — 결정 · 실행 행 · 약정을 한데 묶은 값."""
 
 from __future__ import annotations
 
@@ -15,10 +12,10 @@ from app.master.schemas.decision import CommitmentOut, DecisionOut
 
 @dataclass(frozen=True)
 class CurrentApproval:
-    """현재 유효한 승인 하나와 **그 실행으로 재조립한 선정안 약정** (기록 덮기 전).
+    """현재 유효한 승인 하나와 그 실행으로 재조립한 선정안 약정 (기록 덮기 전).
 
-    ★ 실매입 기록이 이것을 쓴다 — 폼의 기본값(선정안)과 기록을 덮을 바탕이 같은
-      재조립에서 나와야 둘이 안 갈린다.
+    실매입 기록이 이것을 쓴다 — 폼의 기본값(선정안)과 기록을 덮을 바탕이 같은
+    재조립에서 나와야 둘이 안 갈린다.
     """
 
     decision: DecisionOut

@@ -3,17 +3,17 @@
 /**
  * AI 보고서 — 데이터 이상 · 오늘 뉴스 · 지난 기록.
  *
- * ★ **판단은 규칙이 하고, 설명만 AI 가 합니다.** 이상을 찾는 것은 코드이고,
- *   사람 말로 옮기는 데만 AI 를 씁니다. AI 가 조용히 죽으면 «이상 없음»
- *   처럼 보이는데, 그게 제일 위험합니다.
+ * 판단은 규칙이 하고, 설명만 AI 가 합니다. 이상을 찾는 것은 코드이고,
+ * 사람 말로 옮기는 데만 AI 를 씁니다. AI 가 조용히 죽으면 «이상 없음»
+ * 처럼 보이는데, 그게 제일 위험합니다.
  *
- * ★ 품질 검사는 DB 를 훑어 10초쯤, 뉴스는 30초쯤 걸립니다. 서버가 캐시하지만
- *   처음 열 때는 기다립니다 — 그래서 **누를 때만** 부릅니다.
+ * 품질 검사는 DB 를 훑어 10초쯤, 뉴스는 30초쯤 걸립니다. 서버가 캐시하지만
+ * 처음 열 때는 기다립니다 — 그래서 누를 때만 부릅니다.
  *
- * ★ **금일 Claude 점검만 맨 위에 펼쳐 둡니다.** 이건 매일 아침 배치가 끝난 뒤
- *   한 번 도는 사후 점검이고, 하루에 하나뿐이며, 그날 무슨 일이 있었는지가
- *   전부 여기 적힙니다. 지난 기록 목록에 섞어 두면 **찾아서 눌러야** 보입니다 —
- *   사흘 동안 실패 알림을 아무도 안 열어본 일이 그래서 생겼습니다.
+ * 금일 Claude 점검만 맨 위에 펼쳐 둡니다. 이건 매일 아침 배치가 끝난 뒤
+ * 한 번 도는 사후 점검이고, 하루에 하나뿐이며, 그날 무슨 일이 있었는지가
+ * 전부 여기 적힙니다. 지난 기록 목록에 섞어 두면 찾아서 눌러야 보이고,
+ * 그러면 실패 알림을 아무도 안 열어보게 됩니다.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -35,9 +35,9 @@ import { Markdownish } from "./Markdownish";
 import { ReportBody, Verdict } from "./Report";
 import { RerunButton } from "./RerunButton";
 
-//  ★ 보고서 맨 위 «기계 번역» 안내(`>` 인용 칸)는 화면에서 뺍니다 (2026-09-11).
-//    **파일에는 그대로 남습니다** — 번역 숫자 대조도 계속 돕니다.
-//    맨 위 인용만 떼고, 본문 중간의 인용은 그대로 그립니다.
+//  보고서 맨 위 «기계 번역» 안내(`>` 인용 칸)는 화면에서 뺍니다.
+//  파일에는 그대로 남습니다 — 번역 숫자 대조도 계속 돕니다.
+//  맨 위 인용만 떼고, 본문 중간의 인용은 그대로 그립니다.
 function dropNotice(text: string): string {
   return text
     .replace(/^(?:[ \t]*>.*(?:\r?\n|$))+\s*/, "")
@@ -101,18 +101,17 @@ function RunButton({
 }
 
 /**
- * 데이터 이상 점검 — **오늘 아침 결과를 바로 보입니다.**
+ * 데이터 이상 점검 — 오늘 아침 결과를 바로 보입니다.
  *
- * ★ 전에는 누를 때만 돌았습니다. 그런데 이 검사는 **매일 아침 자동으로
- *   돕니다.** 결과가 있는데 사람에게 또 누르라고 하면, 안 누른 날은
- *   못 본 것이 됩니다.
+ * 이 검사는 매일 아침 자동으로 돕니다. 결과가 있는데 사람에게 또 누르라고
+ * 하면, 안 누른 날은 못 본 것이 됩니다. 그래서 저장된 결과를 먼저 읽습니다.
  *
- * ★ **저장된 것과 방금 돌린 것을 같은 그림으로 그립니다.** 같은 내용인데
- *   두 가지 모양으로 보이면 사람이 헷갈립니다. 그래서 서버가 둘을 같은
- *   모양으로 냅니다 (`/quality/saved` · `/quality`).
+ * 저장된 것과 방금 돌린 것을 같은 그림으로 그립니다. 같은 내용인데
+ * 두 가지 모양으로 보이면 사람이 헷갈립니다. 그래서 서버가 둘을 같은
+ * 모양으로 냅니다 (`/quality/saved` · `/quality`).
  *
- * ★ 버튼은 남깁니다 — **지금 이 순간을 다시 재고 싶을 때**가 있습니다.
- *   DB 를 훑어 10초쯤 걸립니다.
+ * 버튼도 둡니다 — 지금 이 순간을 다시 재고 싶을 때가 있습니다.
+ * DB 를 훑어 10초쯤 걸립니다.
  */
 function QualityCard({ onDone }: { onDone: () => void }) {
   const [rep, setRep] = useState<AgentReport | null>(null);
@@ -125,8 +124,8 @@ function QualityCard({ onDone }: { onDone: () => void }) {
     qualitySaved()
       .then((r) => {
         if (!alive) return;
-        //  ★ «없다» 와 «정상이다» 를 가릅니다. 아침 점검이 실패한 날에
-        //    «정상» 으로 보이면 안 됩니다.
+        //  «없다» 와 «정상이다» 를 가릅니다. 아침 점검이 실패한 날에
+        //  «정상» 으로 보이면 안 됩니다.
         if (r.found) {
           setRep(r);
           setWhen("저장");
@@ -149,9 +148,9 @@ function QualityCard({ onDone }: { onDone: () => void }) {
       .then((r) => {
         setRep(r);
         setWhen("방금");
-        //  ★ 다시 잰 결과도 파일로 남습니다. **아래 「지난 진단 보고서」
-        //    목록도 새로 읽어야** 방금 것이 거기 보입니다. 안 그러면
-        //    같은 화면에 새 결과와 낡은 목록이 같이 있게 됩니다.
+        //  다시 잰 결과도 파일로 남습니다. 아래 「지난 진단 보고서」
+        //  목록도 새로 읽어야 방금 것이 거기 보입니다. 안 그러면
+        //  같은 화면에 새 결과와 낡은 목록이 같이 있게 됩니다.
         onDone();
       })
       .catch((e: unknown) => setErr(say(e)))
@@ -201,8 +200,8 @@ function QualityCard({ onDone }: { onDone: () => void }) {
 /**
  * 금일 Claude 점검 — 하루에 하나, 펼쳐서 보입니다.
  *
- * ★ **판정 배지가 없습니다.** 규칙 에이전트만 정상/주의/이상을 냅니다.
- *   Claude 보고서에 화면이 임의로 배지를 달면, 안 읽고 색만 보게 됩니다.
+ * 판정 배지가 없습니다. 규칙 에이전트만 정상/주의/이상을 냅니다.
+ * Claude 보고서에 화면이 임의로 배지를 달면, 안 읽고 색만 보게 됩니다.
  */
 function TodayClaude({
   day,
@@ -233,9 +232,8 @@ function TodayClaude({
       <Card
         title="금일 AI 진단"
         subtitle="자동 작업에 대한 AI 보고서입니다."
-        //  ★ **없을 때야말로 버튼이 필요합니다.** 아침에 이게 실패하는 일이
-        //    실제로 있었습니다 (로그인 만료 · 인코딩 사고). 그러면 그날은
-        //    진단이 통째로 빕니다.
+        //  없을 때야말로 버튼이 필요합니다. 아침에 이게 실패할 수 있고
+        //  (로그인 만료 · 인코딩 오류), 그러면 그날은 진단이 통째로 빕니다.
         right={<RerunButton what="claude" label="지금 만들기" onDone={onDone} />}
       >
         <p className="m-0 text-[16px]" style={{ color: "var(--color-mut2)" }}>
@@ -250,8 +248,8 @@ function TodayClaude({
       subtitle={`${day.date} · 자동 작업에 대한 AI 보고서입니다.`}
       right={
         <div className="flex items-start gap-2.5">
-          {/*  ★ 배치를 다시 돌린 뒤에는 진단도 다시 받아야 합니다 — 아침 것은
-                 실패한 배치를 보고 쓴 글이라 이미 틀린 이야기입니다. */}
+          {/*  배치를 다시 돌린 뒤에는 진단도 다시 받아야 합니다 — 아침 것은
+               실패한 배치를 보고 쓴 글이라 이미 틀린 이야기입니다. */}
           <RerunButton what="claude" label="갱신" onDone={onDone} />
         </div>
       }
@@ -284,10 +282,10 @@ function TodayClaude({
 /**
  * 지난 보고서 — 날짜별로 묶여 온다.
  *
- * ★ **기간은 이 카드가 따로 가집니다** (2026-09-16). 맨 위 「금일 Claude 점검」
- *   은 늘 **가장 최근 것 하나**여야 하는데, 같은 목록을 같이 쓰면 사람이 지난
- *   주를 고르는 순간 위 카드까지 그 주로 바뀝니다. 그래서 여기서만 다시
- *   받아옵니다 — 요청이 하나 늘지만 두 카드의 뜻이 갈리지 않습니다.
+ * 기간은 이 카드가 따로 가집니다. 맨 위 「금일 Claude 점검」
+ * 은 늘 가장 최근 것 하나여야 하는데, 같은 목록을 같이 쓰면 사람이 지난
+ * 주를 고르는 순간 위 카드까지 그 주로 바뀝니다. 그래서 여기서만 다시
+ * 받아옵니다 — 요청이 하나 늘지만 두 카드의 뜻이 갈리지 않습니다.
  */
 function History({ skip, tick }: { skip: string | null; tick: number }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -302,7 +300,7 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
     setRange((r) => (r && r.from === from && r.to === to ? r : { from, to }));
   }, []);
 
-  //  ★ 달력이 바뀔 때마다 다시 받아옵니다. 조회 버튼은 두지 않습니다.
+  //  달력이 바뀔 때마다 다시 받아옵니다. 조회 버튼은 두지 않습니다.
   useEffect(() => {
     if (!range) return;
     let alive = true;
@@ -333,8 +331,8 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
       .catch((e: unknown) => setText(say(e)));
   };
 
-  //  ★ 오류가 나도 **달력은 남깁니다.** 카드를 통째로 오류로 바꾸면 기간을
-  //    다시 고를 수가 없습니다 — 받아오는 일이 달력에서 시작하기 때문입니다.
+  //  오류가 나도 달력은 남깁니다. 카드를 통째로 오류로 바꾸면 기간을
+  //  다시 고를 수가 없습니다 — 받아오는 일이 달력에서 시작하기 때문입니다.
   return (
     <Card
       title="지난 진단 보고서"
@@ -352,18 +350,18 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
         </p>
       )}
       {days?.length === 0 && (
-        //  ★ 빈 목록을 조용히 두지 않습니다 — «AI 가 아무 말도 안 했다» 가 아니라
-        //    «그 기간을 골랐다» 입니다.
+        //  빈 목록을 조용히 두지 않습니다 — «AI 가 아무 말도 안 했다» 가 아니라
+        //  «그 기간을 골랐다» 입니다.
         <p className="m-0 text-[16px]" style={{ color: "var(--color-mut2)" }}>
           이 기간에 남겨진 보고서가 없습니다
         </p>
       )}
       <div className="flex flex-col gap-2.5">
-        {/*  ★ 14일에서 자르던 것을 뺐습니다 (2026-09-16) — 고른 기간이 곧
-               보이는 범위입니다. 자르면 고른 날이 말없이 사라집니다. */}
+        {/*  날 수로 자르지 않습니다 — 고른 기간이 곧 보이는 범위입니다.
+             자르면 고른 날이 말없이 사라집니다. */}
         {days?.map((d) => {
-          //  ★ 맨 위에 펼쳐 둔 것은 여기서 뺍니다 — 같은 것이 두 번 보이면
-          //    어느 쪽이 최신인지 헷갈립니다.
+          //  맨 위에 펼쳐 둔 것은 여기서 뺍니다 — 같은 것이 두 번 보이면
+          //  어느 쪽이 최신인지 헷갈립니다.
           const reports = d.reports.filter((f) => f.file !== skip);
           if (reports.length === 0) return null;
           return (
@@ -383,9 +381,9 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
                       }}
                     >
                       <span>{en(REPORT_KIND, f.kind)}</span>
-                      {/*  ★ 같은 종류가 하루에 여러 번 남습니다 (재학습 검증이
-                             다섯 번 도는 날도 있습니다). 시각이 없으면 어느
-                             것이 어느 것인지 못 고릅니다. */}
+                      {/*  같은 종류가 하루에 여러 번 남습니다 (재학습 검증이
+                           다섯 번 도는 날도 있습니다). 시각이 없으면 어느
+                           것이 어느 것인지 못 고릅니다. */}
                       {f.time && (
                         <span className="font-mono text-[14.5px]" style={{ color: "var(--color-mut2)" }}>
                           {f.time.slice(0, 5)}
@@ -409,8 +407,8 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
                   {reports.find((f) => f.file === open)?.is_claude ? (
                     <Markdownish text={dropNotice(text)} />
                   ) : (
-                    //  ★ `.txt` 는 수치가 세로로 줄 맞춰져 있습니다.
-                    //    문서로 그리면 줄 맞춤이 깨집니다.
+                    //  `.txt` 는 수치가 세로로 줄 맞춰져 있습니다.
+                    //  문서로 그리면 줄 맞춤이 깨집니다.
                     <pre className="tabular m-0 whitespace-pre-wrap break-words font-mono text-[15px] leading-relaxed">
                       {text}
                     </pre>
@@ -426,8 +424,8 @@ function History({ skip, tick }: { skip: string | null; tick: number }) {
 }
 
 export function AgentsTab() {
-  //  ★ 맨 위 카드는 **기간과 상관없이 가장 최근 것**입니다. 그래서 여기서는
-  //    기간 없이 받습니다 (아래 목록은 제 기간으로 따로 받습니다 — `History`).
+  //  맨 위 카드는 기간과 상관없이 가장 최근 것입니다. 그래서 여기서는
+  //  기간 없이 받습니다 (아래 목록은 제 기간으로 따로 받습니다 — `History`).
   const [days, setDays] = useState<HistoryDay[] | null>(null);
   //  아래 목록에게 «다시 받아라» 고 알리는 신호. 새 보고서를 만든 직후에 올립니다.
   const [tick, setTick] = useState(0);

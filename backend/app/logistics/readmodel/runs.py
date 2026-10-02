@@ -1,7 +1,6 @@
 """물류 에이전트 실행이력 조회 — 공개 함수 하나가 조회 연결 하나를 빌린다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/run_repository.py` 에서 옮겼다(종전 `logistics/db.fetch_one`
-  · `fetch_all`).
+SQL 은 `repository/runs.py`.
 """
 
 from datetime import date

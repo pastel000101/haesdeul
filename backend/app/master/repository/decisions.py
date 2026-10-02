@@ -1,14 +1,14 @@
-"""`master_decisions` 적재·조회.
+"""`master_decisions` 적재·조회 SQL. 받은 연결로 실행한다.
 
-★ `run_repository.try_save_run` 과 달리 **실패를 삼키지 않는다.**
-  실행 이력은 없어도 결과를 줄 수 있지만, 결정은 안 남으면 승인이 없었던 것과 같다.
-  적재가 실패하면 사용자에게 실패를 알려야 한다.
+연결은 부르는 쪽이 빌린다: 조회는 `readmodel/decisions.py`(조회 연결), 적재 · 후속
+링크는 `service/decision.py`.
 
-★ UPDATE·DELETE 가 없다. 번복은 `decision_seq` 를 올린 새 행이다.
+실패 처리: 실행 이력 저장(`service/run_history.py` 의 `try_save_run`)과 달리 실패를
+삼키지 않는다. 실행 이력은 없어도 결과를 줄 수 있지만, 결정은 안 남으면 승인이
+없었던 것과 같다. 적재가 실패하면 사용자에게 실패를 알려야 한다.
 
-★ 2026-09-30 재구성 BL-018: `master/decision_repository.py` 에서 SQL 만 남겼다 — 받은 연결로
-  실행한다. 종전에는 `master/db.py` 헬퍼가 호출마다 연결을 스스로 빌렸다. 연결은 부르는 쪽이
-  빌린다: 조회는 `readmodel/decisions.py`(조회 연결), 적재 · 후속 링크는 `service/decision.py`.
+UPDATE·DELETE 가 없다. 번복은 `decision_seq` 를 올린 새 행이다. 예외는
+`follow_up_request_id` 가 NULL 일 때 한 번만 채우는 `update_follow_up` 이다.
 """
 
 from __future__ import annotations
@@ -34,10 +34,10 @@ _COLUMNS = (
     # DB 컬럼은 `run_id` 지만 코드에서는 `history_run_id` 로 부른다 —
     # `plan[].run_id`(부서 호출 id) 와 헷갈리지 않게 하려는 것이다.
     "run_id",
-    # 최종 승인 시점 재검증 (2026-09-07). **`follow_up_request_id` 와 다른 칸이다** —
-    # 저쪽은 조건부 재요청 체인이고 이쪽은 승인 직전 재검증이다.
-    # `decision_service.record_decision` 이 승인에서만 채운다 (M-4). NULL 은
-    # **"재검증을 하지 않았다"** 이지 실패가 아니다.
+    # 최종 승인 시점 재검증. `follow_up_request_id` 와 다른 칸이다 — 저쪽은 조건부
+    # 재요청 체인이고 이쪽은 승인 직전 재검증이다. `service/decision.py` 의
+    # `record_decision` 이 승인에서만 채운다(M-4). NULL 은 "재검증을 하지 않았다" 이지
+    # 실패가 아니다.
     "revalidation_request_id",
     "revalidation_outcome",
     "note",
@@ -98,7 +98,7 @@ def insert_decision(
     revalidation_outcome: RevalidationOutcome | None,
     note: str | None,
 ) -> dict[str, Any]:
-    """결정 1건 INSERT … RETURNING. **행이 안 나오면 예외다** — 문구는 종전 헬퍼와 같다."""
+    """결정 1건 INSERT … RETURNING. 행이 안 나오면 예외다."""
     query = sql.SQL(
         """
         INSERT INTO {}.{} (

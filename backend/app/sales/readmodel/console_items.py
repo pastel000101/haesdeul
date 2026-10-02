@@ -1,6 +1,6 @@
 """판매 운영 화면이 사용하는 활성 품목 정본 조회.
 
-★ 2026-09-29 BL-013: `sales/console_items.py` 에서 옮겼다. SQL 은 `repository/console_items.py`.
+SQL 은 `repository/console_items.py` 다.
 """
 
 from app.core import db as core_db

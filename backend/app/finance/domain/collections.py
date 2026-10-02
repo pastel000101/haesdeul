@@ -1,7 +1,6 @@
 """누적 수금 전이 계산 — 누적 target 을 delta 로. DB 를 바꾸지 않는다.
 
-★ 2026-09-29 재구성 BL-014: `finance/collection.py` · `collection_adapter.py` 의 계산과 검사를
-  옮겼다(몸통 그대로).
+순서 · 트랜잭션은 `service/collections.py`.
 """
 
 from __future__ import annotations
@@ -74,7 +73,7 @@ def require_collection_axis(*, sim_run_id: str, financing_mode: str, receivable_
 
 
 def exact_collection_state_id(rows: list) -> str:
-    """수금일의 재무 상태는 **정확히 한 행**이어야 한다."""
+    """수금일의 재무 상태는 정확히 한 행이어야 한다."""
     if not rows:
         raise FinanceDataNotReady("historical_finance_position")
     if len(rows) != 1:
@@ -101,10 +100,10 @@ def matches_axis(event: CollectionEvent, *, sim_run_id: str, financing_mode: str
 def collection_target(
     row: object, *, collect_all: bool, amount_krw: Decimal | None
 ) -> Decimal:
-    """이번 사용자 수금 뒤의 **누적** 수금액. 남은 받을 돈을 넘으면 받지 않는다.
+    """이번 사용자 수금 뒤의 누적 수금액. 남은 받을 돈을 넘으면 받지 않는다.
 
-    ★ 금액은 이번 수금분이고 누적 target 은 여기서 계산한다 — 전액이면 원금, 아니면 지금까지
-      받은 돈 + 이번 수금분.
+    금액은 이번 수금분이고 누적 target 은 여기서 계산한다 — 전액이면 원금, 아니면 지금까지
+    받은 돈 + 이번 수금분.
     """
     original = Decimal(str(row["original_amount_krw"]))  # type: ignore[index]
     received = Decimal(str(row["received_amount_krw"]))  # type: ignore[index]

@@ -1,7 +1,4 @@
-"""자금 조정 원장 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/cash_adjustments.py` 에서 옮겼다(문면 그대로).
-"""
+"""자금 조정 원장 SQL."""
 
 from datetime import date
 from decimal import Decimal

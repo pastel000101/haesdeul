@@ -1,9 +1,7 @@
 """Lot 등급 정규화 — DB raw 등급을 매입 등급 어휘로 옮긴다. 근거 없는 치환은 하지 않는다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/repository.py` 의 `_normalize_grade` 와 어휘 두 벌을 옮겼다.
-  현재 스냅샷
-  (`domain/snapshot.py`) · 과거 조회(`domain/historical.py`) · 회전(`domain/turnover.py`)이 같은
-  함수를 부른다 — 회전 계산이 함수 안에서 `repository` 를 import 하던 순환이 없어졌다.
+현재 스냅샷(`domain/snapshot.py`) · 과거 조회(`domain/historical.py`) · 회전
+(`domain/turnover.py`)이 같은 함수를 부른다.
 """
 
 

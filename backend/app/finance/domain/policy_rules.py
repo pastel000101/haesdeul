@@ -1,8 +1,6 @@
 """재무 정책 행 검증 — 닫힌 키 목록 · 값 칸 · 출처로 `FinancePolicy` 를 세운다.
 
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다(몸통 그대로). 정책 행 SQL 은
-  `repository/policy.py`, 조회
-  연결은 `readmodel/policy.py`.
+정책 행 SQL 은 `repository/policy.py`, 조회 연결은 `readmodel/policy.py`.
 """
 
 from decimal import Decimal

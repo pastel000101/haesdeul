@@ -1,6 +1,4 @@
-"""재무 SQL — **넘겨받은 연결로 실행만 한다.** commit · rollback · 반환을 하지 않는다.
-
-★ 2026-09-29 재구성 BL-014 에 만들었다.
+"""재무 SQL — 넘겨받은 연결로 실행만 한다. commit · rollback · 반환을 하지 않는다.
 
 연결은 부르는 쪽이 빌린다 — 조회는 `readmodel/` 이 `core_db.read_connection()` 으로, 재무 단독
 쓰기(화면 · 마스터 ask 의 재무 쓰기 6종)는 `service/` 가 트랜잭션을 연 연결로, 마스터

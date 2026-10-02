@@ -1,8 +1,7 @@
 """Finance 화면용 DB 조회와 dashboard 응답 조립.
 
-★ 2026-09-29 재구성 BL-014: SQL 은 `repository/dashboard.py`, 응답 모델은 `schemas/dashboard.py` 로
-  갈랐다.
-  조회 연결을 한 번 빌려 같은 순서로 읽는다(종전에는 조회마다 빌렸다).
+SQL 은 `repository/dashboard.py`, 응답 모델은 `schemas/dashboard.py`. 조회 연결을 한 번 빌려
+같은 순서로 읽는다.
 """
 
 from datetime import date
@@ -41,10 +40,7 @@ from app.finance.schemas.dashboard import (
 def get_finance_dashboard(
     *, sim_run_id: str, as_of: date, recent_limit: int = 10
 ) -> FinanceDashboardResponse:
-    """재무 현황 한 판. 조회 연결을 한 번 빌려 같은 순서로 읽고 응답으로 편다.
-
-    ★ 2026-09-29 재구성 BL-014: 종전에는 조회마다 연결을 빌렸다. 읽는 SQL · 순서 · 조립은 같다.
-    """
+    """재무 현황 한 판. 조회 연결을 한 번 빌려 같은 순서로 읽고 응답으로 편다."""
     with core_db.read_connection() as conn:
         meta = _dashboard_meta(conn, sim_run_id=sim_run_id, as_of=as_of)
         state_rows = load_finance_states(conn, sim_run_id=sim_run_id, as_of=as_of)

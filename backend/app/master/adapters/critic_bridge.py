@@ -12,35 +12,33 @@ critic_bridge.py — 마스터 검증 Tool ↔ Critic 56검사 번역
     물류 sellable 컨텍스트      DeptReplyIn[] · LotConstraintIn[] · warehouse_free_kg
                                → CriticSalesRequest
 
-★ **번역만 한다.** 판정은 `app.master.critic` 이 내리고, 여기는 이름을 옮긴다.
+번역만 한다. 판정은 `app.master.critic` 이 내리고, 여기는 이름을 옮긴다.
 
-★ **매입 전용 파일이 아니다** (2026-09-08). 판매 번역이 여기 나란히 앉는 이유는
-  규율이 같기 때문이다 — 없는 것을 만들지 않고, 못 옮기면 `CriticSkipped` 로 말한다.
-  두 사이클이 서로의 함수를 부르지는 않는다.
+매입 전용 파일이 아니다. 판매 번역이 여기 나란히 앉는 이유는 규율이 같기 때문이다 —
+없는 것을 만들지 않고, 못 옮기면 `CriticSkipped` 로 말한다. 두 사이클이 서로의 함수를
+부르지는 않는다.
 
-★ **없는 것을 만들지 않는다.**
-  `inputs_used` 는 *"재무가 cap 을 낼 때 무엇을 읽었나"* 인데 **마스터는 그걸 모른다.**
-  빈 dict 를 보내면 Critic 의 등급 누출 검사가 **"금지 입력이 없다"로 읽고 통과**한다 —
-  모르는 것이 통과가 된다. 그래서 오랫동안 아무것도 안 보냈고, Critic 은 `skipped` 에
-  *"DeptMeta 미제출 — 생략"* 을 남겼다 (설계서 §8).
+없는 것을 만들지 않는다.
+  `inputs_used` 는 "재무가 cap 을 낼 때 무엇을 읽었나" 인데 마스터는 그걸 모른다.
+  빈 dict 를 보내면 Critic 의 등급 누출 검사가 "금지 입력이 없다"로 읽고 통과한다 —
+  모르는 것이 통과가 된다. 그래서 부서가 적지 않은 것은 보내지 않고, 그때 Critic 은
+  `skipped` 에 "DeptMeta 미제출 — 생략" 을 남긴다 (설계서 §8).
 
-  🔴 **이제는 부서가 직접 낸다.** 재무가 자기 실행을 보고 `finance_dept_meta` 관측을
-  `ExecutionMetadata.observations` 에 적고(`app.finance.agent._finance_dept_meta`),
-  마스터는 그것을 **해석하지 않고 나른다.** 여기서 하는 일은 관측 JSON 을 Critic 의
-  `DeptMetaIn` 모양으로 옮기는 것뿐이다 — Tool 이름을 보고 입력을 추정하거나
-  payload 키로 의미를 짐작하지 않는다. 부서가 안 적었으면 여전히 안 보낸다.
+  부서가 직접 낸다. 재무가 자기 실행을 보고 `finance_dept_meta` 관측을
+  `ExecutionMetadata.observations` 에 적고(`app/finance/domain/evidence.py` 의
+  `finance_dept_meta`, `app/finance/service/agent.py` 가 부른다), 마스터는 그것을 해석하지
+  않고 나른다. 여기서 하는 일은 관측 JSON 을 Critic 의 `DeptMetaIn` 모양으로 옮기는
+  것뿐이다 — Tool 이름을 보고 입력을 추정하거나 payload 키로 의미를 짐작하지 않는다.
 
-★ **항등식이 깨진 제안은 넘기지 않는다.**
+항등식이 깨진 제안은 넘기지 않는다.
   Critic 의 금액 축은 `qty_kg × unit_price_krw_per_kg` 로 다시 만들어진다. 그 단가는
-  매입이 주장한 `total_amount_krw / total_qty_kg` 에서 온다 — **두 값이 서로 맞을 때만**
-  성립하는 표현이다. 항등식이 이미 깨졌다면 그 위에서 돌린 판정은 **그럴듯하지만
-  아무 의미가 없다.** 넘기지 않고 그 사실을 `skipped` 로 남긴다.
+  매입이 주장한 `total_amount_krw / total_qty_kg` 에서 온다 — 두 값이 서로 맞을 때만
+  성립하는 표현이다. 항등식이 이미 깨졌다면 그 위에서 돌린 판정은 그럴듯하지만
+  아무 의미가 없다. 넘기지 않고 그 사실을 `skipped` 로 남긴다.
 
-★ **LLM 을 타지 않는다.** `rationale` 을 비워 보낸다 — L5 판정 대상은 오케스트레이터
-  selector 가 쓴 문장인데 1차 Flow 에는 그 단계가 없다. 빈 문자열이면 Critic 이
-  judge 를 돌리지 않고 `skipped` 에 남긴다.
-
-★ 2026-09-30 재구성 BL-018: `master/critic_bridge.py` 에서 자리만 옮겼다(내용 그대로).
+LLM 을 타지 않는다. `rationale` 을 비워 보낸다 — L5 판정 대상은 선택안의 결정 근거
+문장인데 마스터 흐름에는 그 문장을 쓰는 단계가 없다. 빈 문자열이면 Critic 이 judge 를
+돌리지 않고 `skipped` 에 남긴다.
 """
 
 from __future__ import annotations
@@ -54,26 +52,11 @@ from app.contracts.core import Evidence
 from app.contracts.envelope import DEPT_CAP_CHECK_ID, AgentName
 from app.master.critic.schemas import CriticProcurementRequest, CriticSalesRequest, CriticVerdictOut
 
-# 🟢 **지연 import 를 되돌렸다** (2026-09-07 · 2판).
-#
-#   1판에서 `app/orchestrator/` 를 마스터로 옮기자 `app/critic/schemas.py` 가 마스터
-#   패키지를 읽게 됐다 (`AllocationIn`·`ScenarioIn` 은 원래 오케 소유였고 Critic 이
-#   *"같은 것을 두 벌 정의하지 않는다"* 며 공유한다). 그때 이 고리가 닫혔다.
-#
-#   ```text
-#   (옛) app/critic/schemas.py → app.master(__init__) → flow → critic_bridge → 다시 그 파일
-#   ```
-#
-#   그래서 어노테이션 전용 블록 + 함수 안 import 로 고리를 끊었다.
-#
-# ★ **critic 이 마스터 안으로 들어오면서 그 고리가 없어졌다.** 이제
-#   `app.master.critic.schemas` 를 들이려면 부모 `app.master` 가 **먼저** 끝까지 도는데,
-#   그 도중 여기서 부르는 `app.master.critic.schemas` 는 아직 sys.modules 에 없어
-#   처음부터 온전히 실행된다. 1판이 근본 원인으로 짚은 *"입력 계약의 소유"* 가
-#   같은 패키지 안으로 들어오면서 해소됐다.
-#
-#   실측 2026-09-07 — `app.main` · `app.master.critic.schemas` 먼저 · `app.master`
-#   먼저 · `app.master.critic_bridge` 먼저, 네 순서 모두 통과한다.
+# Critic 스키마를 최상단에서 들인다. Critic 이 마스터 패키지 안에 있어 이 import 는
+# 순환을 만들지 않는다 — `app.master.critic.schemas` 를 들이려면 부모 `app.master` 가
+# 먼저 끝까지 돌고, 그 도중 여기서 부르는 `app.master.critic.schemas` 는 아직
+# sys.modules 에 없어 처음부터 온전히 실행된다. 지연 import 가 되살아나지 않는지는
+# `tests/master/test_critic_is_under_master.py` 가 본다.
 
 _FINANCE = "finance"
 _INVENTORY = "inventory"
@@ -84,10 +67,10 @@ _INVENTORY_CAP_CHECK = DEPT_CAP_CHECK_ID["inventory"]
 _FINANCE_CAP_CLAIMS: frozenset[str] = frozenset(
     {"finance_cap_amount_krw", "available_cash", "base_projected_cash_min"}
 )
-"""재무 금액 cap 을 **직접 뒷받침하는** 근거만 이 check 에 붙인다.
+"""재무 금액 cap 을 직접 뒷받침하는 근거만 이 check 에 붙인다.
 
-`payment_pressure` 처럼 다른 판정을 뒷받침하는 근거까지 붙이면 *"이 cap 의 근거"* 가
-흐려진다. 근거는 많이 붙이는 것이 아니라 **가리키는 것이 맞아야** 한다.
+`payment_pressure` 처럼 다른 판정을 뒷받침하는 근거까지 붙이면 "이 cap 의 근거" 가
+흐려진다. 근거는 많이 붙이는 것이 아니라 가리키는 것이 맞아야 한다.
 """
 
 _INVENTORY_CAP_CLAIMS: frozenset[str] = frozenset(
@@ -102,14 +85,14 @@ _INVENTORY_CAP_CLAIMS: frozenset[str] = frozenset(
 )
 
 
-#: 🔴 **L2 가 실제로는 값을 대조하지 못한다.** 통과로 세지 않도록 매번 적는다.
+#: L2 가 실제로는 값을 대조하지 못한다. 통과로 세지 않도록 매번 적는다.
 #:
-#: Critic 의 대조표(`service._evidence_resolver`)는 **회신이 낸 evidences 자신으로**
-#: 만들어진다. 독립 원본이 아니므로 *"주장값이 실제와 다르다"* 는 구조적으로 잡을 수
-#: 없다. 지금 L2 가 잡는 것은 근거 누락 · 없는 ref_id · 같은 주장을 두 값으로 내는
+#: Critic 의 대조표(`critic/service.py` 의 `_evidence_resolver`)는 회신이 낸 evidences
+#: 자신으로 만들어진다. 독립 원본이 아니므로 "주장값이 실제와 다르다" 는 구조적으로
+#: 잡을 수 없다. L2 가 잡는 것은 근거 누락 · 없는 ref_id · 같은 주장을 두 값으로 내는
 #: 모순 셋뿐이다.
 #:
-#: 이걸 적어 두지 않으면 `findings: []` 가 *"근거 숫자를 다 대조했고 문제없다"* 로
+#: 이걸 적어 두지 않으면 `findings: []` 가 "근거 숫자를 다 대조했고 문제없다" 로
 #: 읽힌다 — §3.7.6 이 막으려는 바로 그 오독이다. 진짜 대조를 하려면 마스터가 부서
 #: payload 를 원본으로 하는 resolver 를 주입해야 하고, 그건 별건이다.
 _L2_VALUE_NOT_CHECKED = (
@@ -119,7 +102,7 @@ _L2_VALUE_NOT_CHECKED = (
 
 
 class CriticSkipped(Exception):
-    """넘길 수 없는 이유. **예외로 새지 않고 `skipped` 문장이 된다.**"""
+    """넘길 수 없는 이유. 예외로 새지 않고 `skipped` 문장이 된다."""
 
 
 def build_request(
@@ -134,7 +117,7 @@ def build_request(
 ) -> CriticProcurementRequest:
     """마스터 상태 → `CriticProcurementRequest`.
 
-    넘길 수 없으면 `CriticSkipped` 를 올린다 — **부르는 쪽이 `skipped` 로 적는다.**
+    넘길 수 없으면 `CriticSkipped` 를 올린다 — 부르는 쪽이 `skipped` 로 적는다.
     """
     if not item:
         raise CriticSkipped("품목이 정해지지 않아 Critic 에 넘기지 못했다 (M-26 · 품목 축)")
@@ -152,17 +135,17 @@ def build_request(
         run_seq=run_seq,
         items=[item],
         inbound_lead_days=_int_of((constraints.get(_INVENTORY) or {}).get("inbound_lead_days")),
-        # ★ 창의 두 조각을 **같이** 보낸다 (#183). 시작이 as_of + lead, 길이가 이 값이다.
-        #   전에는 lead 만 보내서, 받는 쪽이 "cap 키가 없는 날짜" 를 읽을 수 없었다 —
-        #   창 밖(검사 대상 아님)인지 창 안 누락(미결)인지 가를 재료가 없었다.
+        # 창의 두 조각을 같이 보낸다 (#183). 시작이 as_of + lead, 길이가 이 값이다.
+        # lead 만 보내면 받는 쪽이 "cap 키가 없는 날짜" 를 읽을 수 없다 — 창 밖(검사
+        # 대상 아님)인지 창 안 누락(미결)인지 가를 재료가 없다.
         cap_by_date_window_days=_int_of(
             (constraints.get(_INVENTORY) or {}).get("cap_by_date_window_days")
         ),
         scenarios=scenarios,
         replies=replies,
-        # ★ dept_meta 는 **부서가 적어 보낸 것만** 옮긴다 (모듈 주석 참고).
-        #   rationale 은 비운다 — L5 는 오케 selector 문장을 검사하는데 1차 Flow 에
-        #   그 단계가 없다.
+        # dept_meta 는 부서가 적어 보낸 것만 옮긴다 (모듈 설명 참고).
+        # rationale 은 비운다 — L5 는 선택안의 결정 근거 문장을 검사하는데 마스터 흐름에
+        # 그 문장을 쓰는 단계가 없다.
         dept_meta=_dept_meta_in(observations) or None,
         rationale="",
     )
@@ -171,14 +154,14 @@ def build_request(
 def _dept_meta_in(
     observations: Mapping[AgentName, Sequence[str]] | None,
 ) -> dict[str, dict[str, Any]]:
-    """부서 관측 → Critic `DeptMetaIn`. **번역만 한다.**
+    """부서 관측 → Critic `DeptMetaIn`. 번역만 한다.
 
-    ★ 부서가 `<dept>_dept_meta` 관측을 적었을 때만 만든다. 안 적었으면 그 부서는
-      목록에 없고, Critic 은 예전처럼 *"DeptMeta 미제출 — 생략"* 을 남긴다.
-      **빈 dict 를 채워 넣지 않는다** — 그러면 모르는 것이 통과가 된다.
+    부서가 `<dept>_dept_meta` 관측을 적었을 때만 만든다. 안 적었으면 그 부서는
+    목록에 없고, Critic 은 "DeptMeta 미제출 — 생략" 을 남긴다.
+    빈 dict 를 채워 넣지 않는다 — 그러면 모르는 것이 통과가 된다.
 
-    ★ 모양이 어긋난 관측도 조용히 버린다. 부서가 잘못 적은 것을 마스터가 고쳐
-      주면, 고친 값이 근거가 된다.
+    모양이 어긋난 관측도 조용히 버린다. 부서가 잘못 적은 것을 마스터가 고쳐
+    주면, 고친 값이 근거가 된다.
     """
     out: dict[str, dict[str, Any]] = {}
     for dept, items in (observations or {}).items():
@@ -195,12 +178,12 @@ def _dept_meta_in(
             produced = observation.get("produced_fields")
             if not isinstance(inputs_used, dict) or not isinstance(produced, list):
                 continue
-            # 🔴 **덮어쓰지 않고 합친다.** 부서는 mode 마다 관측을 하나씩 낸다 —
-            #    재무는 경계에서 `inputs_used` 를, 시나리오 판정에서 그쪽 산출 필드를
-            #    낸다. 마지막 것만 남기면 시나리오 관측(`inputs_used` 가 빈)이 경계의
-            #    cap 입력을 **지워** 등급 누출 검사가 조용히 통과한다.
+            # 덮어쓰지 않고 합친다. 부서는 mode 마다 관측을 하나씩 낸다 — 재무는
+            # 경계에서 `inputs_used` 를, 시나리오 판정에서 그쪽 산출 필드를 낸다. 마지막
+            # 것만 남기면 시나리오 관측(`inputs_used` 가 빈)이 경계의 cap 입력을 지워
+            # 등급 누출 검사가 조용히 통과한다.
             #
-            #    합치는 것은 해석이 아니다 — 부서가 적은 기록을 모으기만 한다.
+            # 합치는 것은 해석이 아니다 — 부서가 적은 기록을 모으기만 한다.
             merged = out.setdefault(dept, {"inputs_used": {}, "produced_fields": []})
             for check, names in inputs_used.items():
                 if not isinstance(names, list):
@@ -218,8 +201,8 @@ def _dept_meta_in(
 def fold(verdict: CriticVerdictOut) -> tuple[list[str], list[str], list[str]]:
     """Critic 판정 → 마스터 검증의 3단 (findings / concerns / skipped).
 
-    ★ `coverage_ratio` 를 **`skipped` 에 항상 적는다.** `findings: []` 만 보면
-      *"56검사를 통과했다"* 로 읽힌다. 실제로 몇 개가 돌았는지가 같이 보여야 한다.
+    `coverage_ratio` 를 `skipped` 에 항상 적는다. `findings: []` 만 보면
+    "56검사를 통과했다" 로 읽힌다. 실제로 몇 개가 돌았는지가 같이 보여야 한다.
     """
     findings = [
         f"CRITIC/{f.layer}/{f.check_id}: {f.detail}" + (f" (부서 {f.dept})" if f.dept else "")
@@ -265,20 +248,20 @@ def _scenario_in(
     if not isinstance(label, str) or qty is None or amount is None or qty <= 0:
         return None
 
-    # ★ 품목 단일가 — 매입에는 **등급별 단가만** 있다.
+    # 품목 단일가 — 매입에는 등급별 단가만 있다.
     #
-    #   Critic 의 금액 축은 qty × unit_price 로 다시 만들어진다. 여기에 등급 단가 중
-    #   하나를 고르거나 평균을 내면 **매입이 주장한 금액과 다른 금액을 검사**하게 된다.
-    #   total_amount / total_qty 만이 그 곱을 원래 금액으로 되돌린다.
+    # Critic 의 금액 축은 qty × unit_price 로 다시 만들어진다. 여기에 등급 단가 중
+    # 하나를 고르거나 평균을 내면 매입이 주장한 금액과 다른 금액을 검사하게 된다.
+    # total_amount / total_qty 만이 그 곱을 원래 금액으로 되돌린다.
     #
-    #   ⚠️ 이 표현은 **항등식이 성립할 때만** 뜻이 있다. 마스터가 L-IDENTITY-QTY ·
-    #      L-IDENTITY-AMOUNT 로 그 둘을 이미 독립 재검산하고, 깨져 있으면 부르는 쪽이
-    #      아예 Critic 을 돌리지 않는다.
+    # 제약: 이 표현은 항등식이 성립할 때만 뜻이 있다. 마스터가 L-IDENTITY-QTY ·
+    # L-IDENTITY-AMOUNT 로 그 둘을 이미 독립 재검산하고, 깨져 있으면 부르는 쪽이
+    # 아예 Critic 을 돌리지 않는다.
     unit_price = amount / qty
 
     return {
         "scenario_id": label,
-        # 매입 `label` 과 Critic `stance` 는 **같은 어휘**다 (보수·기본·공격).
+        # 매입 `label` 과 Critic `stance` 는 같은 어휘다 (보수·기본·공격).
         # 우연이 아니라 둘 다 정의서 §4.2 를 따랐다.
         "stance": label,
         "strategy_type": scenario.get("strategy_type") or "quantity",
@@ -294,21 +277,20 @@ def _scenario_in(
 def _split_legs(
     scenario: Mapping[str, Any], item: str, as_of: date, lead: int | None
 ) -> list[dict[str, Any]]:
-    """절대 날짜 → `offset_days`. **되돌릴 수 있는 변환만** 한다.
+    """절대 날짜 → `offset_days`. 되돌릴 수 있는 변환만 한다.
 
-    ★ **매입이 도착일을 실어 주면 계산하지 않는다** (매입 #141 · 2026-09-01).
-      `commitment.py` 와 같은 규칙이다 — 매입 지적대로, 여기만 자기 계산으로 남아
-      *"같은 사실을 두 곳에서 계산하는"* 마지막 자리였다. 이제 계산 경로는 매입이
-      안 실었을 때의 폴백뿐이다.
+    매입이 도착일을 실어 주면 계산하지 않는다 (매입 #141). `master/domain/commitment.py`
+    와 같은 규칙이다 — 같은 사실을 두 곳에서 계산하지 않는다. 계산 경로는 매입이 안
+    실었을 때의 폴백뿐이다.
 
-    ★ 폴백 계산의 `expected_arrival_date` 는 물류의 `calculate_expected_arrival_dates`
-      와 같은 규칙(매입일 + 리드타임)이다. 리드타임을 못 받았으면 **비운다** — 0 일로
-      치면 도착일 분해 검사가 통과해 버린다.
+    폴백 계산의 `expected_arrival_date` 는 물류의 `calculate_expected_arrival_dates`
+    와 같은 규칙(매입일 + 리드타임)이다. 리드타임을 못 받았으면 비운다 — 0 일로
+    치면 도착일 분해 검사가 통과해 버린다.
 
-    ⚠️ 폴백의 `lead` 는 `_int_of` 를 거쳐 **2.5 같은 값이면 조용히 None** 이다 —
-      Critic 요청 어휘가 `int | None` 이고 여기에는 스킵 신호 자리가 없다. 매입 값
-      소비가 들어오면서 이 경로 자체가 좁아졌고, 남는 차이는 그 사실을 여기 적는
-      것으로 갈음한다 (세 곳 정책 대조는 2026-09-01 매입 회신 §4).
+    주의: 폴백의 `lead` 는 `_int_of` 를 거쳐 2.5 같은 값이면 조용히 None 이다 —
+    Critic 요청 어휘가 `int | None` 이고 여기에는 스킵 신호 자리가 없다. 매입 값을
+    먼저 쓰므로 이 경로 자체가 좁고, 남는 차이는 그 사실을 여기 적는 것으로 갈음한다
+    (세 곳 정책 대조는 2026-09-01 매입 회신 §4).
     """
     out: list[dict[str, Any]] = []
     for leg in scenario.get("split_plan") or ():
@@ -326,13 +308,13 @@ def _split_legs(
             {
                 "offset_days": offset,
                 "qty_kg": {item: qty},
-                # ★ 매입은 회차 금액을 **스칼라**로 보내고 계약은 품목별 매핑을 요구한다
-                #   (`contracts.core.SplitLeg.amount_krw` 에 근거가 적혀 있다).
-                #   실행 하나가 품목 하나라 여기서 붙이는 것은 **이름표뿐**이다 - 키가
-                #   하나뿐이고 값은 매입이 보낸 그대로다.
+                # 매입은 회차 금액을 스칼라로 보내고 계약은 품목별 매핑을 요구한다
+                # (`contracts.core.SplitLeg.amount_krw` 에 근거가 적혀 있다).
+                # 실행 하나가 품목 하나라 여기서 붙이는 것은 이름표뿐이다 - 키가
+                # 하나뿐이고 값은 매입이 보낸 그대로다.
                 #
-                # ⚠️ 매입이 안 실으면 `None` 을 그대로 넘긴다. `0` 이나 빈 매핑으로
-                #   채우면 없는 것이 0 원이 되어 금액 변이 조용히 통과한다.
+                # 매입이 안 실으면 `None` 을 그대로 넘긴다. `0` 이나 빈 매핑으로
+                # 채우면 없는 것이 0 원이 되어 금액 변이 조용히 통과한다.
                 "amount_krw": None if amount is None else {item: amount},
                 "expected_arrival_date": (
                     supplied.isoformat()
@@ -347,7 +329,7 @@ def _split_legs(
 
 
 def _sourcing_lots(scenario: Mapping[str, Any], item: str) -> list[dict[str, Any]]:
-    """★ `ref_ids` 를 지어내지 않는다.
+    """`ref_ids` 를 지어내지 않는다.
 
     매입 `sourcing_plan[]` 에는 참조가 없다 — 근거는 `rationale[]` 에 따로 있고 회차와
     묶이지 않는다(M-25 가 B 로 정리된 경계). 빈 목록으로 두면 Critic 이 그 사실을
@@ -429,7 +411,7 @@ def _replies_in(
 def _evidences_in(
     evidences: Sequence[Evidence] | None, claims: frozenset[str]
 ) -> list[dict[str, Any]]:
-    """이 check 를 뒷받침하는 근거만 고른다. **없으면 빈 목록이다** — 채우지 않는다."""
+    """이 check 를 뒷받침하는 근거만 고른다. 없으면 빈 목록이다 — 채우지 않는다."""
     return [
         {
             "claim": e.claim,
@@ -460,51 +442,50 @@ def _cap_by_date(raw: Any) -> dict[str, float]:
 # ---------------------------------------------------------------------------
 # 판매 (사이클 B)
 #
-# 🔴 **위의 매입 함수를 부르지 않고, 고치지도 않는다.** 두 사이클은 입력 계약이
-#    다르다 (`CriticProcurementRequest` vs `CriticSalesRequest`). 공유하는 것은
-#    `CriticSkipped` 와 `fold()` — *"못 넘긴 이유"* 와 *"판정을 3단으로 편다"* 는
-#    같은 사실이라 낱말을 하나로 둔다.
+# 위의 매입 함수를 부르지 않는다. 두 사이클은 입력 계약이 다르다
+# (`CriticProcurementRequest` vs `CriticSalesRequest`). 공유하는 것은 `CriticSkipped` 와
+# `fold()` — "못 넘긴 이유" 와 "판정을 3단으로 편다" 는 같은 사실이라 낱말을 하나로 둔다.
 # ---------------------------------------------------------------------------
 
 #: 판매 후보가 채널 배분을 싣는 칸. 판매 소유 이름이다 (`app/sales/schemas/proposal.py`
 #: `SalesCandidate.allocation`). 마스터가 여기서 다시 정하지 않는다.
 _ALLOCATION = "allocation"
 
-#: 🔴 **물류 `PRE_SALES` 정본의 중첩 주소다** (PR #484 · 수신요청 §4 · 2026-09-10).
+#: 물류 `PRE_SALES` 정본의 중첩 주소다 (PR #484 · 수신요청 §4).
 #:
 #: ```text
 #: payload.sellable_supply.inventory_by_item
-#: payload.sellable_supply.lot_constraints      ← 예전 최상위 `lots` 와 **이름도 다르다**
+#: payload.sellable_supply.lot_constraints
 #: ```
 #:
-#: 그 전에는 최상위에서 `inventory_by_item` · `lots` 를 읽었는데 정본에는 최상위에
-#: 그 둘이 **없다** — 그래서 판매 Critic 이 **조용히 빈손**이었다.
+#: 정본에는 최상위에 `inventory_by_item` · `lots` 가 없다 — 최상위에서 읽으면 판매
+#: Critic 이 조용히 빈손이 된다.
 #:
-#: ⚠️ **Critic 편의로 다시 평면화하지 않는다.** `PRE_PURCHASE` 와 하나의 공용 평면
-#:   계약으로 합치지도 않는다 (물류 §4).
+#: Critic 편의로 다시 평면화하지 않는다. `PRE_PURCHASE` 와 하나의 공용 평면 계약으로
+#: 합치지도 않는다 (물류 §4).
 _SELLABLE_SUPPLY = "sellable_supply"
 _LOTS = "lot_constraints"
 _INVENTORY_BY_ITEM = "inventory_by_item"
 
-#: 🔴 **`PRE_SALES` 정본에 이 칸이 없다.** 그래서 여기 읽기는 늘 결측이 된다.
+#: `PRE_SALES` 정본에 이 칸이 없다. 그래서 여기 읽기는 늘 결측이 된다.
 #:
-#: ★ **`delivery_feasibility.daily_outbound_capacity_kg` 를 대신 넣지 않는다.**
-#:   그것은 **출고 여력**(3PL 이 하루에 내보낼 수 있는 총량)이지 **창고 여유**가
+#: `delivery_feasibility.daily_outbound_capacity_kg` 를 대신 넣지 않는다.
+#:   그것은 출고 여력(3PL 이 하루에 내보낼 수 있는 총량)이지 창고 여유가
 #:   아니다 — 다른 사실을 같은 칸에 넣는 것이 물류가 금지한 「재조립」이다.
 #:   없으면 없는 대로 두고, 그 사실은 `replies` 가 `cap_total` 없이 만들어진 것으로
 #:   드러난다.
 #:
-#: 🔴 **그리고 그 결측을 `0kg` 이라는 사실로 읽지 않는다** (2026-09-10 물류 회신 · ㉡).
+#: 그 결측을 `0kg` 이라는 사실로 읽지 않는다 (2026-09-10 물류 회신 ㉡).
 #:
 #: ```text
-#: 0kg          창고가 **실제로 꽉 찼다**
-#: PRE_SALES    그 사실을 **안 낸다** — 창고는 매입·입고 쪽 질문이다
+#: 0kg          창고가 실제로 꽉 찼다
+#: PRE_SALES    그 사실을 안 낸다 — 창고는 매입·입고 쪽 질문이다
 #: ```
 #:
-#:   둘을 섞으면 *"안 낸 것"* 이 *"꽉 찼다"* 로 서고, 판매가 없는 제약에 막힌다.
+#:   둘을 섞으면 "안 낸 것" 이 "꽉 찼다" 로 서고, 판매가 없는 제약에 막힌다.
 _WAREHOUSE_FREE = "warehouse_free_kg"
 
-#: `LotConstraintIn.status` 가 받는 값. 밖의 값은 **고쳐서 넣지 않고 버린다** —
+#: `LotConstraintIn.status` 가 받는 값. 밖의 값은 고쳐서 넣지 않고 버린다 —
 #: 물류가 다른 어휘를 쓰기 시작하면 그 사실이 로트 수 감소로 드러나야 한다.
 _LOT_STATUSES = frozenset({"AVAILABLE", "RESERVED", "EXPIRED"})
 
@@ -519,19 +500,19 @@ def build_sales_request(
 ) -> CriticSalesRequest:
     """마스터 판매 상태 → `CriticSalesRequest`.
 
-    넘길 수 없으면 `CriticSkipped` 를 올린다 — **부르는 쪽이 `skipped` 로 적는다.**
+    넘길 수 없으면 `CriticSkipped` 를 올린다 — 부르는 쪽이 `skipped` 로 적는다.
     매입 `build_request` 와 같은 규율이고, 낱말도 같은 것을 쓴다.
 
-    🔴 **오늘은 대개 여기서 선다** (실측 2026-09-08). `inventory_allocations` ·
-      `inventory_reservations` 가 **0행**이라 판매 후보에 채널 배분이 실리지 않는다.
-      그러면 `AllocationIn` 을 만들 재료가 없고, **없는 것을 지어내면 Critic 이
-      마스터가 만든 숫자를 검증하게 된다** — 검증처럼 보이는 것이지 검증이 아니다.
-      그래서 `CriticSkipped` 로 세우고, 그 문장이 응답의 `skipped_checks` 에 남는다.
+    판매 후보에 채널 배분이 없으면 `AllocationIn` 을 만들 재료가 없다. 없는 것을
+    지어내면 Critic 이 마스터가 만든 숫자를 검증하게 된다 — 검증처럼 보이는 것이지
+    검증이 아니다. 그래서 `CriticSkipped` 로 세우고, 그 문장이 응답의 `skipped_checks`
+    에 남는다. 2026-09-08 측정 때는 `inventory_allocations` · `inventory_reservations`
+    가 0행이라 대개 여기서 섰다.
 
-    ⚠️ **`lot_constraints` 를 빈 목록으로 흘려보내지 않는다.** 계약상 기본값이 `[]`
-      라 통과는 하지만, 그러면 L4-7·L4-8(on_hand 초과 · 신선도 납기)이 *"검사할
-      로트가 없다"* 로 조용히 지나가고 `findings: []` 가 **통과로 읽힌다.**
-      재료가 없는 것은 통과가 아니다 (§3.7.6).
+    `lot_constraints` 를 빈 목록으로 흘려보내지 않는다. 계약상 기본값이 `[]` 라 통과는
+    하지만, 그러면 L4-9·L4-10(on_hand 초과 · 신선도 납기)이 "검사할 로트가 없다" 로
+    조용히 지나가고 `findings: []` 가 통과로 읽힌다. 재료가 없는 것은 통과가 아니다
+    (§3.7.6).
     """
     if not item:
         raise CriticSkipped("품목이 정해지지 않아 Critic 에 넘기지 못했다 (M-26 · 품목 축)")
@@ -565,12 +546,11 @@ def build_sales_request(
         replies=replies,
         allocations=allocations,
         lot_constraints=lots,
-        # ⚠️ 계약이 `float` 이라 *"모름"* 을 담을 칸이 없다. 못 읽었으면 0.0 이 가고,
-        #   그 사실은 위 `replies` 가 cap_total 없이 만들어진 것으로 드러난다.
+        # 계약이 `float` 이라 "모름" 을 담을 칸이 없다. 못 읽었으면 0.0 이 가고,
+        # 그 사실은 위 `replies` 가 cap_total 없이 만들어진 것으로 드러난다.
         #
-        # 🔴 **이 `0.0` 은 「창고가 꽉 찼다」가 아니라 「PRE_SALES 가 이 사실을 안 낸다」다.**
-        #
-        # ★ 그래서 판정이 서지 않는다 — 창고 검사(L4-7)가 이렇게 빠진다.
+        # 이 `0.0` 은 「창고가 꽉 찼다」가 아니라 「PRE_SALES 가 이 사실을 안 낸다」다.
+        # 그래서 판정이 서지 않는다 — 창고 검사(L4-7)가 이렇게 빠진다.
         #
         #   ```python
         #   # app/master/critic/critic_v0_4.py  check_overlay_cap_by_date
@@ -578,13 +558,13 @@ def build_sales_request(
         #       return [], ["L4-7 overlay cap_by_date: N15/N2 미결 — 미검사"]
         #   ```
         #
-        #   `0.0` 이 초과 판정을 만들지 않고 **미검사**로 남는다 — 물류가 청한
-        #   *"PRE_SALES 경로에서는 창고 여유 검사를 미적용으로"* 가 그것이다.
+        # `0.0` 이 초과 판정을 만들지 않고 미검사로 남는다 — 물류가 청한
+        # "PRE_SALES 경로에서는 창고 여유 검사를 미적용으로" 가 그것이다.
         #
-        # ⚠️ **다만 그 미검사 사유 문구가 이 경우의 참 사유와 다르다** (「N15/N2 미결」).
-        #   판정기 안쪽이라 이 판에서 안 고친다 — 사실만 여기 남긴다.
+        # 주의: 이 경우 미검사 사유 문구(「N15/N2 미결」)는 참 사유(PRE_SALES 가 창고 여유를
+        # 안 낸다)와 다르다. 문구는 판정기(`critic_v0_4.py`) 쪽에 있다.
         warehouse_free_kg=free if (free := _float_of(supply.get(_WAREHOUSE_FREE))) else 0.0,
-        # ★ 매입과 같은 이유로 비운다 — L5 가 검사할 selector 문장이 1차 Flow 에 없다.
+        # 매입과 같은 이유로 비운다 — L5 가 검사할 결정 근거 문장이 마스터 흐름에 없다.
         rationale="",
     )
 
@@ -592,8 +572,8 @@ def build_sales_request(
 def _supply_payload(supply_context: Mapping[str, Any]) -> Mapping[str, Any]:
     """물류 회신 봉투에서 payload 만 꺼낸다.
 
-    ★ 마스터가 나르는 것은 `_verdict_of` 래퍼다 (`sales_flow.py`) — agent · mode ·
-      runtime_status · payload. 래퍼째로 읽으면 키가 한 겹 어긋나 **전부 결측**이 된다.
+    마스터가 나르는 것은 `_verdict_of` 래퍼다 (`service/sales_flow.py`) — agent · mode ·
+    runtime_status · payload. 래퍼째로 읽으면 키가 한 겹 어긋나 전부 결측이 된다.
     """
     if not isinstance(supply_context, Mapping):
         return {}
@@ -604,12 +584,12 @@ def _supply_payload(supply_context: Mapping[str, Any]) -> Mapping[str, Any]:
 def _sales_replies_in(supply: Mapping[str, Any], item: str) -> list[dict[str, Any]]:
     """물류 sellable 컨텍스트 → 재고 `DeptReplyIn` 하나.
 
-    ★ **check_id 를 새로 만들지 않는다.** `DEPT_CAP_CHECK_ID["inventory"]` 를 그대로
-      쓴다 — 같은 부서가 내는 같은 종류의 사실(창고 cap)이고, 그 이름의 주인은 이미
-      이 파일이다. 사이클마다 이름을 갈면 부서 `DeptMeta.inputs_used` 키가 갈라진다.
+    check_id 를 새로 만들지 않는다. `DEPT_CAP_CHECK_ID["inventory"]` 를 그대로
+    쓴다 — 같은 부서가 내는 같은 종류의 사실(창고 cap)이고, 매입 번역도 이 이름을
+    쓴다. 사이클마다 이름을 갈면 부서 `DeptMeta.inputs_used` 키가 갈라진다.
 
-    ★ 재무는 여기 없다. 사이클 B 에서 재무는 밴드를 못 움직인다 (`outbound.py` §3.1) —
-      soft 신호를 지어내 넣으면 없는 판정이 생긴다.
+    재무는 여기 없다. 사이클 B 에서 재무는 밴드를 못 움직인다
+    (`master/domain/outbound.py` §3.1) — soft 신호를 지어내 넣으면 없는 판정이 생긴다.
     """
     cap_kg = _sellable_cap(supply, item)
     cap_total = _float_of(supply.get(_WAREHOUSE_FREE))
@@ -632,9 +612,9 @@ def _sales_replies_in(supply: Mapping[str, Any], item: str) -> list[dict[str, An
 def _sellable_block(supply: Mapping[str, Any]) -> Mapping[str, Any]:
     """`payload.sellable_supply` 한 겹. 없으면 빈 매핑이다.
 
-    🔴 **최상위로 되돌아가서 다시 찾지 않는다.** 구 평면 경로를 같이 읽으면 물류가
-      주소를 바꾼 사실이 마스터 안에서 덮이고, 그러면 한 사실에 주소가 둘이 된다
-      (물류 §3 「old_path OR new_path dual mapper」 금지와 같은 규율).
+    최상위로 되돌아가서 다시 찾지 않는다. 평면 경로를 같이 읽으면 물류가 정한 주소가
+    마스터 안에서 덮이고, 그러면 한 사실에 주소가 둘이 된다
+    (물류 §3 「old_path OR new_path dual mapper」 금지와 같은 규율).
     """
     block = supply.get(_SELLABLE_SUPPLY)
     return block if isinstance(block, Mapping) else {}
@@ -643,8 +623,8 @@ def _sellable_block(supply: Mapping[str, Any]) -> Mapping[str, Any]:
 def _sellable_cap(supply: Mapping[str, Any], item: str) -> float | None:
     """`sellable_supply.inventory_by_item` 에서 그 품목의 가용재고. 없으면 `None` 이다.
 
-    ★ **로트를 다시 합산하지 않는다** (물류 #111 A1). 가용재고 정의(비-ACTIVE 제외 ·
-      신선도 만료 제외 · 확정 출고 예약분 차감)는 물류 Tool 이 소유한다.
+    로트를 다시 합산하지 않는다 (물류 #111 A1). 가용재고 정의(비-ACTIVE 제외 ·
+    신선도 만료 제외 · 확정 출고 예약분 차감)는 물류 Tool 이 소유한다.
     """
     rows = _sellable_block(supply).get(_INVENTORY_BY_ITEM)
     if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
@@ -657,15 +637,14 @@ def _sellable_cap(supply: Mapping[str, Any], item: str) -> float | None:
 
 def _lot_constraints_in(supply: Mapping[str, Any]) -> list[dict[str, Any]]:
     """물류 `sellable_supply.lot_constraints[]` → `LotConstraintIn[]`.
-    **읽을 수 없는 로트는 버린다.**
+    읽을 수 없는 로트는 버린다.
 
-    ⚠️ `remaining_freshness_days` 는 **없을 수 있다** — 물류가 일부러 `None` 으로
-      낸다(§1.2-10). 0 으로 채우면 *"오늘 만료"* 라는 없는 사실이 생기고 신선도
-      검사가 그 위에서 돈다. 그런 로트는 안 넘긴다.
+    주의: `remaining_freshness_days` 는 없을 수 있다 — 물류가 일부러 `None` 으로
+    낸다(§1.2-10). 0 으로 채우면 "오늘 만료" 라는 없는 사실이 생기고 신선도
+    검사가 그 위에서 돈다. 그런 로트는 안 넘긴다.
 
-    ★ **거르는 규칙은 한 글자도 안 바꿨다.** 바뀐 것은 이 목록을 **어디서 읽는가**
-      뿐이다 — 읽는 칸(`lot_id` · `item` · `available_qty_kg` ·
-      `remaining_freshness_days` · `status`)은 정본에서도 같다.
+    읽는 칸(`lot_id` · `item` · `available_qty_kg` · `remaining_freshness_days` ·
+    `status`)은 정본 `lot_constraints` 의 칸 이름 그대로다.
     """
     rows = _sellable_block(supply).get(_LOTS)
     if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)):
@@ -696,7 +675,7 @@ def _lot_constraints_in(supply: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def _allocations_in(candidates: Sequence[Mapping[str, Any]], item: str) -> list[dict[str, Any]]:
-    """판매 후보 → `AllocationIn[]`. **채널 배분이 없는 후보는 안 옮긴다.**"""
+    """판매 후보 → `AllocationIn[]`. 채널 배분이 없는 후보는 안 옮긴다."""
     out: list[dict[str, Any]] = []
     for candidate in candidates or ():
         if not isinstance(candidate, Mapping):
@@ -714,9 +693,9 @@ def _allocation_in(candidate: Mapping[str, Any], item: str) -> dict[str, Any] | 
 
     legs = _channel_legs(candidate.get(_ALLOCATION), candidate.get("item") or item)
     if not legs:
-        # 🔴 배분 없는 후보를 **수량 하나로 접어 만들지 않는다.** 채널·로트가 빠진
-        #    배분은 L4-8(신선도 납기) 이 볼 것이 없는 배분이고, 그러면 검사가 돈
-        #    것처럼 보이면서 아무것도 안 본다.
+        # 배분 없는 후보를 수량 하나로 접어 만들지 않는다. 채널·로트가 빠진 배분은
+        # L4-10(신선도 납기) 이 볼 것이 없는 배분이고, 그러면 검사가 돈 것처럼 보이면서
+        # 아무것도 안 본다.
         return None
 
     out: dict[str, Any] = {"allocation_id": allocation_id, "legs": legs}
@@ -744,8 +723,8 @@ def _channel_legs(raw: Any, item: Any) -> list[dict[str, Any]]:
             continue
         channel = leg.get("channel")
         qty = _float_of(leg.get("qty_kg"))
-        # ★ 판매 낱말은 `unit_price`, Critic 낱말은 `unit_price_krw_per_kg` 다.
-        #   단위가 같아(원/kg) 이름만 옮긴다.
+        # 판매 낱말은 `unit_price`, Critic 낱말은 `unit_price_krw_per_kg` 다.
+        # 단위가 같아(원/kg) 이름만 옮긴다.
         price = _float_of(leg.get("unit_price"))
         leg_item = leg.get("item") or item
         if not isinstance(channel, str) or not channel or not isinstance(leg_item, str):
@@ -769,8 +748,8 @@ def _channel_legs(raw: Any, item: Any) -> list[dict[str, Any]]:
 def _outbound_legs(raw: Any) -> list[dict[str, Any]]:
     """`outbound_by_date` → `OutboundLegIn[]`.
 
-    ★ 판매 낱말은 `kg`, Critic 낱말은 `qty_kg` 다. 둘 다 읽어 본다 — 어느 쪽이 오든
-      **이름만** 옮기고 값은 손대지 않는다.
+    판매 낱말은 `kg`, Critic 낱말은 `qty_kg` 다. 둘 다 읽어 본다 — 어느 쪽이 오든
+    이름만 옮기고 값은 손대지 않는다.
     """
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
         return []
@@ -789,7 +768,7 @@ def _outbound_legs(raw: Any) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# 읽기 도우미 — **읽지 못한 것을 0 으로 만들지 않는다** (§1.2-10)
+# 읽기 도우미 — 읽지 못한 것을 0 으로 만들지 않는다 (§1.2-10)
 # ---------------------------------------------------------------------------
 
 

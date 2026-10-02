@@ -1,38 +1,38 @@
-"""재고·물류 화면 조회 조립 — 도메인 함수를 **조립만** 한다.
+"""재고·물류 화면 조회 조립 — 도메인 함수를 조립만 한다.
 
-🔴 **자리는 `app/logistics` 이고, 부르는 곳은 `app/api/logistics/presenter.py` 하나다**
-   (2026-09-15 · 물류 문서 28). 화면 HTTP 경계는 `app/api/logistics` 이고 이 파일은
-   그 화면이 읽는 조회를 도메인 쪽에서 조립한다.
+자리는 `app/logistics` 이고, 부르는 곳은 화면(`app/api/logistics/presenter.py`)과 마스터
+보고서(`app/master/readmodel/logistics_report.py`)다(물류 문서 28). 화면 HTTP 경계는
+`app/api/logistics` 이고 이 파일은 그 화면이 읽는 조회를 도메인 쪽에서 조립한다.
 
 ```text
-app/api/logistics    화면 전용 — routes(HTTP) · query(탭 조립) · schema(LogisticsTab)
+app/api/logistics    화면 전용 — routes(HTTP) · presenter(탭 조립) · schema(LogisticsTab)
 app/logistics        물류 도메인 · Agent · 그리고 이 조회 조립
 ```
 
-   ⚠️ **의존은 한 방향이다.** `app/api` 가 여기를 부르는 것은 정상이고,
-      `app/logistics` 가 `app/api` 를 부르는 것은 **없다.**
+   의존은 한 방향이다. `app/api` 가 여기를 부르는 것은 정상이고,
+   `app/logistics` 가 `app/api` 를 부르는 것은 없다.
 
-🔴 **이 파일은 업무 계산을 새로 만들지 않는다.** 판매가능량 · 신선도 · 회전 · FEFO ·
+이 파일은 업무 계산을 새로 만들지 않는다. 판매가능량 · 신선도 · 회전 · FEFO ·
    Capacity 는 전부 도메인 모듈이 정본이고, 여기가 하는 일은 두 가지뿐이다.
 
 ```text
-① 행 목록을 내는 SELECT      기존에 "단건 조회"만 있던 자리 (SQL 은 repository/console)
-② 그 결과를 화면 계약으로 조립  기존 함수 결과를 옮겨 담기만 한다
+① 행 목록을 내는 SELECT      화면이 쓰는 목록 조회 (SQL 은 repository/console)
+② 그 결과를 화면 계약으로 조립  도메인 함수 결과를 옮겨 담기만 한다
 ```
 
-   ⚠️ 그래서 이 조회의 SQL 어디에도 **판매가능량 공식이 없다.** 그 값은
-      `tools.build_inventory_by_item` 하나가 만들고 이 파일은 받아 적는다.
-      같은 계산을 SQL 로 한 벌 더 만들면 두 답이 갈리고, 갈린 날 어느 쪽이
-      맞는지 아무도 말해 주지 않는다.
+   그래서 이 조회의 SQL 어디에도 판매가능량 공식이 없다. 그 값은
+   `tools.build_inventory_by_item` 하나가 만들고 이 파일은 받아 적는다.
+   같은 계산을 SQL 로 한 벌 더 만들면 두 답이 갈리고, 갈린 날 어느 쪽이
+   맞는지 아무도 말해 주지 않는다.
 
-🔴 **예약·할당 축은 `readmodel/historical.reservation_state_at` 하나가 정본이다** (#760).
+예약·할당 축은 `readmodel/historical.reservation_state_at` 하나가 정본이다(#760).
    예약 3칸(reserved · allocated · unallocated)도 판매가능량도 그 `as_of` 결과에서
-   나온다 — 이 파일은 현재 status 를 다시 세지 않는다(종전 `_reservation_totals_by_item`
-   현재-축 집계는 제거). 상태 어휘를 문자열로 다시 적으면 한쪽만 고쳐지는 날이 온다.
+   나온다 — 이 파일은 현재 status 를 다시 세지 않는다. 상태 어휘를 문자열로 다시
+   적으면 한쪽만 고쳐지는 날이 온다.
 
-🔴 **네 조회가 같은 시간축(`sim_run_id`, `as_of`)에 선다.** 화면이 고른 날짜의
+네 조회가 같은 시간축(`sim_run_id`, `as_of`)에 선다. 화면이 고른 날짜의
    사실은 `readmodel/historical` 가 원장·사건에서 되살리고, 이 파일은
-   **Current Cache 칸을 과거 값으로 읽지 않는다.**
+   Current Cache 칸을 과거 값으로 읽지 않는다.
 
 ```text
 되살린다 (HISTORICAL_AS_OF)   Lot 잔량 · Lot 상태 · 신선도 · 회전 · used_capacity_kg
@@ -41,31 +41,27 @@ app/logistics        물류 도메인 · Agent · 그리고 이 조회 조립
 지금 행 그대로 (CURRENT_ROW) Zone 정원(되살릴 정본 없음)
 ```
 
-   ⚠️ 예약·할당·판매가능량은 이제 `reservation_state_at` · `lot_state_at` 의 `as_of`
-      결과로 되살린다 (#760 · 종전엔 «되살릴 정본 없음» 이었으나 WP-3 이 예약 시간축
-      정본을 세웠다). Zone 정원만 되살릴 정본 컬럼이 없어(자리 정원 이력 없음) 지금
-      값을 쓰고, 응답의 `*_time_basis` 로 그 사실을 말한다.
+   예약·할당·판매가능량은 `reservation_state_at` · `lot_state_at` 의 `as_of` 결과로
+   되살린다(#760 · WP-3 의 예약 시간축 정본). Zone 정원만 되살릴 정본 컬럼이 없어
+   (자리 정원 이력 없음) 지금 값을 쓰고, 응답의 `*_time_basis` 로 그 사실을 말한다.
 
-🔴 **커넥션은 화면 한 판에 하나다** (2026-09-15). 2026-09-30 재구성 BL-015 부터 그 하나를
-   `read_console_page` 가 빌린다(종전에는 화면 `build_result` 가 열어 `conn=` 으로 넘겼다).
-   빌리는 방식과 트랜잭션 경계는 종전 화면 그대로다 — 한 판은 `connection()` + `transaction`
-   블록 하나, 재고 그래프(`read_stock_chart`)는 판정 · 누계 · 도착 표시 블록 셋. 콘솔 함수 넷과
-   `load_console_runtime` 은 받은 연결로 읽고, 마스터 보고서는 자기 연결을 넘긴다.
-   종전에는 콘솔 호출마다 · FEFO 예약마다 · repository 읽기마다
-   커넥션을 새로 열어 **한 판에 23개 · 388 ms**(원격 DB · 연결당 14~22 ms)였다.
-   커넥션 재사용이 줄이는 것은 **연결 비용과 중복 조회**다.
-   `repository` 의 읽기 함수들도 같은 `conn` 을 받는다 (`get_current_logistics_read(conn=)`).
+커넥션은 화면 한 판에 하나다. 그 하나를 `read_console_page` 가 빌린다 — 한 판은
+   `connection()` + `transaction` 블록 하나, 재고 그래프(`read_stock_chart`)는 판정 ·
+   누계 · 도착 표시 블록 셋. 콘솔 함수 넷과 `load_console_runtime` 은 받은 연결로 읽고,
+   마스터 보고서는 자기 연결을 넘긴다. 콘솔 호출마다 · FEFO 예약마다 · 읽기마다
+   커넥션을 새로 열면 한 판에 23개 · 388 ms(원격 DB · 연결당 14~22 ms)가 든다(실측).
+   커넥션 재사용이 줄이는 것은 연결 비용과 중복 조회다. Runtime 읽기도 같은 `conn` 을
+   받는다(`get_current_logistics_read(conn, …)`).
 
-   ⚠️ **커넥션 하나가 «모든 SELECT 가 같은 시점» 을 보장하지는 않는다.** 공통 풀의 연결
-      (`app.core.db`)은 격리수준을 안 정해 PostgreSQL 기본값 `READ COMMITTED` 로 돈다 —
-      같은 트랜잭션 안이라도 SELECT 는 문장마다 새 스냅샷을 잡아, 사이에 다른 커밋이
-      있으면 두 조회가 다른 값을 볼 수 있다. 화면이 «같은 as_of» 로 서는 근거는 커넥션이
-      아니라 **각 SQL 의 `as_of` cutoff**(`readmodel/historical`)다. 조회 원자성이
-      필요하면 `REPEATABLE READ` 가 있어야 하고, 그것은 이 작업의 범위가 아니다.
+   주의: 커넥션 하나가 «모든 SELECT 가 같은 시점» 을 보장하지는 않는다. 공통 풀의 연결
+   (`app.core.db`)은 격리수준을 안 정해 PostgreSQL 기본값 `READ COMMITTED` 로 돈다 —
+   같은 트랜잭션 안이라도 SELECT 는 문장마다 새 스냅샷을 잡아, 사이에 다른 커밋이
+   있으면 두 조회가 다른 값을 볼 수 있다. 화면이 «같은 as_of» 로 서는 근거는 커넥션이
+   아니라 각 SQL 의 `as_of` cutoff(`readmodel/historical`)다. 조회 원자성이
+   필요하면 `REPEATABLE READ` 가 있어야 하고, 지금은 걸지 않는다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/console_service.py` 에서 옮겼다. 화면
-  한 판 · 대시보드 그래프 · 마스터 보고서가 부르는 조회 입구가 이 파일에 있다. 품목 이름 SQL 은
-  `repository/console.py`.
+화면 한 판 · 대시보드 그래프 · 마스터 보고서가 부르는 조회 입구가 이 파일에 있다. 품목 이름
+SQL 은 `repository/console.py`.
 """
 
 from __future__ import annotations
@@ -128,27 +124,26 @@ from app.logistics.schemas.snapshot import (
 def _reservation_totals_from_history(
     reservations: Sequence[HistoricalReservation],
 ) -> dict[str, dict[str, Any]]:
-    """품목별 **그날 재고를 잡고 있던 양** — Historical 예약 reader 결과를 집계한다 (#760).
+    """품목별 그날 재고를 잡고 있던 양 — Historical 예약 reader 결과를 집계한다 (#760).
 
-    ★ 의미는 종전 `_reservation_totals_by_item`(현재-status 축)과 **같다** — «그 시점에
-      실제로 재고를 잡고 있는 양»(holding). 다른 것은 시간축뿐이라, 이제 `as_of` 로
-      되살린 `reservation_state_at` 결과를 쓴다.
+    의미는 «그 시점에 실제로 재고를 잡고 있는 양»(holding)이다. `as_of` 로 되살린
+    `reservation_state_at` 결과를 쓴다.
 
     ```text
     allocated_qty_kg             Σ 그날 ALLOCATED 할당           SHIPPED·RELEASED 제외
     unallocated_reserved_qty_kg  Σ 그날 미할당 잔여              놓아준 날부터 0
-    reserved_qty_kg              위 둘의 합                      ★ 정의가 곧 항등식이다
+    reserved_qty_kg              위 둘의 합                      정의가 곧 항등식이다
     active_reservation_count     위 합이 0 보다 큰 예약 수
     ```
 
-    🔴 **`HistoricalReservation.reserved_qty_kg`(원래 확보량)를 그대로 합하지 않는다.**
-       그건 «잡고 있는 양» 이 아니라 «확보했던 양» 이라 의미가 다르다 —
-       `ConsoleReservation.reserved_qty_kg`(행값)와 이 품목 축 값을 섞지 않는 것과
-       같은 규율이다.
+    `HistoricalReservation.reserved_qty_kg`(원래 확보량)를 그대로 합하지 않는다.
+    그건 «잡고 있는 양» 이 아니라 «확보했던 양» 이라 의미가 다르다 —
+    `ConsoleReservation.reserved_qty_kg`(행값)와 이 품목 축 값을 섞지 않는 것과
+    같은 규율이다.
 
-    ⚠️ **cross-day top-up 한계(LOG-HIST-001)는 이 함수가 고치지 않는다.** `reserved`
-       행값이 다른 날 채워졌으면 그날 `unallocated` 복원은 그만큼 부정확할 수 있다 —
-       실측 0건이고, 이 이슈(#760)의 범위 밖이다.
+    제약: cross-day top-up 한계(LOG-HIST-001)는 이 함수가 고치지 않는다. `reserved`
+    행값이 다른 날 채워졌으면 그날 `unallocated` 복원은 그만큼 부정확할 수 있다 —
+    실측 0건이고, #760 의 범위 밖이다.
     """
     totals: dict[str, dict[str, Any]] = {}
     for resv in reservations:
@@ -175,18 +170,18 @@ def _historical_commitments(
 ) -> list[OutboundCommitment]:
     """그날 출고가 이미 잡아 둔 몫 — Historical 예약에서 조립한다 (#760).
 
-    `repository/current.get_outbound_commitments`(현재축)와 **같은 의미**다. 시간축만 `as_of` 다.
+    `repository/current.get_outbound_commitments`(현재축)와 같은 의미다. 시간축만 `as_of` 다.
 
     ```text
     lot_id 있음   그날 살아있는 할당(state == ALLOCATED)      SHIPPED·RELEASED 제외
     lot_id 없음   그날 미할당 예약 잔여(unallocated_qty_kg)   놓아준 날부터 0
     ```
 
-    🔴 **SHIPPED 는 넣지 않는다.** 나간 몫은 원장 OUT 이 `remaining_qty_kg` 에서 이미
-       덜어냈다 — 다시 빼면 이중 차감이다 (`OutboundCommitment` 규율).
+    SHIPPED 는 넣지 않는다. 나간 몫은 원장 OUT 이 `remaining_qty_kg` 에서 이미
+    덜어냈다 — 다시 빼면 이중 차감이다(`OutboundCommitment` 규율).
 
-    ★ **품목 키는 `item_name` 이다** — Lot 축(`_historical_availability_snapshot`)이
-      같은 키를 써야 `build_inventory_by_item` 의 품목 차감이 맞는다.
+    품목 키는 `item_name` 이다 — Lot 축(`_historical_availability_snapshot`)이
+    같은 키를 써야 `build_inventory_by_item` 의 품목 차감이 맞는다.
     """
     out: list[OutboundCommitment] = []
     for resv in reservations:
@@ -212,14 +207,14 @@ def _historical_availability_snapshot(
     reservations: Sequence[HistoricalReservation],
     used_capacity_kg: Decimal,
 ) -> InventoryLogisticsSnapshot:
-    """판매가능량 정본(`tools.build_inventory_by_item`)에 먹일 **그날** 스냅샷 (#760).
+    """판매가능량 정본(`tools.build_inventory_by_item`)에 먹일 그날 스냅샷 (#760).
 
-    ★ 점유(Lot)축과 예약·할당(commitments)축만 `as_of` 값으로 바꾼다 — 나머지(정책·
-      용량 한도)는 `agent.tools._as_of_snapshot` 과 같은 규율로 base 를 그대로 둔다.
-      `build_inventory_by_item` 은 이 두 축만 읽는다.
+    점유(Lot)축과 예약·할당(commitments)축만 `as_of` 값으로 바꾼다 — 나머지(정책·
+    용량 한도)는 `readmodel/status_tools._as_of_snapshot` 과 같은 규율로 base 를 그대로
+    둔다. `build_inventory_by_item` 은 이 두 축만 읽는다.
 
-    🔴 **판매가능량 공식을 여기서 다시 쓰지 않는다.** 축만 그날 값으로 세워 정본
-       함수에 넘긴다 — 두 답이 갈리지 않게.
+    판매가능량 공식을 여기서 다시 쓰지 않는다. 축만 그날 값으로 세워 정본
+    함수에 넘긴다 — 두 답이 갈리지 않게.
     """
     return base.model_copy(
         update={
@@ -233,7 +228,7 @@ def _historical_availability_snapshot(
                     unit_cost_krw_per_kg=lot.unit_cost_krw_per_kg,
                     remaining_freshness_days=lot.turnover.remaining_freshness_days,
                     effective_freshness_limit_days=lot.turnover.effective_freshness_limit_days,
-                    # 🔴 유도된 상태다 — `inventory_lots.status` 컬럼이 아니다.
+                    # 유도된 상태다 — `inventory_lots.status` 컬럼이 아니다.
                     status=lot.state,
                     storage_zone=lot.storage_zone,
                 )
@@ -250,13 +245,13 @@ def _historical_availability_snapshot(
 
 
 def _available_unresolved_reason(snapshot: InventoryLogisticsSnapshot) -> str | None:
-    """`build_inventory_by_item` 이 `None` 을 내는 경로와 **같은 순서로** 본다.
+    """`build_inventory_by_item` 이 `None` 을 내는 경로와 같은 순서로 본다.
 
     순서가 계약이다 — 저쪽 guard 와 어긋나면 이유가 사실과 달라진다.
 
-    🔴 **확정 출고 축 두 이유가 없어졌다 (WP-3).** 판매가능량이 그 축을 더 이상 안
-       빼므로(`tools.build_inventory_by_item` 의 «차감 축은 한 벌») 그것을 못 읽었다는
-       이유로 이 값을 못 낸다고 답할 수 없다.
+    확정 출고 축은 이유가 되지 않는다(WP-3). 판매가능량이 그 축을 빼지 않으므로
+    (`tools.build_inventory_by_item` 의 «차감 축은 한 벌») 그것을 못 읽었다는 이유로
+    이 값을 못 낸다고 답할 수 없다.
     """
     if snapshot.outbound_commitments is None:
         return "OUTBOUND_COMMITMENTS_UNRESOLVED"
@@ -266,12 +261,12 @@ def _available_unresolved_reason(snapshot: InventoryLogisticsSnapshot) -> str | 
 def _historical_lots(
     conn: Any, *, sim_run_id: str, as_of: date
 ) -> tuple[HistoricalLot, ...]:
-    """그날 존재한 Lot 전부. **`readmodel/historical` 하나가 정본이다.**"""
+    """그날 존재한 Lot 전부. `readmodel/historical` 하나가 정본이다."""
     return lot_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)
 
 
 def _console_lot(lot: HistoricalLot, names: dict[str, str]) -> ConsoleInventoryLot:
-    """되살린 Lot 하나를 화면 계약으로 옮겨 담는다. **계산하지 않는다.**"""
+    """되살린 Lot 하나를 화면 계약으로 옮겨 담는다. 계산하지 않는다."""
     return ConsoleInventoryLot(
         lot_id=lot.lot_id,
         item_id=lot.item_id,
@@ -279,7 +274,7 @@ def _console_lot(lot: HistoricalLot, names: dict[str, str]) -> ConsoleInventoryL
         grade=lot.grade,
         remaining_qty_kg=lot.remaining_qty_kg,
         received_at=lot.received_at,
-        # 🔴 유도된 상태다 — `inventory_lots.status` 컬럼이 아니다.
+        # 유도된 상태다 — `inventory_lots.status` 컬럼이 아니다.
         status=lot.state,
         storage_zone=lot.storage_zone,
         remaining_freshness_days=lot.turnover.remaining_freshness_days,
@@ -291,21 +286,21 @@ def _console_lot(lot: HistoricalLot, names: dict[str, str]) -> ConsoleInventoryL
 
 
 def load_console_runtime(*, conn: Any, sim_run_id: str, as_of: date) -> LogisticsRead | None:
-    """그날의 Agent Runtime 읽기 한 벌. **없으면 `None` 이고 그것도 사실이다.**
+    """그날의 Agent Runtime 읽기 한 벌. 없으면 `None` 이고 그것도 사실이다.
 
-    🔴 **한 화면에 한 번만 부른다** (2026-09-15). 종전에는 재고 콘솔이 `LogisticsRead`
-       를, 입고 콘솔이 fixture 를 **각자** 읽어 같은 `logistics_runtime_fixture` ·
-       `inbound_schedules` 질의가 한 요청에 두 번씩 나갔다 (일정 질의만 5번 · 421 ms).
-       이제 `build_result` 가 이 함수를 한 번 부르고 두 콘솔에 `runtime=` 으로 넘긴다 —
-       재고 콘솔은 Snapshot(판매가능량 축)을, 입고 콘솔은 `fixture`(운송 중 Header)와
-       `inbound_schedule_views`(도착 처리 대상)를 같은 한 벌에서 꺼낸다.
+    한 화면에 한 번만 부른다. 재고 콘솔과 입고 콘솔이 각자 읽으면 같은
+    `logistics_runtime_fixture` · `inbound_schedules` 질의가 한 요청에 두 번씩 나간다
+    (실측 2026-09-15 · 일정 질의만 5번 · 421 ms). 그래서 `read_console_page` 가 이 함수를
+    한 번 부르고 두 콘솔에 `runtime=` 으로 넘긴다 — 재고 콘솔은 Snapshot(판매가능량 축)을,
+    입고 콘솔은 `fixture`(운송 중 Header)와 `inbound_schedule_views`(도착 처리 대상)를
+    같은 한 벌에서 꺼낸다.
 
-    🔴 **부재(`LookupError`)만 삼킨다.** 활성 fixture 가 둘인 무결성 위반
-       (`ValueError`)은 그대로 올려 보낸다 — 깨진 데이터가 *"데이터를 주세요"* 로
-       둔갑하면 안 된다 (`repository` 의 같은 규율).
+    부재(`LookupError`)만 삼킨다. 활성 fixture 가 둘인 무결성 위반
+    (`ValueError`)은 그대로 올려 보낸다 — 깨진 데이터가 "데이터를 주세요" 로
+    둔갑하면 안 된다(`readmodel/current` 의 같은 규율).
 
-    ★ 이 값이 없어도 **재고 수량은 답한다.** 수량 정본은 원장이고 fixture 가 아니다.
-      못 내는 것은 그 스냅샷의 확정 출고 축이 필요한 판매가능량과, 운송 중 목록뿐이다.
+    이 값이 없어도 재고 수량은 답한다. 수량 정본은 원장이고 fixture 가 아니다.
+    못 내는 것은 그 스냅샷의 확정 출고 축이 필요한 판매가능량과, 운송 중 목록뿐이다.
     """
     try:
         return get_current_logistics_read(conn, as_of=as_of, sim_run_id=sim_run_id)
@@ -322,7 +317,7 @@ def get_inventory_console(
     reservations: Sequence[HistoricalReservation] | None = None,
     item_id: str | None = None,
 ) -> ConsoleInventoryResponse:
-    """품목 카드 · Lot 목록 · 창고 kg Capacity 한 판. **기준일은 `as_of` 다.**
+    """품목 카드 · Lot 목록 · 창고 kg Capacity 한 판. 기준일은 `as_of` 다.
 
     ```text
     현재고 · Lot · Capacity 사용량   readmodel/historical.lot_state_at        ← as_of 원장
@@ -332,29 +327,28 @@ def get_inventory_console(
     판매가능량                        tools.build_inventory_by_item(그날 스냅샷)  ← as_of (#760)
     ```
 
-    🔴 **`inventory_lots.remaining_qty_kg` 를 과거 잔량으로 쓰지 않는다.** 종전에는
-       그 컬럼(`> 0`)으로 Lot 을 골라서, 실측 84 Lot 이 전부 잔량 0 이 된 뒤
-       **모든 과거 날짜가 0 kg · 0 Lot** 으로 나왔다 (원장 복원값은 각각 294.4 ·
-       806.4 · 806.4 · 6,452.4 kg).
+    `inventory_lots.remaining_qty_kg` 를 과거 잔량으로 쓰지 않는다. 그 컬럼(`> 0`)으로
+    Lot 을 고르면, 실측 84 Lot 이 전부 잔량 0 이 된 뒤 모든 과거 날짜가 0 kg · 0 Lot
+    으로 나온다(원장 복원값은 각각 294.4 · 806.4 · 806.4 · 6,452.4 kg).
 
-    🔴 **만료 Lot 은 `on_hand_qty_kg` 와 `used_capacity_kg` 에 남고 판매가능량에서만
-       빠진다.** 판매불가는 창고에서 사라진 것이 아니다.
+    만료 Lot 은 `on_hand_qty_kg` 와 `used_capacity_kg` 에 남고 판매가능량에서만
+    빠진다. 판매불가는 창고에서 사라진 것이 아니다.
 
-    ★ **예약 3칸·판매가능량도 `as_of` 축이다 (#760 · LOG-HIST-002).** 예약·할당은
-      `reservation_state_at` 이 그날 값으로 되살리고(품목 집계 =
-      `_reservation_totals_from_history`), 판매가능량은 그 예약과 `lot_state_at` 으로
-      **그날 스냅샷**을 세워 정본 `tools.build_inventory_by_item` 에 그대로 먹인다 —
-      한 화면이 한 시간축에 선다.
+    예약 3칸·판매가능량도 `as_of` 축이다(#760 · LOG-HIST-002). 예약·할당은
+    `reservation_state_at` 이 그날 값으로 되살리고(품목 집계 =
+    `_reservation_totals_from_history`), 판매가능량은 그 예약과 `lot_state_at` 으로
+    그날 스냅샷을 세워 정본 `tools.build_inventory_by_item` 에 그대로 먹인다 —
+    한 화면이 한 시간축에 선다.
 
-    ★ **보관정책이 없는 품목의 Lot 도 싣는다.** 종전 스냅샷 경로는
-      `item_storage_policies` 를 `INNER JOIN` 해서 그런 Lot 을 통째로 떨어뜨렸다 —
-      정책이 없다는 이유로 실물 재고를 조회에서 지우지 않는다.
+    보관정책이 없는 품목의 Lot 도 싣는다. `item_storage_policies` 를 `INNER JOIN` 하면
+    그런 Lot 이 통째로 떨어진다 — 정책이 없다는 이유로 실물 재고를 조회에서 지우지
+    않는다.
 
     :param runtime: `load_console_runtime` 이 그 `(sim_run_id, as_of)` 로 낸 한 벌.
         `None` 은 그날 Runtime Snapshot 이 없다는 사실이다 — 여기서 다시 읽지 않는다.
-    :param reservations: `build_result` 가 한 판에 한 번 읽어 넘긴 그날 예약 목록.
+    :param reservations: `read_console_page` 가 한 판에 한 번 읽어 넘긴 그날 예약 목록.
         `None` 이면 여기서 직접 읽는다(단독 호출·테스트) — 화면 경로는 출고 콘솔과
-        **같은 한 벌**을 공유해 중복 조회를 피한다(#719 · #760).
+        같은 한 벌을 공유해 중복 조회를 피한다(#719 · #760).
     """
     read = runtime
     policy = read.policy if read is not None else read_active_logistics_policy()
@@ -369,7 +363,7 @@ def get_inventory_console(
     reservation_totals = _reservation_totals_from_history(resv)
     mvp_items = select_mvp_item_ids(conn)
 
-    # ★ 창고 점유는 **그날 실재한 모든 Lot** 의 합이다 — 화면 필터보다 앞선다.
+    # 창고 점유는 그날 실재한 모든 Lot 의 합이다 — 화면 필터보다 앞선다.
     used_capacity = sum((lot.remaining_qty_kg for lot in historical_lots), start=Decimal(0))
 
     # 판매가능량 — 정본 `build_inventory_by_item` 에 «그날» 스냅샷을 먹인다 (#760).
@@ -395,8 +389,8 @@ def get_inventory_console(
         else {row.item: row.available_qty_kg for row in inventory_by_item}
     )
 
-    # 🔴 «살아 있는 Lot» 만 목록에 싣는다 — 종전 화면과 같은 모집단이다.
-    #    잔량 0 이 된 Lot 까지 늘어놓으면 84 줄이 되고 그날의 재고가 안 보인다.
+    # «살아 있는 Lot» 만 목록에 싣는다. 잔량 0 이 된 Lot 까지 늘어놓으면 84 줄이 되고
+    # 그날의 재고가 안 보인다.
     lots = [
         _console_lot(lot, names)
         for lot in historical_lots
@@ -404,7 +398,7 @@ def get_inventory_console(
     ]
 
     # 품목 축: 재고가 있는 품목 ∪ 예약이 있는 품목 ∪ mvp_active 품목.
-    # ★ mvp_active 가 아니어도 실물이 있으면 싣는다 — 계약 밖 품목이라고 재고를 숨기지 않는다.
+    # mvp_active 가 아니어도 실물이 있으면 싣는다 — 계약 밖 품목이라고 재고를 숨기지 않는다.
     item_ids = {lot.item_id for lot in lots} | set(reservation_totals) | set(mvp_items)
     if item_id is not None:
         item_ids = item_ids & {item_id}
@@ -469,7 +463,7 @@ def _inbound_receipts(
     as_of: date,
     settled_by_inbound: Mapping[str, bool] | None = None,
 ) -> list[ConsoleInboundReceipt]:
-    """그날까지 도착한 Receipt. 🔴 **상태를 사건에서 유도한다.**
+    """그날까지 도착한 Receipt. 상태를 사건에서 유도한다.
 
     ```text
     ARRIVED       arrived_at <= as_of
@@ -477,15 +471,15 @@ def _inbound_receipts(
     PUTAWAY_DONE  그 Receipt 의 Lot 과 원장 IN 이 as_of 까지 있다
     ```
 
-    🔴 **`receipt_status` 컬럼을 읽지 않는다.** 실측 4건이 전부 `PUTAWAY_DONE` 이라
-       그대로 실으면 도착만 한 날에도 «입고 완료» 로 보인다.
+    `receipt_status` 컬럼을 읽지 않는다. 실측 4건이 전부 `PUTAWAY_DONE` 이라
+    그대로 실으면 도착만 한 날에도 «입고 완료» 로 보인다.
 
-    ⚠️ **NULL 수량을 0 으로 바꾸지 않는다** (DDL 주석).
+    NULL 수량을 0 으로 바꾸지 않는다(DDL 주석).
 
     :param settled_by_inbound: 입고 일정이 낸 «수용 0 으로 끝났나» 한 벌 (#805).
-        🔴 **여기서 그 판정을 다시 만들지 않는다** — `inbound_schedules` 가 주인이고
+        여기서 그 판정을 다시 만들지 않는다 — `inbound_schedules` 가 주인이고
         이 함수는 `inbound_id` 로 받아 적기만 한다. `None`(못 읽음)이거나 그 입고가
-        목록에 없으면 칸도 `None` 이다 — **«아니다» 가 아니라 «모른다»** 다.
+        목록에 없으면 칸도 `None` 이다 — «아니다» 가 아니라 «모른다» 다.
     """
     return [
         ConsoleInboundReceipt(
@@ -505,7 +499,7 @@ def _inbound_receipts(
             inspected_qty_kg=receipt.inspected_qty_kg,
             lot_id=receipt.lot_id,
             in_move_id=receipt.in_move_id,
-            # Lot 과 원장 IN 이 **둘 다** 있어야 재고가 섰다고 본다.
+            # Lot 과 원장 IN 이 둘 다 있어야 재고가 섰다고 본다.
             stock_applied=receipt.stock_applied,
             settled_without_stock=(
                 None
@@ -524,36 +518,36 @@ def get_inbound_console(
 ) -> ConsoleInboundResponse:
     """운송 중 일정 · Receipt · 도착 자격 요약.
 
-    ★ **운송 중 목록의 정본은 `inbound_schedules` 다 (W3-2).** fixture 는
+    운송 중 목록의 정본은 `inbound_schedules` 다(W3-2). fixture 는
       `in_transit_status`(`None` 미확인 / `[]` 0건 확인을 가르는 값)만 준다 —
       그 칸은 스냅샷 계약에 없어서 여기서 직접 읽는다.
 
-    🔴 **두 목록의 종료조건이 다르다. 같은 목록을 두 번 쓰지 않는다.**
+    두 목록의 종료조건이 다르다. 같은 목록을 두 번 쓰지 않는다.
 
     ```text
     in_transit        Receipt 가 생기면 빠진다        "아직 창고에 안 온 것"
     arrival_summary   Lot + 원장 IN 이 서면 빠진다     "아직 받을 것이 남았나"
     ```
 
-       ⚠️ 종전에는 둘 다 `fixture.in_transit` 하나를 봤다. 그대로 두면 **검수에서
-          막힌 건(Receipt 만 있고 Lot 없음)이 도착 요약에서 사라져** 화면이
-          *"오늘 받을 것이 없다"* 고 말한다 — 실제로는 이어받아야 할 건이다.
+       둘 다 `fixture.in_transit` 하나를 보면 검수에서 막힌 건(Receipt 만 있고
+       Lot 없음)이 도착 요약에서 사라져 화면이 "오늘 받을 것이 없다" 고 말한다 —
+       실제로는 이어받아야 할 건이다.
 
-    🔴 **fixture 가 없는 날도 답한다.** 종전에는 `LookupError` 가 그대로 올라가
-       화면 전체가 예시값으로 떨어졌다. 운송 중을 모르는 것과 Receipt 를 모르는
-       것은 다른 사실이므로, 앞은 `UNRESOLVED` 로 적고 뒤는 그대로 되살린다.
+    fixture 가 없는 날도 답한다. `LookupError` 를 그대로 올리면 화면 전체가 예시값으로
+    떨어진다. 운송 중을 모르는 것과 Receipt 를 모르는 것은 다른 사실이므로, 앞은
+    `UNRESOLVED` 로 적고 뒤는 그대로 되살린다.
 
     :param runtime: `load_console_runtime` 이 낸 한 벌. fixture(운송 중 Header)와
-        일정 views(도착 처리 대상)를 여기서 꺼내 쓴다 — **다시 읽지 않는다.**
+        일정 views(도착 처리 대상)를 여기서 꺼내 쓴다 — 다시 읽지 않는다.
         `None` 은 그날 Runtime Snapshot 이 없다는 사실이다.
     """
     fixture = None if runtime is None else runtime.fixture
     in_transit = None if fixture is None else fixture.in_transit
 
-    # ★ 도착 요약은 **받을 것이 남았나** 를 센다 — 운송 중 목록이 아니다.
-    #   fixture 가 없는 날(미확인)에는 그 판정도 세울 수 없어 `None` 을 넘긴다.
-    #   views 는 `runtime` 이 이미 읽은 것을 쓴다. 손수 만든 `LogisticsRead`(views
-    #   없음)만 종전처럼 표에서 다시 읽는다.
+    # 도착 요약은 받을 것이 남았나를 센다 — 운송 중 목록이 아니다.
+    # fixture 가 없는 날(미확인)에는 그 판정도 세울 수 없어 `None` 을 넘긴다.
+    # views 는 `runtime` 이 이미 읽은 것을 쓴다. 손수 만든 `LogisticsRead`(views
+    # 없음)만 표에서 다시 읽는다.
     if fixture is None:
         due_source = None
     elif runtime is not None and runtime.inbound_schedule_views is not None:
@@ -562,9 +556,9 @@ def get_inbound_console(
         due_source = receivable_at(conn, sim_run_id=sim_run_id, as_of=as_of)
     selection = arrival.select_due_inbound(due_source, as_of=as_of)
 
-    #  ★ «수용 0 으로 재고 없이 끝난 입고» 사실을 Receipt 줄에 얹는다 (#805).
-    #    🔴 판정은 `inbound_schedules` 가 이미 했다 — 여기서 다시 세지 않고 받아 적는다.
-    #    일정을 못 읽은 날은 `None` 이라 화면이 «모른다» 로 그린다.
+    # «수용 0 으로 재고 없이 끝난 입고» 사실을 Receipt 줄에 얹는다 (#805).
+    # 판정은 `inbound_schedules` 가 이미 했다 — 여기서 다시 세지 않고 받아 적는다.
+    # 일정을 못 읽은 날은 `None` 이라 화면이 «모른다» 로 그린다.
     views = None if runtime is None else runtime.inbound_schedule_views
     settled_by_inbound = (
         None
@@ -609,10 +603,10 @@ def get_inbound_console(
 # ── GET /logistics/outbound ─────────────────────────────────────────────
 
 
-#: 유도된 할당 상태를 화면 어휘로 옮긴다. 🔴 **새 어휘를 만들지 않는다** —
+#: 유도된 할당 상태를 화면 어휘로 옮긴다. 새 어휘를 만들지 않는다 —
 #: `AllocationStatus` 는 DB `ck_inventory_allocations_status` 그대로이고, 놓아준
 #: 예약의 할당은 DB 에서도 실제로 `CANCELLED` 로 내려간다
-#: (`outbound.release_reservation`).
+#: (`service/outbound.release_reservation`).
 _ALLOCATION_STATE_TO_CONSOLE: dict[str, AllocationStatus] = {
     "ALLOCATED": "ALLOCATED",
     "SHIPPED": "SHIPPED",
@@ -621,7 +615,7 @@ _ALLOCATION_STATE_TO_CONSOLE: dict[str, AllocationStatus] = {
 
 
 def _console_allocation(allocation: HistoricalAllocation) -> ConsoleAllocation:
-    """`as_of` 시점 할당 하나를 화면 계약으로. **상태는 유도값이다.**"""
+    """`as_of` 시점 할당 하나를 화면 계약으로. 상태는 유도값이다."""
     return ConsoleAllocation(
         allocation_id=allocation.allocation_id,
         lot_id=allocation.lot_id,
@@ -643,7 +637,7 @@ def get_outbound_console(
     status: ReservationStatus | None = None,
     reservations: Sequence[HistoricalReservation] | None = None,
 ) -> ConsoleOutboundResponse:
-    """`as_of` 시점의 예약 목록과 그 아래 할당들. **네 조회와 같은 축이다.**
+    """`as_of` 시점의 예약 목록과 그 아래 할당들. 네 조회와 같은 축이다.
 
     ```text
     예약 존재    sales.order_date <= as_of    ← 확정일부터다 (예약은 확정 직후 선다)
@@ -652,22 +646,21 @@ def get_outbound_console(
     출고         MOVE-OUT-{allocation_id} · moved_at <= as_of
     ```
 
-    🔴 **저장된 `status` 두 칸을 안 읽는다** — `readmodel/historical.reservation_state_at`
-       하나가 정본이고 이 파일은 받아 적는다. 종전에는 `inventory_reservations` ·
-       `inventory_allocations` 의 지금 행을 그대로 내고 `reservation_time_basis` 로
-       *"과거가 아니다"* 라고만 말했다 (WP-3 이전에는 자를 정본이 없었다).
+    저장된 `status` 두 칸을 안 읽는다 — `readmodel/historical.reservation_state_at`
+    하나가 정본이고 이 파일은 받아 적는다. `inventory_reservations` ·
+    `inventory_allocations` 의 지금 행은 과거 화면의 값이 아니다.
 
-    ★ **`status` 필터도 유도된 상태에 건다.** 지금 DB 값으로 거르면 **그날 살아 있던
-      예약이 오늘 놓아줬다는 이유로 과거 화면에서 사라진다.** DB 에 거는 `WHERE` 를
-      쓰지 않고 유도 뒤에 파이썬에서 거른다 — 유도식의 주인이 하나여야 하기 때문이다.
+    `status` 필터도 유도된 상태에 건다. 지금 DB 값으로 거르면 그날 살아 있던
+    예약이 오늘 놓아줬다는 이유로 과거 화면에서 사라진다. DB 에 거는 `WHERE` 를
+    쓰지 않고 유도 뒤에 파이썬에서 거른다 — 유도식의 주인이 하나여야 하기 때문이다.
 
-    ★ `status` 를 안 주면 **거르지 않는다** — 놓아준 예약(RELEASED · CANCELLED)을
-      기본으로 숨기는 정책을 여기서 새로 만들지 않는다. 화면이 골라 쓴다.
+    `status` 를 안 주면 거르지 않는다 — 놓아준 예약(RELEASED · CANCELLED)을
+    기본으로 숨기는 정책을 여기서 새로 만들지 않는다. 화면이 골라 쓴다.
 
-    ★ 0건이면 `reservations: []` 가 정상이다. 더미를 만들지 않는다.
+    0건이면 `reservations: []` 가 정상이다. 더미를 만들지 않는다.
 
-    :param reservations: `build_result` 가 한 판에 한 번 읽어 넘긴 그날 예약 목록.
-        `None` 이면 여기서 직접 읽는다 — 화면 경로는 재고 콘솔과 **같은 한 벌**을
+    :param reservations: `read_console_page` 가 한 판에 한 번 읽어 넘긴 그날 예약 목록.
+        `None` 이면 여기서 직접 읽는다 — 화면 경로는 재고 콘솔과 같은 한 벌을
         공유해 `reservation_state_at` 을 두 번 조회하지 않는다 (#719 · #760).
     """
     rows = (
@@ -702,10 +695,10 @@ def get_outbound_console(
 
 
 def _held_qty_by_lot(reservations: Sequence[ConsoleReservation]) -> dict[str, Decimal]:
-    """Lot 마다 **그날 아직 묶여 있던** 할당량 합.
+    """Lot 마다 그날 아직 묶여 있던 할당량 합.
 
-    🔴 **`ALLOCATED` 만 센다.** 그날 축의 할당 상태는 셋뿐이고
-       (`schemas/historical.HistoricalAllocationState`), 나머지 둘은 빼면 안 된다.
+    `ALLOCATED` 만 센다. 그날 축의 할당 상태는 셋뿐이고
+    (`schemas/historical.HistoricalAllocationState`), 나머지 둘은 빼면 안 된다.
 
     ```text
     ALLOCATED   아직 창고에서 안 나갔다      → 뺀다
@@ -713,13 +706,14 @@ def _held_qty_by_lot(reservations: Sequence[ConsoleReservation]) -> dict[str, De
     CANCELLED   그 예약이 놓아준 몫           → 돌아와야 한다
     ```
 
-    ★ `outbound._available_lots` 의 `held_qty_kg` 서브쿼리와 **같은 뜻**이다. 저쪽은
-      지금 행의 `status = ANY(ALLOCATED, PICKED)` 와 살아 있는 예약으로 세고, 이쪽은
-      그날로 유도된 상태 하나로 센다 — `PICKED` 는 그날 축에 없는 어휘이고(유도가
-      `ALLOCATED` 로 낸다) 놓아준 예약의 할당은 유도 단계에서 이미 `CANCELLED` 다.
+    `service/outbound.py` 의 `_available_lots` 가 쓰는 `held_qty_kg` 서브쿼리
+    (`repository/outbound.select_available_lot_rows`)와 같은 뜻이다. 저쪽은
+    지금 행의 `status = ANY(ALLOCATED, PICKED)` 와 살아 있는 예약으로 세고, 이쪽은
+    그날로 유도된 상태 하나로 센다 — `PICKED` 는 그날 축에 없는 어휘이고(유도가
+    `ALLOCATED` 로 낸다) 놓아준 예약의 할당은 유도 단계에서 이미 `CANCELLED` 다.
 
-    ★ **화면 품목 필터보다 앞선다.** 남의 예약이 잡아 둔 몫은 그 예약이 화면에
-      안 그려져도 이 Lot 에서 빠져 있다 — 그리는 예약만 세면 가용량이 부풀어 오른다.
+    화면 품목 필터보다 앞선다. 남의 예약이 잡아 둔 몫은 그 예약이 화면에
+    안 그려져도 이 Lot 에서 빠져 있다 — 그리는 예약만 세면 가용량이 부풀어 오른다.
     """
     held: dict[str, Decimal] = {}
     for reservation in reservations:
@@ -738,11 +732,11 @@ def get_fefo_candidates_by_item(
     reservations: Sequence[ConsoleReservation],
     item_ids: Iterable[str],
 ) -> dict[str, list[ConsoleFefoCandidate]]:
-    """품목별 FEFO 후보. 🔴 **추천만 한다 — 고르지도 쓰지도 않는다.**
+    """품목별 FEFO 후보. 추천만 한다 — 고르지도 쓰지도 않는다.
 
-    🔴 **기준일 축이다 (#812).** 종전에는 `outbound.recommend_fefo_candidates` 를 불러
-       **«지금» 재고**(`inventory_lots.remaining_qty_kg` · Current Cache)로 후보를
-       세웠다. 그래서 과거 기준일을 열면 두 방향으로 다 틀렸다.
+    기준일 축이다(#812). «지금» 재고(`inventory_lots.remaining_qty_kg` · Current Cache)로
+    후보를 세우면(`service/outbound.recommend_fefo_candidates` 가 그렇다) 과거 기준일에서
+    두 방향으로 다 틀린다.
 
     ```text
     기준일 뒤에 입고된 Lot     후보로 올라왔다 → 경과일이 음수라 「보관한계 10일 ·
@@ -750,12 +744,11 @@ def get_fefo_candidates_by_item(
     그날 있었는데 지금 빈 Lot   후보에서 빠졌다 → 그날 팔 수 있던 재고가 안 보인다
     ```
 
-       물류 문서 28(L206~209)이 이 누출을 이미 실측해 적어 뒀고, Historical 계약
-       (`05_Historical조회.md` H-10)은 FEFO 후보를 **그날 축 재료**로 싣고 있었다 —
-       계약과 구현이 갈려 있던 자리다.
+       Historical 계약(`05_Historical조회.md` H-10)은 FEFO 후보를 그날 축 재료로
+       싣는다(물류 문서 28 L206~209 의 실측).
 
-    🔴 **새 계산기를 만들지 않았다.** 모집단도 판정도 정렬도 전부 기존 정본이고,
-       바뀐 것은 **어느 시간축의 사실을 먹이는가** 하나뿐이다.
+    새 계산기를 만들지 않는다. 모집단도 판정도 정렬도 전부 기존 정본이고, 여기서
+    정하는 것은 어느 시간축의 사실을 먹이는가 하나뿐이다.
 
     ```text
     그날 존재한 Lot · 그날 잔량   readmodel/historical.lot_state_at   received_at <= as_of
@@ -765,13 +758,13 @@ def get_fefo_candidates_by_item(
     정렬                          turnover.fefo_sort_key                ← 자동 할당과 같은 키
     ```
 
-    ⚠️ **날짜를 받지 않는다.** `as_of` 가 필요한 판정은 이미 `lot_state_at` 이 그날로
-       내려 준 값(`remaining_freshness_days` · `disposal_candidate`)에 들어 있다.
-       여기서 날짜를 다시 받으면 **두 축이 섞일 자리**가 한 곳 더 생긴다.
+    날짜를 받지 않는다. `as_of` 가 필요한 판정은 이미 `lot_state_at` 이 그날로
+    내려 준 값(`remaining_freshness_days` · `disposal_candidate`)에 들어 있다.
+    여기서 날짜를 다시 받으면 두 축이 섞일 자리가 한 곳 더 생긴다.
 
     :param lots: 그날 살아 있던 Lot (`get_inventory_console` 의 `lots` — 이미
         `remaining_qty_kg > 0` 로 걸러진 그날 모집단이다).
-    :param reservations: 그날 예약 **전부**. 🔴 화면이 그리는 예약만 넘기면 남의
+    :param reservations: 그날 예약 전부. 화면이 그리는 예약만 넘기면 남의
         예약이 잡아 둔 몫이 안 빠져 가용량이 부풀어 오른다.
     :param item_ids: 후보를 물을 품목. 순서는 `item_id` 정렬이라 부른 순서가 결과를
         바꾸지 않는다.
@@ -782,9 +775,9 @@ def get_fefo_candidates_by_item(
     for lot in lots:
         if lot.item_id not in out:
             continue
-        # 🔴 판매 가용에서 이미 빠진 Lot 은 후보에도 안 오른다. 판정의 주인은
-        #    `turnover.is_disposal_candidate` 이고 그 결과가 이 칸이다 — 화면도
-        #    이 파일도 신선도 숫자를 보고 다시 정하지 않는다.
+        # 판매 가용에서 이미 빠진 Lot 은 후보에도 안 오른다. 판정의 주인은
+        # `turnover.is_disposal_candidate` 이고 그 결과가 이 칸이다 — 화면도
+        # 이 파일도 신선도 숫자를 보고 다시 정하지 않는다.
         if lot.disposal_candidate:
             continue
         가용 = lot.remaining_qty_kg - held.get(lot.lot_id, Decimal(0))
@@ -799,8 +792,8 @@ def get_fefo_candidates_by_item(
                 grade=lot.grade,
             )
         )
-    # 🔴 **정렬 규칙을 여기 적지 않는다.** 키의 주인은 `turnover.fefo_sort_key` 하나이고
-    #    자동 할당(`recommend_fefo_candidates`)도 PRE_SALES 원가 배부도 같은 것을 쓴다.
+    # 정렬 규칙을 여기 적지 않는다. 키의 주인은 `turnover.fefo_sort_key` 하나이고
+    # 자동 할당(`recommend_fefo_candidates`)도 PRE_SALES 원가 배부도 같은 것을 쓴다.
     for candidates in out.values():
         candidates.sort(
             key=lambda c: fefo_sort_key(
@@ -815,7 +808,7 @@ def get_fefo_candidates_by_item(
 def read_console_page(
     *, sim_run_id: str, as_of: date
 ) -> ConsolePage | RuntimeSnapshotCoverage:
-    """재고·물류 탭 한 판 — **연결 하나 · 트랜잭션 하나**로 그날 재료를 모두 읽는다.
+    """재고·물류 탭 한 판 — 연결 하나 · 트랜잭션 하나로 그날 재료를 모두 읽는다.
 
     ```text
     runtime_coverage_at        그날 Runtime Snapshot 이 있나   없으면 이 판정만 돌려준다
@@ -828,26 +821,23 @@ def read_console_page(
     resolved_exceptions_on     그날 닫힌 문제
     ```
 
-    ★ 순서와 질의는 종전 화면(`api/logistics/query.build_result`)이 연결 안에서 부르던 그대로다.
-
-    ★ 2026-09-30 재구성 BL-015: 종전 화면 `build_result` 가 하던 대여 · 트랜잭션을 이 함수가 맡는다.
-      경계는 그대로다 — `connection()` 하나를 빌려 `transaction(conn)` 블록 하나로 읽고, 그날이
-      안 열렸으면 판정만 읽고 끝낸다(둘 다 블록 끝에서 commit). 읽다가 예외가 나면 rollback 하고
-      그 예외를 올린다(화면이 503 · 500 으로 가른다). 다른 점은 pane 조립이 블록 밖(화면)에서
-      일어난다는 것 하나다 — 조립은 DB 에 아무것도 보내지 않는다.
+    대여 · 트랜잭션: `connection()` 하나를 빌려 `transaction(conn)` 블록 하나로 읽고, 그날이
+    안 열렸으면 판정만 읽고 끝낸다(둘 다 블록 끝에서 commit). 읽다가 예외가 나면 rollback 하고
+    그 예외를 올린다(화면이 503 · 500 으로 가른다). pane 조립은 블록 밖(화면
+    `app/api/logistics/presenter.py` 의 `build_result`)에서 일어난다 — 조립은 DB 에 아무것도
+    보내지 않는다.
     """
     with core_db.connection() as conn, core_db.transaction(conn):
         coverage = runtime_coverage_at(conn, sim_run_id=sim_run_id, as_of=as_of)
         if not coverage.has_snapshot:
             return coverage
-        #  ★ Runtime 읽기(Current 축)는 **한 판에 한 번**이다 — 재고 콘솔(판매가능량)과
-        #    입고 콘솔(운송 중 · 도착 처리 대상)이 같은 한 벌을 나눠 쓴다. 따로 읽으면
-        #    같은 fixture · 일정 질의가 두 번씩 나간다 (실측 2026-09-15 · 일정 5번 421 ms).
+        # Runtime 읽기(Current 축)는 한 판에 한 번이다 — 재고 콘솔(판매가능량)과
+        # 입고 콘솔(운송 중 · 도착 처리 대상)이 같은 한 벌을 나눠 쓴다. 따로 읽으면
+        # 같은 fixture · 일정 질의가 두 번씩 나간다(실측 2026-09-15 · 일정 5번 421 ms).
         runtime = load_console_runtime(conn=conn, sim_run_id=sim_run_id, as_of=as_of)
-        #  ★ 그날 예약(Historical)도 **한 판에 한 번** 읽는다 (#760). 재고 콘솔의
-        #    예약 3칸·판매가능량과 출고 콘솔의 예약 목록이 같은 한 벌을 나눠 쓴다 —
-        #    종전에는 출고 콘솔만 `reservation_state_at` 을 부르고 재고 3칸은
-        #    «지금 status» 를 세어 한 화면에 두 시간축이 섞였다.
+        # 그날 예약(Historical)도 한 판에 한 번 읽는다(#760). 재고 콘솔의
+        # 예약 3칸·판매가능량과 출고 콘솔의 예약 목록이 같은 한 벌을 나눠 쓴다 —
+        # 한 화면에 두 시간축이 섞이지 않게.
         reservations = reservation_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)
         inventory = get_inventory_console(
             conn=conn,
@@ -862,10 +852,10 @@ def read_console_page(
         outbound = get_outbound_console(
             conn=conn, sim_run_id=sim_run_id, as_of=as_of, reservations=reservations
         )
-        #  🔴 **문제 장부도 같은 `(sim_run_id, as_of)` 축이다.** 다른 실행의 문제를
-        #     섞지 않고 그날 뒤에 열린 문제도 싣지 않는다 — 그 두 규칙의 주인은
-        #     `live_exceptions_at` 하나다. 그날 닫힌 행은 저 함수가 안 내므로
-        #     `resolved_exceptions_on` 이 나머지 반쪽을 가져온다.
+        # 문제 장부도 같은 `(sim_run_id, as_of)` 축이다. 다른 실행의 문제를
+        # 섞지 않고 그날 뒤에 열린 문제도 싣지 않는다 — 그 두 규칙의 주인은
+        # `live_exceptions_at` 하나다. 그날 닫힌 행은 저 함수가 안 내므로
+        # `resolved_exceptions_on` 이 나머지 반쪽을 가져온다.
         live = live_exceptions_at(conn, sim_run_id=sim_run_id, as_of=as_of)
         resolved = resolved_exceptions_on(conn, sim_run_id=sim_run_id, as_of=as_of)
     return ConsolePage(
@@ -880,7 +870,7 @@ def read_console_page(
 def read_stock_chart(
     *, sim_run_id: str, as_of: date, start: date
 ) -> StockChartFacts | RuntimeSnapshotCoverage:
-    """대시보드 재고 그래프 한 벌 — `start`~`as_of` 재료를 **블록 셋**으로 읽는다.
+    """대시보드 재고 그래프 한 벌 — `start`~`as_of` 재료를 블록 셋으로 읽는다.
 
     ```text
     runtime_coverage_at      그날 Runtime Snapshot 이 있나   없으면 이 판정만 돌려준다
@@ -890,11 +880,10 @@ def read_stock_chart(
     get_inbound_console      도착 표시(`in_transit`)
     ```
 
-    ★ 2026-09-30 재구성 BL-015: 종전 화면(`api/logistics/query.dashboard_stock` ·
-      `_onhand_series`)이 하던 대여 · 트랜잭션을 이 함수가 맡는다. 경계는 그대로다 — 판정 · 누계 ·
-      도착 표시마다
-      `connection()` 을 따로 빌려 `transaction(conn)` 블록 하나로 읽는다(블록마다 끝에서 commit,
-      예외면 그 블록만 rollback 하고 예외를 올린다). 안 열린 날은 첫 블록만 읽는다.
+    대여 · 트랜잭션: 판정 · 누계 · 도착 표시마다 `connection()` 을 따로 빌려
+    `transaction(conn)` 블록 하나로 읽는다(블록마다 끝에서 commit, 예외면 그 블록만
+    rollback 하고 예외를 올린다). 안 열린 날은 첫 블록만 읽는다. 부르는 곳은
+    `app/api/logistics/presenter.py` 의 `dashboard_stock` 이다.
     """
     with core_db.connection() as conn, core_db.transaction(conn):
         coverage = runtime_coverage_at(conn, sim_run_id=sim_run_id, as_of=as_of)

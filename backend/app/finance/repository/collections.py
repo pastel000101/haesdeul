@@ -1,8 +1,4 @@
-"""누적 수금 SQL — 수금일 상태 잠금 · 채권 · 상태 갱신 · 사용자 수금 사건 기록.
-
-★ 2026-09-29 재구성 BL-014: `finance/collection.py` 와 `finance/router.py`(사용자 수금 기록)에서
-  옮겼다(문면 그대로).
-"""
+"""누적 수금 SQL — 수금일 상태 잠금 · 채권 · 상태 갱신 · 사용자 수금 사건 기록."""
 
 from datetime import date
 from decimal import Decimal
@@ -72,7 +68,7 @@ def lock_receivable(conn: Connection[dict[str, object]], *, receivable_id: str):
 def update_receivable_collection(
     conn: Connection[dict[str, object]], plan: CollectionTransitionPlan
 ) -> int:
-    """채권 행에 누적 수금을 적는다. **바뀐 행 수**를 돌려준다."""
+    """채권 행에 누적 수금을 적는다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -94,7 +90,7 @@ def update_receivable_collection(
 def update_state_collection(
     conn: Connection[dict[str, object]], plan: CollectionTransitionPlan
 ) -> int:
-    """재무 상태 행의 현금·채권을 수금만큼 옮긴다. **바뀐 행 수**를 돌려준다."""
+    """재무 상태 행의 현금·채권을 수금만큼 옮긴다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -142,8 +138,8 @@ def insert_collection_event(
 
     같은 축 · 같은 날 · 같은 채권의 사건이 이미 있으면 적지 않는다.
 
-    ★ 이 표의 주인은 마스터이지만, **사용자가 기록한 수금**은 재무 수금 기록이 적는다(종전 재무
-    라우터와 같다) — 사건 기록과 수금 적용이 한 트랜잭션이어야 해서다. **적힌 행 수**를 돌려준다.
+    이 표의 주인은 마스터이지만, 사용자가 기록한 수금은 재무 수금 기록이 적는다 — 사건 기록과
+    수금 적용이 한 트랜잭션이어야 해서다. 적힌 행 수를 돌려준다.
     """
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:

@@ -2,9 +2,6 @@
 
 HTTP 만: 화면 요청을 봉투(`AgentRequest`)로 적어 `sales/service/proposal_generation.py`(마스터
 어댑터와 같은 함수)를 부르고, 회신 봉투를 응답으로 그대로 돌려준다. 요청 모델은 이 입구만 쓴다.
-
-★ 2026-09-30 재구성 BL-019: `app/sales/router.py` 에서 옮겼다 — 핸들러 이름 · 요청 모델 ·
-  docstring(OpenAPI 설명) · URL · 응답 그대로.
 """
 
 from datetime import date
@@ -31,10 +28,8 @@ class ConsoleSalesProposalRequest(BaseModel):
 @router.post("/console-proposal", summary="운영 콘솔 판매 후보 생성")
 def create_console_sales_proposal(body: ConsoleSalesProposalRequest) -> AgentReply:
     """후보를 이력에 저장하지만 판매 원장을 생성하거나 승인하지 않는다."""
-    #  ★ 마스터와 **같은 판매 후보 생성**(`service/proposal_generation.py`)을 부른다 — 화면
-    #    요청을 같은 봉투 모양으로 적어 넘기고, 회신 봉투를 응답으로 그대로 돌려준다. 전에는
-    #    여기서 마스터 어댑터(`sales_port`)를 직접 불렀다 (2026-09-29 BL-013). docstring 은
-    #    OpenAPI 설명이라 그대로 둔다.
+    #  마스터와 같은 판매 후보 생성(`sales/service/proposal_generation.py`)을 부른다 — 화면
+    #    요청을 같은 봉투 모양으로 적어 넘기고, 회신 봉투를 응답으로 그대로 돌려준다.
     request = AgentRequest(
         context=ExecutionContext(
             request_id=f"CONSOLE-SALES-{uuid4()}",

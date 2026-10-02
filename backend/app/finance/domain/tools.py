@@ -1,7 +1,4 @@
-"""Finance P0의 결정론적 재무 계산 도구.
-
-★ 2026-09-29 재구성 BL-014: `finance/tools.py` 에서 자리만 옮겼다(내용 그대로).
-"""
+"""Finance P0의 결정론적 재무 계산 도구."""
 
 from calendar import monthrange
 from collections import defaultdict
@@ -42,26 +39,26 @@ class ReportedAmountComparison(TypedDict):
     difference: Decimal
 
 
-#: **당일(`as_of`) 만기가 유효한 사건**. 매입지급만이다 — N5=0 은 당일 지급이라는
-#: 유효한 정책이고, 미결제(OPEN) 의무는 오늘 만기라도 아직 나가지 않았다.
+#: 당일(`as_of`) 만기가 유효한 사건. 매입지급만이다 — N5=0 은 당일 지급이라는 유효한
+#: 정책이고, 미결제(OPEN) 의무는 오늘 만기라도 아직 나가지 않았다.
 #:
-#: 🔴 채권·비용·판매 회수까지 같이 열지 않는다. 제안 회수의 horizon 계약
-#:    (`collection_within_horizon = as_of < event_date`)이 여전히 `as_of` 를 제외하므로,
-#:    투영만 열면 **투영과 그 플래그가 서로 다른 말을 한다.**
+#: 채권·비용·판매 회수까지 같이 열지 않는다. 제안 회수의 horizon 계약
+#: (`collection_within_horizon = as_of < event_date`)이 `as_of` 를 제외하므로, 투영만 열면
+#: 투영과 그 플래그가 서로 다른 말을 한다.
 _SAME_DAY_DUE_EVENT_TYPES = frozenset({"PURCHASE_PAYABLE", "EXTRA_PURCHASE"})
 
-#: 토·일에는 회사가 돈을 내보내지 않는다. **계약일이 아니라 현금이 나가는 날만** 민다.
+#: 토·일에는 회사가 돈을 내보내지 않는다. 계약일이 아니라 현금이 나가는 날만 민다.
 _WEEKEND_SHIFT = {6: 2, 7: 1}  # ISO 요일: 토 → 월(+2), 일 → 월(+1)
 
 
 def effective_cash_date(contractual_due_date: date) -> date:
     """계약 지급일이 주말이면 현금이 실제로 나가는 날은 다음 월요일이다.
 
-    🔴 **계약일을 고쳐 쓰는 함수가 아니다.** 원장의 `due_date` 는 토·일 그대로
-       남는다 (실제 원장에 이미 주말 만기가 4건 있다). 여기서 나오는 값은
-       *현금흐름에 얹는 날*뿐이다 — 둘을 합치면 계약 사실이 사라진다.
+    계약일을 고쳐 쓰는 함수가 아니다. 원장의 `due_date` 는 토·일 그대로 남는다(실제 원장에
+    이미 주말 만기가 4건 있다). 여기서 나오는 값은 현금흐름에 얹는 날뿐이다 — 둘을 합치면 계약
+    사실이 사라진다.
 
-    ★ 공휴일은 다루지 않는다. 토·일만이 현재 계약이다.
+    공휴일은 다루지 않는다. 토·일만이 현재 계약이다.
     """
     shift = _WEEKEND_SHIFT.get(contractual_due_date.isoweekday(), 0)
     return contractual_due_date + timedelta(days=shift)
@@ -212,10 +209,10 @@ def project_cashflow(
         signed_amount = event.amount_krw if event.direction == "INFLOW" else -event.amount_krw
         by_date[event.event_date] += signed_amount
 
-    # ★ **당일 만기 매입지급은 시작점에 접어 넣는다.** N5=0 이면 지급일이 `as_of` 와
-    #   같은데, 예전처럼 `as_of <` 로 걸러 내면 그 유출이 투영에서 통째로 사라졌다.
-    #   별도 점으로 붙이면 같은 날짜 점이 둘이 되므로, 시작 잔액 자체를 그날 의무가
-    #   빠진 값으로 연다 — 당일 사건이 없으면 예전과 같은 값이다.
+    # 당일 만기 매입지급은 시작점에 접어 넣는다. N5=0 이면 지급일이 `as_of` 와 같은데,
+    # `as_of <` 로 걸러 내면 그 유출이 투영에서 통째로 사라진다. 별도 점으로 붙이면 같은 날짜
+    # 점이 둘이 되므로, 시작 잔액 자체를 그날 의무가 빠진 값으로 연다 — 당일 사건이 없으면
+    # 시작 잔액은 그대로다.
     balance = current_cash_krw + by_date.pop(as_of, Decimal(0))
     points = [CashflowPoint(projection_date=as_of, cash_balance_krw=balance)]
     minimum = balance
@@ -258,11 +255,11 @@ def calculate_finance_cap(*, base_projection: CashflowProjection, policy: Financ
     """단일 D+N 매입 지급을 Overlay할 때의 보수적 원 단위 상한."""
     if policy.purchase_payment_days is None:
         raise ValueError("purchase_payment_days is required for Finance Cap")
-    # 계약 지급일과 **현금이 나가는 날**은 다른 값이다. 상한은 현금이 나가는 날로 잰다.
+    # 계약 지급일과 현금이 나가는 날은 다른 값이다. 상한은 현금이 나가는 날로 잰다.
     contractual_due_date = base_projection.as_of + timedelta(days=policy.purchase_payment_days)
     payment_date = effective_cash_date(contractual_due_date)
-    # 🔴 `as_of <` 가 아니라 `as_of <=` 다. N5=0 은 **당일 지급**이라는 유효한 정책이고,
-    #    예전 경계는 그 정책을 값이 아니라 오류로 취급했다.
+    # `as_of <` 가 아니라 `as_of <=` 다. N5=0 은 당일 지급이라는 유효한 정책이고, `as_of <`
+    # 경계는 그 정책을 값이 아니라 오류로 취급한다.
     if not base_projection.as_of <= payment_date <= base_projection.horizon_end:
         raise ValueError("purchase payment date is outside projection horizon")
     balance_at_payment = [
@@ -323,9 +320,9 @@ def rank_collection_preferences(
 # ---------------------------------------------------------------------------
 # Sales Core Phase 1 — 결정론적 계산만 담당한다 (판정·정책 없음)
 #
-# 이 절의 함수들은 "계산 사실"만 만든다. PASS/FAIL·REVIEW_REQUIRED 같은 판정,
-# Sales Margin 임계값, 회수 위험도는 Finance ↔ Master/Sales 계약이 정해진 뒤
-# Rule 계층에서 다룬다 — 여기서 앞당겨 결정하지 않는다.
+# 이 절의 함수들은 "계산 사실"만 만든다. PASS/FAIL·REVIEW_REQUIRED 같은 판정, Sales Margin
+# 임계값, 회수 위험도는 Rule 계층(`domain/rules.py`)과 정책(`domain/sales_policy.py`)이
+# 다룬다 — 여기서 앞당겨 결정하지 않는다.
 # ---------------------------------------------------------------------------
 
 
@@ -478,17 +475,17 @@ def build_sales_calculation_facts(
 #     = 권위 있는 inventory_cost_basis 금액
 #     + inventory_cost_basis 가 아직 품지 않은 검증된 직접비
 #
-# ★ 이 함수는 **후보를 고르지 않는다.** 어느 재고/매입 원가가 정본인지, 직접
-#   물류비를 누가 소유하는지는 아직 도메인 간 계약이 없다. 선택은 바깥(권위 있는
-#   입력을 만드는 쪽)이 하고, 여기서는 합성만 결정론적으로 한다.
+# 이 함수는 후보를 고르지 않는다. 어느 재고/매입 원가가 정본인지, 직접 물류비를 누가
+# 소유하는지는 아직 도메인 간 계약이 없다. 선택은 바깥(권위 있는 입력을 만드는 쪽)이 하고,
+# 여기서는 합성만 결정론적으로 한다.
 # ---------------------------------------------------------------------------
 
 
 def _unique_source_refs(refs: Sequence[str]) -> tuple[str, ...]:
-    """근거 ref 를 **순서를 지키며** 한 번씩만 남긴다.
+    """근거 ref 를 순서를 지키며 한 번씩만 남긴다.
 
-    ★ `set` 을 쓰지 않는다. 순서가 Logistics 가 확정한 FEFO 배부 순서라, 정렬이
-      흐트러지면 어느 Lot 이 먼저 쓰였는지가 사라진다.
+    `set` 을 쓰지 않는다. 순서가 Logistics 가 확정한 FEFO 배부 순서라, 정렬이
+    흐트러지면 어느 Lot 이 먼저 쓰였는지가 사라진다.
     """
     seen: dict[str, None] = {}
     for ref in refs:
@@ -512,7 +509,7 @@ def compose_sales_cost_basis(
     맞는지 Finance 가 조용히 고르면 그 선택이 곧 보이지 않는 정책이 된다.
 
     `cost_method` 가 UNKNOWN 이어도 여기서 막지 않는다 — 그 값을 판정에 쓸 수
-    있는지는 **정책 판단**이라 Rule 계층 몫이다. 계산은 사실을 그대로 나르고,
+    있는지는 정책 판단이라 Rule 계층 몫이다. 계산은 사실을 그대로 나르고,
     UNKNOWN 을 0으로 바꾸지 않는다.
     """
     components = [cost.component for cost in direct_costs]
@@ -580,12 +577,11 @@ def compose_sales_cost_basis(
             ),
             *(cost.component for cost in added),
         ),
-        # 🔴 **`source_ref` 하나만 싣지 않는다.** 재고원가가 여러 Lot 에서 배부돼
-        #    왔으면 그 칸은 첫 Lot 하나만 가리키고, 여기에 그것만 실으면 **나머지
-        #    Lot 이 최종 근거에서 사라진다** — 나중에 *"이 원가가 어느 재고에서
-        #    왔나"* 를 되짚을 수 없다. 정본은 `source_refs` 다.
+        # `source_ref` 하나만 싣지 않는다. 재고원가가 여러 Lot 에서 배부돼 왔으면 그 칸은 첫
+        # Lot 하나만 가리키고, 여기에 그것만 실으면 나머지 Lot 이 최종 근거에서 사라진다 —
+        # 나중에 "이 원가가 어느 재고에서 왔나" 를 되짚을 수 없다. 정본은 `source_refs` 다.
         #
-        # ★ 순서를 지키고 중복만 지운다. Logistics 의 FEFO 배부 순서가 곧 읽는 순서다.
+        # 순서를 지키고 중복만 지운다. Logistics 의 FEFO 배부 순서가 곧 읽는 순서다.
         source_refs=_unique_source_refs(
             (
                 *inventory_cost_basis.source_refs,
@@ -606,11 +602,11 @@ def compose_sales_cost_basis(
 #     BASE     = 이미 확정된 Finance 현금 Event 만
 #     SCENARIO = BASE + 제안된 판매 회수 유입
 #
-# ★ 제안 회수는 **확정 채권이 아니다.** BASE 에 섞이거나 실제 AR 로 적재되면
-#   승인되지 않은 돈이 확정 현금처럼 읽힌다. 그래서 BASE 는 제안이 없을 때와
-#   값이 같아야 하고, 두 투영은 같은 리스트를 공유하지 않는다.
+# 제안 회수는 확정 채권이 아니다. BASE 에 섞이거나 실제 AR 로 적재되면 승인되지 않은 돈이
+# 확정 현금처럼 읽힌다. 그래서 BASE 는 제안이 없을 때와 값이 같아야 하고, 두 투영은 같은
+# 리스트를 공유하지 않는다.
 #
-# ★ 투영 엔진은 기존 `project_cashflow` 하나뿐이다 — 두 벌을 만들지 않는다.
+# 투영 엔진은 `project_cashflow` 하나뿐이다 — 두 벌을 만들지 않는다.
 # ---------------------------------------------------------------------------
 
 PROPOSED_SALES_COLLECTION_EVENT_TYPE = "PROPOSED_SALES_COLLECTION"
@@ -654,7 +650,7 @@ def project_sales_scenario_cashflow(
 ) -> SalesScenarioCashflow:
     """BASE 와 SCENARIO 를 각각 투영하고 둘을 나란히 보존한다.
 
-    horizon 밖 회수일은 **날짜를 옮기지 않는다.** 현재 Finance 계약에 동적 horizon
+    horizon 밖 회수일은 날짜를 옮기지 않는다. 현재 Finance 계약에 동적 horizon
     연장 규칙이 없으므로 7/14/30일 같은 연장을 지어내지 않고, horizon 밖이라는
     사실을 `collection_within_horizon=False` 로 드러낸다. 그때 SCENARIO 는 BASE 와
     같아지며 `depends_on_projected_inflow` 는 False 다 — 판정은 Rule 계층 몫이다.
@@ -703,9 +699,9 @@ def project_sales_scenario_cashflow(
 # ---------------------------------------------------------------------------
 # Sales Core Phase 5 — 매출채권 · 여신 산술
 #
-# ★ 채권 원장(`receivables`)은 실재한다. **여신한도는 실재하지 않는다** — 저장소
-#   어디에도 credit_limit 이 없다. 그래서 여기서는 한도가 주어졌을 때의 산술만
-#   두고, 한도를 회사 현금·판매이력·마진에서 역산하지 않는다.
+# 채권 원장(`receivables`)과 여신한도(`partner_credit_limits`)는 부르는 쪽이 읽어 넘긴다.
+# 여기서는 한도가 주어졌을 때의 산술만 두고, 한도를 회사 현금·판매이력·마진에서 역산하지
+# 않는다.
 # ---------------------------------------------------------------------------
 
 
@@ -717,7 +713,7 @@ def summarize_partner_receivables(
 ) -> PartnerReceivableFacts:
     """거래처 채권 잔액과 연체 잔액을 집계한다 (사실만, 판정 없음).
 
-    빈 목록은 **채권이 없다는 사실**이다 — 신규 거래처를 자료 미비로 취급하지
+    빈 목록은 채권이 없다는 사실이다 — 신규 거래처를 자료 미비로 취급하지
     않는다. 연체는 `due_date < as_of` 인 미회수 채권으로만 정의한다.
     """
     if not partner_id.strip():
@@ -752,10 +748,9 @@ def calculate_credit_utilization_rate(
 ) -> Decimal | None:
     """여신 사용률 = 현재 거래처 채권 ÷ 여신한도.
 
-    🔴 **한도가 0원이면 `None` 이다.** 0원 한도는 사실이지만 그 위의 사용률은 정의되지
-       않는다 — 0 이나 100% 를 지어내면 «여유가 있다» 나 «꽉 찼다» 로 읽힌다.
-       판정은 이 값을 쓰지 않는다. 한도 초과 판정은 `required_collection_before_sale`
-       와 여신 규칙이 이미 한다.
+    한도가 0원이면 `None` 이다. 0원 한도는 사실이지만 그 위의 사용률은 정의되지 않는다 — 0 이나
+    100% 를 지어내면 «여유가 있다» 나 «꽉 찼다» 로 읽힌다. 판정은 이 값을 쓰지 않는다. 한도 초과
+    판정은 `required_collection_before_sale` 와 여신 규칙이 한다.
     """
     if credit_limit_krw < 0:
         raise ValueError("credit_limit_krw must not be negative")
@@ -772,7 +767,7 @@ def estimate_credit_recovery_date(
     schedule: Sequence[OpenReceivableDue],
     required_collection_krw: Decimal,
 ) -> date | None:
-    """필요 회수액이 **계약상 결제 예정대로 들어온다면** 모이는 가장 이른 날.
+    """필요 회수액이 계약상 결제 예정대로 들어온다면 모이는 가장 이른 날.
 
     ```text
     필요 회수액 0        → None   (회수할 것이 없다 — 판정 쪽 0원이 그 사실을 말한다)
@@ -780,10 +775,10 @@ def estimate_credit_recovery_date(
     끝까지 모자람         → None   (예정 채권만으로는 여신이 안 풀린다)
     ```
 
-    🔴 **입금 보장일이 아니다.** 연체된 채권은 예정일이 지났어도 안 들어올 수 있다 —
-       그래서 지난 날짜를 그대로 적지 않고 기준일로 올린다 («이미 풀렸어야 한다» 가
-       아니라 «지금 받으면 풀린다» 로 읽히게).
-    🔴 **판정에 쓰지 않는다.** 정보성 값이다.
+    입금 보장일이 아니다. 연체된 채권은 예정일이 지났어도 안 들어올 수 있다 — 그래서 지난
+    날짜를 그대로 적지 않고 기준일로 올린다(«이미 풀렸어야 한다» 가 아니라 «지금 받으면
+    풀린다» 로 읽히게).
+    판정에 쓰지 않는다. 정보성 값이다.
     """
     if required_collection_krw < 0:
         raise ValueError("required_collection_krw must not be negative")

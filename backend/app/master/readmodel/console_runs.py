@@ -1,24 +1,21 @@
-"""운영 콘솔의 실행 목록 — **읽기 전용**이다.
+"""운영 콘솔의 실행 목록 — 읽기 전용이다.
 
-★ **실행(`sim_runs`)의 주인은 마스터다.** 이 모듈은 그 표를 **읽기만** 한다. 실행을
-  만들거나 고치거나 상태를 바꾸는 길은 여기 없다 — 그것은 `app/master/service/sim_run.py` 와
-  `cli/sim_run_runner` 가 하는 일이고, 화면이 그 자리를 대신하면 «화면에서 실행을 열었다»
-  같은 경로가 생긴다.
+실행(`sim_runs`)의 주인은 마스터다. 이 모듈은 그 표를 읽기만 한다. 실행을 만들거나
+고치거나 상태를 바꾸는 길은 여기 없다 — 그것은 `app/master/service/sim_run.py` 와
+`cli/sim_run_runner` 가 하는 일이고, 화면이 그 자리를 대신하면 «화면에서 실행을 열었다»
+같은 경로가 생긴다.
 
-🔴 **없는 칸을 만들지 않는다.** `sim_runs` 가 들고 있는 값만 낸다. 정책 버전처럼 그
-   표에 없는 것은 **칸 자체를 두지 않는다** — `null` 로라도 이름을 내면 받는 쪽은
-   *"언젠가 올 값"* 으로 읽고 그 자리를 비워 둔다.
+없는 칸을 만들지 않는다. `sim_runs` 가 들고 있는 값만 낸다. 정책 버전처럼 그 표에 없는
+것은 칸 자체를 두지 않는다 — `null` 로라도 이름을 내면 받는 쪽은 "언젠가 올 값" 으로
+읽고 그 자리를 비워 둔다.
 
-🔴 **이름에서 뜻을 읽지 않는다.** `SIM-WALK-…-BASE` 의 꼬리표는 사람이 고를 때 쓰는
-   표식이고, 그 실행이 무엇인지는 행이 답한다 (마스터 통보 2026-09-10). 여기서는
-   `status` · `run_type` 같은 **저장된 값**만 옮긴다.
+이름에서 뜻을 읽지 않는다. `SIM-WALK-…-BASE` 의 꼬리표는 사람이 고를 때 쓰는 표식이고,
+그 실행이 무엇인지는 행이 답한다 (마스터 통보 2026-09-10). 여기서는 `status` ·
+`run_type` 같은 저장된 값만 나른다.
 
-★ 2026-09-29 재구성 BL-014: 화면 `api/console/runs.py` 에서 옮겼다(응답 모델 · 조립 그대로). SQL 은
-  `master/console_runs_repository.py`. 화면 라우트(`GET /api/console/runs`)는 이 함수를 부른다.
-
-★ 2026-09-30 재구성 BL-018: SQL 은 `repository/console_runs.py`(받은 연결)로 옮겼다. 응답 모델은
-  여기 그대로다 — 화면은 마스터에서 readmodel · domain 만 들인다. 조회 연결은 여기서 한 번 빌린다
-  (종전 `fetch_all` 과 같은 대여).
+화면 라우트(`GET /api/console/runs`)는 이 함수를 부른다. 응답 모델은 여기 둔다 — 화면은
+마스터에서 readmodel · domain 만 들인다. SQL 은 `repository/console_runs.py`(받은 연결)이고,
+조회 연결은 여기서 한 번 빌린다.
 """
 
 from datetime import date, datetime
@@ -43,7 +40,7 @@ class ConsoleRun(BaseModel):
     company_persona_id: str | None
     started_at: datetime | None
     finished_at: datetime | None
-    #: 이 실행에 **마지막으로 기록이 쌓인 시각**.  마스터 실행 이력의 최신 행이며,
+    #: 이 실행에 마지막으로 기록이 쌓인 시각.  마스터 실행 이력의 최신 행이며,
     #: 기록이 하나도 없으면 `null` 이다 — 0 이나 실행 생성 시각으로 메우지 않는다.
     latest_activity_at: datetime | None
     note: str | None

@@ -2,11 +2,11 @@
 
     push_forecasts()  원본 창고 -> 서비스 창고. 배치가 하루 한 번 부른다
 
-★ **앱 안에서 부르는 곳이 없다** (2026-09-29 확인). `POST /ml/forecast/push` 는 2026-09-11 에
-  주석 처리됐고, 적재는 ML 배치가 `연동/push_forecast.py` 로 직접 한다(`app/api/ml/qa.py`
-  머리말). 지울지는 재구성 쟁점 4(죽은 코드 범위)라 여기서는 계층만 나눴다.
+앱 안에서 부르는 곳이 없다. `POST /ml/forecast/push` 는 주석 처리되어 있고, 적재는 ML
+배치가 `연동/push_forecast.py` 로 직접 한다(`app/api/ml/qa.py` 머리말). 지울지는 아직 정하지
+않았다(설계 쟁점 4, 죽은 코드 범위).
 
-순서와 연결 (종전 `app/ml/service.py` + `repository.py` + `db.py::execute_many` 와 같다)
+순서와 연결
 
 ```text
 원본 창고 조회 연결 하나   최신 기준일(주지 않았으면) → 개장일 예측 읽기
@@ -14,9 +14,8 @@
 서비스 창고 연결 하나      적재 → commit 1회   ← 적재할 행이 없으면 빌리지 않는다
 ```
 
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 조회는 `readmodel/forecasts.py::get_forecast` 로 뗐다.
-  종전에는 원본 창고를 SQL 마다 따로 빌렸다(최신 기준일 · 예측 읽기 두 번) — 이제 한 번 빌려
-  두 SQL 을 보낸다. 보내는 SQL · 차례 · 적재의 commit 횟수는 같다.
+원본 창고는 한 번 빌려 두 SQL(최신 기준일 · 예측 읽기)을 보낸다. 계약 모양 조회는
+`readmodel/forecasts.py::get_forecast` 다.
 """
 
 from __future__ import annotations
@@ -49,7 +48,7 @@ def push_forecasts(base_dt: date | None = None, items: tuple[str, ...] = ITEMS) 
     schema = get_db_schema()
     n = 0
     if rows:
-        #   적재 한 번 = 트랜잭션 하나. commit 을 눈에 보이게 적는다(종전 `execute_many` 와 같다).
+        #   적재 한 번 = 트랜잭션 하나. commit 을 눈에 보이게 적는다.
         with core_db.connection() as conn:
             n = forecasts_sql.upsert_forecasts(conn, rows, schema)
             conn.commit()

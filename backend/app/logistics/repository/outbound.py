@@ -1,8 +1,7 @@
 """출고 SQL — 가용 Lot · 미할당 예약 · 예약 · 할당 읽기와 예약 · 할당 쓰기.
 
-★ 2026-09-30 재구성 BL-015: `logistics/outbound.py` 에서 옮겼다(흐름 안에 있던 INSERT · UPDATE 9문을
-  함수로 뗐다 — 문면
-  그대로). 받은 연결로 실행만 하고 commit 하지 않는다. 잠금은 부르는 쪽이 먼저 잡는다.
+받은 연결로 실행만 하고 commit 하지 않는다. 잠금은 부르는 쪽(`service/outbound.py`)이 먼저
+잡는다.
 """
 
 from __future__ import annotations
@@ -82,7 +81,7 @@ _ALLOCATION_COLUMNS = (
     "allocated_qty_kg",
     "status",
     "allocation_basis",
-    #: 이 결정이 선 시각. 🔴 **되살리기 날짜 경계가 이 값으로 선다** (WP-3).
+    #: 이 결정이 선 시각. 되살리기 날짜 경계가 이 값으로 선다(WP-3).
     #: `created_at`(벽시각)이 아니다 — 호출자가 시뮬레이션 시간축으로 넣은 값이다.
     "decided_at",
 )
@@ -109,9 +108,9 @@ def select_allocations(conn: Any, *, reservation_id: str) -> list[dict[str, Any]
 def select_available_lot_rows(
     conn: Any, *, sim_run_id: str, item_id: str, as_of: date
 ) -> list[dict[str, Any]]:
-    """품목의 ACTIVE · 잔량 있는 · 그날까지 들어온 Lot 과 **아직 안 나간 할당 합**(`held_qty_kg`).
+    """품목의 ACTIVE · 잔량 있는 · 그날까지 들어온 Lot 과 아직 안 나간 할당 합(`held_qty_kg`).
 
-    ★ 판매 가용(신선도 소진 제외)으로 거르는 것은 부르는 쪽(`_available_lots`)이다.
+    판매 가용(신선도 소진 제외)으로 거르는 것은 부르는 쪽(`_available_lots`)이다.
     """
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(
@@ -137,12 +136,11 @@ def select_available_lot_rows(
         ORDER BY l.lot_id
         """
     ).format(schema=schema)
-    #  ⚠️ **자리(`%s`)와 값의 개수·순서가 곧 계약이다.** 위 SQL 의 `%s` 는 나온
-    #     차례대로 `a.status` · `r.status` · `l.sim_run_id` · `l.item_id` ·
-    #     `l.received_at` 다섯이다. 조건을 더하거나 뺄 때 이 자리도 같이 고친다 —
-    #     `received_at` 조건만 넣고 `as_of` 를 안 실어 `the query has 5
-    #     placeholders but 4 parameters were passed` 로 출고 경로가 통째로
-    #     멈춘 적이 있다 (#818).
+    # 주의: 자리(`%s`)와 값의 개수·순서가 곧 계약이다. 위 SQL 의 `%s` 는 나온
+    # 차례대로 `a.status` · `r.status` · `l.sim_run_id` · `l.item_id` ·
+    # `l.received_at` 다섯이다. 조건을 더하거나 뺄 때 이 자리도 같이 고친다 —
+    # 개수가 어긋나면 `the query has 5 placeholders but 4 parameters were passed`
+    # 같은 오류로 출고 경로가 통째로 멈춘다(#818).
     행들 = named_rows(
         conn,
         query,
@@ -159,7 +157,7 @@ def select_available_lot_rows(
 
 
 def select_unallocated_reservation_qty(conn: Any, *, sim_run_id: str, item_id: str) -> Decimal:
-    """품목의 살아 있는 예약 중 **아직 Lot 을 안 고른 몫**의 합 (`item_free_stock_qty` 의 둘째 항).
+    """품목의 살아 있는 예약 중 아직 Lot 을 안 고른 몫의 합 (`item_free_stock_qty` 의 둘째 항).
     """
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(
@@ -243,7 +241,7 @@ def update_reserved_qty(conn: Any, *, reservation_id: str, reserved_qty_kg: Deci
 
 
 def cancel_holding_allocations(conn: Any, *, reservation_id: str) -> None:
-    """예약의 **아직 안 나간** 할당(`HOLDING_ALLOCATION`)을 전부 `CANCELLED` 로."""
+    """예약의 아직 안 나간 할당(`HOLDING_ALLOCATION`)을 전부 `CANCELLED` 로."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

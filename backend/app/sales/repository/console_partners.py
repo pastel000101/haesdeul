@@ -1,7 +1,6 @@
 """판매 운영 콘솔의 거래처 SQL — 거래처 원장 행과 한 실행의 판매 · 채권 집계.
 
-★ 2026-09-29 BL-013: `sales/console_partners.py` 에서 SQL 을 옮겼다. 상세 조회가 쓰던 private
-  함수 다섯(`_load_basic` 등)은 readmodel 이 부르므로 공개 이름(`load_partner_*`)으로 올렸다.
+상세 조회 함수(`load_partner_*`)는 `readmodel/console_partners.py` 가 부른다.
 """
 
 from datetime import date
@@ -33,7 +32,7 @@ def load_partner_rows(
     #   sales sub-select      sim_run_id, as_of
     #   receivable sub-select as_of (the overdue FILTER), as_of (the collection
     #                         restore), sim_run_id, as_of (issued_date)
-    #  ⚠️ 하나라도 어긋나면 다른 실행이나 다른 날짜가 조용히 섞인다.
+    # 주의: 하나라도 어긋나면 다른 실행이나 다른 날짜가 조용히 섞인다.
     params: list[object] = [sim_run_id, as_of, as_of, as_of, sim_run_id, as_of]
     if query is not None:
         conditions.append(sql.SQL("(p.partner_id ILIKE %s OR p.partner_name ILIKE %s)"))
@@ -198,5 +197,5 @@ def load_partner_receivables(
         """
         )
     )
-    #  ⚠️ `%s` 는 네 개다 — LATERAL 의 기준일이 WHERE 보다 **먼저** 온다.
+    # 주의: `%s` 는 네 개다 — LATERAL 의 기준일이 WHERE 보다 먼저 온다.
     return fetch_all(conn, statement, [as_of, sim_run_id, partner_id, as_of])

@@ -1,9 +1,7 @@
 """판매 재무 검증의 판단 · 계산 — 입력 해석 · 마진 · 채권 여력 · 현금 · 회수 위험 · 판정 매핑.
 
-★ 2026-09-29 재구성 BL-014: `finance/capabilities/sales.py` 에서 DataPort 를 부르지 않는 부분을
-  옮겼다(몸통 그대로).
-  DataPort 로 읽고 이 판단을 부르는 Tool 실행은 `service/capabilities/sales.py`, 모델은
-  `schemas/sales_validation.py`.
+DataPort 를 부르지 않는 부분만 둔다. DataPort 로 읽고 이 판단을 부르는 Tool 실행은
+`service/capabilities/sales.py`, 모델은 `schemas/sales_validation.py`.
 """
 
 from collections.abc import Mapping, Sequence
@@ -135,8 +133,8 @@ def _parse_supply(value: Any) -> SalesSupply | None:
     raw_conditional = value.get("conditional_quantity_kg")
     return SalesSupply(
         confirmed_quantity_kg=decimal_value(value["confirmed_quantity_kg"]),
-        # 🔴 없는 칸을 0 으로 읽지 않는다. 보내는 쪽이 확정 물량만 알고 조건부 물량을
-        #   모를 수 있는데, 그것을 "조건부 0" 으로 바꾸면 모르는 것이 사실이 된다.
+        # 없는 칸을 0 으로 읽지 않는다. 보내는 쪽이 확정 물량만 알고 조건부 물량을 모를 수
+        # 있는데, 그것을 "조건부 0" 으로 바꾸면 모르는 것이 사실이 된다.
         conditional_quantity_kg=(
             None if raw_conditional is None else decimal_value(raw_conditional)
         ),
@@ -163,8 +161,8 @@ def _parse_inventory_cost_basis(value: Any) -> InventoryCostBasis | None:
         cost_method=str(value["cost_method"]),
         included_components=tuple(str(item) for item in value.get("included_components", ())),
         source_ref=str(value["source_ref"]),
-        # ★ 전체 재고 계보. 안 오면 DTO 가 `source_ref` 하나로 채운다 — 예전 단일
-        #   Lot payload 가 그대로 돈다.
+        # 전체 재고 계보. 안 오면 DTO 가 `source_ref` 하나로 채운다 — 단일 Lot payload 도
+        # 그대로 돈다.
         source_refs=tuple(str(item) for item in value.get("source_refs", ())),
         evidence_grade=str(value["evidence_grade"]),
     )
@@ -239,9 +237,9 @@ def evaluate_sales_margin(
 ) -> dict[str, Any]:
     """원가 기준을 합성해 공헌이익과 이익률을 구하고 정책에 견준다.
 
-    ★ 권위 있는 재고원가가 없으면 마진을 만들지 않는다. 조건부 물량이 섞여 있으면
-      확정 재고원가를 제안 **전체**의 원가처럼 쓰지 않는다 — 두 경우 모두 0으로
-      대체하지 않고 없는 사실의 이름을 남긴다.
+    권위 있는 재고원가가 없으면 마진을 만들지 않는다. 조건부 물량이 섞여 있으면 확정
+    재고원가를 제안 전체의 원가처럼 쓰지 않는다 — 두 경우 모두 0으로 대체하지 않고 없는
+    사실의 이름을 남긴다.
     """
     missing_data: list[str] = []
     supply = sales_input.supply
@@ -261,9 +259,9 @@ def evaluate_sales_margin(
     if cost_basis is None:
         missing_data.append("authoritative_inventory_cost_basis")
     elif supply is None:
-        # 🔴 공급 자체를 못 받은 것은 **모름**이지 "조건부 공급 없음" 이 아니다.
-        #    예전에는 여기서 조건부 0 으로 읽어, 확정 재고원가가 제안 전체를 덮는 것을
-        #    막는 방어가 통째로 풀렸다. 공급을 모르면 그 판단을 할 수 없다 — fail closed.
+        # 공급 자체를 못 받은 것은 모름이지 "조건부 공급 없음" 이 아니다. 여기서 조건부 0 으로
+        # 읽으면 확정 재고원가가 제안 전체를 덮는 것을 막는 방어가 통째로 풀린다. 공급을
+        # 모르면 그 판단을 할 수 없다 — fail closed.
         missing_data.append("sales_supply_context")
         cost_basis = None
     elif supply.conditional_quantity_kg is None:
@@ -338,7 +336,7 @@ def evaluate_receivable_capacity(
         if projected_ar is None or credit_limit_krw is None
         else max(Decimal(0), projected_ar - credit_limit_krw)
     )
-    # ★ 아래 둘은 **표시용 사실**이다. 판정 규칙에 넘기지 않는다.
+    # 아래 둘은 표시용 사실이다. 판정 규칙에 넘기지 않는다.
     utilization = (
         None
         if credit_limit_krw is None or current_ar is None
@@ -356,8 +354,8 @@ def evaluate_receivable_capacity(
         )
     )
     if projected_ar is None:
-        # ★ 채권 사실이 없으면 규칙에 0을 대신 넣지 않는다. 0원 채권은 사실이고,
-        #   사실 없음은 사실이 아니다 — 자리를 메우면 둘이 같아진다.
+        # 채권 사실이 없으면 규칙에 0을 대신 넣지 않는다. 0원 채권은 사실이고, 사실 없음은
+        # 사실이 아니다 — 자리를 메우면 둘이 같아진다.
         rule: SalesRuleResult = {
             "rule_id": "FIN-SALES-CREDIT",
             "runtime_status": "RUNTIME_NOT_READY",
@@ -426,7 +424,7 @@ def assess_collection_risk(
     """연체 사실은 나르고, 위험 등급/점수는 정책이 없으면 만들지 않는다."""
     overdue = receivable_facts.overdue_ar_krw if receivable_facts is not None else None
     if overdue is None:
-        # ★ 연체액을 모르는 것과 연체가 0원인 것은 다른 사실이다. 0으로 메우지 않는다.
+        # 연체액을 모르는 것과 연체가 0원인 것은 다른 사실이다. 0으로 메우지 않는다.
         rule: SalesRuleResult = {
             "rule_id": "FIN-SALES-COLLECTION-RISK",
             "runtime_status": "RUNTIME_NOT_READY",
@@ -602,19 +600,18 @@ def _unique_refs(values: Sequence[str]) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 # 봉투 매핑 — 도메인 판정을 공통 어휘로 옮긴다
 #
-# ★ **마스터가 재무 판정을 다시 해석하지 않는다.** 재무가 PASS/REVIEW_REQUIRED/
-#   FAIL 로 말한 것을 봉투 어휘로 옮기는 일은 재무 소유다. 마스터가 옮기면 재무
-#   판정의 뜻이 마스터 코드에 흩어지고, 그때부터 두 곳을 같이 고쳐야 한다.
+# 마스터가 재무 판정을 다시 해석하지 않는다. 재무가 PASS/REVIEW_REQUIRED/FAIL 로 말한 것을
+# 봉투 어휘로 옮기는 일은 재무 소유다. 마스터가 옮기면 재무 판정의 뜻이 마스터 코드에
+# 흩어지고, 그때부터 두 곳을 같이 고쳐야 한다.
 #
-# ★ 원본을 지우지 않는다. `payload.finance_verdict` 는 봉투 상태와 **함께** 나간다 —
-#   `conditional` 만 남으면 "마진 경고"인지 "현금 의존"인지 되돌릴 수 없다.
+# 원본을 지우지 않는다. `payload.finance_verdict` 는 봉투 상태와 함께 나간다 — `conditional`
+# 만 남으면 "마진 경고"인지 "현금 의존"인지 되돌릴 수 없다.
 #
-# ★ 여기 사는 이유: Adapter 가 소유하는 계약이지만 Orchestration 도 같은 표를 읽어야
-#   한다. Adapter 는 Orchestration 을 import 하므로 반대 방향은 순환이 된다. 그래서
-#   **표는 상류(여기)에 한 벌 두고** Adapter 가 그것을 다시 내보낸다.
+# 표는 여기 한 벌만 둔다. Tool 실행(`service/capabilities/sales.py`)과 Controller
+# (`service/agent.py`)가 같은 표를 여기서 가져간다.
 # ---------------------------------------------------------------------------
 
-#: 재무 도메인 판정 → 공통 봉투 어휘. **이 방향으로만 쓴다.**
+#: 재무 도메인 판정 → 공통 봉투 어휘. 이 방향으로만 쓴다.
 SALES_VERDICT_TO_BUSINESS_STATUS: dict[str, str] = {
     "PASS": "ok",
     "REVIEW_REQUIRED": "conditional",
@@ -655,19 +652,15 @@ def sales_business_status(payload: Mapping[str, Any]) -> str:
 
 
 def _summary_payload(summary: SalesFinancialSummary) -> dict[str, Any]:
-    """요약을 payload 모양으로 옮긴다. **날짜는 문자열로 나간다.**
+    """요약을 payload 모양으로 옮긴다. 날짜는 문자열로 나간다.
 
-    🔴 **payload 는 그대로 JSONB 이력에 실린다.** `date` 객체가 한 칸이라도 남아 있으면
-       실행 이력 저장이 `TypeError: Object of type date is not JSON serializable` 로
-       터지고, 그 예외는 *"재무 검토 기록을 저장하지 못했다"* (ERROR/skipped)로 바뀌어
-       **판정이 실제로 났는데도 판매 후보가 미결로 닫힌다.**
+    payload 는 그대로 JSONB 이력에 실린다. `date` 객체가 한 칸이라도 남아 있으면 실행 이력
+    저장이 `TypeError: Object of type date is not JSON serializable` 로 터지고, 그 예외는
+    "재무 검토 기록을 저장하지 못했다" (ERROR/skipped)로 바뀌어 판정이 실제로 났는데도 판매
+    후보가 미결로 닫힌다(2026-09-11 걷기 관측: 재고원가가 들어와 회수일이 처음 서면서 드러났다).
 
-    ⚠️ 2026-09-11 걷기에서 실제로 그렇게 됐다. 재고원가가 늘 없던 동안에는 회수일을
-      셈할 일이 없어 이 칸이 `None` 이었고, 그래서 이 자리가 한 번도 안 터졌다 —
-      원가가 오자 처음으로 회수일이 서면서 드러났다.
-
-    ★ **날짜만 손댄다.** 다른 칸은 이미 그대로 실려 왔고, 여기서 모양을 바꾸면
-      받는 쪽(판매 · 마스터)이 읽던 값의 타입이 조용히 달라진다.
+    날짜만 손댄다. 다른 칸은 이미 그대로 실려 왔고, 여기서 모양을 바꾸면 받는 쪽(판매 ·
+    마스터)이 읽던 값의 타입이 조용히 달라진다.
     """
     dumped = summary.model_dump()
     for key in ("collection_date", "expected_credit_recovery_date"):
@@ -677,14 +670,14 @@ def _summary_payload(summary: SalesFinancialSummary) -> dict[str, Any]:
     return dumped
 
 
-#: 여신 초과 사유. **재무 규칙이 쓰는 코드 그대로다** (`evaluate_receivable_capacity_rule`).
+#: 여신 초과 사유. 재무 규칙이 쓰는 코드 그대로다 (`evaluate_receivable_capacity_rule`).
 CREDIT_LIMIT_EXCEEDED = "SALES_CREDIT_LIMIT_EXCEEDED"
 
 
 def build_sales_adjustments(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """판매 검증 결과에서 **결정론으로 계산되는 조정안만** 만든다.
+    """판매 검증 결과에서 결정론으로 계산되는 조정안만 만든다.
 
-    ★ 지금 낼 수 있는 것은 하나다 — 여신 초과일 때의 **금액 상한**이다.
+    지금 낼 수 있는 것은 하나다 — 여신 초과일 때의 금액 상한이다.
 
     ```text
     한도 - 현재 거래처 채권 = 가용 여신 = 이 거래처에 지금 더 팔 수 있는 최대 금액
@@ -693,14 +686,13 @@ def build_sales_adjustments(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
     그 값은 `evaluate_receivable_capacity` 가 이미 세어 `max_finance_allowed_amount_krw`
     로 실어 두었다. 여기서 다시 세지 않는다 — 다시 세면 같은 사실의 주인이 둘이 된다.
 
-    🔴 **없는 근거로 조정을 만들지 않는다.** 근거 ref 가 없으면 조정도 없다. 억지로
-      만들면 *"따라가면 아무 데도 닿지 않는 조정"* 이 되고, 마스터는 그것을 권위 있는
-      대안으로 읽어 되먹임을 돈다.
+    없는 근거로 조정을 만들지 않는다. 근거 ref 가 없으면 조정도 없다. 억지로 만들면 "따라가면
+    아무 데도 닿지 않는 조정" 이 되고, 마스터는 그것을 권위 있는 대안으로 읽어 되먹임을 돈다.
 
-    🔴 **상한이 제안 금액보다 크면 조정이 아니다.** 그때는 줄일 것이 없다.
+    상한이 제안 금액보다 크면 조정이 아니다. 그때는 줄일 것이 없다.
 
-    ★ **모델이 만들 수 없는 값이다.** 재무 규칙과 실제 원장 두 값의 뺄셈이고, 이
-      경로에 LLM 이 끼어들 자리가 없다 (§15).
+    모델이 만들 수 없는 값이다. 재무 규칙과 실제 원장 두 값의 뺄셈이고, 이 경로에 LLM 이
+    끼어들 자리가 없다 (§15).
     """
     if CREDIT_LIMIT_EXCEEDED not in (payload.get("reason_codes") or ()):
         return []
@@ -733,11 +725,11 @@ def build_sales_adjustments(payload: Mapping[str, Any]) -> list[dict[str, Any]]:
 def build_sales_validation_payload(result: SalesValidationResult) -> dict[str, Any]:
     """Refeed 를 견디는 자기 완결적 Finance payload 를 만든다.
 
-    ★ 마스터는 이것을 **통째로** 나른다. 그래서 판정을 만든 근거가 전부 여기 있어야
-      한다 — 하나라도 내부 상태에 남겨두면 회송된 회신에서 그 사실이 사라진다.
+    마스터는 이것을 통째로 나른다. 그래서 판정을 만든 근거가 전부 여기 있어야 한다 — 하나라도
+    내부 상태에 남겨두면 회송된 회신에서 그 사실이 사라진다.
 
-    ★ 결제일수 상한은 payload 필드다. 공통 `SuggestedAdjustment` 축이 아니다 —
-      재무의 조정 축은 `amount` 하나뿐이고, 상한은 조정이 아니라 경계다.
+    결제일수 상한은 payload 필드다. 공통 `SuggestedAdjustment` 축이 아니다 — 재무의 조정 축은
+    `amount` 하나뿐이고, 상한은 조정이 아니라 경계다.
     """
     summary = result.financial_summary
     return {

@@ -55,7 +55,7 @@ class SanitizedLLMContext(BaseModel):
     시키지 않는다는 역할 제한의 구조적 보장이자, 외부 API 전송 시 원본 업무 데이터가
     나가지 않게 하는 경계다.
 
-    `signals`와 `missing_data`는 저장 위치가 아니라 **코드의 의미**로 분류한다:
+    `signals`와 `missing_data`는 저장 위치가 아니라 코드의 의미로 분류한다:
     업무 상태/위험 코드 → signals, 정보·정책 미확정 코드 → missing_data(무숫자 번역명).
     """
 
@@ -87,45 +87,45 @@ class InterpretationResult(BaseModel):
     llm_fallback_used: bool
     #: 최종 실패 원인. SUCCESS(재시도 후 성공 포함)면 None.
     llm_error_kind: LLMErrorKind | None = None
-    #: LLM 호출에 사용된 fact 목록. 기준은 수신이 아니라 **호출 확정**이다 —
+    #: LLM 호출에 사용된 fact 목록. 기준은 수신이 아니라 호출 확정이다 —
     #: provider.generate(context)의 입력으로 쓰였으면 기록한다. Key 없음(AUTH_ERROR)
     #: 처럼 전송 전에 실패한 FALLBACK도 기록된다. "Gemini가 실제 수신한 값"을
     #: 뜻하지 않는다. SUCCESS·FALLBACK → 기록 / SKIPPED_TEMPLATE·DISABLED → 빈 목록.
     llm_context_facts: list[ContextFact] = Field(default_factory=list)
-    #: 실제로 발생한 **모든** Provider 호출 시간의 합 (재시도 포함 · #402).
+    #: 실제로 발생한 모든 Provider 호출 시간의 합 (재시도 포함 · #402).
     #:
     #: ```text
     #: None    Provider 를 한 번도 부르지 않았다 (DISABLED · SKIPPED_TEMPLATE)
     #: 0 이상  불렀고, 그 호출들의 실측 합이다 — 0 은 "쟀더니 0ms" 라는 뜻이다
     #: ```
     #:
-    #: 🔴 **미호출을 `0ms` 로 위장하지 않는다.** 두 사실은 다른 것이고, `llm_attempts`
-    #:   와 짝을 이룬다 (attempts 0 ⇔ 이 값 None). 마지막 성공 호출만 재지 않는 이유는
-    #:   재시도도 실제 시간과 비용을 쓰기 때문이다 — timeout 후 성공한 호출의 체감
-    #:   지연은 성공 호출 시간이 아니라 합이다.
-    #: ★ 이 값은 **Agent 전체 실행시간이 아니다.** 공통 `ExecutionMetadata.elapsed_ms`
-    #:   가 그 뜻이고(재무가 채운다), 둘을 섞으면 한 축에 비교 불가능한 두 값이 산다.
+    #: 미호출을 `0ms` 로 위장하지 않는다. 두 사실은 다른 것이고, `llm_attempts`
+    #: 와 짝을 이룬다 (attempts 0 ⇔ 이 값 None). 마지막 성공 호출만 재지 않는 이유는
+    #: 재시도도 실제 시간과 비용을 쓰기 때문이다 — timeout 후 성공한 호출의 체감
+    #: 지연은 성공 호출 시간이 아니라 합이다.
+    #: 이 값은 Agent 전체 실행시간이 아니다. 공통 `ExecutionMetadata.elapsed_ms`
+    #: 가 그 뜻이고(재무가 채운다), 둘을 섞으면 한 축에 비교 불가능한 두 값이 산다.
     llm_provider_elapsed_ms: int | None = Field(default=None, ge=0)
-    #: Provider 가 **스스로 보고한** 입력 토큰 수의 합 (#406).
+    #: Provider 가 스스로 보고한 입력 토큰 수의 합 (#406).
     #:
     #: ```text
     #: None    이번 실행에서 이 값을 한 번도 관측하지 못했다
     #: 0 이상  usage 를 관측한 호출들의 합 — 0 은 "Provider 가 0 이라고 했다"는 뜻이다
     #: ```
     #:
-    #: 🔴 **`llm_attempts` 전체의 완전한 청구량이 아니다.** 이름이 `observed` 인 이유가
-    #:   그것이다. timeout·network 실패로 응답 본문을 못 받은 호출은 usage 가 없고,
-    #:   그 호출의 토큰은 **모르는 값이라 지어내지 않는다.** 그래서 `attempts=2` 인데
-    #:   합이 1회분일 수 있다 — *"확인된 사용량의 합"* 이지 *"전부 안다"* 가 아니다.
-    #:   아는 값을 버리는 쪽(전체 None)도 택하지 않았다: 확인된 소비는 사실이고,
-    #:   FALLBACK 실행일수록 그 사실이 필요하다.
-    #: ★ Gemini `usageMetadata.promptTokenCount` · Ollama `prompt_eval_count` 의 합.
-    #:   원본 필드명은 Provider parser 안에서만 살고 여기까지 오지 않는다.
+    #: `llm_attempts` 전체의 완전한 청구량이 아니다. 이름이 `observed` 인 이유가
+    #: 그것이다. timeout·network 실패로 응답 본문을 못 받은 호출은 usage 가 없고,
+    #: 그 호출의 토큰은 모르는 값이라 지어내지 않는다. 그래서 `attempts=2` 인데
+    #: 합이 1회분일 수 있다 — "확인된 사용량의 합" 이지 "전부 안다" 가 아니다.
+    #: 아는 값을 버리는 쪽(전체 None)도 택하지 않았다: 확인된 소비는 사실이고,
+    #: FALLBACK 실행일수록 그 사실이 필요하다.
+    #: Gemini `usageMetadata.promptTokenCount` · Ollama `prompt_eval_count` 의 합.
+    #: 원본 필드명은 Provider parser 안에서만 살고 여기까지 오지 않는다.
     llm_observed_input_tokens: int | None = Field(default=None, ge=0)
     #: Provider 가 보고한 출력 토큰 수의 합 — 위와 같은 의미 (#406).
     #: Gemini `usageMetadata.candidatesTokenCount` · Ollama `eval_count`.
-    #: ★ 두 필드는 **독립**이다. 한쪽만 보고하는 Provider 응답이 공식 계약상 정상이라
-    #:   input 이 `None` 이어도 output 은 숫자일 수 있다.
+    #: 두 필드는 독립이다. 한쪽만 보고하는 Provider 응답이 공식 계약상 정상이라
+    #: input 이 `None` 이어도 output 은 숫자일 수 있다.
     llm_observed_output_tokens: int | None = Field(default=None, ge=0)
 
 
@@ -150,15 +150,15 @@ class LLMResponseFields(BaseModel):
     llm_context_facts: list[ContextFact] = Field(default_factory=list)
     #: 재시도 포함 Provider 총 호출 시간 (`InterpretationResult` 와 같은 뜻 · #402).
     #:
-    #: 🔴 **`InterpretationResult` 와 필드 집합이 어긋나면 조용히 사라진다.**
-    #:   `enrich_logistics_response` 는 `result.model_dump()` 를 `model_copy(update=)`
-    #:   로 싣는데, 여기 없는 키는 예외 없이 `__dict__` 에만 들어갔다가
-    #:   `model_dump()` 에서 빠진다 — 독립 응답과 `response_payload` 실행이력에서
-    #:   값이 소리 없이 증발한다. 두 모델의 필드 집합 동일성은
-    #:   `test_logistics_context_facts.py` 의 구조 테스트가 잠근다.
+    #: `InterpretationResult` 와 필드 집합이 어긋나면 조용히 사라진다.
+    #: `enrich_logistics_response` 는 `result.model_dump()` 를 `model_copy(update=)`
+    #: 로 싣는데, 여기 없는 키는 예외 없이 `__dict__` 에만 들어갔다가
+    #: `model_dump()` 에서 빠진다 — 독립 응답과 `response_payload` 실행이력에서
+    #: 값이 소리 없이 증발한다. 두 모델의 필드 집합 동일성은
+    #: `test_logistics_context_facts.py` 의 구조 테스트가 잠근다.
     llm_provider_elapsed_ms: int | None = Field(default=None, ge=0)
     #: 관측된 Provider 호출들의 토큰 사용량 합 (`InterpretationResult` 와 같은 뜻 · #406).
-    #: 위 🔴 경고가 이 둘에도 그대로 적용된다 — 한쪽 모델에만 넣으면 독립 응답과
-    #: `response_payload` 실행이력에서 **소리 없이** 사라진다.
+    #: 위 경고가 이 둘에도 그대로 적용된다 — 한쪽 모델에만 넣으면 독립 응답과
+    #: `response_payload` 실행이력에서 소리 없이 사라진다.
     llm_observed_input_tokens: int | None = Field(default=None, ge=0)
     llm_observed_output_tokens: int | None = Field(default=None, ge=0)

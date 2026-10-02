@@ -2,8 +2,8 @@
 
 ## Finance LLM 아키텍처
 
-Finance의 Master 연동 경로는 다음과 같다. **밖에서 보이는 계약은 그대로다** —
-LangChain 과 Harness 는 재무 내부 구현이다.
+Finance의 Master 연동 경로는 다음과 같다. 밖에서 보이는 계약은 봉투(`finance_port`)
+하나이고, LangChain 과 Harness 는 재무 내부 구현이다.
 
 ```text
 Master
@@ -57,13 +57,13 @@ Rule        재무 verdict 를 정한다
 Finalizer   검증된 Evidence 로 고정 문장을 고른다 — 결과를 바꾸지 못한다
 ```
 
-★ **LLM 의 Tool 호출은 실행 요청이지 실행 권한이 아니다.** LangChain 에 바인딩되는
+LLM 의 Tool 호출은 실행 요청이지 실행 권한이 아니다. LangChain 에 바인딩되는
 Tool 객체와 실제로 실행되는 Tool 객체는 같지만, 그 사이에 Harness 승인이 있다.
 그래서 `AgentExecutor` 류의 자동 실행 루프를 쓰지 않는다 — 승인 자리가 사라진다.
 
 ### capability 소유와 의존
 
-정본은 `schemas/planner.py` 의 `CAPABILITY_OWNER` 하나다(Harness 는 그 표를 읽는다). 소유는 **1:1** 이다.
+정본은 `schemas/planner.py` 의 `CAPABILITY_OWNER` 하나다(Harness 는 그 표를 읽는다). 소유는 1:1 이다.
 
 ```text
 finance_position              → assess_finance_position
@@ -75,7 +75,7 @@ amount_adjustment_validation  → validate_amount_adjustment
 sales_scenario_evaluation     → evaluate_sales_scenario
 ```
 
-선행 조건은 **Tool 이름 순서가 아니라 capability 조건**이다.
+선행 조건은 Tool 이름 순서가 아니라 capability 조건이다.
 
 ```text
 calculate_purchase_finance_cap  requires cashflow_projection
@@ -87,12 +87,12 @@ validate_amount_adjustment      requires scenario_evaluation
 아니다 — 투영이 끝난 뒤에는 위치조사·cap·압박도 셋이 모두 합법이고, 그중 무엇을
 고를지는 Planner 몫이다.
 
-🔴 **숨은 선행 호출을 없앴다.** 예전에는 투영이 없으면 `calculate_purchase_finance_cap`
-과 `analyze_payment_pressure` 가 안에서 `project_cashflow` 를 몰래 돌렸다. 값은 맞았지만
-**이력이 실행을 말하지 않았다** — 현금흐름을 만든 적이 없는 실행으로 남았다. 지금은
+숨은 선행 호출을 두지 않는다. 투영이 없을 때 `calculate_purchase_finance_cap` 과
+`analyze_payment_pressure` 가 안에서 `project_cashflow` 를 몰래 돌리면, 값은 맞아도
+이력이 실행을 말하지 않는다 — 현금흐름을 만든 적이 없는 실행으로 남는다. 그래서
 선행 capability 를 Harness 가 드러내 놓고 강제하고, 그래도 새어 들어온 호출은
-`FinancePreconditionMissing` 으로 실패한다. 이것은 **실행 순서 오류이지
-`RUNTIME_NOT_READY` 가 아니다** — 재무 데이터는 멀쩡히 있다.
+`FinancePreconditionMissing` 으로 실패한다. 이것은 실행 순서 오류이지
+`RUNTIME_NOT_READY` 가 아니다 — 재무 데이터는 멀쩡히 있다.
 
 ### 반려 사유
 
@@ -112,7 +112,7 @@ DUPLICATE_UNRESOLVED_TOOL_CALL 같은 요청 반복
 ### Trace
 
 `ExecutionMetadata.observations` 에 `finance_harness_trace` 가 한 덩어리로 남는다.
-단계마다 **LLM 이 요청한 것 · Harness 가 허락한 것 · 실제로 돈 것**을 함께 적는다.
+단계마다 LLM 이 요청한 것 · Harness 가 허락한 것 · 실제로 돈 것을 함께 적는다.
 
 ```text
 step / branch_id
@@ -122,7 +122,7 @@ denied_tool · denied_reason
 tool_calls · llm_calls · replans
 ```
 
-DB 테이블을 새로 만들지 않는다 — 기존 실행 metadata 를 넓혔을 뿐이다.
+DB 테이블을 따로 두지 않는다 — 실행 metadata 에 싣는다.
 
 ### 상한
 
@@ -132,11 +132,11 @@ FINANCE_MAX_REPLANS      기본 2
 ```
 
 한 실행 전체에서 공유한다(분기가 늘어도 예산은 늘지 않는다). `0` 은 기본값으로
-덮이지 않는다 — **한 번도 부르지 말라**는 뜻이다.
+덮이지 않는다 — 한 번도 부르지 말라는 뜻이다.
 
 ### 사용자 문장과 기계 계약
 
-나누는 기준은 **누가 읽는가** 다. 정본은 `messages.py` 하나다.
+나누는 기준은 누가 읽는가다. 정본은 `domain/messages.py` 하나다.
 
 ```text
 사람이 읽는 것   reasoning · payload.verdicts[].reason · HTTP 404 본문
@@ -149,12 +149,11 @@ FINANCE_MAX_REPLANS      기본 2
 ```
 
 읽는 사람은 Tool 도 Capability 도 Harness 도 Planner 도 모른다. 그래서 사용자 문장에는
-그 낱말이 없다 — *"무엇이 어떻게 됐고 왜 그런가"* 와 **다음에 할 일**만 있다.
+그 낱말이 없다 — "무엇이 어떻게 됐고 왜 그런가" 와 다음에 할 일만 있다.
 
-🔴 **기술적 사유를 회신에 싣지 않는다. 대신 잃지도 않는다.** 예전에는 실패한 실행의
-`reasoning` 이 예외 문자열 그대로였다 — 사용자가 `Finance tool call limit exceeded` 를
-받았다. 지금 그 문자열은 `finance_harness_trace` 의 `failure_reason` · `failure_kind` 로
-가고, 사용자에게는 갈래에 맞는 한국어 문장이 나간다.
+기술적 사유를 회신에 싣지 않는다. 대신 잃지도 않는다. 실패한 실행의 예외 문자열(예:
+`Finance tool call limit exceeded`)은 `finance_harness_trace` 의 `failure_reason` ·
+`failure_kind` 로 가고, 사용자에게는 갈래에 맞는 한국어 문장이 나간다.
 
 ```text
 failure_kind = INVALID_REQUEST  보내 주신 내용을 고쳐야 한다
@@ -162,13 +161,13 @@ failure_kind = NOT_READY        자료가 준비되면 다시 보면 된다   (R
 failure_kind = INTERNAL         우리 쪽 사정이다. 잠시 후 다시   (ERROR)
 ```
 
-`ok` · `conditional` · `reject` 는 **각각 다른 문장**을 받는다. 사용자가 할 일이
+`ok` · `conditional` · `reject` 는 각각 다른 문장을 받는다. 사용자가 할 일이
 다르기 때문이다 — 그대로 진행 / 조정한 뒤 재검토 / 이 조건으로는 어려움.
 
-★ **LLM 경로와 결정론 대체 경로가 같은 문장을 쓴다.** 한쪽만 다듬으면 모델이 죽은
+LLM 경로와 결정론 대체 경로가 같은 문장을 쓴다. 한쪽만 다듬으면 모델이 실패한
 날에만 말투가 달라진다 — 설명이 가장 필요한 날에 설명이 제일 나빠진다.
 
-★ 숫자 비소유는 그대로다. 설명은 여전히 **고정 문장을 고르는** 구조이고
+숫자는 LLM 이 만들지 않는다. 설명은 고정 문장을 고르는 구조이고
 `_validate_ready_reasoning` 이 숫자를 막는다. 금액은 payload 와 Evidence 가 든다.
 
 ## 판매 재무 검증 (SALES_VALIDATION)
@@ -183,7 +182,7 @@ SALES_VALIDATION     판매 시나리오 판정   ← 매입과 다른 책임이
 
 매입 `SCENARIO_VALIDATION` 을 판매에 재사용하지 않는다. 같은 mode 를 나눠 쓰면
 `(agent, mode, call_seq)` 로 둘을 구분할 수 없고, 그러면 payload 모양을 보고 무엇인지
-**추측하는** Adapter 가 생긴다.
+추측하는 Adapter 가 생긴다.
 
 ### 흐름
 
@@ -217,18 +216,18 @@ BASE      = 확정된 Finance 현금 Event 만
 SCENARIO  = BASE + PROPOSED_SALES_COLLECTION
 ```
 
-제안 회수는 **확정 채권이 아니다.** BASE 로 승격되지 않고 실제 AR 로 적재되지도
+제안 회수는 확정 채권이 아니다. BASE 로 승격되지 않고 실제 AR 로 적재되지도
 않는다. BASE 가 최소 현금을 밑돌면 SCENARIO 가 안전해도 `FAIL` 이다 — 아직 안 들어온
 돈이 이미 난 구멍을 가리지 못한다.
 
-`depends_on_projected_inflow` 는 **사실이지 판정이 아니다.** SCENARIO 최저 현금이 그
+`depends_on_projected_inflow` 는 사실이지 판정이 아니다. SCENARIO 최저 현금이 그
 유입 덕분에 올라갔다는 것은 reason code 로 남고, 종합 판정은 권위 있는 규칙(최소 현금
 정책)만 움직인다. 판정을 낮출 근거가 저장소에 없기 때문이다 — 설계서 v2.2.2 §9 의
-BASE/STRESS 규칙은 *매입 STRESS 오버레이가 기준을 밑돌 때* conditional 이라는 규칙이지
-*유입에 기대는가* 를 다루지 않는다. 판매 현금흐름 판정 기준이 정해지면 그때 근거와
+BASE/STRESS 규칙은 «매입 STRESS 오버레이가 기준을 밑돌 때» conditional 이라는 규칙이지
+«유입에 기대는가» 를 다루지 않는다. 판매 현금흐름 판정 기준이 정해지면 그때 근거와
 함께 넣는다.
 
-horizon 밖 회수일은 **날짜를 옮기지 않는다.** 동적 horizon 연장 규칙이 계약에 없어서
+horizon 밖 회수일은 날짜를 옮기지 않는다. 동적 horizon 연장 규칙이 계약에 없어서
 연장을 지어내지 않고 `collection_within_horizon=False` 로 드러낸다.
 
 ### 판정 어휘
@@ -238,8 +237,8 @@ Finance 도메인    PASS · REVIEW_REQUIRED · FAIL
 공통 봉투         ok · conditional · reject · skipped
 ```
 
-매핑은 **Finance Adapter 가 소유한다** (`SALES_VERDICT_TO_BUSINESS_STATUS`).
-마스터가 재무 판정을 다시 해석하지 않는다. 옮긴 뒤에도 원본은
+매핑은 Finance Adapter 가 소유한다 (`SALES_VERDICT_TO_BUSINESS_STATUS`).
+마스터가 재무 판정을 다시 해석하지 않는다. 매핑한 뒤에도 원본은
 `payload.finance_verdict` 에 남는다 — `conditional` 만 남으면 마진 경고인지 현금
 의존인지 되돌릴 수 없다.
 
@@ -252,7 +251,7 @@ ERROR              저장소 실행 실패
 ```
 
 셋 다 `business_status = skipped` 이고 `finance_verdict = None` 이다.
-**없는 정책은 FAIL 이 아니다.** 없는 값을 0 으로 바꾸지도 않는다.
+없는 정책은 FAIL 이 아니다. 없는 값을 0 으로 바꾸지도 않는다.
 
 ### LLM 책임
 
@@ -261,7 +260,7 @@ ERROR              저장소 실행 실패
 안 한다   업무 숫자 생성 · verdict 결정 · 없는 정책 채우기
 ```
 
-판매 Tool 은 **인자를 받지 않는다**(`_NoArguments`, `extra="forbid"`). 수량·단가·
+판매 Tool 은 인자를 받지 않는다(`_NoArguments`, `extra="forbid"`). 수량·단가·
 원가·결제일수·여신은 전부 request payload 와 Finance 정책이 소유한다 — Planner 가
 숫자를 실을 자리 자체가 없다.
 
@@ -272,7 +271,7 @@ Finance 조정 축   amount 하나뿐
 ```
 
 `payment_terms` · `price` · `delivery` · `quantity` · `channel_mix` 축을 만들지 않는다.
-재무가 내는 결제일수 상한과 여신 사실은 **payload 필드**다. 모두 경계/사실이지
+재무가 내는 결제일수 상한과 여신 사실은 payload 필드다. 모두 경계/사실이지
 `SuggestedAdjustment`가 아니다. Sales가 이 값만으로 수량·단가·금액·결제조건을
 자동 변경하면 새 상업안이 되어 반드시 새 Finance 검증이 필요하다.
 
@@ -288,9 +287,7 @@ payload.financial_summary.required_collection_before_sale_krw
 절대 매출 상한이 아니다. 여신한도와 현재 AR을 모두 읽은 경우에만 계산하며, 어느
 한 사실이라도 없으면 `None`과 기존 `RUNTIME_NOT_READY` 의미를 유지한다.
 
-### 실행 경로 상태
-
-재무 쪽은 열려 있다.
+### 실행 경로
 
 ```text
 finance_port(mode=SALES_VALIDATION)
@@ -302,54 +299,46 @@ finance_port(mode=SALES_VALIDATION)
   → finance_agent_runs_v22 저장
 ```
 
-저장 제약도 함께 열었다 — 신규 DDL 과 기존 DB 마이그레이션
-(`database/migrations/finance/finance_agent_runs_v22_sales_validation.sql`) 둘 다.
-**순서가 중요하다.** 제약보다 Controller 를 먼저 열면 판정은 되는데 저장이 전부
-실패한다.
+저장 제약은 신규 DDL 과 기존 DB 마이그레이션
+(`database/migrations/finance/finance_agent_runs_v22_sales_validation.sql`) 둘 다에 있다.
+제약 없이 Controller 만 열면 판정은 되는데 저장이 전부 실패한다.
 
-아직 막힌 것은 재무 밖이다.
+재무 밖의 연결:
 
 ```text
 Master capability 라우팅  FINANCIAL_VALIDATION → (finance, SALES_VALIDATION)
-                        → 마스터에 capability 어휘 자체가 없다
-Sales AgentName         AgentName 에 sales 가 없다 (부를 대상이 아니다)
-Feedback Envelope       최종 필드명 미확정 (팀 결정)
+                        (`app/contracts/envelope.py` 의 `CAPABILITY_ROUTING`)
+Sales AgentName         AgentName 에 sales 가 있다 — 판매 사이클의 제안자
 ```
 
-공통 `Mode` 에는 `SALES_VALIDATION` 어휘만 넣었다 — 그게 없으면 유효한 재무
-`AgentRequest` 자체를 만들 수 없다. 어휘와 라우팅은 다른 일이다.
-
-권위 있는 값이 없어 **오늘은 항상 닫히는** 정책들:
+정책과 사실을 가른다 (`service/capabilities/sales.py`).
 
 ```text
-finance_minimum_margin_rate
-finance_warning_margin_rate
-max_finance_allowed_payment_terms_days
-partner_credit_limit_krw
-sales_collection_risk_policy
-sales_installment_payment_policy
+정책   마진 임계값 · 최대 결제일수 · 회수위험 판정 방식
+       Finance/Sales MVP Policy v0.1 이 소유한다 (`domain/sales_policy.load_finance_sales_mvp_policy`)
+사실   여신한도 · 거래처 채권 — 거래처/계약이 소유한다
+       여신한도는 `partner_credit_limits` 에서 읽는다 (`readmodel/partner_credit`)
 ```
 
-저장소 어디에도 이 값들이 없다 — `FinancePolicy` 의 닫힌 키에도,
-`agent_policy_config` 의 finance domain 에도, 어떤 테이블에도 없다. 그래서 판정은
-`RUNTIME_NOT_READY` 로 닫히고 없는 정책 이름이 `missing_data` 에 실린다.
-**Purchase 의 `margin_defense_floor_rate` 를 판매 마진 임계값으로 쓰지 않는다.**
+사실 값이 없으면 판정은 값을 지어내는 대신 `RUNTIME_NOT_READY` 로 닫히고 없는 이름이
+`missing_data` 에 실린다. 여신한도 행이 없으면 `None` 이고, `0` 은 한도 0원이라는 사실이라
+판정한다. Purchase 의 `margin_defense_floor_rate` 를 판매 마진 임계값으로 쓰지 않는다.
 
-원가 기준 쪽도 아직 저장소 조회로 잇지 않았다.
+원가 기준:
 
 ```text
 proposed sale 의 정본 재고원가   어느 Lot 을 쓸지는 Inventory 의 배분 결정이다
 직접 물류비                      deliveries 는 실제 실행 데이터라 제안 시점에 없다
 ```
 
-그래서 `sales_cost_basis` 는 **주입받는다**. 권위 있는 재고원가가 없으면 마진을
+그래서 `sales_cost_basis` 는 주입받는다. 권위 있는 재고원가가 없으면 마진을
 계산하지 않고, 0 으로 대체하지 않는다. 조건부 물량이 섞이면 확정 재고원가를 제안
 전체의 원가처럼 쓰지 않는다.
 
 ## 승인 → 다음 재무 Actual State
 
-승인된 매입 약정이 재무의 다음 상태가 되는 경로다. **값은 재무가, 트랜잭션은
-마스터가** 소유한다.
+승인된 매입 약정이 재무의 다음 상태가 되는 경로다. 값은 재무가, 트랜잭션은
+마스터가 소유한다.
 
 ```text
 load_finance_state_row(as_of)                 as_of 시점에 유효한 상태 한 건
@@ -369,12 +358,12 @@ plan = finance.build(
 finance.persist(conn, plan)       # 받은 연결로만, commit 은 마스터가 한 번만
 ```
 
-★ **`purchase_ids` 는 회차별이다.** `purchases.purchase_date` 가 header 에 하나뿐이라
-회차마다 `purchases` 한 행이 선다. 재무는 자기 회차의 값을 **`seq` 로 찾아 쓰기만**
+`purchase_ids` 는 회차별이다. `purchases.purchase_date` 가 header 에 하나뿐이라
+회차마다 `purchases` 한 행이 선다. 재무는 자기 회차의 값을 `seq` 로 찾아 쓰기만
 한다 — 하나뿐이라고 첫 값을 집거나 정렬해서 고르지 않는다. 없거나 빈 값이면
 `commitment_purchase_ids` 로 세운다.
 
-★ 어댑터 등록은 최신 런타임의 `app.main`에서 Master가 소유한다. Finance는 구조적
+어댑터 등록은 Master 가 소유한다(`app/master/registry/bootstrap.py`). Finance는 구조적
 Protocol 구현만 제공하고 등록 순서나 트랜잭션 경계를 가져오지 않는다.
 
 ### 회차별 정본 금액으로 N개 채무를 만든다
@@ -398,15 +387,15 @@ Finance는 균등·수량비례 배분을 하지 않고 정본 금액을 그대�
 ```
 
 주말에도 판매와 원장 활동이 일어나므로 재무 상태는 주말에도 서야 한다. 그래서
-다음 상태 날짜는 **`as_of + 1 달력일`** 이고 금요일 승인은 **토요일 상태**를
-만든다 — 그것이 정상이다. 예전에 이 자리를 *"다음 실행일 월요일이 못 읽는다"* 로
-적었는데 그건 두 축을 겹쳐 본 것이다.
+다음 상태 날짜는 `as_of + 1 달력일` 이고 금요일 승인은 토요일 상태를
+만든다 — 그것이 정상이다. «다음 실행일 월요일이 못 읽는다» 로 보는 것은 두 축을
+겹쳐 본 것이다.
 
-★ 그 날짜를 재무가 세지 않는다. `target_state_date` 를 **인자로 받고**, 보는 것은
+그 날짜를 재무가 세지 않는다. `target_state_date` 를 인자로 받고, 보는 것은
 정합성 한 가지뿐이다 — 승인일보다 뒤여야 한다. 같은 날에 상태가 둘 서면 그날의
 사실을 말할 수 없다.
 
-🔴 `master.execution_day.next_execution_day` 를 쓰지 않는다. 재무는 그 모듈을
+`master/domain/execution_day.next_execution_day` 를 쓰지 않는다. 재무는 그 모듈을
    import 하지 않고 평일 계산도 하지 않는다.
 
 ### 두 층을 나눈다 — DB "지금" 과 요청 "그때"
@@ -418,13 +407,12 @@ as-of 질의                state_date <= as_of 중 가장 늦은 행  "그때"
 ```
 
 PostgreSQL VIEW 는 인자를 받지 않는다. `v_current_finance_state(as_of)` 같은 것은
-없고, 요청 `as_of` 는 View 가 아니라 **질의**가 건다.
+없고, 요청 `as_of` 는 View 가 아니라 질의가 건다.
 
-**옛 공유 기본 스키마(pg_dump 스냅샷)가 만들던 View 는 `finance_state_id = 'FIN-DAY30-LOAN'`
-을 박아 두었다.** 그래서 승인 전이가 다음 상태를 넣어도 DB 는 계속 T0 만 돌려줬다.
-이미 쓰는 DB 는 `database/migrations/finance/finance_current_state_view.sql` 이
-`CREATE OR REPLACE VIEW` 로 그 고정을 걷어내고, 새 DB 는 같은 정의를 담은
-`database/schema/finance/v_current_finance_state.sql` 로 선다(2026-09-30 BL-021 보완).
+View 정의는 `database/schema/finance/v_current_finance_state.sql` 이다. 이미 쓰는 DB 는
+`database/migrations/finance/finance_current_state_view.sql` 이 `CREATE OR REPLACE VIEW`
+로 같은 정의를 건다. View 에 `finance_state_id = 'FIN-DAY30-LOAN'` 같은 고정값을 박으면
+승인 전이가 다음 상태를 넣어도 DB 는 계속 T0 만 돌려준다.
 
 ```text
 FROM finance_states fs
@@ -433,20 +421,20 @@ JOIN sim_runs sr ON sr.sim_run_id = fs.sim_run_id
 WHERE fs.state_date = (그 축의 max(state_date))
 ```
 
-★ **축은 `sim_runs` 가 준다.** 리터럴을 다른 리터럴로 바꾸지 않는다. 같은 날짜에
+축은 `sim_runs` 가 준다. 리터럴을 다른 리터럴로 바꾸지 않는다. 같은 날짜에
 `BASE_NO_LOAN` 과 `LOAN_BASELINE` 두 행이 실제로 있는데, 어느 쪽이 이 실행의
 상태인지는 `sim_runs.financing_mode` 가 정한다.
 
-🔴 **`sim_runs.as_of` 로 고르지 않는다.** 시드된 뒤 아무도 전진시키지 않아서
+`sim_runs.as_of` 로 고르지 않는다. 시드된 뒤 아무도 전진시키지 않아서
    (`status = SEEDED`), 그것으로 고르면 상태 ID 대신 날짜가 박힐 뿐이다.
 
-🔴 **동률을 View 가 줄이지 않는다.** 한 축에서 같은 날짜에 상태가 둘이면 View 는 두
+동률을 View 가 줄이지 않는다. 한 축에서 같은 날짜에 상태가 둘이면 View 는 두
    행을 그대로 보여 주고, 고르기를 거부하는 판단은 런타임이 한다
-   (`finance_state_ambiguous`). View 가 대신 고르면 못 믿을 상태가 정상 응답이 된다.
+   (`finance_state_ambiguous` · `domain/closing.py`). View 가 대신 고르면 못 믿을 상태가 정상 응답이 된다.
 
 ### 승인은 현금을 줄이지 않는다
 
-승인 시점에 생기는 것은 **매입채무**다. 현금은 실제 지급일에 나간다.
+승인 시점에 생기는 것은 매입채무다. 현금은 실제 지급일에 나간다.
 
 ```text
 승인일      payables OPEN 생성 (due_date = 매입일 + purchase_payment_days)
@@ -466,24 +454,23 @@ WHERE fs.state_date = (그 축의 max(state_date))
 실제 지급일     계약 만기일이 토·일이면 다음 월요일
 ```
 
-★ **N5 는 달력일수다.** 영업일수도, 실지급일 오프셋도 아니다. 현재 값은 0 —
+N5 는 달력일수다. 영업일수도, 실지급일 오프셋도 아니다. 현재 값은 0 —
 원장이 그렇게 말한다 (`purchases` 16/16 · `payables` 16/16 이 매입일 = 만기일).
 
-🔴 **당일 지급은 오류가 아니라 정책이다.** `calculate_finance_cap` 은 예전에
-   `as_of < payment_date` 를 요구해서 N5=0 을 **유효한 값이 아니라 예외**로 처리했다.
-   지금은 `as_of <= payment_date` 다.
+당일 지급은 오류가 아니라 정책이다. `calculate_finance_cap` 은 `as_of <= payment_date`
+   를 요구한다 — `as_of < payment_date` 로 두면 N5=0 이 유효한 값이 아니라 예외가 된다.
 
-★ **계약일과 현금일을 분리한다** (`tools.effective_cash_date`). 원장 `due_date` 는
+계약일과 현금일을 분리한다 (`domain/tools.effective_cash_date`). 원장 `due_date` 는
 토·일 그대로 남고 — 실제 원장에 주말 만기가 4건 있다 — 현금 사건만 다음 월요일로
 민다. 둘을 합치면 계약 사실이 사라진다. 공휴일은 다루지 않는다.
 
-🔴 **주말 만기 채무가 월요일에 사라지지 않는다.** 예전 매입채무 조회는 하한이
-   `due_date > as_of` 였다. 일요일 만기 채무를 월요일에 읽으면 `due_date < as_of` 라
-   미래 현금흐름에서 통째로 빠졌다. 지금은 `OPEN` 이면 하한 없이 읽고, 현금 사건만
+주말 만기 채무가 월요일에 사라지지 않는다. 매입채무 조회에 `due_date > as_of` 같은
+   하한을 걸면 일요일 만기 채무를 월요일에 읽을 때 `due_date < as_of` 라 미래
+   현금흐름에서 통째로 빠진다. 그래서 `OPEN` 이면 하한 없이 읽고, 현금 사건만
    `max(effective_cash_date(due_date), as_of)` 로 세운다 — 연체된 미결제 채무도
    같은 이유로 버리지 않는다. 지나간 만기를 임의로 `PAID` 로 바꾸지 않는다.
 
-★ **주말 실행 판단은 재무가 하지 않는다.** 시뮬레이션이 평일만 도는 것은 마스터
+주말 실행 판단은 재무가 하지 않는다. 시뮬레이션이 평일만 도는 것은 마스터
 소유이고, 경과 시간은 달력일 그대로다.
 
 ### 같은 날 승인 여러 건은 상태 하나에 누적되고 retry는 다시 더하지 않는다
@@ -496,7 +483,7 @@ finance_states  UNIQUE (sim_run_id, financing_mode, state_date)  일별 snapshot
 ```
 
 상태 ID는 `FIN-DAY-{sim_run_id}-{financing_mode}-{YYYYMMDD}`로 transition과
-`open_day`가 같이 쓴다. persist는 **이번 호출에서 실제 새로 INSERT된 Payable 금액만**
+`open_day`가 같이 쓴다. persist는 이번 호출에서 실제 새로 INSERT된 Payable 금액만
 일별 상태에 원자적으로 더한다. 같은 승인 retry는 Payable INSERT가 0건이므로 상태도
 다시 증가하지 않는다. 같은 날짜 승인 순서가 바뀌어도 최종 업무 숫자는 같다.
 
@@ -530,8 +517,8 @@ carry하며, 날짜는 Master가 준 값을 그대로 쓴다. 안정적인 취�
 
 ## 패키지 구조
 
-부서 슬라이스 안을 계층 폴더로 나눴다(2026-09-29 재구성 BL-014 · LLM 은 BL-020). 어느 부서를 열어도
-같은 자리에 같은 종류의 코드가 있다. HTTP 입구는 이 폴더에 없다 — `app/api/finance/`
+부서 슬라이스 안을 계층 폴더로 나눈다. 어느 부서를 열어도 같은 자리에 같은 종류의
+코드가 있다. HTTP 입구는 이 폴더에 없다 — `app/api/finance/`
 (`agent.py` · `runs.py` · `credit_limits.py` · `expenses.py` · `collections.py` ·
 `cash_adjustments.py` · 화면 탭 `presenter.py` · 콘솔 `console_routes.py`)에 있다.
 
@@ -565,10 +552,10 @@ app/finance/
 ```
 
 capability → Tool 소유 표(`CAPABILITY_OWNER`)와 Planner 가 고르는 행동 모양은 Controller ·
-Harness · Planner 가 함께 쓰는 계약이라 `schemas/planner.py` 에 있다(2026-09-30 BL-020).
+Harness · Planner 가 함께 쓰는 계약이라 `schemas/planner.py` 에 있다.
 
-★ **한 응집 영역 = 한 모듈**이다. 늘 같이 열리는 것들을 한 파일에 둔다 — *"재무
-Agent 는 어떻게 실행되는가"* 는 `service/agent.py`, *"이 호출이 합법인가"* 는
+한 응집 영역 = 한 모듈이다. 늘 같이 열리는 것들을 한 파일에 둔다 — "재무
+Agent 는 어떻게 실행되는가" 는 `service/agent.py`, "이 호출이 합법인가" 는
 `service/harness.py` 하나면 된다. 파일 경계와 신뢰 경계는 다른 것이고, 후자는
 클래스·절·이름으로 지킨다.
 
@@ -584,9 +571,6 @@ Finalizer  검증된 Evidence 를 설명한다           (고정 문장을 고�
 ```
 
 `FinanceToolRegistry`(`service/harness.py`)는 이름을 capability 로 넘기는 일만 한다.
-
-(재구성 전 자리 — `router.py` · `db.py` · `schemas.py` · `application/` · `capabilities/` 등 —
-와 새 자리의 대응은 재구성 설계서의 대응표 `finance/` 절에 있다.)
 
 ## 지원 Provider
 
@@ -711,7 +695,7 @@ Planner invoked and failed
 → llm_fallback_used=True
 ```
 
-Finalizer 실패는 기존 deterministic fallback을 사용할 수 있으며, 이때도 실제 Controller의
+Finalizer 실패는 deterministic fallback을 사용할 수 있으며, 이때도 실제 Controller의
 `used_tools`, `tool_order`, `replans`, `llm_attempts`, `llm_fallback_used`, `elapsed_ms`를
 보존한다.
 

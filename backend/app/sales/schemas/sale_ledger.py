@@ -1,8 +1,7 @@
 """판매 원장 기록 계약 — 승인된 안을 `sales` · `sale_items` 에 적는 입력 · 계획 · 결과 · 충돌.
 
-★ 2026-09-29 BL-013: 입력 모델 둘은 `sales/schemas.py`, 계획 · 결과 · 충돌 예외는
-  `sales/persistence.py` 에서 옮겼다. 계획을 세우는 규칙은 `domain/sale_ledger.py`,
-  SQL 은 `repository/sale_ledger.py`, 순서는 `service/sale_ledger.py` 다.
+계획을 세우는 규칙은 `domain/sale_ledger.py`, SQL 은 `repository/sale_ledger.py`, 순서는
+`service/sale_ledger.py` 다.
 """
 
 from dataclasses import dataclass

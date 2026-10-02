@@ -1,24 +1,24 @@
 "use client";
 
 /**
- * ML 모델 재학습 — 사람은 **한 번**만 누릅니다.
+ * ML 모델 재학습 — 사람은 한 번만 누릅니다.
  *
  *     판정 -> 만들기 -> 견주기 -> 「모델 업데이트」 -> 바꾸기
  *      (배치가 밤새 여기까지 해 둔다)      ^ 사람
  *
- * ★ **탭은 늘 있고, 안에서 갈립니다.**
+ * 탭은 늘 있고, 안에서 갈립니다.
  *
  *       바꿀 것이 있으면   비교표 + 「모델 업데이트」 버튼
  *       바꿀 것이 없으면   «현재는 모델을 업데이트할 필요가 없습니다» 한 줄
  *
- *   새 모델이 지금 것보다 못하면 배치가 후보를 지우고 아무것도 안 남깁니다 —
- *   사람이 볼 것이 없습니다.
+ * 새 모델이 지금 것보다 못하면 배치가 후보를 지우고 아무것도 안 남깁니다 —
+ * 사람이 볼 것이 없습니다.
  *
- * ★ **판정을 화면이 다시 하지 않습니다.** 배치가 밤에 해 둔 결과를 읽어
- *   그릴 뿐입니다. 두 곳에서 재면 두 답이 갈리고, 그때 어느 쪽이 맞는지
- *   알 방법이 없습니다.
+ * 판정을 화면이 다시 하지 않습니다. 배치가 밤에 해 둔 결과를 읽어
+ * 그릴 뿐입니다. 두 곳에서 재면 두 답이 갈리고, 그때 어느 쪽이 맞는지
+ * 알 방법이 없습니다.
  *
- * ★ 이 흐름에 LLM 은 한 번도 안 나옵니다. 판정은 전부 규칙입니다.
+ * 이 흐름에 LLM 은 한 번도 안 나옵니다. 판정은 전부 규칙입니다.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -32,13 +32,13 @@ import { VerifyTable } from "./VerifyTable";
 /**
  * 지금 도는 모델 하나.
  *
- * ★ **이름은 바꿔도 그대로입니다.** `ops_auc` · `ops_whsl` · `ops_rtl` 은 모델을
- *   갈아 끼워도 안 바꿉니다 — 매입 시스템이 이 이름으로 정확히 찾기 때문에
- *   바꾸면 오류 없이 **0건**이 됩니다.
+ * 이름은 바꿔도 그대로입니다. `ops_auc` · `ops_whsl` · `ops_rtl` 은 모델을
+ * 갈아 끼워도 안 바꿉니다 — 매입 시스템이 이 이름으로 정확히 찾기 때문에
+ * 바꾸면 오류 없이 0건이 됩니다.
  *
- *   그래서 이름만으로는 «지금 무엇이 도는가» 를 알 수 없습니다. **만든 날**과
- *   **학습 끝**이 같이 있어야 가려집니다. 2026-09-15 저녁에 소매가 모델이
- *   바뀌었는데 화면에도 답에도 그 사실이 한 글자도 없었습니다.
+ * 그래서 이름만으로는 «지금 무엇이 도는가» 를 알 수 없습니다. 만든 날과
+ * 학습 끝이 같이 있어야 가려집니다. 이 둘이 없으면 모델이 바뀌어도
+ * 화면에 그 사실이 드러나지 않습니다.
  */
 export interface CurrentModel {
   /** AUC · WHSL · RTL */
@@ -51,23 +51,23 @@ export interface CurrentModel {
   last_swapped_at?: string | null;
   last_swap_note?: string | null;
   /**
-   * 교체 **시각**까지 아는가.
+   * 교체 시각까지 아는가.
    *
-   * ★ 되짚어 적은 기록은 백업 폴더 **이름**에서 날짜만 건진 것이 있어, 시각이
-   *   `00:00` 으로 앉아 있습니다. 그대로 보이면 «한밤중에 바꿨나» 로 읽힙니다 —
-   *   실제로는 **모릅니다.**
+   * 되짚어 적은 기록은 백업 폴더 이름에서 날짜만 건진 것이 있어, 시각이
+   * `00:00` 으로 앉아 있습니다. 그대로 보이면 «한밤중에 바꿨나» 로 읽힙니다 —
+   * 실제로는 모릅니다.
    *
-   * 🔴 `null`·없음 은 «모른다» 가 아니라 **«아직 안 알려 준다»** 입니다.
-   *   그때는 예전처럼 날짜와 시각을 그대로 보입니다.
+   * 주의: `null`·없음 은 «모른다» 가 아니라 «서버가 알려 주지 않았다» 입니다.
+   * 그때는 날짜와 시각을 그대로 보입니다. `false` 일 때만 날짜만 적습니다.
    */
   last_swap_time_known?: boolean | null;
 }
 
 /**
- * 「현재 모델」 줄. **칸이 없으면 아예 안 그립니다.**
+ * 「현재 모델」 줄. 칸이 없으면 아예 안 그립니다.
  *
- * ★ 백엔드가 `current_models` 를 아직 안 실어 줄 수 있습니다. 그때 빈 표를
- *   그리면 «모델이 없다» 로 읽힙니다 — 없는 것과 못 받은 것은 다릅니다.
+ * 응답에 `current_models` 가 없을 수 있습니다. 그때 빈 표를
+ * 그리면 «모델이 없다» 로 읽힙니다 — 없는 것과 못 받은 것은 다릅니다.
  */
 function CurrentModels({ rows }: { rows: CurrentModel[] }) {
   if (rows.length === 0) return null;
@@ -105,11 +105,11 @@ function CurrentModels({ rows }: { rows: CurrentModel[] }) {
                   {r.train_end ?? "—"}
                 </td>
                 <td className="tabular px-2 py-1.5">
-                  {/*  ★ «없다» 를 «—» 로만 적으면 왜 빈칸인지 모릅니다. */}
+                  {/*  «없다» 를 «—» 로만 적으면 왜 빈칸인지 모릅니다. */}
                   {r.last_swapped_at ? (
                     r.last_swap_time_known === false ? (
                       <>
-                        {/*  시각을 모르면 **날짜만** 적습니다. 00:00 을 그대로
+                        {/*  시각을 모르면 날짜만 적습니다. 00:00 을 그대로
                             보이면 «한밤중에 바꿨나» 로 읽힙니다. */}
                         {r.last_swapped_at.slice(0, 10)}
                         <span className="ml-1.5" style={{ color: "var(--color-mut2)" }}>
@@ -142,8 +142,8 @@ function Checked({ at, ran }: { at: string | null; ran: boolean }) {
           모델을 점검합니다
         </>
       ) : (
-        //  ★ 「아직 안 돌았다」 와 「돌았는데 없다」 는 다릅니다.
-        //    앞은 고장일 수 있고 뒤는 정상입니다. 섞으면 안 됩니다.
+        //  「아직 안 돌았다」 와 「돌았는데 없다」 는 다릅니다.
+        //  앞은 고장일 수 있고 뒤는 정상입니다. 섞으면 안 됩니다.
         <>아직 한 번도 확인하지 않았습니다 — 배치가 돈 뒤에 채워집니다</>
       )}
     </p>
@@ -151,8 +151,8 @@ function Checked({ at, ran }: { at: string | null; ran: boolean }) {
 }
 
 /**
- * 재학습 응답. **`current_models` 는 아직 없을 수 있습니다** — 다른 일꾼이
- * 붙이는 중입니다. 없으면 「현재 모델」 줄을 안 그립니다.
+ * 재학습 응답. `current_models` 는 없을 수 있습니다. 없으면 「현재 모델」
+ * 줄을 안 그립니다.
  */
 type PendingReply = Awaited<ReturnType<typeof retrainPending>> & {
   current_models?: CurrentModel[];
@@ -160,8 +160,8 @@ type PendingReply = Awaited<ReturnType<typeof retrainPending>> & {
 
 /**
  * @param currentModels 화면(`page.tsx`)이 이미 받아 둔 것이 있으면 넘겨 줍니다.
- *   안 넘기면 이 탭이 직접 받아 온 응답에서 찾습니다 — **두 번 묻지 않으려는**
- *   것이고, 어느 쪽으로 붙어도 돌게 두려는 것입니다.
+ *   안 넘기면 이 탭이 직접 받아 온 응답에서 찾습니다 — 두 번 묻지 않으려는
+ *   것입니다. 지금 `page.tsx` 는 넘기지 않습니다.
  */
 export function RetrainTab({ currentModels }: { currentModels?: CurrentModel[] } = {}) {
   const [rows, setRows] = useState<PendingRetrain[] | null>(null);
@@ -207,8 +207,8 @@ export function RetrainTab({ currentModels }: { currentModels?: CurrentModel[] }
     };
   }, []);
 
-  //  ★ **어디서 바꿨든 여기도 다시 받습니다.** 채팅 서랍에서 바꾼 경우가
-  //    그렇습니다 — 그쪽은 이 탭의 존재를 모릅니다 (`lib/retrainSignal.ts`).
+  //  어디서 바꿨든 여기도 다시 받습니다. 채팅 서랍에서 바꾼 경우가
+  //  그렇습니다 — 그쪽은 이 탭의 존재를 모릅니다 (`lib/retrainSignal.ts`).
   useRetrainChanged(() => void load());
 
   const update = async (kind: string) => {
@@ -228,11 +228,9 @@ export function RetrainTab({ currentModels }: { currentModels?: CurrentModel[] }
     try {
       await graphAct(kind as "auc" | "whsl" | "rtl", "apply");
       setDone((d) => [...d, kind]);
-      //   ★ **채팅에서 누른 것과 똑같이 알립니다.** 위의 `useRetrainChanged` 가
-      //     받아 이 탭을 다시 받고(전에는 여기서 `load()` 를 직접 불렀습니다),
-      //     같은 신호로 **페이지의 빨간 배지**도 같이 내려갑니다. 전에는 이
-      //     길로 바꿔도 배지가 안 사라졌습니다 — 길이 둘인데 갱신이 하나뿐
-      //     이면 안 됩니다.
+      //  채팅에서 누른 것과 똑같이 알립니다. 위의 `useRetrainChanged` 가
+      //  받아 이 탭을 다시 받고, 같은 신호로 페이지의 빨간 배지도 같이
+      //  내려갑니다 — 길이 둘인데 갱신이 하나뿐이면 안 됩니다.
       announceRetrainChanged(kind);
     } catch (e) {
       setErr(say(e));
@@ -241,14 +239,14 @@ export function RetrainTab({ currentModels }: { currentModels?: CurrentModel[] }
     }
   };
 
-  //  ★ 화면이 넘겨준 것이 있으면 그것을 씁니다 — 같은 것을 두 번 묻지 않습니다.
+  //  화면이 넘겨준 것이 있으면 그것을 씁니다 — 같은 것을 두 번 묻지 않습니다.
   const shown = currentModels ?? models;
 
   if (err)
     return (
       <div className="flex flex-col gap-4">
-        {/*  ★ 후보를 못 물어봤어도 «지금 무엇이 도는가» 는 보여야 합니다.
-               둘은 다른 질문이고, 하나가 막혔다고 나머지를 지우지 않습니다. */}
+        {/*  후보를 못 물어봤어도 «지금 무엇이 도는가» 는 보여야 합니다.
+             둘은 다른 질문이고, 하나가 막혔다고 나머지를 지우지 않습니다. */}
         <CurrentModels rows={shown} />
         <p
           className="m-0 rounded-lg px-4 py-3.5 text-[16.5px]"
@@ -316,9 +314,9 @@ export function RetrainTab({ currentModels }: { currentModels?: CurrentModel[] }
                 )}
               </header>
 
-              {/*  ★ 표를 **버튼보다 먼저** 보입니다. 「바꿀까요」 에 답하려면
-                     숫자를 나란히 봐야 합니다. 글만 주면 «낫습니다» 를 믿고
-                     누르는 것 말고 할 수 있는 게 없습니다. */}
+              {/*  표를 버튼보다 먼저 보입니다. 「바꿀까요」 에 답하려면
+                   숫자를 나란히 봐야 합니다. 글만 주면 «낫습니다» 를 믿고
+                   누르는 것 말고 할 수 있는 게 없습니다. */}
               <VerifyTable items={r.items ?? []} />
 
               <div className="flex flex-wrap items-center gap-2.5">

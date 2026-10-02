@@ -1,21 +1,18 @@
 -- inbound_schedules — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- §3  입고 — 예정 · 도착 · 검수
---     🔴 `purchase_items` · `sim_runs` 를 FK 로 가리키기만 한다.
+--     `purchase_items` · `sim_runs` 는 FK 로 가리키기만 한다.
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- ── §3-0  입고 예정 (2026-09-09 신설 · W3-1) ──────────────────────────────
+-- ── §3-0  입고 예정 ───────────────────────────────────────────────────────
 --
--- 🔴 **날짜에 안 묶인 업무 Entity 다.** 종전 입고 예정은
---    `logistics_runtime_fixture.in_transit_json` · `confirmed_inbound_json` 안에
---    **날짜별로 복제되어** 살았고, 그 구조가 실 DB 에서 사고를 냈다.
+-- 날짜에 안 묶인 업무 Entity 다. 입고 예정을 날짜별 fixture 행에 복제해 두면, 미래 날짜
+--    행이 먼저 열린 뒤에 들어온 승인은 승인한 날의 행에만 적혀 도착일에 볼 것이 없다.
 --
 --    ```text
 --    01-15 fixture 가 먼저 열림 (in_transit = [])
@@ -23,14 +20,10 @@ BEGIN;
 --    01-15 도착일에 볼 것이 없음 → Receipt 0 · Lot 0 · IN Move 0
 --    ```
 --
---    실측: `INB-H1-REQ-FIRSTINB-20260113-1-1` 이 그 상태로 남아 있고
---    `payables … OPEN 3,066,885원` 이 그 채무를 들고 있다. 원인은
---    `master_day_openings` 에 01-10~01-19 가 없어 전방 전파가 그 날을 못 본 것이다.
+--    ⇒ 이 표는 한 번 INSERT 하고 날짜로 질의한다. 미래 날짜 행으로 복제하지
+--      않으므로 그런 누락이 구조적으로 생기지 않는다.
 --
---    ⇒ 이 표는 **한 번 INSERT 하고 날짜로 질의한다.** 미래 날짜 행으로 복제하지
---      않으므로 그 사고가 구조적으로 재현되지 않는다.
---
--- 🔴 **완료 컬럼이 없다.** Receipt 생성과 재고 반영 완료는 **다른 사건**이고
+-- 완료 컬럼이 없다. Receipt 생성과 재고 반영 완료는 다른 사건이고
 --    (검수에서 막히면 Receipt 만 선 채로 며칠 간다), 소비자마다 종료점이 다르다.
 --
 --    ```text
@@ -42,20 +35,21 @@ BEGIN;
 --    하나를 골라 `COMPLETED` 로 적으면 나머지 소비자가 틀린다. 완료는 downstream
 --    사실(`inbound_receipts` · `inventory_lots` · `inventory_moves`)로 유도한다.
 --
--- 🔴 **`status` 컬럼이 없다.** `cancelled_as_of` 하나가 같은 사실을 말한다 —
+-- `status` 컬럼이 없다. `cancelled_as_of` 하나가 같은 사실을 말한다 —
 --    두 칸을 두면 `status='SCHEDULED'` 인데 `cancelled_as_of` 가 차 있는 모순이
 --    성립한다. 한 칸이면 그 자리가 아예 없다.
 --
--- 🔴 **ID 를 하나만 든다.** `purchase_item_id` 는 `purchase_items` 의 PK 라
---    `purchase_id` · `item_id` · 등급 · 단가를 **전부 결정**한다. 셋을 따로 저장하면
+-- ID 를 하나만 든다. `purchase_item_id` 는 `purchase_items` 의 PK 라
+--    `purchase_id` · `item_id` · 등급 · 단가를 전부 결정한다. 셋을 따로 저장하면
 --    *"purchase_id 는 A 인데 purchase_item_id 는 B 의 줄"* 같은 조합이 만들어지고,
 --    낱개 FK 로는 그것을 못 막는다.
 --
--- ⚠️ **`purchase_item_id` FK 는 이번 판에서 안 건다** (2026-09-09).
+-- 주의: `purchase_item_id` FK 는 걸지 않는다.
 --    `purchase_items → purchases` 가 `ON DELETE CASCADE` 라, 여기에 FK 를 걸면
---    매입 삭제가 **과거 재현용 일정까지 함께 지우게 된다.** 그 삭제 정책이 정해진
---    적이 없어 기존 동작을 바꾸지 않는다 — 존재·중복은 Writer 가
---    `purchase_detail.fetch_purchase_detail` 로 확인한다(0 / 1 / 2행 이상).
+--    매입 삭제가 과거 재현용 일정까지 함께 지우게 된다. 그 삭제 정책이 정해진
+--    적이 없어 기존 동작을 바꾸지 않는다 — 존재·중복은 Writer
+--    (`app/logistics/service/transition.py`)가 `purchase_detail.fetch_purchase_detail` 로
+--    확인한다(0 / 1 / 2행 이상).
 CREATE TABLE IF NOT EXISTS haetdeul.inbound_schedules (
     inbound_id            TEXT NOT NULL,
     sim_run_id            TEXT NOT NULL,
@@ -72,9 +66,9 @@ CREATE TABLE IF NOT EXISTS haetdeul.inbound_schedules (
     CONSTRAINT inbound_schedules_sim_run_id_fkey
         FOREIGN KEY (sim_run_id) REFERENCES haetdeul.sim_runs(sim_run_id),
     CONSTRAINT ck_inbound_schedules_qty CHECK (quantity_kg > 0),
-    -- 취소가 생성보다 앞설 수 없다. 🔴 리드타임 하한 CHECK 는 **안 건다** —
+    -- 취소가 생성보다 앞설 수 없다. 리드타임 하한 CHECK 는 걸지 않는다 —
     --    MVP `inbound_lead_days` 정책값(1 calendar day)은 `agent_policy_config` 가
-    --    들고 있고, 이 표는 그것으로 **이미 계산된** `expected_arrival_date` 를 적을
+    --    들고 있고, 이 표는 그것으로 이미 계산된 `expected_arrival_date` 를 적을
     --    뿐이라 리드타임 정책을 여기서 다시 검사하지 않는다.
     CONSTRAINT ck_inbound_schedules_cancelled_after_created
         CHECK (cancelled_as_of IS NULL OR cancelled_as_of >= created_as_of)

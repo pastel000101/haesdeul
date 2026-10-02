@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * 대시보드 — 다섯 부서 값을 **날짜 축에 놓기만** 한다.
+ * 대시보드 — 다섯 부서 값을 날짜 축에 놓기만 한다.
  *
  * 소유: 마스터. 여기서 숫자를 만들지 마세요 — 같은 값을 두 군데서 계산하면
  * 언젠가 갈라지고, 그러면 어느 쪽이 맞는지 아무도 모릅니다.
@@ -22,7 +22,7 @@ import {
   StatRow,
 } from "@/components/console/Blocks";
 import { useTab } from "@/components/console/useTab";
-//  🔴 시연용 기준일 (`#431`). 시연이 끝나면 이 줄과 아래 `asOf` 를 지우고
+//  주의: 시연용 기준일 (`#431`). 시연이 끝나면 이 줄과 아래 `asOf` 를 지우고
 //     `useTab` 의 `AS_OF` 로 되돌린다.
 import { asOfSnapshot, serverAsOf, subscribeAsOf } from "@/lib/demo_as_of";
 import { dashboard, type DashboardTab } from "@/lib/screen";
@@ -44,12 +44,12 @@ export default function DashboardPage() {
       </div>
 
       <SourceTag sources={data.sources} />
-      {/* ★ **맨 위 배추 예측 칸만 뺍니다** (2026-09-16 · 화면에서만).
+      {/* 맨 위 배추 예측 칸만 화면에서 뺍니다.
              같은 값이 바로 아래 「가격 예측」 판의 배추 카드에 또 있습니다 —
              한 화면에 같은 숫자가 둘이면 사람이 «둘이 다른 값인가» 를 먼저
              확인해야 합니다. 나머지 네 칸(운영 여유 · 현재고 · 승인 대기 ·
              판매금액)은 그대로 둡니다.
-             **서버는 안 건드립니다** — 다시 보이려면 이 한 줄을 지우면 됩니다.
+             서버는 안 건드립니다 — 다시 보이려면 이 한 줄을 지우면 됩니다.
              라벨이 «배추 특급 · 08-31 예측» 처럼 날짜가 박혀 있어(실측
              2026-09-16) 앞뒤 두 군데를 같이 봅니다. */}
       <StatRow

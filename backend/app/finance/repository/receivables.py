@@ -1,7 +1,4 @@
-"""판매 확정분 → 매출채권 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/receivables.py` 에서 옮겼다(문면 그대로).
-"""
+"""판매 확정분 → 매출채권 SQL."""
 
 from __future__ import annotations
 
@@ -80,7 +77,7 @@ def lock_state_for_receivable(conn: Any, *, finance_state_id: str) -> list:
 
 
 def insert_receivable(conn: Any, plan: ReceivableWritePlan) -> int:
-    """채권 한 행을 적는다 (같은 판매면 적지 않는다). **적힌 행 수**를 돌려준다."""
+    """채권 한 행을 적는다 (같은 판매면 적지 않는다). 적힌 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -110,7 +107,7 @@ def insert_receivable(conn: Any, plan: ReceivableWritePlan) -> int:
 
 
 def add_state_receivables(conn: Any, *, finance_state_id: str, delta: Decimal) -> int:
-    """재무 상태 행의 채권 잔액에 더한다. **바뀐 행 수**를 돌려준다."""
+    """재무 상태 행의 채권 잔액에 더한다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

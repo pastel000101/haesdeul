@@ -1,17 +1,15 @@
 """Sales operations-console collection read model; strictly run-scoped.
 
-🔴 **There is no collection table and this module does not invent one.**  What a
-collection *is* — money owed against a confirmed sale — is already recorded in
+There is no collection table and this module does not invent one.  What a
+collection is — money owed against a confirmed sale — is already recorded in
 `receivables`.  A second entity here would be a second truth about the same money.
 
-🔴 **Aging comes from Finance.**  `app.contracts.aging.classify_receivable_aging` is
+Aging comes from Finance.  `app.contracts.aging.classify_receivable_aging` is
 the one rule; a Sales-local copy would let the 수금 screen and the 채권 screen put
 the same receivable in different buckets, and neither would be wrong on its own.
 
-★ 2026-09-29 BL-013: `sales/console_collections.py` 에서 옮겼다. SQL 은
-  `repository/console_collections.py`, 채권 상태 규칙은 계약
-  `app/contracts/receivable_history.py` 다(2026-09-29 재구성 BL-014 전에는
-  `domain/receivable_history.py`).
+SQL 은 `repository/console_collections.py`, 채권 상태 규칙은 계약
+`app/contracts/receivable_history.py` 다.
 """
 
 from datetime import date
@@ -63,7 +61,7 @@ def get_console_collections(
                 if overdue:
                     summary.overdue_krw += amount
             row_partner = None if raw["partner_id"] is None else str(raw["partner_id"])
-            #  🔴 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
+            # 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
             row_status = projected_status(
                 original_amount_krw=Decimal(str(raw["original_amount_krw"])),
                 received_amount_krw=received,

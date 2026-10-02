@@ -1,8 +1,6 @@
 -- logistics_cost_references — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
@@ -31,7 +29,7 @@ CREATE TABLE IF NOT EXISTS haetdeul.logistics_cost_references (
     CONSTRAINT ck_logistics_cost_grade
         CHECK (evidence_grade IS NULL
                OR evidence_grade IN ('OFFICIAL', 'VENDOR', 'ASSUMED')),
-    -- 🔴 미확정을 금액으로 지어내지 못하게 한다. NOT_FIXED 면 금액도 등급도 NULL 이다.
+    -- 미확정을 금액으로 지어내지 못하게 한다. NOT_FIXED 면 금액도 등급도 NULL 이다.
     CONSTRAINT ck_logistics_cost_value_status
         CHECK ((value_status = 'FIXED' AND amount_krw IS NOT NULL AND evidence_grade IS NOT NULL)
                OR (value_status = 'NOT_FIXED' AND amount_krw IS NULL AND evidence_grade IS NULL))

@@ -1,6 +1,6 @@
-"""미지급 매입채무 취소 — 마스터 취소 경로가 넘긴 연결로. **commit 하지 않는다.**
+"""미지급 매입채무 취소 — 마스터 취소 경로가 넘긴 연결로. commit 하지 않는다.
 
-★ 2026-09-29 재구성 BL-014: `finance/cancellation.py` 를 판정 · 순서 · SQL 로 나눴다.
+판정은 `domain/cancellation.py`, SQL 은 `repository/cancellation.py`.
 """
 
 from __future__ import annotations

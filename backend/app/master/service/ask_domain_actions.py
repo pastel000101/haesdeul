@@ -1,9 +1,5 @@
 """발화 도메인 행동 실행 — 조회는 부서 readmodel, 쓰기는 부서 service 를 부르고 결과를 문장으로
   옮긴다.
-
-★ 2026-09-30 재구성 BL-018: `master/ask_service.py` 에서 옮겼다 — `DOMAIN_READ_ACTIONS`,
-  `DOMAIN_WRITE_ACTIONS`, `_partner_id`, `_financing_mode`, `_find_receivable`, `domain_preview`,
-  `_domain_read`, `_finance_write`, `_domain_write`, `run_domain_action`.
 """
 
 from __future__ import annotations
@@ -69,7 +65,7 @@ DOMAIN_READ_ACTIONS = frozenset(
         "SALES_PROPOSALS_TODAY",
         "SALES_CONFIRMED_TODAY",
         "SALES_REPORT_GENERATE",
-        #: 보고서 생성은 **조회다.** 쓰기 목록에 넣지 않는다.
+        #: 보고서 생성은 조회다. 쓰기 목록에 넣지 않는다.
         "LOGISTICS_REPORT_GENERATE",
         "PARTNER_LIST",
         "PARTNER_DETAIL_GET",
@@ -415,10 +411,9 @@ def _domain_read(
 def _finance_write() -> Iterator[None]:
     """재무 쓰기 service 가 받지 않은 요청을 ask 의 오류로 옮긴다.
 
-    ★ 화면 재무 라우터와 **같은 상태 코드 · 같은 문장**이다 — 마스터 라우터가 `LookupError` 를
-      404 로, `DecisionRejected` 를 409(`conflict=True`) · 422 로 접는다. 2026-09-29 재구성
-      BL-014 전에는 재무 라우터 핸들러를 함수로 불러 그 `HTTPException` 이 그대로 나갔다(규칙 1
-      위반) — 지금은 같은 재무 service 를 부르고 여기서 옮긴다.
+    화면 재무 라우터와 같은 상태 코드 · 같은 문장이다 — 마스터 라우터(`api/master/ask.py`)가
+    `LookupError` 를 404 로, `DecisionRejected` 를 409(`conflict=True`) · 422 로 접는다. 라우터
+    핸들러를 함수로 부르지 않고(규칙 1) 같은 재무 service 를 불러 여기서 옮긴다.
     """
     try:
         yield
@@ -648,9 +643,8 @@ def _domain_write(
                 body[key] = value
         if slots.sales_collection_days is not None:
             body["sales_collection_days"] = integer(slots.sales_collection_days, field="결제일수")
-        #  ★ 판매 라우터와 **같은 service** 를 부르고, 같은 문장 · 같은 상태 코드로 거절한다
-        #    (409 · 422 — `api/master/ask.py` 가 `DecisionRejected` 를 접는다). 2026-09-29
-        #    BL-013 전에는 판매 라우터 핸들러를 함수로 불러 그 `HTTPException` 이 그대로 나갔다.
+        # 판매 라우터와 같은 service 를 부르고, 같은 문장 · 같은 상태 코드로 거절한다
+        # (409 · 422 — `api/master/ask.py` 가 `DecisionRejected` 를 접는다).
         try:
             result = create_partner(body)
         except PartnerInputRejected as error:
@@ -683,8 +677,8 @@ def _domain_write(
                 body[key] = value
         if slots.sales_collection_days is not None:
             body["sales_collection_days"] = integer(slots.sales_collection_days, field="결제일수")
-        #  ★ 거래처 등록과 같은 규율이다 — 없는 거래처는 404(`LookupError`), 받을 수 없는
-        #    입력은 422 로, 판매 라우터와 같은 문장이다.
+        # 거래처 등록과 같은 규율이다 — 없는 거래처는 404(`LookupError`), 받을 수 없는
+        # 입력은 422 로, 판매 라우터와 같은 문장이다.
         try:
             result = update_partner(partner_id, body)
         except PartnerInputRejected as error:

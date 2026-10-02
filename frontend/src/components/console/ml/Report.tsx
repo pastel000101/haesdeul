@@ -3,24 +3,24 @@
 /**
  * Agent report — verdict badge, one-line finding, the numbers behind it.
  *
- * ★ **The screen never re-decides the verdict.** OK / Caution / Problem is
- *   settled by the agent and the screen only paints it. Once a screen starts
- *   applying its own thresholds, something the agent called a Problem can end
- *   up green here.
+ * The screen never re-decides the verdict. OK / Caution / Problem is
+ * settled by the agent and the screen only paints it. Once a screen starts
+ * applying its own thresholds, something the agent called a Problem can end
+ * up green here.
  *
- * ★ **The numbers ride along.** If all you see is the word "Problem", the only
- *   thing a person can do is believe it.
+ * The numbers ride along. If all you see is the word "Problem", the only
+ * thing a person can do is believe it.
  *
- * Ported from `AgentPanel` on our ML console (`localhost:3100`).
+ * Same layout as `AgentPanel` on our ML console (`localhost:3100`).
  */
 
 import type { AgentReport, Finding } from "@/lib/mlConsole";
 
 import { en, VERDICT } from "./labels";
 
-//  ★ **열쇠는 백엔드가 보내는 한글 그대로여야 합니다.** 여기를 영어로
-//    바꾸면 어느 것도 안 걸려서 «정상» 도 «이상» 도 똑같은 회색이 됩니다.
-//    실제로 그렇게 됐었습니다 (2026-09-09). 보이는 글자는 `VERDICT` 가 답니다.
+//  열쇠는 백엔드가 보내는 한글 그대로여야 합니다. 여기를 영어로
+//  바꾸면 어느 것도 안 걸려서 «정상» 도 «이상» 도 똑같은 회색이 됩니다.
+//  보이는 글자는 `VERDICT` 가 답니다.
 const TONE: Record<string, { fg: string; bg: string }> = {
   정상: { fg: "var(--color-t-good)", bg: "var(--color-t-good-bg)" },
   주의: { fg: "var(--color-t-warn)", bg: "var(--color-t-warn-bg)" },

@@ -1,14 +1,13 @@
 -- inventory_count_sessions — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- §8  재고실사
---     ⚠️ 표만 회수한다. 실사 Workflow 구현은 이번 단계 밖이다.
+--     표만 정의한다. 실사 Workflow 는 구현되어 있지 않다 — `app/` 에 이 절의 표를 쓰는
+--     코드가 없다.
 -- ═══════════════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS haetdeul.inventory_count_sessions (
     count_session_id TEXT NOT NULL,

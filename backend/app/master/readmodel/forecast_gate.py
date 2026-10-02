@@ -1,30 +1,28 @@
 """
-forecast_gate.py — **오늘 ML 예측이 왔는가.** 묻기만 한다.
+forecast_gate.py — 오늘 ML 예측이 왔는가. 묻기만 한다.
 
 ML 이 매일 아침 09:23 쯤 예측을 적재하고, 스케줄러가 09:30 에 깨어난다. 그 사이가
-좁아서 *"아직 안 왔다"* 가 정상적으로 일어난다. 이 모듈은 그 사실을 **답으로만**
-낸다.
+좁아서 "아직 안 왔다" 가 정상적으로 일어난다. 이 모듈은 그 사실을 답으로만 낸다.
 
-★ **`day_gate.check_day_gate` 와 같은 규율이다.**
+`day_gate.check_day_gate` 와 같은 규율이다.
 
 ```text
-day_gate        "그날 장부가 열렸는가"   묻기만 하고 **열지 않는다**
-forecast_gate   "오늘 예측이 왔는가"     묻기만 하고 **판단을 안 돌린다**
+day_gate        "그날 장부가 열렸는가"   묻기만 하고 열지 않는다
+forecast_gate   "오늘 예측이 왔는가"     묻기만 하고 판단을 안 돌린다
 ```
 
-  여는 것이 `open_day` 의 일인 것처럼, 기다릴지 · 언제까지 · 몇 번 물을지는 다음 판의
-  스케줄러가 정한다.
+  여는 것이 `open_day` 의 일인 것처럼, 기다릴지 · 언제까지 · 몇 번 물을지는
+  스케줄러(`service/scheduler.py`)가 정한다.
 
-🔴 **재시도 판단은 이 모듈이 하지 않는다.** 마감 시각 · 재시도 간격 · 횟수 상한은
-  여기에 없고, 앞으로도 여기 두지 않는다. 그것을 여기 넣으면 *"물어보기"* 와
-  *"기다리기"* 가 한 함수가 되어, 백테스트가 예측 유무를 물을 때마다 재시도 정책까지
-  끌고 오게 된다.
+재시도 판단은 이 모듈이 하지 않는다. 마감 시각 · 재시도 간격 · 횟수 상한은 여기에 두지
+않는다. 그것을 여기 넣으면 "물어보기" 와 "기다리기" 가 한 함수가 되어, 백테스트가 예측
+유무를 물을 때마다 재시도 정책까지 끌고 오게 된다.
 
-🔴 **`load_forecast` 를 다시 구현하지 않는다.**
+`load_forecast` 를 다시 구현하지 않는다.
 
-  게이트가 *"왔다"* 고 했는데 `load_forecast` 가 `MISSING` 을 내면 **최악**이다 —
-  스케줄러는 돌리고 매입은 `RUNTIME_NOT_READY` 를 내며, 화면에는 *"예측이 왔는데
-  못 썼다"* 가 뜬다. 그래서 **새 쿼리를 쓰지 않고 같은 함수를 불러 그 등급을 본다.**
+  게이트가 "왔다" 고 했는데 `load_forecast` 가 `MISSING` 을 내면 최악이다 — 스케줄러는
+  돌리고 매입은 `RUNTIME_NOT_READY` 를 내며, 화면에는 "예측이 왔는데 못 썼다" 가 뜬다.
+  그래서 새 쿼리를 쓰지 않고 같은 함수를 불러 그 등급을 본다.
 
 ```text
 load_forecast(item, as_of) 의 grade
@@ -33,31 +31,27 @@ load_forecast(item, as_of) 의 grade
   예외        → UNREADABLE  못 물었다
 ```
 
-  ★★ 그러면 **둘이 어긋날 수가 없다.** 게이트가 통과시킨 날은 정의상 매입이 쓸 수
-    있는 날이다.
+  그러면 둘이 어긋날 수가 없다. 게이트가 통과시킨 날은 정의상 매입이 쓸 수 있는
+  날이다.
 
-★ 이 게이트가 기대는 사실은 `load_forecast` 의 이 줄이다 (`inputs.py`).
+이 게이트가 기대는 사실은 `load_forecast`(`readmodel/inputs.py`)의 이 규칙이다 — 집은
+행의 `as_of` 가 요청 `as_of` 와 같을 때만 `MEASURED` 다. 하루만 밀려도 안 쓴다. 그래서
+"예측이 왔다" 는 곧 "그날 배치가 있다" 다. 오래된 배치를 집어도 `MEASURED` 로 읽는
+적재 위에서는 이 게이트를 세울 수 없다(`#227` 후속 · 2026-09-04 실측: 210일 전 배치).
 
-    *"집은 행의 `as_of` 가 요청 `as_of` 와 **같을 때만** `MEASURED` 다.
-    하루만 밀려도 안 쓴다."*
-
-  그래서 *"예측이 왔다"* 는 곧 *"그날 배치가 있다"* 다. 210일 전 배치를 집고 있던
-  동안(`#227` 후속 · 2026-09-04 실측)에는 이 게이트를 세울 수가 없었다.
-
-🔴 **세 값을 섞지 않는다.**
+세 값을 섞지 않는다.
 
 ```text
 READY       왔다
-NOT_YET     **확인했고** 아직 안 왔다        ← 재시도할 자리
-UNREADABLE  **못 물었다** (DB 가 죽었다 등)  ← 재시도로 안 풀린다
+NOT_YET     확인했고 아직 안 왔다            ← 재시도할 자리
+UNREADABLE  못 물었다 (DB 가 죽었다 등)      ← 재시도로 안 풀린다
 ```
 
-  `UNREADABLE` 을 `NOT_YET` 으로 접으면 **DB 가 죽은 날 스케줄러가 영원히
-  재시도하고 그 사실이 아무 데도 안 남는다.** 없는 것과 못 읽은 것을 가르는
-  §1.2-10 이 여기서도 그대로다.
+  `UNREADABLE` 을 `NOT_YET` 으로 접으면 DB 가 죽은 날 스케줄러가 영원히 재시도하고 그
+  사실이 아무 데도 안 남는다. 없는 것과 못 읽은 것을 가르는 §1.2-10 이 여기서도
+  그대로다.
 
-★ 2026-09-30 재구성 BL-018: `master/forecast_gate.py` 에서 옮겼다. 역할이 다른 부분은 갈랐다 —
-  `domain/forecast_gate.py`. 무엇이 어디로 갔는지는 설계서 대응표 `master/` 절.
+판정 값과 접기(`fold_readiness`)는 `domain/forecast_gate.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -77,22 +71,22 @@ from app.master.schemas.inputs import PROCUREMENT_TARGET_KIND, SourcedInput
 
 #: `load_forecast` 를 갈아 끼우는 자리. 검사는 이 자리에 대역을 준다.
 #:
-#: ⚠️ **기본값이 `load_forecast` 자체다.** `None` 으로 두면 *"안 물었다"* 와
-#:   *"기본 적재로 물었다"* 가 같은 값이 된다 (`clock.py` · `verifier.py` 와 같은 규율).
+#: 주의: 기본값이 `load_forecast` 자체다. `None` 으로 두면 "안 물었다" 와
+#:   "기본 적재로 물었다" 가 같은 값이 된다 (`core/clock.py` · `verifier.py` 와 같은 규율).
 Loader = Callable[[str, date], SourcedInput]
 
 
 def _procurement_forecast(item: str, as_of: date) -> SourcedInput:
-    """**매입 계열**로 물어보는 기본 적재 (2026-09-11).
+    """매입 계열로 물어보는 기본 적재.
 
-    🟢 **관문이 보던 값은 그대로다.** 판매가 중도매 계열로 갈라지면서
-      `load_forecast` 가 계열을 인자로 받게 됐고, 이 관문은 **매입 등급 사다리가
-      서는 자리**라 경매를 그대로 읽는다.
+    `load_forecast` 는 계열을 인자로 받는다(판매는 중도매 계열). 이 관문은 매입 등급
+    사다리가 서는 자리라 경매 계열을 읽는다.
 
-    🔴 여기서 판매 계열을 읽으면 **매입이 조용히 다른 시세로 산다.** 그 사고는 값이
-      아니라 등급으로 나타나므로 화면에 아무 오류도 안 뜬다.
+    여기서 판매 계열을 읽으면 매입이 조용히 다른 시세로 산다. 그 사고는 값이 아니라
+    등급으로 나타나므로 화면에 아무 오류도 안 뜬다.
 
-    ★ 계열 이름을 여기 적지 않는다 — 주인은 `inputs.PROCUREMENT_TARGET_KIND` 하나다.
+    계열 이름을 여기 적지 않는다 — 주인은 `schemas/inputs.py` 의
+    `PROCUREMENT_TARGET_KIND` 하나다.
     """
     return load_forecast(item, as_of, target_kind=PROCUREMENT_TARGET_KIND)
 
@@ -103,18 +97,18 @@ def check_forecast_gate(
     *,
     load: Loader = _procurement_forecast,
 ) -> ItemForecastGate:
-    """그 품목의 **그날 예측이 왔는지만** 묻는다. 판단을 돌리지 않는다.
+    """그 품목의 그날 예측이 왔는지만 묻는다. 판단을 돌리지 않는다.
 
-    ★ **`load_forecast` 의 등급 하나만 본다.** payload 를 뜯어 보지도, 새 조회를
-      하지도 않는다 — 그 둘 중 하나라도 하면 게이트와 적재가 다른 사실을 보게 된다.
+    `load_forecast` 의 등급 하나만 본다. payload 를 뜯어 보지도, 새 조회를 하지도
+    않는다 — 그 둘 중 하나라도 하면 게이트와 적재가 다른 사실을 보게 된다.
 
-    ⚠️ `load_forecast` 는 지금 `MEASURED` 와 `MISSING` 만 낸다. 그래도 **`MEASURED`
-      만 `READY`** 로 두고 나머지는 `NOT_YET` 이다 — 언젠가 `MOCK` 다리가 다시
-      생기면 그것을 *"예측이 왔다"* 로 읽어서는 안 되기 때문이다. 접힌 뒤에도
-      실제 등급은 `grade` 에 그대로 남는다.
+    `load_forecast` 는 지금 `MEASURED` 와 `MISSING` 만 낸다. 그래도 `MEASURED` 만
+    `READY` 로 두고 나머지는 `NOT_YET` 이다 — 언젠가 `MOCK` 다리가 다시 생기면 그것을
+    "예측이 왔다" 로 읽어서는 안 되기 때문이다. 접힌 뒤에도 실제 등급은 `grade` 에
+    그대로 남는다.
 
-    ⚠️ **예외를 밖으로 내지 않는다.** 관문이 터지면 스케줄러가 아예 못 도는데,
-      못 물어본 것과 안 온 것은 다르다 (`check_day_gate` 와 같은 태도).
+    실패 처리: 예외를 밖으로 내지 않는다. 관문이 터지면 스케줄러가 아예 못 도는데,
+    못 물어본 것과 안 온 것은 다르다 (`check_day_gate` 와 같은 태도).
     """
     try:
         sourced = load(item, as_of)
@@ -142,7 +136,7 @@ def day_forecast_readiness(
     *,
     load: Loader = _procurement_forecast,
 ) -> DayForecastReadiness:
-    """그날 전체가 준비됐는지. **품목별 답을 접되 내역을 버리지 않는다.**
+    """그날 전체가 준비됐는지. 품목별 답을 접되 내역을 버리지 않는다.
 
     ```text
     ALL_READY    전부 왔다
@@ -151,14 +145,14 @@ def day_forecast_readiness(
     UNREADABLE   하나라도 못 물었다
     ```
 
-    🔴 **`UNREADABLE` 이 가장 세다.** 하나라도 못 물었으면 나머지가 다 왔어도
-      `ALL_READY` 가 아니다 — *"전부 왔다"* 고 답하려면 전부를 물어봤어야 한다.
+    `UNREADABLE` 이 가장 세다. 하나라도 못 물었으면 나머지가 다 왔어도 `ALL_READY` 가
+    아니다 — "전부 왔다" 고 답하려면 전부를 물어봤어야 한다.
 
-    🔴 **재시도는 여기서 안 정한다.** `NONE_READY` 가 *"기다려라"* 라는 뜻이 아니라
-      *"아직 없다"* 라는 사실일 뿐이다. 마감 시각과 간격은 스케줄러의 몫이다.
+    재시도는 여기서 안 정한다. `NONE_READY` 는 "기다려라" 라는 뜻이 아니라 "아직
+    없다" 라는 사실일 뿐이다. 마감 시각과 간격은 스케줄러의 몫이다.
 
-    :param as_of: 물어볼 날. 🔴 **벽시계를 여기서 읽지 않는다** — 안 주면 터진다.
-        오늘이 며칠인지는 `clock.today_in_seoul()` 하나만 안다.
+    :param as_of: 물어볼 날. 벽시계를 여기서 읽지 않는다 — 안 주면 터진다. 오늘이
+        며칠인지는 `clock.today_in_seoul()` 하나만 안다.
     """
     if as_of is None:
         raise ValueError(

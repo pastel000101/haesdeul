@@ -1,8 +1,7 @@
 """봉투 요청을 판매 제안 입력으로 — payload 에서 칸을 고르고 실행 식별자를 붙인다.
 
-★ 2026-09-29 BL-013: `sales/adapter.py` 의 `_proposal_input` 과 `with_partner_payment_days` 를
-  옮겼다. 마스터(`sales_port`)와 운영 화면(`POST /sales/console-proposal`)이 같은 봉투
-  모양으로 들어와 `service/proposal_generation.py` 에서 같은 길을 탄다.
+마스터(`sales_port`)와 운영 화면(`POST /sales/console-proposal`)이 같은 봉투 모양으로
+들어와 `service/proposal_generation.py` 에서 같은 길을 탄다.
 """
 
 from collections.abc import Callable, Mapping
@@ -13,7 +12,7 @@ from app.sales.schemas.proposal import SalesProposalInput
 
 
 def proposal_input_data(request: AgentRequest, run_id: str) -> dict[str, Any]:
-    """판매 제안 입력이 될 칸. **거래처 결제일수를 채우고 검증하는 것은 부르는 쪽이다.**"""
+    """판매 제안 입력이 될 칸. 거래처 결제일수를 채우고 검증하는 것은 부르는 쪽이다."""
     data: dict[str, Any] = {
         key: value
         for key, value in request.payload.items()
@@ -39,7 +38,7 @@ def with_partner_payment_days(
     *,
     lookup: Callable[[str], int | None],
 ) -> dict[str, Any]:
-    """요청이 결제일수를 말하지 않았으면 **거래처 계약 결제일수**를 싣는다.
+    """요청이 결제일수를 말하지 않았으면 거래처 계약 결제일수를 싣는다.
 
     ```text
     요청이 결제일수를 들고 있다             → 그대로 둔다 (사람·걷기 규칙이 정한 값이 이긴다)
@@ -49,15 +48,14 @@ def with_partner_payment_days(
     거래처 계약값을 못 읽었다                → 그대로 둔다 → 재무가 «결제일수 없음» 으로 닫는다
     ```
 
-    ★ **정본은 거래처 계약이다** (`partners.sales_collection_days`). 화면 입력칸에 30 을
-      미리 채워 두거나 코드에 일수를 박으면, 거래처와 7일 결제로 계약을 바꾼 날에도
-      판매안은 30일로 선다.
+    정본은 거래처 계약이다 (`partners.sales_collection_days`). 화면 입력칸에 30 을
+    미리 채워 두거나 코드에 일수를 박으면, 거래처와 7일 결제로 계약을 바꾼 날에도
+    판매안은 30일로 선다.
 
-    🔴 **0일은 값이다** — «당일 결제» 라는 정해진 조건이라 `None` 과 가른다.
+    0일은 값이다 — «당일 결제» 라는 정해진 조건이라 `None` 과 가른다.
 
-    ★ 계약값을 읽는 `lookup` 은 **부르는 쪽이 넘긴다** (2026-09-29 BL-013). 전에는 안 주면
-      이 함수가 거래처 조회(→ DB)를 불렀다. 판매 후보 생성은
-      `service/proposal_generation.py` 가 조회 함수를 넘긴다.
+    계약값을 읽는 `lookup` 은 부르는 쪽이 넘긴다 — 이 함수는 DB 를 부르지 않는다.
+    판매 후보 생성은 `service/proposal_generation.py` 가 조회 함수를 넘긴다.
     """
     user = data.get("user_request")
     if not isinstance(user, Mapping) or user.get("preferred_payment_days") is not None:

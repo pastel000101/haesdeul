@@ -1,19 +1,20 @@
 """의도 분류의 LLM 계약.
 
-**출력 스키마에 payload 도 숫자 칸도 자유 문자열 에이전트 이름도 없다 — 이것이
-안전장치의 전부다.** 오케 `SelectionInterpretation`·매입 `GradeMixInterpretation` 이
-쓴 방법 그대로다: 프롬프트로 "만들지 마"라고 부탁하는 대신 **만들 자리를 없앤다.**
+출력 스키마에 payload 도 숫자 칸도 자유 문자열 에이전트 이름도 없다 — 이것이
+안전장치의 전부다. 사이클 `SelectionInterpretation`(`cycle_llm/schemas.py`)·매입
+`GradeMixInterpretation` 과 같은 방법이다: 프롬프트로 "만들지 마"라고 부탁하는 대신 만들
+자리를 없앤다.
 
-LLM 이 돌려주는 건 **닫힌 열거에서 고른 값들**뿐이고, 실제 요청(`ProcurementRunRequest`)은
+LLM 이 돌려주는 것은 닫힌 열거에서 고른 값들뿐이고, 실제 요청(`ProcurementRunRequest`)은
 규칙이 조립한다.
 
 ```text
-발화문 → [LLM] → Intent(닫힌 열거) → 규칙이 요청 조립 → 기존 run_procurement()
-                                      └ flow.py 는 한 줄도 안 바뀐다
+발화문 → [LLM] → Intent(닫힌 열거) → 규칙이 요청 조립 → run_procurement()
+                                      └ 매입 Flow 는 LLM 때문에 달라지지 않는다
 ```
 
-상태 4종(`LLMStatus`)은 `app/contracts/envelope.py` 의 것을 그대로 들인다 — 팀 공용 AI 카드가
-수정 없이 동작한다(2026-09-30 BL-020 전에는 같은 네 값을 여기 따로 적었다).
+상태 4종(`LLMStatus`)은 `app/contracts/envelope.py` 의 것을 그대로 들인다 — 팀 공용 AI
+카드가 수정 없이 동작한다.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.contracts.envelope import AgentName, LLMStatus
 
-#: 마스터가 알아들을 수 있는 요청 종류. **이 목록 밖은 만들 수 없다.**
+#: 마스터가 알아들을 수 있는 요청 종류. 이 목록 밖은 만들 수 없다.
 #:
 #: `UNKNOWN` 을 열거에 둔 것이 핵심이다 — 없으면 LLM 이 애매한 발화를 가장 가까운
 #: 것으로 밀어 넣는다. 모르겠다고 말할 자리를 줘야 되물을 수 있다.
@@ -38,16 +39,16 @@ IntentAction = Literal[
 ]
 
 #: 품목. 계약 `ITEMS` 3종으로 닫는다 — 없는 품목을 지어낼 자리가 없다.
-#: ⚠️ `Literal` 은 상수만 받아 계약에서 못 가져온다. 계약이 바뀌면 여기도 바뀌어야
-#:   하고, 그것을 `tests/master/test_item_set_follows_contract.py` 가 지킨다.
+#: 주의: `Literal` 은 상수만 받아 계약에서 못 가져온다. 계약이 바뀌면 여기도 바뀌어야
+#: 하고, 그것을 `tests/master/test_item_set_follows_contract.py` 가 지킨다.
 ItemName = Literal["배추", "무", "양파"]
 
 Confidence = Literal["HIGH", "MEDIUM", "LOW"]
 
 
-# ★ 자연어 명령의 **업무 이름만** 닫힌 어휘로 둔다.
+# 자연어 명령의 업무 이름만 닫힌 어휘로 둔다.
 # 숫자·날짜는 DomainSlots 에서 문자열 그대로 받는다. LLM 이 돈/날짜를 계산하거나
-# 정규화하지 않고, 실행 직전 ask_service 의 deterministic parser가 해석한다.
+# 정규화하지 않고, 실행 직전 `domain/ask_parsers.py` 의 결정적 해석기가 해석한다.
 DomainAction = Literal[
     "FINANCE_SUMMARY_GET",
     "FINANCE_CASH_ADJUSTMENT_CREATE",
@@ -158,15 +159,15 @@ class Intent(BaseModel):
     #: `STATUS_QUERY` 일 때만 채운다. 열거라 없는 에이전트를 부를 수 없다.
     agents: list[AgentName] = Field(default_factory=list)
 
-    #: 이번 요청이 다루는 품목. 못 알아내면 비운다 — **추측해서 채우지 않는다.**
+    #: 이번 요청이 다루는 품목. 못 알아내면 비운다 — 추측해서 채우지 않는다.
     #: 비면 규칙이 되묻는다(매입이 `missing_data: ["item"]` 을 내는 것보다 낫다).
     item: ItemName | None = None
 
     #: `SELECT_SCENARIO` 일 때 사용자가 지목한 안. 라벨이 실제로 제시된 것인지는
-    #: **`decision_service` 가 그 실행의 응답과 대조**한다 — 여기서 막지 않는다.
+    #: `service/decision.py` 가 그 실행의 응답과 대조한다 — 여기서 막지 않는다.
     scenario_label: str | None = None
 
-    #: `RERUN_WITH_CONDITION` 일 때 사용자가 붙인 조건. **사용자의 말 그대로** 옮긴다.
+    #: `RERUN_WITH_CONDITION` 일 때 사용자가 붙인 조건. 사용자의 말 그대로 옮긴다.
     #: 숫자를 지어내지 못하게 `runtime` 이 발화문과 대조한다.
     condition: str | None = None
 
@@ -192,7 +193,7 @@ class IntentResult(BaseModel):
 
     #: 실행 전에 사람에게 확인받아야 하는가.
     #:
-    #: **오분류 비용이 비대칭이라 둔 장치다.** `STATUS_QUERY` 를 잘못 고르면 사용자가
+    #: 오분류 비용이 비대칭이라 둔 장치다. `STATUS_QUERY` 를 잘못 고르면 사용자가
     #: 다시 물으면 그만이지만, `PROCUREMENT_RUN` 을 잘못 고르면 호출 예산 12회와
     #: 매입 LLM 호출을 태운다.
     needs_confirmation: bool = False
@@ -218,12 +219,12 @@ class Narrative(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    #: 사실 줄 위에 얹을 해석 문장. **숫자를 쓰지 않는다.**
+    #: 사실 줄 위에 얹을 해석 문장. 숫자를 쓰지 않는다.
     summary: str
 
 
 class NarrativeResult(BaseModel):
-    """⑥의 결과. **문장이 없어도 정상이다** — 그때는 규칙이 만든 답만 나간다."""
+    """⑥의 결과. 문장이 없어도 정상이다 — 그때는 규칙이 만든 답만 나간다."""
 
     model_config = ConfigDict(extra="forbid")
 

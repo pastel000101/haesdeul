@@ -1,21 +1,21 @@
 /**
  * 실행 축(`sim_run_id`)을 화면이 들고 있는 자리.
  *
- * 🔴 **코드에 실행 이름을 박지 않는다.** `const SIM_RUN_ID = "SIM-BURNIN-202512"`
- *    같은 값이 한 줄 생기면, 화면은 사람이 무엇을 고르든 **늘 그 실행**을 보여 준다.
- *    그 사고는 오류 없이 조용하다 — 숫자가 나오고, 그 숫자가 남의 실행 것이다.
+ * 코드에 실행 이름을 박지 않는다. `const SIM_RUN_ID = "SIM-BURNIN-202512"`
+ * 같은 값이 한 줄 생기면, 화면은 사람이 무엇을 고르든 늘 그 실행을 보여 준다.
+ * 그 사고는 오류 없이 조용하다 — 숫자가 나오고, 그 숫자가 남의 실행 것이다.
  *
- * ★ **기본값은 빈 값이다.** 실행이 안 정해졌으면 화면은 *"실행을 선택해 주세요"* 를
- *   띄우고 **API 를 부르지 않는다.** 아무 실행이나 골라 보여 주는 것보다 낫다.
+ * 기본값은 빈 값이다. 실행이 안 정해졌으면 화면은 "실행을 선택해 주세요" 를
+ * 띄우고 API 를 부르지 않는다. 아무 실행이나 골라 보여 주는 것보다 낫다.
  *
- * ⚠️ **실행 목록 API 가 아직 없다.** `sim_runs` 는 마스터 소유 표이고 그것을 나열하는
- *   read 계약이 저장소에 없다(2026-09-11 실측). 그래서 지금은 운영자가 값을 적고,
- *   `NEXT_PUBLIC_SIM_RUN_ID` 가 있으면 그것으로 시작한다 — **환경이 주는 설정이지
- *   코드가 정한 상수가 아니다.** 목록 API 가 생기면 이 파일이 그 값을 받아 고른다.
+ * 실행 목록은 `/api/console/runs`(`lib/console_api.ts` 의 `consoleRuns.list`)가 주고,
+ * `components/console/RunPicker.tsx` 가 그 목록에서 고른 값을 여기 적는다.
+ * `NEXT_PUBLIC_SIM_RUN_ID` 가 있으면 그것으로 시작한다 — 환경이 주는 설정이지
+ * 코드가 정한 상수가 아니다.
  *
  * ── 모양은 `demo_as_of.ts` 를 그대로 따른다 ──────────────────────────────
  *
- * `localStorage` 는 React 바깥의 저장소라 **`useSyncExternalStore` 로 읽는다.**
+ * `localStorage` 는 React 바깥의 저장소라 `useSyncExternalStore` 로 읽는다.
  * 새 관습을 만들지 않는다 — 읽는 쪽 코드가 같은 모양이면 지울 때도 같이 지운다.
  */
 
@@ -27,19 +27,18 @@ const KEY = "haetdeul.sim_run_id";
  * 이 두 화면은 실행 비교 도구가 아니라 최종 운영 결과를 보는 자리라, 사용자가 임의
  * 실행을 선택하지 않는다. 다른 콘솔과 Master Chat은 기존 선택 상태를 계속 사용한다.
  *
- * 🔴 **왜 지금 `SIM-MENTOR-0918` 인가** (2026-09-18).
- *    배포판은 멘토 체험용 축 `SIM-MENTOR-0918` 하나로 돈다.
- *    백엔드 `app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 도 같은 축이다.
- *    여기만 `SIM-CHAIN-FINAL-0918` 로 두면 재무·판매 탭만 다른 장부를 읽어
- *    같은 화면 안에서 숫자가 갈린다. 오류 없이 조용히 갈린다.
+ * 왜 `SIM-MENTOR-0918` 인가: 배포판은 멘토 체험용 축 `SIM-MENTOR-0918` 하나로 돈다.
+ * 백엔드 `app/core/settings.py` 의 `SHOWN_SIM_RUN_ID` 도 같은 축이다.
+ * 여기만 `SIM-CHAIN-FINAL-0918` 로 두면 재무·판매 탭만 다른 장부를 읽어
+ * 같은 화면 안에서 숫자가 갈린다. 오류 없이 조용히 갈린다.
  *
- * ★ **발표 전 되돌릴 자리** — 원래 값은 `SIM-CHAIN-FINAL-0918` 이다.
- *   되돌릴 때는 아래 한 줄과 `backend/app/core/settings.py` 의 `SHOWN_SIM_RUN_ID`,
- *   `frontend/Dockerfile` 의 `ARG NEXT_PUBLIC_SIM_RUN_ID` 기본값을 같이 바꾼다.
+ * 발표 전 되돌릴 자리 — 원래 값은 `SIM-CHAIN-FINAL-0918` 이다.
+ * 되돌릴 때는 아래 한 줄과 `backend/app/core/settings.py` 의 `SHOWN_SIM_RUN_ID`,
+ * `frontend/Dockerfile` 의 `ARG NEXT_PUBLIC_SIM_RUN_ID` 기본값을 같이 바꾼다.
  */
 export const FINANCE_SALES_SIM_RUN_ID = "SIM-MENTOR-0918";
 
-/** 환경이 주면 그 값으로 시작한다. 없으면 **빈 값** — 아무 실행도 고르지 않은 상태다. */
+/** 환경이 주면 그 값으로 시작한다. 없으면 빈 값 — 아무 실행도 고르지 않은 상태다. */
 const SEED = process.env.NEXT_PUBLIC_SIM_RUN_ID ?? "";
 
 let cached: string | null = null;
@@ -50,7 +49,7 @@ export function simRunSnapshot(): string {
   try {
     cached = window.localStorage.getItem(KEY) ?? SEED;
   } catch {
-    //  사생활 보호 모드처럼 저장소를 막아 둔 브라우저가 있다. 그때는 환경값으로 산다.
+    // 사생활 보호 모드처럼 저장소를 막아 둔 브라우저가 있다. 그때는 환경값으로 산다.
     cached = SEED;
   }
   return cached;

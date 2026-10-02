@@ -1,7 +1,4 @@
-"""SCENARIO_VALIDATION — 매입 시나리오별 창고 판정과 (opt-in) LLM 해석.
-
-★ 2026-09-30 재구성 BL-015: `logistics/adapter.py` 의 `_scenario_validation` 을 옮겼다(조립 그대로).
-"""
+"""SCENARIO_VALIDATION — 매입 시나리오별 창고 판정과 (opt-in) LLM 해석."""
 
 from __future__ import annotations
 
@@ -54,18 +51,18 @@ from app.logistics.service.agent_read import SnapshotLoadError, load_read
 
 
 def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadata]:
-    """★ 재무와 달리 **스키마 추측이 필요 없다.**
+    """재무와 달리 스키마 추측이 필요 없다.
 
-    물류는 `PurchaseAgentOutput = PurchaseProposal` 로 **매입의 실물 스키마를 그대로
-    임포트**한다(`app/logistics/schemas/agent.py`). 마스터는 받은 제안을 그 모델로 되살려
+    물류는 `PurchaseAgentOutput = PurchaseProposal` 로 매입의 실물 스키마를 그대로
+    임포트한다(`app/logistics/schemas/agent.py`). 마스터는 받은 제안을 그 모델로 되살려
     넘기기만 하면 된다 — 이름을 손으로 맞추는 자리가 없으므로 조용히 틀릴 자리도 없다.
     """
     as_of = request.context.as_of
     run_id = logistics_run_id(request)
     tools: list[str] = [T_ARRIVAL, T_CAP, T_RULES]
-    # ★ 해석 서비스는 **설정만 읽는다** — 여기서 네트워크가 열리지 않는다 (#385).
-    #   opt-in 이 없으면 enabled=False 인 서비스가 온다. 못 낸 회신에도 이 서비스가
-    #   상태 어휘(DISABLED · SKIPPED_TEMPLATE)를 정한다 — 어댑터가 하드코딩하지 않는다.
+    # 해석 서비스는 설정만 읽는다 — 여기서 네트워크가 열리지 않는다 (#385).
+    # opt-in 이 없으면 enabled=False 인 서비스가 온다. 못 낸 회신에도 이 서비스가
+    # 상태 어휘(DISABLED · SKIPPED_TEMPLATE)를 정한다 — 어댑터가 하드코딩하지 않는다.
     llm = master_interpretation_service()
 
     proposal = as_proposal(request.payload)
@@ -79,9 +76,9 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
             llm=uncalled_interpretation(llm),
         )
 
-    # 🔴 기준일이 다른 제안은 판정하지 않는다 — 재무 어댑터와 같은 fail-closed (§1.2-6).
-    #    스냅샷·Rule 은 요청 `as_of` 로 읽는데 시나리오만 다른 날짜로 계산하면
-    #    기준일이 섞인 판정이 READY 로 나간다 (Codex 교차검증 재현 · #111).
+    # 기준일이 다른 제안은 판정하지 않는다 — 재무 어댑터와 같은 fail-closed (§1.2-6).
+    # 스냅샷·Rule 은 요청 `as_of` 로 읽는데 시나리오만 다른 날짜로 계산하면
+    # 기준일이 섞인 판정이 READY 로 나간다 (#111).
     if proposal.meta.as_of != as_of:
         reply = AgentReply(
             request_id=request.context.request_id,
@@ -114,8 +111,8 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     policy = read.policy
     scenario = run_logistics_procurement_scenario(proposal, snapshot)
     rules = evaluate_procurement_rules(as_of=as_of, snapshot=snapshot)
-    # 시나리오 집계 ⊕ 하드 제약의 최악값 결합 (2026-09-01 마스터 확정 · #121 3단계).
-    # 전 시나리오 reject 인데 하드가 전부 PASS 라고 ok 가 나가던 집계 단절의 수정이다.
+    # 시나리오 집계 ⊕ 하드 제약의 최악값 결합 (마스터 확정 · #121 3단계). 결합하지
+    # 않으면 전 시나리오가 reject 인데 하드가 전부 PASS 라고 ok 가 나간다.
     verdict = derive_procurement_verdict(rules, scenario["scenario_results"])
 
     # 업무 위험 판정(비교식)은 Rule 소유 — 독립 경로(service)와 같은 함수·같은 병합을
@@ -194,29 +191,29 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
             {"item": entry.item, "available_qty_kg": to_float(entry.available_qty_kg)}
             for entry in scenario["inventory_by_item"]
         ]
-    # ★ 업무 경고(`business["warnings"]`)는 여기 넣지 않는다. 독립 응답의
-    #   `missing_data` 는 무숫자 번역 채널이라 그쪽에는 들어가지만, M-1 의
-    #   `missing_data` 는 **마스터가 사용자에게 무엇을 달라고 할지**의 이름이고 형식도
-    #   `logistics_rule/LOG-H02` · `rental_cap_kg@policy_source_ref` 처럼 네임스페이스가
-    #   붙은 필드명이다. 맨 경고 코드를 섞으면 어휘가 갈라지고, NOT_READY 로 떨어지는
-    #   날 *"CAPACITY_TIGHT_POLICY_UNRESOLVED 가 없어 답하지 못했습니다"* 라는
-    #   이중부정 문장이 나간다 (`master/domain/answer.py` 의 gaps 문구).
+    # 업무 경고(`business["warnings"]`)는 여기 넣지 않는다. 독립 응답의
+    # `missing_data` 는 무숫자 번역 채널이라 그쪽에는 들어가지만, M-1 의
+    # `missing_data` 는 마스터가 사용자에게 무엇을 달라고 할지의 이름이고 형식도
+    # `logistics_rule/LOG-H02` · `rental_cap_kg@policy_source_ref` 처럼 네임스페이스가
+    # 붙은 필드명이다. 맨 경고 코드를 섞으면 어휘가 갈라지고, NOT_READY 로 떨어지는
+    # 날 "CAPACITY_TIGHT_POLICY_UNRESOLVED 가 없어 답하지 못했습니다" 라는
+    # 이중부정 문장이 나간다 (`master/domain/answer.py` 의 gaps 문구).
     #
     #   사실이 사라지는 것은 아니다 — `soft_warnings` 가 같은 코드를 그대로 나른다.
 
-    # ── 해석 (LLM) — 결정론 결과가 **다 선 뒤에만** 돈다 (#385) ─────────────
+    # ── 해석 (LLM) — 결정론 결과가 다 선 뒤에만 돈다 (#385) ─────────────
     #
-    # ★ 새 계산이 없다. signals · measurements 는 위 `evaluate_procurement_business_signals`
-    #   가 낸 것이고, preferred 는 `derive_preferred_adjustment` 가 정한 것이다. 조립기는
-    #   독립 Service 와 같은 함수다 — Context 에 실리는 것은 signal 코드 · 판정 수치의 확정
-    #   표기 · 허용/우선 조정 · 번역된 미확정 이름뿐이고, Lot · 날짜 · kg · 거래처 · 이
-    #   payload 는 넘어가지 않는다.
-    # ★ missing 원재료는 독립 Service `_missing_data` 와 같은 모집단이다 — 비-PASS 하드 제약
-    #   코드 + Rule 경고 + 판정 스킵 사실. M-1 `missing_data`(`logistics_rule/LOG-H02` 같은
-    #   네임스페이스 이름)를 넘기지 않는다 — 숫자가 든 채로 무숫자 경계를 우회한다.
-    # 🔴 LLM 은 아래 어느 값도 바꾸지 않는다 — verdict · evidences · suggested_adjustments ·
-    #    preferred_adjustment · missing 은 이 블록 앞에서 이미 확정됐고, 해석은 payload 의
-    #    **별도 중첩 칸** 하나에만 실린다. 실패 · timeout · 검증 탈락은 Template 로 접힌다.
+    # 새 계산이 없다. signals · measurements 는 위 `evaluate_procurement_business_signals`
+    # 가 낸 것이고, preferred 는 `derive_preferred_adjustment` 가 정한 것이다. 조립기는
+    # 독립 Service 와 같은 함수다 — Context 에 실리는 것은 signal 코드 · 판정 수치의 확정
+    # 표기 · 허용/우선 조정 · 번역된 미확정 이름뿐이고, Lot · 날짜 · kg · 거래처 · 이
+    # payload 는 넘어가지 않는다.
+    # missing 원재료는 독립 Service `_missing_data` 와 같은 모집단이다 — 비-PASS 하드 제약
+    # 코드 + Rule 경고 + 판정 스킵 사실. M-1 `missing_data`(`logistics_rule/LOG-H02` 같은
+    # 네임스페이스 이름)를 넘기지 않는다 — 숫자가 든 채로 무숫자 경계를 우회한다.
+    # LLM 은 아래 어느 값도 바꾸지 않는다 — verdict · evidences · suggested_adjustments ·
+    # preferred_adjustment · missing 은 이 블록 앞에서 이미 확정됐고, 해석은 payload 의
+    # 별도 중첩 칸 하나에만 실린다. 실패 · timeout · 검증 탈락은 Template 로 접힌다.
     llm_context, facts_incomplete = build_sanitized_context(
         cycle="PROCUREMENT",
         signals=business["signals"],
@@ -324,19 +321,19 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
     # M-1 전용 채널 배선 (#111 검증 발견 1) — payload 안에만 두면 마스터 flow 가 세는
     # `reply.suggested_adjustments` 는 0건이고, 사람 화면과 Critic 의 축 침범 검사가
     # 전부 빈 튜플을 본다. 축 어휘는 `_DEPT_AXES["inventory"] = ("quantity","timing")`
-    # 과 정확히 같아 추측 없이 옮긴다.
-    # 🔴 **두 단계로 나눈다** (#209 · 되먹임 ④). 전에는 중복 키를 만나면 그 자리에서
-    #   `continue` 해서 **두 번째 시나리오의 라벨이 사라졌다.** 같은 조정이 세 안에서
-    #   나와도 첫 라벨 하나만 손에 남는다. 키별로 라벨을 먼저 모으고, 다 모은 뒤
-    #   표준형을 만든다. 중복 제거의 뜻(같은 key 는 하나)은 그대로이고 라벨만 합친다.
+    # 과 정확히 같아 추측 없이 싣는다.
+    # 두 단계로 나눈다 (#209 · 되먹임 ④). 중복 키를 만난 자리에서 건너뛰면 두 번째
+    # 시나리오의 라벨이 사라진다 — 같은 조정이 세 안에서 나와도 첫 라벨 하나만 남는다.
+    # 그래서 키별로 라벨을 먼저 모으고, 다 모은 뒤 표준형을 만든다. 중복 제거의 뜻(같은
+    # key 는 하나)은 그대로이고 라벨만 합친다.
     collected: dict[tuple[str, date, float], dict[str, Any]] = {}
     for result in scenario["scenario_results"]:
-        # ★ reject 안의 adjustment 는 승격하지 않는다 (#121 2단계). multi-split 에서
-        #   앞 회차의 조정이 남은 채 전체가 reject 될 수 있는데, 구제 불가 판정한 안의
-        #   조정을 행동 제안으로 내보내면 "reject 는 조정으로 구제 불가"와 모순된다.
-        #   진단 기록은 payload.scenario_results 에 그대로 남는다 — 사실이 사라지는
-        #   것이 아니라 제안으로 격상되지 않을 뿐이다. needs_followup 도 이에 따라
-        #   reject 만으로는 서지 않는다. 라벨 수집 대상도 아니다.
+        # reject 안의 adjustment 는 승격하지 않는다 (#121 2단계). multi-split 에서
+        # 앞 회차의 조정이 남은 채 전체가 reject 될 수 있는데, 구제 불가 판정한 안의
+        # 조정을 행동 제안으로 내보내면 "reject 는 조정으로 구제 불가"와 모순된다.
+        # 진단 기록은 payload.scenario_results 에 그대로 남는다 — 사실이 사라지는
+        # 것이 아니라 제안으로 격상되지 않을 뿐이다. needs_followup 도 이에 따라
+        # reject 만으로는 서지 않는다. 라벨 수집 대상도 아니다.
         if result.verdict == "reject":
             continue
         for adjustment in result.adjustments:
@@ -344,17 +341,15 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
                 target, unit = to_float(adjustment.suggested_qty_kg), "kg"
                 what = f"수량을 {target:g}kg 로 조정 제안"
             elif adjustment.axis == "timing" and adjustment.suggested_arrival_date is not None:
-                # 날짜는 float 로 실을 수 없어 as_of 기준 D+N 으로 옮긴다.
-                # ⚠️ 전에 이 자리에 "손실 없는 표기 변환" 이라고 적어 뒀는데 **틀렸다**
-                #   (#209). 사람에게는 손실이 없지만 **기계가 읽을 수 있는 형태로는
-                #   손실**이다 — 목표 날짜가 reason 문자열 안에만 남는다. 그래서 목표
-                #   도착일은 아래 reason 에 그대로 남긴다. 절대 날짜 칸이 생기면
-                #   그때 문장에서도 뺀다 (마스터가 정해 통보).
+                # 날짜는 float 로 실을 수 없어 as_of 기준 D+N 으로 바꾼다. 사람에게는
+                # 손실이 없지만 기계가 읽을 수 있는 형태로는 손실이다 (#209) — 목표 날짜가
+                # reason 문자열 안에만 남는다. 그래서 목표 도착일은 아래 reason 에 그대로
+                # 남긴다. 절대 날짜 칸이 생기면 그때 문장에서도 뺀다 (마스터가 정해 통보).
                 target = float((adjustment.suggested_arrival_date - as_of).days)
                 unit = "d"
                 what = f"도착일을 {adjustment.suggested_arrival_date.isoformat()} 로 조정 제안"
             else:
-                # 값 없는 제안은 전용 채널로 못 옮긴다 — payload.scenario_results 에는
+                # 값 없는 제안은 전용 채널에 싣지 못한다 — payload.scenario_results 에는
                 # 그대로 남아 있어 사실이 사라지지는 않는다.
                 continue
             key = (adjustment.axis, adjustment.split_date, target)
@@ -372,11 +367,10 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
             elif result.label not in entry["labels"]:
                 entry["labels"].append(result.label)
 
-    # ★ `reason` 에서 라벨·회차 앞머리를 뺐다 (미결 §0-6 갈래 ㄱ · 2026-09-03 마스터
-    #   통보). 같은 사실이 칸과 문장 두 곳에 있으면 한쪽만 고쳐지는 날이 오고, 그 날이
-    #   이미 왔다 — 화면(`master/answer.py:295`)은 칸을 읽게 고쳐졌는데 물류가 안 채워
-    #   문장에만 남아 "N 회차" 가 한 번도 안 떴다.
-    #   ⚠️ **빼는 것은 라벨과 대상 회차뿐이다.** 목표 도착일은 `what` 안에 남긴다.
+    # `reason` 에 라벨·회차 앞머리를 넣지 않는다 (미결 §0-6 갈래 ㄱ · 마스터 통보). 같은
+    # 사실이 칸과 문장 두 곳에 있으면 한쪽만 고쳐지는 날이 온다 — 화면
+    # (`master/domain/answer.py`)은 칸을 읽으므로 라벨과 대상 회차는 칸에 채운다.
+    #   빼는 것은 라벨과 대상 회차뿐이다. 목표 도착일은 `what` 안에 남긴다.
     suggested: list[SuggestedAdjustment] = [
         SuggestedAdjustment(
             dept="inventory",
@@ -401,10 +395,10 @@ def scenario_validation_reply(request: AgentRequest) -> tuple[AgentReply, Execut
         business_status=payload["verdict"],
         payload=payload,
         evidences=evidences,
-        # 🔴 **재 봤더니 못 쟀다** — 기본값을 그대로 둔 것이 아니다 (#628 Commit 2).
-        #    네 Mode 의 회신은 전부 정책값(용량 · 리드타임 · 임계 비율 · 보관한계)을
-        #    계산에 넣는데 그 표들에 유효일 칸이 없어, 규칙(§18)대로 결과가 `None` 이다.
-        #    ⚠️ **`as_of` 로 메우지 않는다** — 메우면 «안 쟀다» 가 «쟀다» 로 세어진다.
+        # 재 봤더니 못 쟀다는 값이다 — 기본값을 그대로 둔 것이 아니다 (#628).
+        # 네 Mode 의 회신은 전부 정책값(용량 · 리드타임 · 임계 비율 · 보관한계)을
+        # 계산에 넣는데 그 표들에 유효일 칸이 없어, 규칙(§18)대로 결과가 `None` 이다.
+        # `as_of` 로 메우지 않는다 — 메우면 «안 쟀다» 가 «쟀다» 로 세어진다.
         observed_at=snapshot_observed_as_of(snapshot),
         suggested_adjustments=tuple(suggested),
         # 조정 제안이 있다는 것은 "이 안 그대로는 안 되고 재검토가 필요하다"다 —

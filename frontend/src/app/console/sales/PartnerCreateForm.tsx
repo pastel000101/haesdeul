@@ -3,15 +3,15 @@
 /**
  * 새 거래처 등록.
  *
- * 🔴 **여신 한도 칸이 없다.** 정본은 재무의 `partner_credit_limits` 이고, 판매가 그
- *    표를 쓰지 않는다. 등록 뒤에 «재무에서 따로 설정한다» 고 안내만 한다.
+ * 여신 한도 칸이 없다. 정본은 재무의 `partner_credit_limits` 이고, 판매가 그
+ * 표를 쓰지 않는다. 등록 뒤에 «재무에서 따로 설정한다» 고 안내만 한다.
  *
- * 🔴 **`localStorage` 에 담지 않는다.** 저장 뒤에는 목록을 **다시 읽어** 장부가 가진
- *    행을 보여 준다 — 화면에만 남은 거래처는 새로고침 한 번에 사라진다.
+ * `localStorage` 에 담지 않는다. 저장 뒤에는 목록을 다시 읽어 장부가 가진
+ * 행을 보여 준다 — 화면에만 남은 거래처는 새로고침 한 번에 사라진다.
  *
- * 🔴 **거래처 코드를 코드가 지어내지 않는다.** 저장소에 `partner_id` 생성 규칙이
- *    없어(2026-09-14 전수 확인) 임의 형식을 만들면 그날부터 그것이 규칙이 된다.
- *    사용자에게 받되 «내부 거래처 코드» 라는 이름으로 묻는다.
+ * 거래처 코드를 코드가 지어내지 않는다. 저장소에 `partner_id` 생성 규칙이
+ * 없어(2026-09-14 전수 확인) 임의 형식을 만들면 그날부터 그것이 규칙이 된다.
+ * 사용자에게 받되 «내부 거래처 코드» 라는 이름으로 묻는다.
  */
 
 import { useState } from "react";
@@ -53,7 +53,7 @@ const EMPTY: Draft = {
   active: true,
 };
 
-/** 사용자가 안 적은 칸은 **보내지 않는다** — 빈 문자열로 채우면 «빈 이름» 이 저장된다. */
+/** 사용자가 안 적은 칸은 보내지 않는다 —빈 문자열로 채우면 «빈 이름» 이 저장된다. */
 function toInput(draft: Draft): PartnerCreateInput {
   const input: PartnerCreateInput = {
     partner_id: draft.partner_id.trim(),
@@ -74,7 +74,7 @@ function toInput(draft: Draft): PartnerCreateInput {
     if (trimmed !== "") input[key] = trimmed;
   }
   const days = draft.sales_collection_days.trim();
-  //  ⚠️ 빈 칸은 «안 정했다» 이지 0일이 아니다.
+  //  빈 칸은 «안 정했다» 이지 0일이 아니다.
   if (days !== "") input.sales_collection_days = Number(days);
   return input;
 }
@@ -118,10 +118,10 @@ export function PartnerCreateForm({ onCreated }: { onCreated: () => void }) {
     setCreated(null);
     createPartner(toInput(draft))
       .then((row) => {
-        //  ★ 보여 주는 것은 보낸 값이 아니라 **저장된 행**이다.
+        //  보여 주는 것은 보낸 값이 아니라 저장된 행이다.
         setCreated(row);
         setDraft(EMPTY);
-        //  ★ 목록을 다시 읽는다 — 화면에만 남은 거래처를 만들지 않는다.
+        //  목록을 다시 읽는다 — 화면에만 남은 거래처를 만들지 않는다.
         onCreated();
       })
       .catch((failure: unknown) => setProblems([explain(failure)]))
@@ -272,7 +272,7 @@ export function PartnerCreateForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-/** 서버 오류를 사용자 문장으로. **원인을 숨기지 않는다.** */
+/** 서버 오류를 사용자 문장으로. 원인을 숨기지 않는다. */
 function explain(failure: unknown): string {
   if (!(failure instanceof SalesApiError)) return String(failure);
   if (failure.status === 409) return failure.message;

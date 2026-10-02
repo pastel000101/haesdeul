@@ -1,15 +1,16 @@
 """mock JSON을 IO명세 §1의 반환 형태로 materialize한다.
 
-**as_of가 시나리오 키다.** 포트 시그니처에 ``scenario`` 인자를 넣을 수 없으므로
-(계약으로 확정됨) 4개 앵커일에 4개 단위 테스트 시나리오를 배정했다 — ``scenarios.json``.
+as_of가 시나리오 키다. 포트 시그니처에 ``scenario`` 인자를 넣을 수 없으므로
+(계약으로 확정됨) 앵커일마다 단위 테스트 시나리오를 배정했다 — ``scenarios.json``.
 전역 스위치나 환경변수를 쓰지 않으므로 상태가 없고, 테스트 간 오염도 없다.
 
-**날짜는 저장하지 않고 오프셋으로 저장한다.** 재고의 ``stocked_at``, 주문의 ``due_date``,
-예측의 ``daily[].date``는 전부 ``as_of`` 상대값이다. 리터럴 날짜를 쓰면 9/11 시나리오에서
-"8/24 납품"이 과거가 되어 등급-신선도 매칭이 무의미해진다. 여기서 ``as_of``를 더해 실날짜를
-만든다 — 그래서 이 모듈에도 벽시계(현재 시각)를 읽는 코드가 없다 (규칙 1).
+날짜는 저장하지 않고 오프셋으로 저장한다. 주문의 ``due_date``, 예측의 ``daily[].date``는
+``as_of`` 상대값이다. 리터럴 날짜를 쓰면 9/11 시나리오에서 "8/24 납품"이 과거가 되어
+등급-신선도 매칭이 무의미해진다. 여기서 ``as_of``를 더해 실날짜를 만든다 — 그래서 이
+모듈에도 벽시계(현재 시각)를 읽는 코드가 없다 (규칙 1). 재고 로트에는 날짜 필드가 없다
+(``load_inventory``).
 
-**캐시하지 않는다.** 매 호출마다 파일을 다시 읽고 새 dict를 만든다. 로드한 객체를 재사용하면
+캐시하지 않는다. 매 호출마다 파일을 다시 읽고 새 dict를 만든다. 로드한 객체를 재사용하면
 호출자가 반환값을 만졌을 때 다음 호출자가 오염된 데이터를 받는다 — mock은 read-only 경계를
 흉내 내는 물건이라 그 성질이 특히 중요하다. 파일은 전부 100줄 안팎이다.
 """
@@ -23,10 +24,10 @@ _HERE = Path(__file__).parent
 
 #: mock 이 데이터를 가진 품목. 이 밖의 품목은 mock이 없다 — 조용히 빈 값을 주지 않는다.
 #:
-#: ⚠️ **계약 품목(``app/contracts/core.py`` ITEMS)과 같은 목록이고, 매입 스키마
-#:   (``schemas.ItemName``)보다는 좁다.** 매입이 더 넓은 것은 전환이 아니라 결정이다
-#:   (``tests/master/test_commitment.py`` · #224) — 계약 밖 품목은 마스터가 문 앞에서
-#:   막으므로(#223) 넓어도 안전하고, 스키마를 좁히면 그 결정이 뒤집힌다.
+#: 계약 품목(``app/contracts/core.py`` ITEMS) · 매입 스키마(``schemas/proposal.py`` 의
+#:   ``ItemName``)와 같은 목록이다. 계약 밖 품목은 마스터가 문 앞에서 막으므로(#223)
+#:   스키마가 넓어지는 것 자체는 사고가 아니지만, 차이가 생기면
+#:   ``tests/master/test_commitment.py`` 가 먼저 보인다.
 ITEMS: tuple[str, ...] = ("배추", "무", "양파")
 
 
@@ -39,7 +40,7 @@ def _read(name: str) -> dict[str, Any]:
 
 
 def _pick(block: dict[str, Any], key: str, where: str) -> Any:
-    """키를 꺼내되, 없으면 **어느 파일의 어느 블록인지** 말해준다.
+    """키를 꺼내되, 없으면 어느 파일의 어느 블록인지 말해준다.
 
     ``block[key]``로 바로 읽으면 ``KeyError('무')``만 남아 어느 mock 파일이 깨졌는지
     알 수 없다. mock은 사람이 손으로 고치는 파일이라 이 문맥이 특히 값싸게 유용하다.
@@ -101,7 +102,7 @@ def load_forecast(item: str, as_of: date) -> dict[str, Any]:
 
 
 def load_quotes(item: str, as_of: date) -> list[dict[str, Any]]:
-    """가락 등급별 당일 시세. 포트 시그니처대로 **quotes 배열만** 돌려준다 (IO명세 §1-②)."""
+    """가락 등급별 당일 시세. 포트 시그니처대로 quotes 배열만 돌려준다 (IO명세 §1-②)."""
     _require_item(item)
     name = f"quotes_{scenario_for(as_of)['quotes']}.json"
     data = _read(name)
@@ -109,15 +110,14 @@ def load_quotes(item: str, as_of: date) -> list[dict[str, Any]]:
 
 
 def load_inventory(item: str, as_of: date) -> dict[str, Any]:
-    """IO명세 §1-③ 형태. ``stocked_at``은 오프셋에서 만든다."""
+    """IO명세 §1-③ 형태. 로트는 mock 에 적힌 모양 그대로 싣는다."""
     _require_item(item)
     scenario_for(as_of)  # 앵커일 검증 — 6개 포트가 같은 날짜 규칙을 따르게 한다
     items = _pick(_read("inventory.json"), "items", "inventory.json")
     block = _pick(items, item, "inventory.json.items")
-    # ★ 로트는 **물류가 싣는 모양 그대로** 옮긴다 (#76 · 2026-08-28 실측).
-    #   전에는 stocked_at 오프셋에서 잔여신선도를 파생했는데, 물류가 이미 계산한
+    # 로트는 물류가 싣는 모양 그대로 싣는다 (#76 · 2026-08-28 실측). 물류가 이미 계산한
     #   remaining_freshness_days 를 주므로 같은 개념을 두 곳에서 계산하지 않는다.
-    #   날짜 필드가 사라져 오프셋 materialize 도 필요 없다.
+    #   날짜 필드가 없어 오프셋 materialize 도 필요 없다.
     return {
         "as_of": as_of.isoformat(),
         "item": item,
@@ -128,7 +128,7 @@ def load_inventory(item: str, as_of: date) -> dict[str, Any]:
 
 
 def load_orders(item: str, as_of: date, days: int) -> dict[str, Any]:
-    """IO명세 §1-④ 형태. ``days``로 **실제로 거른다** — ``total_kg``도 거른 뒤 합산한다."""
+    """IO명세 §1-④ 형태. ``days``로 실제로 거른다 — ``total_kg``도 거른 뒤 합산한다."""
     _require_item(item)
     scenario_for(as_of)
     _require_int(days, "days")
@@ -154,7 +154,7 @@ def load_orders(item: str, as_of: date, days: int) -> dict[str, Any]:
 
 
 def load_cash(as_of: date, horizon_days: int) -> int:
-    """향후 ``horizon_days``일 최저 예상 현금. 포트 시그니처대로 **정수 하나만** 돌려준다."""
+    """향후 ``horizon_days``일 최저 예상 현금. 포트 시그니처대로 정수 하나만 돌려준다."""
     scenario_for(as_of)
     _require_int(horizon_days, "horizon_days")
     table = _pick(_read("cash.json"), "by_horizon_days", "cash.json")
@@ -167,7 +167,7 @@ def load_cash(as_of: date, horizon_days: int) -> int:
 
 
 def filter_by_published_at(records: list[dict[str, Any]], as_of: date) -> list[dict[str, Any]]:
-    """``published_at <= as_of``만 남긴다. 발행일 없는 레코드는 **적재 자체를 거부**한다.
+    """``published_at <= as_of``만 남긴다. 발행일 없는 레코드는 적재 자체를 거부한다.
 
     look-ahead 방어의 생명선이라 조용히 건너뛰지 않는다 (IO명세 §1-⑥) — 건너뛰면 발행일이
     빠진 문서가 코퍼스에서 통째로 사라지고, 그 사실을 아무도 모른 채 근거가 비어버린다.
@@ -217,50 +217,43 @@ def load_snapshot_extras(item: str, as_of: date) -> dict[str, Any]:
 def load_documents(item: str, as_of: date, doc_types: list[str]) -> list[dict[str, Any]]:
     """IO명세 §1-⑥ 형태. item · doc_type · published_at 세 필터를 모두 통과한 것만.
 
-    🔴 **이 포트만 앵커일 검증을 하지 않는다** (#151-② · 2026-09-03).
+    이 포트만 앵커일 검증을 하지 않는다 (#151-②).
 
-      전에는 ``scenario_for(as_of)`` 를 불러 *"6개 포트가 같은 날짜 규칙을 따른다 —
-      문서만 예외를 두지 않는다"* 고 적어 뒀다. **그 관문이 ② collect_context 를
-      앵커 5일 안에 묶고 있었다.**
+      앵커일 관문(``scenario_for(as_of)``)을 두면 ② collect_context 가 앵커일 안에
+      묶인다. 실 예측은 거의 항상 ``uncertain`` 이고(D+14 실측 21건 중 임계 미만 0건),
+      ``uncertain`` 인 날만 ②가 돈다 — 관문이 있으면 앵커 밖 날짜는 ②에서 죽는다.
+      실측(2026-09-03): 실 예측·실 경락가를 물려도 그 관문에서 ``KeyError`` 가 났다.
 
-      실 예측은 거의 항상 ``uncertain`` 이고(D+14 실측 21건 중 임계 미만 0건),
-      ``uncertain`` 인 날만 ②가 돈다 — 즉 **앵커 밖 날짜는 ②에서 죽었다.**
-      실측(2026-09-03): 실 예측·실 경락가를 물려도 여기서 ``KeyError`` 가 났다.
+    관문을 뺄 수 있는 이유: 이 로더는 앵커를 안 쓴다. 코퍼스는 ``item`` · ``doc_type`` ·
+      ``published_at`` 셋으로만 갈리고 앵커별로 갈리는 블록이 없다 — ``load_forecast`` ·
+      ``load_quotes`` 가 ``scenario_for(as_of)['forecast']`` 로 파일을 고르는 것과 다르다.
+      그 둘은 관문을 유지한다.
 
-    ★ **뺄 수 있는 이유: 이 로더는 앵커를 안 쓴다.** ``scenario_for`` 의 반환값을
-      한 번도 참조하지 않는 **순수 관문**이었다. 코퍼스는 ``item`` · ``doc_type`` ·
-      ``published_at`` 셋으로만 갈리고 앵커별로 갈리는 블록이 없다 —
-      ``load_forecast`` · ``load_quotes`` 가 ``scenario_for(as_of)['forecast']`` 로
-      **파일을 고르는** 것과 다르다. 그 둘은 관문을 유지한다.
+      "앵커 밖이라 못 본다" 로 빈 목록을 내지 않는다 — 문서는 실제로 있다. 없다고 적으면
+      그건 사유가 아니라 거짓이다 (규칙 3의 반대 방향: 아는 값을 모른다고 하지 않는다).
 
-      그래서 *"앵커 밖이라 못 본다"* 로 빈 목록을 내는 쪽을 택하지 않았다 —
-      **문서는 실제로 있다.** 없다고 적으면 그건 사유가 아니라 거짓이다 (규칙 3의
-      반대 방향: 아는 값을 모른다고 하지 않는다).
-
-    ⚠️ **T0 규칙이 깨지는 것이 아니다.** ``get_context_docs`` 는 원래부터 6개 포트 중
-      **유일하게 T0 밖에서 불리는 런타임 호출**이다(정의서 §3.1.1 · IO명세 §0 ·
+    T0 규칙이 깨지는 것이 아니다. ``get_context_docs`` 는 원래부터 6개 포트 중 유일하게
+      T0 밖에서 불리는 런타임 호출이다(정의서 §3.1.1 · IO명세 §0 ·
       ``ports.get_context_docs`` docstring). 같은 예외의 다른 면일 뿐이고, T0 를 만드는
-      ``build_initial_state`` 는 나머지 포트로 여전히 앵커 밖을 거른다.
+      ``build_initial_state`` 는 나머지 포트로 앵커 밖을 거른다.
 
-    🔴 **대신 열리는 위험 하나 — 문서의 나이.** 앵커가 2026-09-11 까지라 그 뒤 날짜는
-      우연히 막혀 있었다. 이제 as_of 가 멀어져도 발행일 필터만 통과하면 다 보인다.
-      시세는 나이를 본다(``quotes.provenance_problem``). **문서는 임계를 정할 근거가
-      없어 판정하지 않고, ⑥이 나이를 사실로 적는다** (``context_risks``).
+    대신 열리는 위험 하나 — 문서의 나이. as_of 가 멀어져도 발행일 필터만 통과하면 다
+      보인다. 시세는 나이를 본다(``domain/quotes.py`` 의 ``provenance_problem``). 문서는
+      임계를 정할 근거가 없어 판정하지 않고, ⑥이 나이를 사실로 적는다 (``context_risks``).
     """
     _require_item(item)
     raw = _read("documents.json")
     corpus = _pick(raw, "documents", "documents.json")
-    # 🔴 **등급은 코퍼스가 선언한다** (2026-09-09 · E3-5). 전에는 ⑥
-    #   ``package_scenarios.context_rationale`` 이 ``"SIM_FIXED"`` 를 리터럴로 들고
-    #   있었고, *"실문서로 갈아끼우면 여기가 OFFICIAL 이 된다"* 는 설명만 docstring 에
-    #   있었다. 선언과 코드가 **같은 값**이라 값 비교로는 «선언에서 읽는가» 를 증명할 수
-    #   없었다 (규칙 8). 실물이 오는 날 고칠 자리를 코드 안에 숨기지 않는다.
+    # 등급은 코퍼스가 선언한다 (E3-5). ⑥(``domain/package_scenarios.py`` 의
+    #   ``context_rationale``)이 등급을 리터럴로 들면 선언과 코드가 같은 값이라, 값
+    #   비교로는 «선언에서 읽는가» 를 증명할 수 없다 (규칙 8). 실물이 오는 날 고칠 자리를
+    #   코드 안에 숨기지 않는다.
     #
-    # ⚠️ **없으면 거부한다.** 기본값으로 ``SIM_FIXED`` 를 떨어뜨리면 *"아무도 선언한 적
-    #   없는 등급"* 이 근거에 실린다 — ``published_at`` 을 0 으로 안 채우는 것과 같은
+    # 없으면 거부한다. 기본값으로 ``SIM_FIXED`` 를 떨어뜨리면 "아무도 선언한 적 없는
+    #   등급" 이 근거에 실린다 — ``published_at`` 을 0 으로 안 채우는 것과 같은
     #   자리다 (규칙 3).
     #
-    # ★ **값이 사다리 안인지는 여기서 안 본다.** ``schemas.RationaleItem`` 의
+    # 값이 사다리 안인지는 여기서 안 본다. ``schemas.RationaleItem`` 의
     #   ``EvidenceGrade`` 가 출력 경계에서 이미 검사한다 — 사다리를 두 곳에 적으면
     #   한쪽만 늙는다 (규칙 7).
     evidence_grade = _pick(raw, "_evidence_grade", "documents.json")

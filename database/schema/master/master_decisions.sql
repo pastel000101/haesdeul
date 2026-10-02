@@ -1,60 +1,52 @@
--- 마스터 사용자 결정 기록 — master_decisions (2026-08-27)
+-- 마스터 사용자 결정 기록 — master_decisions
 --
 -- ══════════════════════════════════════════════════════════════════════════
 -- 회의 미결정 12번 — "사용자 선택 이후 실제 실행 여부 기록 방법" 에 대한 답이다.
 -- ══════════════════════════════════════════════════════════════════════════
 --
--- ★ 왜 새 표인가 — `orchestrator_agent_runs` 에 넣지 않는다.
---   그 표의 한 행은 **에이전트 실행 1건**이다. 결정은 실행이 아니라 **사람의 행위**라
+-- 왜 따로 두나 — 실행 이력 표에 넣지 않는다.
+--   실행 이력 표의 한 행은 에이전트 실행 1건이다. 결정은 실행이 아니라 사람의 행위라
 --   `plan`·`runtime_status`·`request_payload` 가 전부 뜻을 잃는다. 무엇보다
---   **한 요청에 결정이 여러 번 붙는다** (제시 → 조건부 재요청 → 최종 선택).
+--   한 요청에 결정이 여러 번 붙는다 (제시 → 조건부 재요청 → 최종 선택).
 --   1:N 은 표를 나누는 자리다.
 --
---   `master_runs_migration.sql` 의 "새 표를 만들지 않는다" 는 **실행끼리** 나누지
---   말라는 것이었다. 결정은 다른 종류의 사실이다.
+--   `migrations/master/master_runs_migration.sql` 의 "새 표를 만들지 않는다" 는 실행끼리
+--   나누지 말라는 것이다. 결정은 다른 종류의 사실이다.
 --
--- ★ append-only. UPDATE·DELETE 하지 않는다.
+-- append-only. UPDATE·DELETE 하지 않는다.
 --   번복도 새 행이고 `decision_seq` 최대가 유효하다. 덮어쓰면 "왜 이 결정이 나왔는지"
 --   가 사라진다 — 결정 이력은 감사 대상이다.
 --
--- ★ 이 표는 마스터 Flow 가 쓰지 않는다.
---   승인 게이트가 **툴 바깥**에 있어야 마스터가 스스로 통과시킬 수 없다 (8/26 회의).
---   `flow.py` 는 이 모듈을 임포트하지 않는다.
+-- 이 표는 마스터 Flow 가 쓰지 않는다.
+--   승인 게이트가 툴 바깥에 있어야 마스터가 스스로 통과시킬 수 없다 (8/26 회의).
+--   `app/master/service/flow.py` 는 결정 저장(`app/master/repository/decisions.py`)을
+--   임포트하지 않는다.
 --
--- ★ `scenario_label` 을 CHECK 로 열거하지 않는다.
---   '보수·기본·공격' 은 **매입의 계약**이다. DDL 에 박으면 매입이 라벨을 바꿀 때
---   DB 마이그레이션이 따라온다. 대신 코드가 **그 실행이 실제로 내놓은 안** 과
+-- `scenario_label` 을 CHECK 로 열거하지 않는다.
+--   '보수·기본·공격' 은 매입의 계약이다. DDL 에 박으면 매입이 라벨을 바꿀 때
+--   DB 마이그레이션이 따라온다. 대신 코드가 그 실행이 실제로 내놓은 안과
 --   대조한다 — 열거보다 강한 검사다 (없는 안을 승인할 수 없다).
 
--- ★ 이 표는 `master_agent_runs` 보다 **나중에** 만들어야 한다.
+-- 이 표는 `master_agent_runs` 보다 나중에 만들어야 한다.
 --   run_id 가 그쪽을 참조한다. 실행 순서는 `database/new_database_order.txt` 를 본다.
 --
--- 개정 이력
---   2026-08-30  run_id 신설 — 결정이 어느 실행을 승인했는지 기록한다.
---               새 DB 는 이 파일 하나로 선다. 이미 데이터가 있는 DB 를 옮길 때만
---               `master_decisions_run_id.sql` (ALTER 판) 을 쓴다.
---   2026-09-07  재검증 2칸 신설 — 최종 승인 클릭 때 선택된 1안을 다시 검증한 결과.
---               ALTER 판은 `master/master_decision_revalidation.sql`.
---               🔴 `decision` 에 값을 더하지 않는다. 사용자가 APPROVE 를 눌렀는데
---               재검증에서 막힌 것과, 사용자가 승인하지 않은 것은 다른 사건이다.
---               섞으면 "승인하려다 막혔다" 가 사라진다 (판매 2026-09-04 합의).
---   2026-09-07  decision 어휘에 CANCEL 을 더한다 — 이관 판이 이미 열어 둔 것을
---               본 DDL 이 안 따라가서 갈려 있었다. 갈린 채로 새 DB 를 세우면
---               CANCEL 결정 저장이 전부 CHECK 로 막힌다 (코드의 Decision 은 4종).
---               ALTER 판은 `master/master_decision_cancel.sql`.
---               🔴 갈림은 이제 검사로 건다 — `backend/tests/master/
---               test_schema_files_agree.py` 가 두 파일의 **어휘 집합**과
---               **제약 이름**을 대조한다. 이름까지 보는 이유는 같은 날
---               revalidation 짝 제약이 `_pair` 대 `_pairing` 으로 갈려 있었기
---               때문이다 — 조건식이 같아도 이관 판의 IF NOT EXISTS 는 이름으로
---               판정해, 같은 뜻의 제약이 둘 걸린다.
---   2026-09-30  BL-021 보완 — 새 DB 목록 끝에서 따로 돌던 ALTER 판 둘의 최종 효과를 이
---               파일에 담았다. 새 DB 는 이 파일 하나로 선다.
---               · 결정 → 실행 FK 가 `master_agent_runs` 를 가리킨다(전에는
---                 `orchestrator_agent_runs`). ALTER 판은 `migrations/master/
---                 master_agent_runs_migration.sql` §4 — 그 파일의 행 이관은 옮기지 않았다.
---               · 재검증 인덱스와 두 칸의 주석. ALTER 판은 `migrations/master/
---                 master_decision_revalidation.sql`.
+-- 재검증 결과는 `decision` 에 값을 더하지 않고 두 칸(revalidation_*)에 따로 적는다.
+--   사용자가 APPROVE 를 눌렀는데 재검증에서 막힌 것과, 사용자가 승인하지 않은 것은
+--   다른 사건이다. 섞으면 "승인하려다 막혔다" 가 사라진다 (판매 2026-09-04 합의).
+--
+-- 새 DB 는 이 파일 하나로 선다. 이미 데이터가 있는 DB 는 아래 ALTER 판을 쓴다
+--   (`database/README.md` §2) — 이 파일은 그 판들의 최종 효과를 담는다.
+--     · run_id 칸과 복합 FK — `migrations/master/master_decisions_run_id.sql`
+--     · 결정 → 실행 FK 가 `master_agent_runs` 를 가리킨다 —
+--       `migrations/master/master_agent_runs_migration.sql` §4 (그 파일의 행 이관은 기존 DB
+--       에만 뜻이 있어 이 파일에 없다)
+--     · 재검증 두 칸 · 인덱스 · 칸 주석 — `migrations/master/master_decision_revalidation.sql`
+--     · decision 어휘의 CANCEL — `migrations/master/master_decision_cancel.sql`
+--       (코드의 Decision 은 4종이다)
+--
+-- 이 파일과 ALTER 판이 갈리지 않게 `backend/tests/master/test_schema_files_agree.py` 가 두
+--   파일의 어휘 집합과 제약 이름을 대조한다. 이름까지 보는 이유: 조건식이 같아도 이관 판의
+--   IF NOT EXISTS 는 이름으로 판정해, 이름이 다르면 같은 뜻의 제약이 둘 걸린다.
 
 BEGIN;
 
@@ -63,17 +55,17 @@ CREATE TABLE IF NOT EXISTS haetdeul.master_decisions (
 
     -- 업무 키. `master_agent_runs.request_id` 와 같은 값이지만 이것만으로는
     -- FK 를 걸 수 없다 — 그쪽은 재실행마다 행이 늘어 request_id 가 UNIQUE 가 아니다.
-    -- **그래서 run_id 를 같이 든다** (아래).
+    -- 그래서 run_id 를 같이 든다 (아래).
     request_id            TEXT        NOT NULL,
     decision_seq          INT         NOT NULL,
 
-    -- ★ 이 결정이 **보고 있던 실행** (2026-08-30 신설).
-    --   request_id 만으로는 부족했다 — 실측에서 한 업무 키에 실행이 75행이었고,
-    --   1회차 승인이 그중 68건 가운데 무엇을 승인한 것인지 DB 에 없었다.
-    --   이력 조회는 최신 실행을 주므로, 재실행이 한 번 더 일어나면 **사람이 승인한
-    --   수량과 화면이 승인됐다고 말하는 수량이 달라진다** (라벨은 같아서 눈에 안 띈다).
+    -- 이 결정이 보고 있던 실행.
+    --   request_id 만으로는 부족하다 — 한 업무 키에 실행이 여러 행 쌓이고(실측 75행),
+    --   그러면 승인이 그중 무엇을 승인한 것인지 DB 에 남지 않는다.
+    --   이력 조회는 최신 실행을 주므로, 재실행이 한 번 더 일어나면 사람이 승인한
+    --   수량과 화면이 승인됐다고 말하는 수량이 달라진다 (라벨은 같아서 눈에 안 띈다).
     --
-    --   NULL 은 **"실행이 없다"가 아니라 "어느 실행인지 기록되지 않았다"** 이다 —
+    --   NULL 은 "실행이 없다"가 아니라 "어느 실행인지 기록되지 않았다" 이다 —
     --   2026-08-30 이전 행이 그렇다. 시각으로 추정해 채우지 않는다 (§1.2-10).
     run_id                UUID        NULL,
 
@@ -88,23 +80,23 @@ CREATE TABLE IF NOT EXISTS haetdeul.master_decisions (
     follow_up_request_id  TEXT        NULL,
 
     -- 결정 시점의 종료 코드. 나중에 재실행으로 종료 코드가 바뀌어도
-    -- **무엇을 보고 결정했는지** 는 그대로 남아야 한다.
+    -- 무엇을 보고 결정했는지는 그대로 남아야 한다.
     end_code_at_decision  TEXT        NOT NULL,
 
-    -- 재검증이 돈 실행의 업무 키. 재검증은 **새 as_of · 새 request_id** 로 도는데
+    -- 재검증이 돈 실행의 업무 키. 재검증은 새 as_of · 새 request_id 로 도는데
     -- 승인은 원 실행에 달려 있어서, 둘을 한 칸에 담으면 무엇을 가리키는지 모른다.
-    -- `follow_up_request_id`(RERUN_WITH_CONDITION)와 **다른 칸이다.**
+    -- `follow_up_request_id`(RERUN_WITH_CONDITION)와 다른 칸이다.
     revalidation_request_id TEXT      NULL,
 
-    -- 재검증 결과. `decision` 이 사용자의 **의도**라면 이것은 **결과**다.
+    -- 재검증 결과. `decision` 이 사용자의 의도라면 이것은 결과다.
     revalidation_outcome  TEXT        NULL,
 
     note                  TEXT        NULL,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-    -- 🔴 CANCEL 이 REJECT_ALL 과 어떻게 다른지는 이관 판 머리말이 말한다 —
-    --    `master/master_decision_cancel.sql`. 여기 옮겨 적지 않는다. 같은 설명이
-    --    두 곳에 있으면 **그 설명이 갈린다** (이 어휘가 갈린 것과 같은 병이다).
+    -- CANCEL 이 REJECT_ALL 과 어떻게 다른지는 이관 판 머리말이 말한다 —
+    --    `migrations/master/master_decision_cancel.sql`. 여기 다시 적지 않는다. 같은 설명이
+    --    두 곳에 있으면 그 설명이 갈린다.
     CONSTRAINT master_decisions_decision_check
         CHECK (decision IN ('APPROVE', 'REJECT_ALL', 'REQUEST_CHANGE', 'CANCEL')),
 
@@ -121,12 +113,12 @@ CREATE TABLE IF NOT EXISTS haetdeul.master_decisions (
         CHECK (decision <> 'REQUEST_CHANGE' OR condition_text IS NOT NULL),
 
     -- 어휘를 닫는다. `decision` 을 CHECK 로 닫아 둔 것과 같은 결이다.
-    -- ⚠️ NULL 은 CHECK 를 그냥 통과한다 — NULL 은 "재검증을 안 했다" 다.
+    -- 주의: NULL 은 CHECK 를 그냥 통과한다 — NULL 은 "재검증을 안 했다" 다.
     CONSTRAINT master_decisions_revalidation_outcome_check
         CHECK (revalidation_outcome IN ('PASSED', 'CONDITIONAL', 'FAILED', 'ERROR')),
 
     -- 결과가 있는데 어느 실행이었는지 모르면 "재검증했다" 가 추적 불가능해진다.
-    -- ERROR 는 예외다 — 재검증을 **못 돌린** 것이라 가리킬 실행이 없을 수 있고,
+    -- ERROR 는 예외다 — 재검증을 못 돌린 것이라 가리킬 실행이 없을 수 있고,
     -- 예외를 안 두면 가짜 업무 키를 지어 넣게 된다.
     -- 반대 방향(키만 있고 결과 NULL)도 막는다. 안 막으면 NULL 의 뜻이
     -- "안 했다" 와 "결과를 못 적었다" 둘이 된다.
@@ -144,17 +136,17 @@ CREATE TABLE IF NOT EXISTS haetdeul.master_decisions (
     CONSTRAINT master_decisions_unique_seq
         UNIQUE (request_id, decision_seq),
 
-    -- ★ **복합 FK** — run_id 만 맞는 것으로는 부족하다.
-    --   (run_id) 단독이면 코드 실수로 **다른 업무 키의 실행**을 가리켜도 통과한다.
+    -- 복합 FK — run_id 만 맞는 것으로는 부족하다.
+    --   (run_id) 단독이면 코드 실수로 다른 업무 키의 실행을 가리켜도 통과한다.
     --   쌍으로 걸면 "결정과 실행의 업무 키가 같다" 를 DB 가 보장한다. 트리거가
     --   필요 없다 — run_id 가 PK 라 참조 대상에 UNIQUE 를 하나 얹으면 된다
     --   (`master_agent_runs_run_request_unique`).
     --
-    --   PostgreSQL 기본인 MATCH SIMPLE 이라 **참조 컬럼 중 하나라도 NULL 이면 검사를
-    --   건너뛴다** — run_id 가 NULL 인 옛 행이 그대로 통과한다.
+    --   PostgreSQL 기본인 MATCH SIMPLE 이라 참조 컬럼 중 하나라도 NULL 이면 검사를
+    --   건너뛴다 — run_id 가 NULL 인 옛 행이 그대로 통과한다.
     --
     --   ON DELETE RESTRICT: 결정이 가리키는 실행은 지울 수 없다. SET NULL 이면
-    --   실행을 지우는 순간 **결정이 조용히 근거를 잃는다.**
+    --   실행을 지우는 순간 결정이 조용히 근거를 잃는다.
     CONSTRAINT master_decisions_run_fk
         FOREIGN KEY (run_id, request_id)
         REFERENCES haetdeul.master_agent_runs (run_id, request_id)

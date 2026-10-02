@@ -1,7 +1,4 @@
-"""판매 제안 그래프(`service/proposal.py`)가 노드 사이로 나르는 상태.
-
-★ 2026-09-29 BL-013: `sales/state.py` 에서 옮겼다.
-"""
+"""판매 제안 그래프(`service/proposal.py`)가 노드 사이로 나르는 상태."""
 
 from __future__ import annotations
 
@@ -40,6 +37,6 @@ class SalesAgentState(TypedDict, total=False):
     excluded_reasons: dict[str, list[str]]
     status: SalesCandidateStatus | str
     terminal_reason: str | None
-    #: 세 전략의 자세. **후보를 만들기 전에 선다** (`plan_strategy` 노드).
+    #: 세 전략의 자세. 후보를 만들기 전에 선다 (`plan_strategy` 노드).
     strategy_plan: StrategyPlan
     reply: SalesProposalReply

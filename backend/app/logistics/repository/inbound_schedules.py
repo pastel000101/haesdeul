@@ -1,12 +1,12 @@
-"""inbound_schedules.py — 입고 예정을 **날짜에 안 묶인 업무 Entity 로** 적는다 (W3-1).
+"""inbound_schedules.py — 입고 예정을 날짜에 안 묶인 업무 Entity 로 적는 SQL (W3-1).
 
 ```text
-승인   record_schedule   INSERT 1행                     (날짜별 복제 없음)
-취소   cancel_schedule   cancelled_as_of UPDATE          (과거는 안 고친다)
-조회   load_inbound_schedules  created_as_of <= as_of    (W3-2 Reader 가 재사용)
+승인   insert_schedule            INSERT 1행                (날짜별 복제 없음)
+취소   mark_schedule_cancelled    cancelled_as_of UPDATE     (과거는 안 고친다)
+조회   select_schedule_view_rows  created_as_of <= as_of
 ```
 
-🔴 **입고 예정의 정본은 이 표 하나다 (W3-3 완료).**
+입고 예정의 정본은 이 표 하나다(W3-3).
 
 ```text
 Reader   inbound_schedules                       운송 중 · 도착 처리 · Capacity
@@ -14,14 +14,13 @@ Writer   inbound_schedules                       승인 · 취소 · orphan 정�
 Header   logistics_runtime_fixture.*_status      «그 축을 확인했나» 만
 ```
 
-   `logistics_runtime_fixture` 의 두 JSON 칸은 더 이상 읽히지도 쓰이지도 않는다 —
+   `logistics_runtime_fixture` 의 두 JSON 칸은 읽히지도 쓰이지도 않는다 —
    DROP 대상이다 (`database/migrations/logistics/logistics_drop_inbound_json.sql`).
 
-🔴 **왜 표를 따로 만드는가 — 날짜별 복제가 사고를 냈다.**
+왜 표를 따로 두는가 — 입고 예정을 날짜별로 복제하면 사고가 난다.
 
-   종전 입고 예정은 `in_transit_json` · `confirmed_inbound_json` 안에 **날짜마다
-   복제되어** 살았고, 하루 넘김 carry-forward 가 그것을 유지했다. 그래서 미래 날짜
-   행이 **먼저 열려 있으면** 그 행은 나중에 난 승인을 모른 채 굳는다.
+   입고 예정을 fixture 행의 JSON 칸에 날짜마다 복제하고 하루 넘김 carry-forward 로
+   유지하면, 미래 날짜 행이 먼저 열려 있을 때 그 행은 나중에 난 승인을 모른 채 굳는다.
 
    ```text
    2026-01-15 fixture 생성 (in_transit = [])   ← 먼저 열렸다
@@ -30,35 +29,32 @@ Header   logistics_runtime_fixture.*_status      «그 축을 확인했나» 만
    ⇒ Receipt 0 · Lot 0 · IN Move 0
    ```
 
-   실측(2026-09-09) `INB-H1-REQ-FIRSTINB-20260113-1-1` 이 그 상태이고
-   `payables … OPEN 3,066,885원` 이 그 채무를 들고 있다. 전방 전파
-   (`master.day_opening_repository.opened_days_after`)가 그날을 못 본 이유는
-   `master_day_openings` 에 2026-01-10 ~ 01-19 가 **한 행도 없어서**다.
+   실측(2026-09-09) `INB-H1-REQ-FIRSTINB-20260113-1-1` 이 그 상태였다.
 
-   ⇒ 이 표는 **한 번 INSERT 하고 날짜로 질의한다.** 미래 날짜 행을 만들지도 고치지도
+   ⇒ 이 표는 한 번 INSERT 하고 날짜로 질의한다. 미래 날짜 행을 만들지도 고치지도
      않으므로 같은 사고가 구조적으로 재현되지 않는다.
 
-🔴 **완료 컬럼이 없다. `status` 컬럼도 없다.**
+완료 컬럼이 없다. `status` 컬럼도 없다.
 
    ```text
    완료      downstream 사실로 유도 (Receipt · Lot · IN Move)   소비자마다 다르다
    취소      cancelled_as_of 한 칸                              모순 조합이 없다
    ```
 
-   Receipt 생성과 재고 반영 완료는 **다른 사건**이다 — `inbound_execution._receive_one`
-   은 검수 사실이 없으면 `INSPECTION_FACT_UNAVAILABLE` 로 돌아서고, 그때 Receipt 만
-   선 채 커밋된다. 그 상태가 며칠 이어질 수 있어 하나를 골라 `COMPLETED` 로 적으면
-   나머지 소비자가 틀린다. 소비자별 종료조건은 이 파일 아래쪽 Reader 절에 있다.
+   Receipt 생성과 재고 반영 완료는 다른 사건이다 — `service/inbound_execution.py` 의
+   `_receive_one` 은 검수 사실이 없으면 `INSPECTION_FACT_UNAVAILABLE` 로 돌아서고, 그때
+   Receipt 만 선 채 커밋된다. 그 상태가 며칠 이어질 수 있어 하나를 골라 `COMPLETED` 로
+   적으면 나머지 소비자가 틀린다.
 
-🔴 **커밋도 롤백도 하지 않고 커넥션을 새로 열지 않는다.** 승인·취소가 같은 트랜잭션에서
-   쓰는 다른 사실(매입 원장 · 재무 · Header status)과 **한 덩어리로 서거나 함께
-   물러나야** 한다 (`transition.persist_inventory` 와 같은 규율).
+커밋도 롤백도 하지 않고 커넥션을 새로 열지 않는다. 승인·취소가 같은 트랜잭션에서
+쓰는 다른 사실(매입 원장 · 재무 · Header status)과 한 덩어리로 서거나 함께
+물러나야 한다(`service/transition.py` 의 `persist_inventory` 와 같은 규율).
 
-★ 2026-09-30 재구성 BL-015: `logistics/inbound_schedules.py` 가
-  계층별로 나뉘며 **SQL** 이 이 파일에 남았다(기존 일정 잠금 · INSERT · 취소 UPDATE · Receipt 존재 ·
-  일정 보기 · 사실 날짜). 소비자별 종료조건은 `domain/inbound_schedules.py`, 요청 범위 캐시
-  (`schedule_view_scope`)와 읽기 조합은 `readmodel/inbound_schedules.py`, 기록 · 취소 순서는
-  `service/inbound_schedules.py`, 모델은 `schemas/inbound_schedules.py`.
+이 파일에는 SQL 만 있다(기존 일정 잠금 · INSERT · 취소 UPDATE · Receipt 존재 · 일정 보기 ·
+사실 날짜). 소비자별 종료조건은 `domain/inbound_schedules.py`, 요청 범위 캐시
+(`schedule_view_scope`)와 읽기 조합은 `readmodel/inbound_schedules.py`, 기록 · 취소 순서는
+`service/inbound_schedules.py`(`record_schedule` · `cancel_schedule`), 모델은
+`schemas/inbound_schedules.py`.
 """
 
 from __future__ import annotations
@@ -74,11 +70,11 @@ from app.logistics.schemas.inbound_schedules import InboundSchedule
 
 
 def select_schedule(conn: Any, *, sim_run_id: str, inbound_id: str) -> dict[str, Any] | None:
-    """그 일정 한 행을 **잠그고** 읽는다.
+    """그 일정 한 행을 잠그고 읽는다.
 
-    🔴 **`FOR UPDATE` 가 이 모듈의 동시성 방어다.** 읽고-고치고-쓰는 사이에 같은
-       `inbound_id` 를 겨냥한 다른 트랜잭션이 끼어들면 멱등 판정이 무너진다
-       (`transition.persist_inventory` 가 fixture 행을 잠그는 것과 같은 이유).
+    `FOR UPDATE` 가 이 모듈의 동시성 방어다. 읽고-고치고-쓰는 사이에 같은
+    `inbound_id` 를 겨냥한 다른 트랜잭션이 끼어들면 멱등 판정이 무너진다
+    (`persist_inventory` 가 fixture 행을 잠그는 것과 같은 이유).
     """
     found = dict_rows(
         conn,
@@ -99,7 +95,7 @@ def select_schedule(conn: Any, *, sim_run_id: str, inbound_id: str) -> dict[str,
 def has_receipt(conn: Any, *, sim_run_id: str, inbound_id: str) -> bool:
     """그 입고의 도착 Receipt 가 있나.
 
-    ★ `inbound_receipts` 에 `UNIQUE(sim_run_id, inbound_id)` 가 있어 0 아니면 1 이다.
+    `inbound_receipts` 에 `UNIQUE(sim_run_id, inbound_id)` 가 있어 0 아니면 1 이다.
     """
     found = dict_rows(
         conn,
@@ -114,15 +110,15 @@ def has_receipt(conn: Any, *, sim_run_id: str, inbound_id: str) -> bool:
 def load_inbound_schedules(
     conn: Any, *, sim_run_id: str, as_of: date
 ) -> tuple[InboundSchedule, ...]:
-    """`as_of` 시점에 **살아 있던** 입고 예정 전부.
+    """`as_of` 시점에 살아 있던 입고 예정 전부.
 
     ```text
     created_as_of <= as_of                              그날 이미 장부에 서 있었다
     cancelled_as_of IS NULL OR cancelled_as_of > as_of   그날 아직 취소 전이었다
     ```
 
-    🔴 **소비자별 종료조건은 여기서 걸지 않는다 (W3-2).** Receipt · Lot · 원장 IN 을
-       어디까지 봐야 하는지가 소비자마다 다르다.
+    소비자별 종료조건은 여기서 걸지 않는다(W3-2). Receipt · Lot · 원장 IN 을
+    어디까지 봐야 하는지가 소비자마다 다르다.
 
     ```text
     운송 중 조회   Receipt 생성 전까지
@@ -130,11 +126,11 @@ def load_inbound_schedules(
     취소 · 정리    Receipt 0건일 때만
     ```
 
-       하나를 이 함수에 박으면 나머지가 틀린다 — 그래서 **시점 축만** 자르고,
+       하나를 이 함수에 박으면 나머지가 틀린다 — 그래서 시점 축만 자르고,
        종료조건은 부르는 쪽이 얹는다.
 
-    ⚠️ **W3-1 에서는 이 함수를 Runtime 이 쓰지 않는다.** Legacy JSON 과 대조하는
-       자리에서만 부른다. Reader 전환은 W3-2 다.
+    주의: 현재 app · tests 에 이 함수를 부르는 곳이 없다. Runtime 의 일정 읽기는
+    `select_schedule_view_rows`(`readmodel/inbound_schedules.py`)를 쓴다.
     """
     rows = dict_rows(
         conn,
@@ -170,7 +166,7 @@ def load_inbound_schedules(
 def schedule_fact_dates_at(
     conn: Any, *, sim_run_id: str, as_of: date, window_end: date
 ) -> tuple[date, ...]:
-    """그날까지 **그 창의 답을 바꾼 모든 날**. 🔴 읽기만 한다.
+    """그날까지 그 창의 답을 바꾼 모든 날. 읽기만 한다.
 
     ```text
     목록에 들고 남    created_as_of                    장부에 선 날
@@ -180,33 +176,33 @@ def schedule_fact_dates_at(
                      inventory_moves.moved_at (IN)    〃
     ```
 
-    ★ **왜 다섯 축을 다 세나.** 조회의 답은 «어느 일정이 있나» + «그 일정이 어디까지
-      왔나» 두 가지인데, 앞엣것만 세면 뒤엣것을 바꾼 날이 안 보인다.
+    왜 다섯 축을 다 세나: 조회의 답은 «어느 일정이 있나» + «그 일정이 어디까지
+    왔나» 두 가지인데, 앞엣것만 세면 뒤엣것을 바꾼 날이 안 보인다.
 
     ```text
     D1  A 생성 (ETA D9)   D2  B 생성 (ETA D10)   D7  B 취소
     D8·창 D8~D11 의 답 = [A]   ← 이 답은 D7 부터 참이다. D2 라고 하면 거짓이다
     ```
 
-    🔴 **`window_end` 가 필수인 이유 (v0.9 보정).** 창 밖 일정의 사건은 그 답을 **바꾸지
-       않는다** — 세면 관측일이 근거 없이 늦어진다.
+    `window_end` 가 필수인 이유: 창 밖 일정의 사건은 그 답을 바꾸지 않는다 — 세면
+    관측일이 근거 없이 늦어진다.
 
     ```text
     D1  A 생성 (ETA D9)   D7  B 생성 (ETA D100)
     D8·창 D8~D11 의 답 = [A]   ← B 는 애초에 이 답에 없다. D7 을 세면 거짓이다
     ```
 
-    ★ **취소된 일정도 창 안이면 센다.** 지금 목록에 없어도 *"D7 에 내려가서 오늘 답이
-      이렇다"* 를 만든 것이 그 취소다. 그래서 살아 있는 일정만 보지 않고 **그 창에
-      속했던 일정 전체**를 본다.
+    취소된 일정도 창 안이면 센다. 지금 목록에 없어도 "D7 에 내려가서 오늘 답이
+    이렇다" 를 만든 것이 그 취소다. 그래서 살아 있는 일정만 보지 않고 그 창에
+    속했던 일정 전체를 본다.
 
-    ⚠️ **창 기준은 Tool 과 글자 그대로 같아야 한다** — `expected_arrival_date <= window_end`
-       하나뿐이다. `>= as_of` 같은 하한을 여기서 더하면 연체된 미도착(overdue)을 Tool 은
-       세는데 Reader 는 안 세게 되어 **둘이 다른 집합을 본다.**
-       (`expected_arrival_date` 는 `ScheduleConflict` 가 지켜 사실상 불변이라 창 판정에 쓸 수 있다.)
+    주의: 창 기준은 Tool 과 글자 그대로 같아야 한다 — `expected_arrival_date <= window_end`
+    하나뿐이다. `>= as_of` 같은 하한을 여기서 더하면 연체된 미도착(overdue)을 Tool 은
+    세는데 Reader 는 안 세게 되어 둘이 다른 집합을 본다.
+    (`expected_arrival_date` 는 `ScheduleConflict` 가 지켜 사실상 불변이라 창 판정에 쓸 수 있다.)
 
-    ⚠️ **이 실행의 일정에 매달린 사건만 센다.** 실행 전체의 입고를 세면 답과 무관한
-       날이 섞여 관측일이 **실제보다 늦어진다** — 늦은 쪽으로 틀리는 것도 틀린 것이다.
+    이 실행의 일정에 매달린 사건만 센다. 실행 전체의 입고를 세면 답과 무관한
+    날이 섞여 관측일이 실제보다 늦어진다 — 늦은 쪽으로 틀리는 것도 틀린 것이다.
     """
     schema = schema_identifier()
     rows = dict_rows(
@@ -322,9 +318,9 @@ def mark_schedule_cancelled(
 def select_schedule_view_rows(
     conn: Any, *, sim_run_id: str, as_of: date, cutoff: datetime
 ) -> list[dict[str, Any]]:
-    """`as_of` 에 살아 있던 일정 + 그날까지의 계보(EXISTS) 행. **한 질의다.**
+    """`as_of` 에 살아 있던 일정 + 그날까지의 계보(EXISTS) 행. 한 질의다.
 
-    ★ `cutoff` 는 수용 0 완료를 검수 사건으로 자르는 시각이다(`timestamp_cutoff(as_of)`).
+    `cutoff` 는 수용 0 완료를 검수 사건으로 자르는 시각이다(`timestamp_cutoff(as_of)`).
     """
     schema = schema_identifier()
     rows = dict_rows(

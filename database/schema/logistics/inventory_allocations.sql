@@ -1,8 +1,6 @@
 -- inventory_allocations — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
@@ -25,9 +23,10 @@ CREATE TABLE IF NOT EXISTS haetdeul.inventory_allocations (
         FOREIGN KEY (lot_id) REFERENCES haetdeul.inventory_lots(lot_id),
     CONSTRAINT inventory_allocations_pallet_id_fkey
         FOREIGN KEY (pallet_id) REFERENCES haetdeul.pallets(pallet_id),
-    -- FEFO_AUTO_SELECTED 는 2026-09-08 에 더했다 (물류 · 시뮬레이션 자동 할당).
-    -- 🔴 앞의 둘은 **사람이 무엇을 했나**를 적는 값이라 사람이 없는 선택을 담을 수 없다.
-    --    ⚠️ 기존 두 값의 뜻은 그대로다 — 넓히기만 하고 좁히지 않았다.
+    -- FEFO_AUTO_SELECTED 는 시뮬레이션 자동 FEFO 할당이다. FEFO_TOOL_CONFIRMED ·
+    --    HUMAN_OVERRIDE 는 사람이 무엇을 했나를 적는 값이라 사람이 없는 선택을 담을 수 없어
+    --    따로 둔다. 이미 쓰는 DB 의 어휘 확장은
+    --    `migrations/logistics/logistics_allocation_basis_fefo_auto.sql` 이다.
     CONSTRAINT ck_inventory_allocations_basis
         CHECK (allocation_basis IN ('FEFO_TOOL_CONFIRMED', 'HUMAN_OVERRIDE',
                                     'FEFO_AUTO_SELECTED')),

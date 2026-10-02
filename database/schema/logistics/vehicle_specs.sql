@@ -1,17 +1,17 @@
 -- vehicle_specs — 물류
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/30_logistics_wms_schema.sql` (2026-09-05 실 DB 에서 회수한 WMS 구조)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
+-- 적용 순서는 `database/new_database_order.txt`.
 
 BEGIN;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- §9  운송 기준정보 — 차량 · 거리구간 운임 · 비용 근거
 --
---     🔴 **여기 있는 것은 회수일 뿐이다.** 고정 Route 정책
+--     공유 DB 에 있던 운송 기준정보를 저장소로 회수한 표다. 고정 Route 정책 표
 --        (route_code · direction · origin/destination_code · vehicle_class ·
---         max_load_kg · fixed_fee_krw · standard_minutes)은 **후속 단계**다.
+--         max_load_kg · fixed_fee_krw · standard_minutes)는 스키마에 없다 — 고정 Route 는
+--        `logistics_contracts` 의 거리 · 차급 · 건당 운송비를 읽는다
+--        (`app/logistics/repository/transport.py`).
 --        `vehicle_rate_table` 의 km 구간 12 행은 지우지도 바꾸지도 않는다 —
 --        `deliveries` 15 행이 이 체계로 적혀 있다.
 -- ═══════════════════════════════════════════════════════════════════════════

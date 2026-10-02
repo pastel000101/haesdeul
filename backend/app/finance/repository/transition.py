@@ -1,7 +1,4 @@
-"""승인 전이의 재무 원장 SQL — 매입채무 · 다음 상태.
-
-★ 2026-09-29 재구성 BL-014: `finance/transition.py` 에서 옮겼다(문면 그대로).
-"""
+"""승인 전이의 재무 원장 SQL — 매입채무 · 다음 상태."""
 
 from __future__ import annotations
 
@@ -15,7 +12,7 @@ from app.finance.schemas.transition import FinancePayableWrite, FinanceTransitio
 
 
 def insert_payable(conn: Connection[dict[str, object]], payable: FinancePayableWrite) -> int:
-    """매입채무 한 행을 적는다 (같은 매입이면 적지 않는다). **적힌 행 수**를 돌려준다."""
+    """매입채무 한 행을 적는다 (같은 매입이면 적지 않는다). 적힌 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(
@@ -50,7 +47,7 @@ def upsert_transition_state(
     inventory_book_value_krw: Decimal,
     operational_inventory_value_krw: Decimal,
 ) -> int:
-    """승인 다음 날 상태를 세우거나 새 채무만 더한다. **바뀐 행 수**를 돌려준다."""
+    """승인 다음 날 상태를 세우거나 새 채무만 더한다. 바뀐 행 수를 돌려준다."""
     schema = sql.Identifier(get_db_schema())
     with conn.cursor() as cursor:
         cursor.execute(

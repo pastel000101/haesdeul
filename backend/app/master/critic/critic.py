@@ -1,30 +1,27 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# STATUS: L1~L4 base — `critic_v0_4` 를 통해서만 돈다 (2026-09-10 실측)
-#   `critic_v0_4` 가 이것을 감싸 6레이어로 재배치한다. 그 감싸는 구조는 그대로다.
-#   → "함께 Tool 로 전환" 은 끝났다. 감싸는 쪽이 이미 기본값으로 주입돼 있어
-#     (`service/verifier.py` 의 `critic: CriticPort | None = run_critic_procurement`)
-#     이 파일도 그 경로로 같이 돈다.
-#   ⚠️ 앱에서 이 파일을 부르는 자리는 critic_v0_4.py:70·78·81·84 **넷뿐이다.**
-#     직접 임포터가 0이라고 죽은 파일이 아니다 — 감싸는 쪽이 유일한 문이라서 그렇다.
+# STATUS: L1~L4 base — `critic_v0_4` 를 통해서만 돈다
+#   `critic_v0_4` 가 이것을 감싸 6레이어로 재배치한다. 감싸는 쪽이 기본값으로 주입돼
+#   있어(`service/verifier.py` 의 `critic: CriticPort | None = run_critic_procurement`)
+#   이 파일도 그 경로로 같이 돈다.
+#   앱에서 이 파일을 부르는 자리는 `critic_v0_4.py` 의 import 넷뿐이다. 직접 임포터가
+#   그것뿐이라고 죽은 파일이 아니다 — 감싸는 쪽이 유일한 문이라서 그렇다.
 # ─────────────────────────────────────────────────────────────────────────────
-"""★ **`app/critic/` 에서 옮겼다** (2026-09-07 · Critic 은 마스터의 툴이다).
-
-critic.py — Critic 5계층 러너 (담당: 이현서)
+"""critic.py — Critic 5계층 러너 (담당: 이현서)
 
 계약서 §6.2 "Critic 의 90%는 LLM 이 아니라 코드다" 를 구현한다.
 
-  L1   하드 제약 재검사      ← 12종 check_* 를 **DB 재조회 값**으로 실행     [코드]
+  L1   하드 제약 재검사      ← 12종 check_* 를 DB 재조회 값으로 실행         [코드]
   L2   Evidence 숫자 대조    ← ref_id → 원본 조회 → 값 비교 (허용오차 0)     [코드]
   L3   밴드 준수 · 축 침범   ← 최종 결정이 밴드 안인가                       [코드]
   L3.5 근거 등급 · 독립성    ← §7.3 check_evidence_grade / §7.1 source_ref  [코드]
   L4   rationale 논리 일관성 ← 여기만 LLM. temp 0, 생성 모델과 완전 분리     [LLM]
 
-§6.4 핵심 — L1 은 self_check 와 **같은 함수**를 쓰되 **입력 데이터만 다르다**.
+§6.4 핵심 — L1 은 self_check 와 같은 함수를 쓰되 입력 데이터만 다르다.
 매입은 자기가 읽어온 capacity=12000 을 넣고, Critic 은 DB 에서 다시 조회한 값을 넣는다.
 룰을 두 벌 짜지 않는다.
 
-★ 이 모듈만이 원본 세션(verify_session)을 직접 받는다.
-  오케스트레이터 노드는 세션을 손에 넣을 수 없다(§5.1).
+이 모듈은 원본 대조 재료를 스스로 조회하지 않는다. 재조회 값(`verify_ctx`)과 원본
+조회 함수(`EvidenceResolver`)는 부르는 쪽이 주입한다.
 """
 
 from __future__ import annotations
@@ -60,7 +57,7 @@ class CheckFn(Protocol):
         def check_xxx(decision, ctx) -> CheckResult
 
     decision : {item: kg}   최종(클리핑된) 매입 수량
-    ctx      : 제약 계산에 필요한 값들. **누가 채웠느냐가 핵심이다.**
+    ctx      : 제약 계산에 필요한 값들. 누가 채웠느냐가 핵심이다.
                - self_check 경로 : 에이전트가 주장한 값
                - Critic  경로    : DB 에서 재조회한 값
                같은 함수, 다른 입력. 이것이 이중 방어선의 실질이다(§6.4).
@@ -74,10 +71,10 @@ class CheckFn(Protocol):
 class EvidenceResolver(Protocol):
     """(ref_id, claim) → 원본 실값. Critic 전용. as_of 로 잘린 세션을 내부에서 쓴다.
 
-    🔴 **claim 이 키에 반드시 들어간다.** ref_id 하나가 여러 주장을 뒷받침하는 것이
-    정상이기 때문이다 — DB 한 행이 *창고 여유* 와 *창고 점유* 를 동시에 뒷받침한다.
-    ref_id 만으로 대조하면 **여유를 점유와 비교**하게 되고, 그 불일치는 실제 오류가
-    아니라 **키가 부족해서 생긴 거짓 양성**이다 (실측 2026-08-29: 재무 1건 · 물류 2건이
+    claim 이 키에 반드시 들어간다. ref_id 하나가 여러 주장을 뒷받침하는 것이
+    정상이기 때문이다 — DB 한 행이 창고 여유와 창고 점유를 동시에 뒷받침한다.
+    ref_id 만으로 대조하면 여유를 점유와 비교하게 되고, 그 불일치는 실제 오류가
+    아니라 키가 부족해서 생긴 거짓 양성이다 (2026-08-29 측정: 재무 1건 · 물류 2건이
     이 이유로 떴고, 통과안 3개가 그 때문에 반려됐다).
     """
 
@@ -127,9 +124,9 @@ def run_l2(
     tolerance: float = 0.0,
 ) -> list[CriticFinding]:
     """LLM 이 만드는 오류는 "없는 숫자를 근거로 든다"이다.
-    이건 룰이 아니라 **입력이 달라야** 잡힌다(§6.4). 허용오차는 기본 0.
+    이건 룰이 아니라 입력이 달라야 잡힌다(§6.4). 허용오차는 기본 0.
 
-    ⚠️ **이 검사가 무엇을 잡고 무엇을 못 잡는지 분명히 해 둔다.**
+    이 검사가 무엇을 잡고 무엇을 못 잡는지:
 
     ```text
     잡는다   evidences 가 비어 있다
@@ -138,9 +135,9 @@ def run_l2(
     못 잡는다 주장값이 실제와 다르다  ← resolver 가 독립 원본일 때만 가능하다
     ```
 
-    마지막 줄이 핵심이다. `service._evidence_resolver` 는 **회신 자신에서** 대조표를
-    만들므로 독립 원본이 아니다. 그 배선에서는 값 대조가 성립하지 않으며, **그 사실을
-    통과로 세지 않도록** `critic_bridge` 가 `skipped` 에 적는다.
+    마지막 줄이 핵심이다. `service._evidence_resolver` 는 회신 자신에서 대조표를
+    만들므로 독립 원본이 아니다. 그 연결에서는 값 대조가 성립하지 않으며, 그 사실을
+    통과로 세지 않도록 `adapters/critic_bridge.py` 가 `skipped` 에 적는다.
     """
     findings: list[CriticFinding] = []
     for dept, reply in replies.items():
@@ -232,12 +229,10 @@ def run_l3(
 
     # 축 침범 — SuggestedAdjustment 생성자가 이미 막지만, 우회 경로를 이중으로 잡는다
     #
-    # ★ v1.2.1 — 허용 축을 계약(_DEPT_AXES)에서 읽는다. 하드코딩하지 않는다.
-    #   v1.2 는 여기에 {"sales": {"price", "quantity"}} 를 박아 뒀는데, 계약은 이미
-    #   v0.2 에서 영업 축을 price → channel_mix 로 개명한 상태였다. 두 곳이 어긋나
-    #   **계약상 정당한 channel_mix 제안이 축 침범으로 FAIL** 났다.
-    #   L3 FAIL 은 T3 로 회송되므로 사후 루프 예산을 태우고 E2 보류로 끝난다.
-    #   룰을 두 벌 짜지 않는다 (§6.4).
+    # 허용 축을 계약(_DEPT_AXES)에서 읽는다. 하드코딩하지 않는다. 여기와 계약이 어긋나면
+    # (예: 계약이 영업 축을 price → channel_mix 로 바꿨는데 여기는 price 를 들고 있으면)
+    # 계약상 정당한 제안이 축 침범으로 FAIL 난다. L3 FAIL 은 T3 로 회송되므로 사후 루프
+    # 예산을 태우고 E2 보류로 끝난다. 룰을 두 벌 짜지 않는다 (§6.4).
     for dept, reply in replies.items():
         for adj in reply.suggested_adjustments:
             allowed = set(_DEPT_AXES[dept])
@@ -266,8 +261,8 @@ def check_evidence_grade(
     """
     OFFICIAL/VENDOR → 하드 제약 허용, ASSUMED → 소프트 경고만 (§7.3).
 
-    ⚠ 통합 페르소나 v1.2 값 대부분이 ASSUMED 이므로 처음 돌리면 경고가 대량 발생한다.
-      allow_assumed_hard=True 로 시작해 FAIL 로 승격하는 시점을 팀이 정한다.
+    주의: 통합 페르소나 v1.2 값 대부분이 ASSUMED 이므로 처음 돌리면 경고가 대량 발생한다.
+    allow_assumed_hard=True 로 시작해 FAIL 로 승격하는 시점을 팀이 정한다.
     """
     findings: list[CriticFinding] = []
     for dept, reply in replies.items():
@@ -334,7 +329,7 @@ def check_price_basis_consistency(
     검토의견 §2 는 이것을 "§3.7.5 에 한 줄로 못 박자"고 제안했으나,
     문서 한 줄보다 코드 검사가 낫다. 매입을 경락가로 하면서 계약단가를
     중도매가 기준으로 산정하면 그 차이(중도매 마진)가 통째로 마진에 들어가
-    **의사결정 효과와 시장 간 스프레드가 분리되지 않는다.**
+    의사결정 효과와 시장 간 스프레드가 분리되지 않는다.
     사후에 발견하면 손익 전체를 다시 돌려야 하는 종류의 오류다.
     """
     if scenario_price_basis != snapshot.contract_price_basis:
@@ -356,10 +351,10 @@ def check_price_basis_consistency(
 
 def check_identity_on_clipped(clip: ClipResult) -> list[CriticFinding]:
     """
-    ★ 반드시 **클리핑된 값**에 대해 검사한다.
-      원안에 대고 검사하면 T3 가 총량을 자를 때마다 FAIL 이 나고,
-      클리핑이 발생하는 모든 날이 보류로 끝난다.
-      T3 가 split_plan · sourcing_plan 을 함께 축소하므로 항등식은 유지된다.
+    반드시 클리핑된 값에 대해 검사한다.
+    원안에 대고 검사하면 T3 가 총량을 자를 때마다 FAIL 이 나고,
+    클리핑이 발생하는 모든 날이 보류로 끝난다.
+    T3 가 split_plan · sourcing_plan 을 함께 축소하므로 항등식은 유지된다.
     """
     problems = list(clip.identity_problems)
     problems += [f"min_lot 내림으로 floor 미달: {i}" for i in clip.floor_broken]
@@ -379,9 +374,9 @@ def run_l4(
     judge: RationaleJudge | None,
 ) -> tuple[list[CriticFinding], str]:
     """
-    ★ L4 FAIL 은 숫자를 바꾸지 않는다.
-      L4 로 수량을 바꾸면 LLM 이 숫자를 만든 것이 되어 §1.2-3 위반이다.
-      FAIL_ROUTING["L4_rationale"] = "T3_rationale_only" 인 이유.
+    L4 FAIL 은 숫자를 바꾸지 않는다.
+    L4 로 수량을 바꾸면 LLM 이 숫자를 만든 것이 되어 §1.2-3 위반이다.
+    FAIL_ROUTING["L4_rationale"] = "T3_rationale_only" 인 이유.
     """
     if judge is None:
         return [], "(L4 skipped — judge 미주입)"

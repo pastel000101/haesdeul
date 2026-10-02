@@ -1,7 +1,4 @@
-"""부르는 쪽 연결로 재고 원장을 재생한다 — 개장 · 전이 · 마감 · 취소가 같은 트랜잭션 눈으로 본다.
-
-★ 2026-09-29 재구성 BL-014: `finance/db.py` 에서 옮겼다.
-"""
+"""부르는 쪽 연결로 재고 원장을 재생한다 — 개장 · 전이 · 마감 · 취소가 같은 트랜잭션 눈으로 본다."""
 
 from datetime import date
 from typing import Any
@@ -25,8 +22,8 @@ def load_inventory_snapshot_as_of(
     production에서 재평가되지 않는 Lot 원가다. 현재 잔량과 현재 상태값은 과거 계산에
     사용하지 않는다.
 
-    ★ 부르는 쪽(개장 · 전이 · 마감 · 취소)의 연결로 읽는다 — 그 트랜잭션이 막 적은 재고
-      이동까지 같은 눈으로 본다.
+    부르는 쪽(개장 · 전이 · 마감 · 취소)의 연결로 읽는다 — 그 트랜잭션이 막 적은 재고 이동까지
+    같은 눈으로 본다.
     """
     return inventory_snapshot_from_ledger_rows(
         select_inventory_ledger(conn, sim_run_id=sim_run_id, as_of=as_of)

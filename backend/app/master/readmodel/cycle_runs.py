@@ -1,8 +1,6 @@
 """Critic 실행 이력 조회 — 조회 연결을 빌려 `orchestrator_agent_runs` 를 읽는다.
 
-★ 2026-09-30 재구성 BL-018: `master/cycle_run_repository.py` 에서 옮겼다 — `get_run`,
-  `get_run_by_request_id`, `list_runs`. 종전 `fetch_one` · `fetch_all` 헬퍼처럼 공개 함수 하나가
-  조회 연결(autocommit) 하나를 빌린다. SQL 은 `repository/cycle_runs.py`.
+공개 함수 하나가 조회 연결(autocommit) 하나를 빌린다. SQL 은 `repository/cycle_runs.py`.
 """
 
 from __future__ import annotations
@@ -33,7 +31,7 @@ def get_run(run_id: UUID) -> OrchestratorAgentRun:
 def get_run_by_request_id(request_id: str) -> OrchestratorAgentRun:
     """마스터 업무 키로 찾는다 — 최신 1건.
 
-    같은 `request_id` 로 두 번 돌면(재실행) 행이 둘이 된다. **최신을 돌려준다** —
+    같은 `request_id` 로 두 번 돌면(재실행) 행이 둘이 된다. 최신을 돌려준다 —
     사용자가 "그 요청 어떻게 됐냐"고 물으면 마지막 결과를 기대한다.
     """
     schema = get_db_schema()

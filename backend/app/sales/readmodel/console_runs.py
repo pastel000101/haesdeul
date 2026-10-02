@@ -1,14 +1,14 @@
 """Sales operations-console run-history read model; strictly run-scoped.
 
-★ **The run axis is stored on the row itself.**  Sales writes its execution context
-  into `sales_agent_runs.request_payload->'context'`, and `sim_run_id` is one of its
-  keys, so this reader filters on the stored value rather than on anything derived
-  from a request-id string.
+The run axis is stored on the row itself.  Sales writes its execution context
+into `sales_agent_runs.request_payload->'context'`, and `sim_run_id` is one of its
+keys, so this reader filters on the stored value rather than on anything derived
+from a request-id string.
 
-🔴 **Reading history never re-runs the agent.**  A GET that executed Sales would make
-  opening a screen write to the ledger.
+Reading history never re-runs the agent.  A GET that executed Sales would make
+opening a screen write to the ledger.
 
-★ 2026-09-29 BL-013: `sales/console_runs.py` 에서 옮겼다. SQL 은 `repository/console_runs.py`.
+SQL 은 `repository/console_runs.py` 다.
 """
 
 from datetime import date

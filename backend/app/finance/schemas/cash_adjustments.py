@@ -1,8 +1,6 @@
 """사용자 기록 자금 입·출금 — 요청 · 결과 · 충돌.
 
-★ 2026-09-29 재구성 BL-014: 어휘 · 결과 · 충돌은 `finance/cash_adjustments.py`, 요청 모델
-  (`CashAdjustmentChange`)은 `finance/router.py` 에서 옮겼다 — 화면 라우터와 마스터 ask 가 같은
-  모델을 import 한다.
+요청 모델(`CashAdjustmentChange`)은 화면 라우터와 마스터 ask 가 같이 import 한다.
 """
 
 from dataclasses import dataclass

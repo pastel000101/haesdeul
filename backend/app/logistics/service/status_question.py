@@ -1,4 +1,4 @@
-"""질문형 STATUS_QUERY — **LLM function/tool calling** 조회 (LOG-MDS-004 · Issue #789).
+"""질문형 STATUS_QUERY — LLM function/tool calling 조회 (LOG-MDS-004 · Issue #789).
 
 기존 Overview(`payload={}`)는 `service/agent_status.status_query_reply` 가 그대로 처리한다.
 이 모듈은 `payload={"question": ...}` 일 때만 도는 경로다.
@@ -12,19 +12,18 @@ question
   → LLM 이 추가 tool_call 또는 최종 자연어 답변
 ```
 
-🔴 **Tool 선택은 LLM 이 한다.** topic→Tool 파이썬 고정 매핑을 쓰지 않는다(#789).
+Tool 선택은 LLM 이 한다. topic→Tool 파이썬 고정 매핑을 쓰지 않는다(#789).
 
-🔴 **숫자·item_id 는 결정론이다.** wrapper 가 `item_name` 을 DB 로 `item_id` 로 바꾸고
-   (마스터 `_item_id_of` 규약), 프로젝트 3품목(배추·무·양파)만 허용하고, 기존
-   Read-only Tool 을 **시그니처 그대로** 부른다. LLM 은 `item_id` 를 만들지 않는다.
+숫자·item_id 는 결정론이다. wrapper 가 `item_name` 을 DB 로 `item_id` 로 바꾸고
+(마스터 `_item_id_of` 규약), 프로젝트 3품목(배추·무·양파)만 허용하고, 기존
+Read-only Tool 을 시그니처 그대로 부른다. LLM 은 `item_id` 를 만들지 않는다.
 
-🔴 **LLM 이 primary 다.** 결정론 파서 fallback 은 없다 — provider 실패는
-   `StatusQueryLLMError` 로 드러난다.
+LLM 이 primary 다. 결정론 파서 fallback 은 없다 — provider 실패는
+`StatusQueryLLMError` 로 드러난다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/query/status_query.py` 을 계층별로 나눴다. 이 파일에는 LLM
-  tool-calling 루프와 Tool
-  감싸기가 남았다. 지시문 · Tool 스키마는 `llm/status_query.py`, 전송은 `llm/status_chat.py`,
-  품목 gate 는 `domain/status_question.py`, 품목 SQL 은 `repository/status_question.py`.
+이 파일에는 LLM tool-calling 루프와 Tool 감싸기가 있다. 지시문 · Tool 스키마는
+`llm/status_query.py`, 전송은 `llm/status_chat.py`, 품목 gate 는
+`domain/status_question.py`, 품목 SQL 은 `repository/status_question.py` 다.
 """
 
 from __future__ import annotations
@@ -69,9 +68,9 @@ from app.logistics.schemas.status_question import ResolvedItems, StatusQueryAnsw
 
 
 def resolve_item_names(conn: Any, names: Sequence[str]) -> ResolvedItems:
-    """품목명 → `item_id` 를 **DB `items` 로 확정**하고 프로젝트 허용 여부로 가른다.
+    """품목명 → `item_id` 를 DB `items` 로 확정하고 프로젝트 허용 여부로 가른다.
 
-    ★ 마스터 `_item_id_of` 와 같은 `item_name → item_id` 규약. 중복 이름은 한 번만 조회.
+    마스터 `_item_id_of` 와 같은 `item_name → item_id` 규약. 중복 이름은 한 번만 조회.
     """
     unique = tuple(dict.fromkeys(name for name in names if name))
     if not unique:
@@ -285,10 +284,10 @@ _TOOL_EXECUTORS = {
 def run_tool(
     name: str, arguments: Mapping[str, Any], *, conn: Any, sim_run_id: str, as_of: date
 ) -> dict[str, Any]:
-    """LLM 이 부른 tool 하나를 실행한다. 🔴 결과·오류를 **LLM 이 읽을 dict** 로 돌려준다.
+    """LLM 이 부른 tool 하나를 실행한다. 결과·오류를 LLM 이 읽을 dict 로 돌려준다.
 
-    ★ 알 수 없는 tool·실행 오류는 예외로 던지지 않고 사실로 돌려준다 — LLM 이 보고
-      다른 Tool 을 부르거나 그 사실을 설명할 수 있게 한다.
+    알 수 없는 tool·실행 오류는 예외로 던지지 않고 사실로 돌려준다 — LLM 이 보고
+    다른 Tool 을 부르거나 그 사실을 설명할 수 있게 한다.
     """
     executor = _TOOL_EXECUTORS.get(name)
     if executor is None:
@@ -307,15 +306,15 @@ def answer_status_question(
     chat: Chat | None = None,
     conn: Any = None,
 ) -> StatusQueryAnswer:
-    """질문형 STATUS_QUERY 를 **LLM tool-calling loop** 로 처리한다.
+    """질문형 STATUS_QUERY 를 LLM tool-calling loop 로 처리한다.
 
-    :param chat: LLM 전송 seam(기본 = 설정된 provider). 🔴 테스트는 가짜 chat 을 준다.
-    :param conn: 이미 열린 커넥션(테스트/재사용). 없으면 **Tool 을 부를 때마다** 공통 풀에서
+    :param chat: LLM 전송 seam(기본 = 설정된 provider). 테스트는 가짜 chat 을 준다.
+    :param conn: 이미 열린 커넥션(테스트/재사용). 없으면 Tool 을 부를 때마다 공통 풀에서
                  조회 연결을 빌리고 그 Tool 이 끝나면 돌려준다.
 
-    🔴 **LLM 을 기다리는 동안 연결을 쥐지 않는다** (2026-09-29 풀 전환). 종전에는 루프 앞에서
-       연결 하나를 열어 LLM 턴 내내 쥐고 있었다. Tool 은 전부 읽기라 Tool 마다 빌려도 답이
-       같다(READ COMMITTED 는 문장마다 새 스냅숏).
+    LLM 을 기다리는 동안 연결을 쥐지 않는다. 루프 앞에서 연결 하나를 열어 LLM 턴 내내
+    쥐고 있으면 풀 연결이 LLM 대기 시간만큼 묶인다. Tool 은 전부 읽기라 Tool 마다 빌려도
+    답이 같다(READ COMMITTED 는 문장마다 새 스냅숏).
     """
     llm = chat if chat is not None else build_chat()
     borrow = core_db.read_connection if conn is None else (lambda: nullcontext(conn))
@@ -343,8 +342,8 @@ def _run_loop(
             {
                 "role": "assistant",
                 "tool_calls": [
-                    # 🔴 `raw`(공급자 원본 파트)를 함께 나른다 — Gemini 는 되돌려줄 때
-                    #    `thoughtSignature` 를 그대로 요구한다(재구성하면 400).
+                    # `raw`(공급자 원본 파트)를 함께 나른다 — Gemini 는 되돌려줄 때
+                    # `thoughtSignature` 를 그대로 요구한다(새로 만들어 보내면 400).
                     {
                         "id": call.id,
                         "name": call.name,
@@ -400,8 +399,8 @@ def _final_answer(
         for entry in tool_trace
         if isinstance(entry["result"], Mapping) and entry["result"].get("error")
     ]
-    # 🔴 답 전체를 한 Mapping 키 아래 둔다 — 최상위에 숫자를 두지 않아 근거(evidence)
-    #    요구를 만들지 않는다. 숫자의 정본은 tool_trace 의 Tool 결과다.
+    # 답 전체를 한 Mapping 키 아래 둔다 — 최상위에 숫자를 두지 않아 근거(evidence)
+    # 요구를 만들지 않는다. 숫자의 정본은 tool_trace 의 Tool 결과다.
     payload = {
         "status_query": {
             "question": question,

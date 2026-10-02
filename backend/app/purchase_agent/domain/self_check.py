@@ -1,10 +1,7 @@
 """⑦ self_check — 안별 검사 체인 · 축 다양성 · 무안 사유 — 판정 · 계산 (입력 → 출력만).
 
 노드 함수는 `service/nodes/self_check.py` 에 있고, 여기 함수들을 순서대로 부른다.
-
-🟢 **자리 (2026-09-29 · 재구성 BL-016).** 전에는 `nodes/self_check.py` 안에 노드 함수와 함께
-  있었다. 다른 노드 · 어댑터 · 검사가 이 판정을 다시 부르므로 노드 밖으로 뺐다 — 함수 몸통은
-  그대로이고, 노드가 부르던 비공개 도우미만 밑줄을 떼 공개 이름으로 올렸다.
+다른 노드 · 어댑터 · 검사가 이 판정을 다시 부르므로 노드 밖에 둔다.
 """
 
 from datetime import date, timedelta
@@ -34,7 +31,7 @@ def check_quadruple_match(scenario: dict) -> str | None:
 
     금액 축이 재무 cap 대조값이고, 등급 배분이 수량↔금액 변환 계수라 빠뜨릴 수 없다.
     스키마도 같은 검사를 하지만 여기서 먼저 본다 — 스키마는 예외를 던져 제안 전체를
-    죽이고, 여기서는 **그 안만 컷하고 나머지를 살린다**.
+    죽이고, 여기서는 그 안만 컷하고 나머지를 살린다.
     """
     total = scenario["total_qty_kg"]
     split_total = sum(item["qty_kg"] for item in scenario["split_plan"])
@@ -57,9 +54,9 @@ def check_axis_allowed(scenario: dict, allowed_axes: list[str]) -> str | None:
 
 
 def check_prices_exist(scenario: dict, market_quotes: list[dict]) -> str | None:
-    """등급·단가가 **당일 시세에 실재**하는가 (규칙 4). 지어낸 단가를 막는 유일한 검사다.
+    """등급·단가가 당일 시세에 실재하는가 (규칙 4). 지어낸 단가를 막는 유일한 검사다.
 
-    **시장까지 함께 본다.** ``(등급, 가격)``만 대조하면 다른 시장의 가격에 ``market="가락"``을
+    시장까지 함께 본다. ``(등급, 가격)``만 대조하면 다른 시장의 가격에 ``market="가락"``을
     붙여도 통과한다 — 형식은 맞고 내용은 거짓인 출력이 만들어진다.
     """
     real = {(quote["market"], quote["grade"], quote["price"]) for quote in market_quotes}
@@ -76,22 +73,22 @@ def check_prices_exist(scenario: dict, market_quotes: list[dict]) -> str | None:
 
 
 def check_max_price(scenario: dict) -> str | None:
-    """매입단가가 **컷 기준**(``cut_unit_price``)을 넘는가.
+    """매입단가가 컷 기준(``cut_unit_price``)을 넘는가.
 
-    🔴 **``max_price`` 를 읽지 않는다** (2026-09-08). 그 값은 이제 **재무 STRESS 전용**이고
+    ``max_price`` 를 읽지 않는다. 그 값은 재무 STRESS 전용이고
     (``amount_max_krw = qty × max_price``), 컷은 이 함수가 ``cut_unit_price`` 로 한다.
-    지금 두 값은 같지만 **경로가 갈렸다** — 컷 산식을 바꾸면 컷만 움직인다.
-    🟢 여유율 값은 정해졌다 (ML 회신 2026-09-10 · q80 · 커버 2일은 `LT2`).
+    지금 두 값은 같지만 경로가 갈려 있다 — 컷 산식을 바꾸면 컷만 움직인다.
+    여유율 값은 정해졌다 (ML 회신 2026-09-10 · q80 · 커버 2일은 `LT2`).
 
-    ⚠️ 하나였을 때는 밴드가 좁아지면 **컷이 엄격해지고 재무 STRESS 는 느슨해졌다.**
-    방향이 반대인데 값이 하나였다.
+    값을 하나로 두면 밴드가 좁아질 때 컷이 엄격해지고 재무 STRESS 는 느슨해진다.
+    방향이 반대인 두 쓰임이 한 값을 공유하게 되므로 갈라 둔다.
 
     계약단가(``contract_price``) 초과와 혼동하지 않는다 — 그쪽은 컷이 아니라
     ``margin_warning`` 표시일 뿐이다 (규칙 5).
 
-    ★ **없으면 컷 사유를 남긴다.** 스키마가 ``None`` 을 허용하는 것은 남의 픽스처 때문이고
-    (``schemas.Scenario.cut_unit_price``), 기준이 없는 것을 **통과로 읽으면 상한 검사가
-    조용히 꺼진다** — 0과 NULL 을 가르는 규칙 3 이 여기서도 그대로다.
+    없으면 컷 사유를 남긴다. 스키마가 ``None`` 을 허용하는 것은 남의 픽스처 때문이고
+    (``schemas/proposal.py`` 의 ``Scenario.cut_unit_price``), 기준이 없는 것을 통과로 읽으면
+    상한 검사가 조용히 꺼진다 — 0과 NULL 을 가르는 규칙 3 이 여기서도 그대로다.
     """
     ceiling = scenario.get("cut_unit_price")
     if ceiling is None:
@@ -109,38 +106,35 @@ def check_warehouse_capacity(
     state: PurchaseAgentState | None = None,
     constraints: dict | None = None,
 ) -> str | None:
-    """창고 **총량 축** — 총수량 ≤ 그 안이 도달할 수 있는 창고 여유.
+    """창고 총량 축 — 총수량 ≤ 그 안이 도달할 수 있는 창고 여유.
 
-    ⚠️ **날짜 축은 여기가 아니라** ``check_arrival_capacity`` 가 본다. 같은 자원(창고)의
+    날짜 축은 여기가 아니라 ``check_arrival_capacity`` 가 본다. 같은 자원(창고)의
     두 축이라 둘 다 있어야 하고, 둘 다 통과해야 안이 산다::
 
         총량 축   Σ회차 ≤ 여유 + 임차            ← 이 함수
         날짜 축   도착일까지 누적 ≤ 그날 여유     ← check_arrival_capacity
 
-    🔴 **전에는 여기 주석이 "날짜별 검사는 하지 않는다 — N4가 NULL이라"였다.** 그 사유가
-      낡았다: N4는 물류가 보내고 State 최상위에 실린다(#58). 사유가 사라진 뒤에도 주석이
-      남아 있어, 검사가 없는 것이 **여전히 옳은 것처럼** 읽혔다 (#93).
+    날짜 축 검사의 입력인 N4(입고 소요일)는 물류가 보내고 State 최상위에 실린다(#58).
+    "N4가 NULL이라 날짜별 검사는 하지 않는다" 는 더 이상 사유가 아니다 (#93).
 
-    ⚠️ **공용화 지점.** §4-⑦은 이 검사를 공용 모듈의 ``check_warehouse_capacity()``로 두고
+    공용화 지점: §4-⑦은 이 검사를 공용 모듈의 ``check_warehouse_capacity()``로 두고
     매입·T3·Critic이 import하라고 규정한다 — "자체 구현 금지, 매입 통과·T3 FAIL 반복 방지".
     그 모듈이 아직 없어 여기 있다. 생기면 이 함수를 지우고 import로 바꾼다 (현서님 협의 항목).
     상한 식 자체는 ③과 공유한다 — 두 곳에 복제하면 한쪽만 바뀐다.
 
-    🔴 **상한이 날짜 축 위로 옮겨졌다** (2026-09-16 · E3-9 앞단). 전에는
-      ``warehouse_cap_kg`` (= 오늘 여유 + 임차)였는데, 그것은 ``cap_by_date[오늘]`` 과
-      같은 뜻이고 **도착일은 오늘이 아니다.** 이제 ③ 과 **같은 함수**(``warehouse_cap_for``)
-      를 불러 그 안이 실제로 도달하는 날의 여유를 본다.
+    상한은 날짜 축 위에서 잡는다 (E3-9 앞단). ``warehouse_cap_kg`` (= 오늘 여유 + 임차)는
+    ``cap_by_date[오늘]`` 과 같은 뜻이고 도착일은 오늘이 아니다. 그래서 ③ 과 같은
+    함수(``warehouse_cap_for``)를 불러 그 안이 실제로 도달하는 날의 여유를 본다.
 
-      ⚠️ **완화가 아니다.** 회차가 하나면 상한은 그대로 첫 도착일 여유이고, 날짜 축을
-        못 보면 예전 값으로 폴백한다. 그리고 날짜별 누적은 ``check_arrival_capacity`` 가
-        **따로, 더 엄격히** 본다 — 두 축은 그대로 둘 다 통과해야 한다.
+      완화가 아니다. 회차가 하나면 상한은 그대로 첫 도착일 여유이고, 날짜 축을
+      못 보면 ``warehouse_cap_kg`` 값으로 폴백한다. 그리고 날짜별 누적은
+      ``check_arrival_capacity`` 가 따로, 더 엄격히 본다 — 두 축은 둘 다 통과해야 한다.
 
-      ★ ``state`` 를 안 주면 예전 기준으로 돈다 — 이 함수를 단위로 부르는 자리가 있고,
-        그쪽은 날짜 축 입력이 없다. 🔴 그때도 **상한을 안 거는 선택은 하지 않는다.**
+      ``state`` 를 안 주면 ``warehouse_cap_kg`` 기준으로 돈다 — 이 함수를 단위로 부르는
+      자리가 있고, 그쪽은 날짜 축 입력이 없다. 그때도 상한을 안 거는 선택은 하지 않는다.
 
-      ★ ``state`` 를 주면 ``constraints``(부서 선언)도 함께 준다 — 여기서 파일을 읽지
-        않는다(2026-09-29 · BL-016 보완). 전에는 안 주면 ``load_constraints()`` 로
-        채웠는데, 그런 호출자는 없었다. 이제 빠지면 ``TypeError`` 다.
+      ``state`` 를 주면 ``constraints``(부서 선언)도 함께 준다 — 여기서 파일을 읽지
+      않는다. 빠지면 ``TypeError`` 다.
     """
     if state is None:
         cap = warehouse_cap_kg(inventory)
@@ -151,8 +145,8 @@ def check_warehouse_capacity(
             state,
             constraints,
             scenario["coverage_days"],
-            # 🔴 **실린 축을 본다** — ⑥ 이 되돌린 안은 여기서 ``False`` 가 되고,
-            #   그래서 ③ 이 잡은 상한과 ⑦ 이 재는 상한이 **같은 수**가 된다.
+            # 실린 축을 본다 — ⑥ 이 되돌린 안은 여기서 ``False`` 가 되고,
+            # 그래서 ③ 이 잡은 상한과 ⑦ 이 재는 상한이 같은 수가 된다.
             splitting=scenario.get("strategy_type") == TIMING_AXIS,
         ).cap_kg
     if scenario["total_qty_kg"] > cap:
@@ -160,16 +154,15 @@ def check_warehouse_capacity(
     return None
 
 
-#: 날짜 축 검사를 **하지 않은** 사유 중 **문장이 고정된 것**들. 나머지 둘
+#: 날짜 축 검사를 하지 않은 사유 중 문장이 고정된 것들. 나머지 둘
 #: (``out_of_window`` · ``missing``)은 날짜를 이름으로 짚어야 해서 아래에서 만든다.
 #:
-#: ⚠️ ⑥ ``CAP_BLOCK_REASONS`` 와 **머리는 같고 꼬리가 다르다.** 저쪽은 *"그래서 회차를
-#:   균등하게 나눴다"*(재배분을 안 했다)이고 여기는 *"그래서 컷하지 않았다"*(판정을 안 했다)다.
-#:   같은 원인이 두 단계에서 서로 다른 결과를 낳으므로 문장도 갈린다 — 복제가 아니다.
+#: ⑥ ``CAP_BLOCK_REASONS`` 와 머리는 같고 꼬리가 다르다. 저쪽은 "그래서 회차를
+#: 균등하게 나눴다"(재배분을 안 했다)이고 여기는 "그래서 컷하지 않았다"(판정을 안 했다)다.
+#: 같은 원인이 두 단계에서 서로 다른 결과를 낳으므로 문장도 갈린다 — 복제가 아니다.
 #:
-#: 🔴 **고지는 여기서만 나간다** (#93 결정). 전에는 ⑥이 말했는데, ⑥의 고지 경로가
-#:   timing 축 전용이라 **quantity 축 안은 검사도 고지도 없었다.** 검사하는 쪽과 말하는
-#:   쪽이 갈라져 있던 것이 그 구멍의 원인이다.
+#: 고지는 여기서만 나간다 (#93 결정). ⑥의 고지 경로는 timing 축 전용이라, ⑥이 말하면
+#: quantity 축 안은 검사도 고지도 없게 된다. 검사하는 쪽과 말하는 쪽을 한 곳에 둔다.
 ARRIVAL_SKIP_REASONS = {
     "no_cap": (
         "회차별 창고 여유 검사를 하지 않았다 — 물류에서 날짜별 입고 여유를 받지 못했다. "
@@ -181,19 +174,20 @@ ARRIVAL_SKIP_REASONS = {
     ),
 }
 
-#: 물류가 날짜별 여유를 **계산한 구간의 길이**를 밝히는 칸 (물류 payload).
+#: 물류가 날짜별 여유를 계산한 구간의 길이를 밝히는 칸 (물류 payload).
 #:
-#: ⚠️ **이름을 상수로 둔 것은 오타 방지이지 값 소유가 아니다.** 값(18)은 물류
-#:   ``tools.CAP_BY_DATE_WINDOW_DAYS`` 소유이고 우리는 payload 로 받은 것만 쓴다 —
-#:   여기 숫자를 적으면 물류가 창을 바꾼 날 우리만 옛 창으로 판정한다 (규칙 7).
+#: 이름을 상수로 둔 것은 오타 방지이지 값 소유가 아니다. 값(18)은 물류
+#: ``app/logistics/domain/tools.py`` 의 ``CAP_BY_DATE_WINDOW_DAYS`` 소유이고 우리는
+#: payload 로 받은 것만 쓴다 — 여기 숫자를 적으면 물류가 창을 바꾼 날 우리만 옛 창으로
+#: 판정한다 (규칙 7).
 CAP_WINDOW_KEY = "cap_by_date_window_days"
 
 
 class ArrivalCapacity(NamedTuple):
-    """날짜 축 판정 결과. **컷과 미검사를 한 값으로 뭉치지 않는다.**
+    """날짜 축 판정 결과. 컷과 미검사를 한 값으로 뭉치지 않는다.
 
     둘 다 "통과가 아님"이지만 하나는 안을 죽이고 하나는 안 죽인다. 한 문자열로 돌려주면
-    호출부가 *"이걸 컷 사유로 쓸 수 있나"* 를 문면으로 판단하게 되고, 문구를 다듬는 날
+    호출부가 "이걸 컷 사유로 쓸 수 있나" 를 문면으로 판단하게 되고, 문구를 다듬는 날
     컷이 조용히 멈춘다.
     """
 
@@ -205,15 +199,16 @@ class ArrivalCapacity(NamedTuple):
 
 
 def _whole_days(value: Any) -> int | None:
-    """일 단위 정수로 읽는다. 아니면 ``None`` — **0으로 대체하지 않는다** (규칙 3).
+    """일 단위 정수로 읽는다. 아니면 ``None`` — 0으로 대체하지 않는다 (규칙 3).
 
-    🔴 **``isinstance(value, int)`` 로 보면 안 된다.** 물류는 숫자를 ``_num()`` 으로
-      싸서 보내므로 실제 payload 의 ``inbound_lead_days`` 는 **``2.0``(float)** 이다
-      (실측 2026-09-03 · 12-31 피마늘). ``int`` 만 받으면 **실운영에서 창을 한 번도
-      못 만들고** 늘 *"가르지 못했다"* 로 떨어진다 — 검사가 있는데 안 도는 상태다.
+    ``isinstance(value, int)`` 로 보면 안 된다. 실측(2026-09-03 · 12-31 피마늘)에서 물류
+    payload 의 ``inbound_lead_days`` 가 ``2.0``(float) 으로 왔다. 지금 물류
+    (``app/logistics/service/pre_purchase.py``)는 ``int`` 로 싣지만, 실수로 보내는 생산자가
+    있으면 ``int`` 만 받는 검사는 창을 한 번도 못 만들고 늘 "가르지 못했다" 로 떨어진다
+    — 검사가 있는데 안 도는 상태다.
 
-    ★ 판정 규칙은 ``payload._arrival_input_problems`` 와 **같다**: 수치이고 소수부가
-      없으면 정수로 읽는다. 두 곳이 다르면 어댑터가 통과시킨 값을 여기서 버린다.
+    판정 규칙은 ``domain/payload.py`` 의 ``_arrival_input_problems`` 와 같다: 수치이고
+    소수부가 없으면 정수로 읽는다. 두 곳이 다르면 어댑터가 통과시킨 값을 여기서 버린다.
     """
     if isinstance(value, bool) or not isinstance(value, int | float):
         return None
@@ -223,21 +218,21 @@ def _whole_days(value: Any) -> int | None:
 
 
 def cap_window(state: PurchaseAgentState) -> tuple[str, str] | None:
-    """물류가 날짜별 여유를 **계산한 구간** ``[시작, 끝]`` (ISO 문자열, 양끝 포함).
+    """물류가 날짜별 여유를 계산한 구간 ``[시작, 끝]`` (ISO 문자열, 양끝 포함).
 
-    물류 ``tools.build_cap_window`` 와 **같은 식**이다::
+    물류 ``app/logistics/domain/tools.py`` 의 ``build_cap_window`` 와 같은 식이다::
 
         start = as_of + N4
         dates = [start + d for d in range(window_days)]      # 끝 = start + (window_days - 1)
 
-      N4=2 · 창 18일이면 **D+2 ~ D+19** 다 (실측 2026-09-03).
+      N4=2 · 창 18일이면 D+2 ~ D+19 다 (실측 2026-09-03).
 
-    🔴 **두 값을 같은 dict 에서 읽는다.** ``inbound_lead_days`` 와 ``cap_by_date_window_days``
-      는 물류가 **같은 payload 에 함께** 실어 보내고, 물류는 그 둘로 창을 만들었다.
-      한쪽을 설정 기본값(``pending``)에서 읽으면 **물류가 쓴 적 없는 창**을 재구성하게 된다.
+    두 값을 같은 dict 에서 읽는다. ``inbound_lead_days`` 와 ``cap_by_date_window_days``
+    는 물류가 같은 payload 에 함께 실어 보내고, 물류는 그 둘로 창을 만든다.
+    한쪽을 설정 기본값(``pending``)에서 읽으면 물류가 쓴 적 없는 창을 재구성하게 된다.
 
     못 만들면 ``None`` — 창을 지어내지 않는다 (규칙 3). 창을 모르면 "창 밖"과
-    "창 안 누락"을 가를 수 없고, **가를 수 없다는 사실 자체가 고지 대상**이다.
+    "창 안 누락"을 가를 수 없고, 가를 수 없다는 사실 자체가 고지 대상이다.
     """
     inventory = state["inventory"]
     lead = _whole_days(inventory.get("inbound_lead_days"))
@@ -249,22 +244,22 @@ def cap_window(state: PurchaseAgentState) -> tuple[str, str] | None:
 
 
 def _unknown_reason(unknown: list[str], state: PurchaseAgentState) -> str:
-    """값이 안 온 도착일들을 **두 갈래로 갈라** 문장을 만든다 (물류 규약 2026-09-03).
+    """값이 안 온 도착일들을 두 갈래로 갈라 문장을 만든다 (물류 규약 2026-09-03).
 
-    🔴 **뭉치면 안 되는 이유.** 물류 규약은 셋을 다른 상태로 규정한다::
+    뭉치면 안 되는 이유: 물류 규약은 셋을 다른 상태로 규정한다::
 
         키 존재 + 값 0      계산 결과 입고 가능량이 0        → 판정 대상
-        창 안인데 키 누락    계산 누락 또는 미결              → **고쳐야 할 것**
-        창 밖               계산 대상이 아니다               → **정상**
+        창 안인데 키 누락    계산 누락 또는 미결              → 고쳐야 할 것
+        창 밖               계산 대상이 아니다               → 정상
 
-      전에는 뒤 둘을 *"조회 기간 밖이거나 값이 비어 있다"* 한 문장으로 냈다. 읽는 사람이
-      **고쳐야 할 것과 정상을 구분할 수 없었다** — 매일 같은 문장이 나가면 둘 다 배경이 된다.
+      뒤 둘을 "조회 기간 밖이거나 값이 비어 있다" 한 문장으로 내면 읽는 사람이
+      고쳐야 할 것과 정상을 구분할 수 없다 — 매일 같은 문장이 나가면 둘 다 배경이 된다.
 
-    ★ **행동은 셋 다 같다 — 컷하지 않는다.** 갈리는 것은 문장뿐이다. 창 밖이라고 통과로
-      치지 않고, 누락이라고 죽이지도 않는다. 둘 다 *"판정하지 않았다"* 이고 **왜** 가 다르다.
+    행동은 셋 다 같다 — 컷하지 않는다. 갈리는 것은 문장뿐이다. 창 밖이라고 통과로
+    치지 않고, 누락이라고 죽이지도 않는다. 둘 다 "판정하지 않았다" 이고 왜 가 다르다.
 
-    창을 못 만들면(``cap_window`` 가 ``None``) 갈리지 않는다. 그때는 **가를 수 없다는
-    사실을 밝힌다** — 물류가 창 길이를 payload 에 싣기로 했으므로(2026-09-03), 없으면
+    창을 못 만들면(``cap_window`` 가 ``None``) 갈리지 않는다. 그때는 가를 수 없다는
+    사실을 밝힌다 — 물류가 창 길이를 payload 에 싣기로 했으므로(2026-09-03), 없으면
     그것이 곧 확인할 거리다.
     """
     window = cap_window(state)
@@ -302,74 +297,63 @@ def _unknown_reason(unknown: list[str], state: PurchaseAgentState) -> str:
 
 
 def arrival_capacity(scenario: dict, state: PurchaseAgentState) -> ArrivalCapacity:
-    """창고 **날짜 축** — 도착일까지의 누적이 그날 여유를 넘는가 (§4-⑦ · #93).
+    """창고 날짜 축 — 도착일까지의 누적이 그날 여유를 넘는가 (§4-⑦ · #93).
 
-    ★ **``split_plan[].expected_arrival_date`` 를 읽는다. 다시 계산하지 않는다.**
-      PR #141로 안에 이미 실려 있다(``schemas/proposal.py``). 도착일을 여기서 또 만들면
-      ⑥이 옮긴 결과와 ⑦이 검사하는 대상이 어긋날 수 있는데, 실린 값을 읽으면
-      **그 어긋남이 구조적으로 불가능해진다.**
+    ``split_plan[].expected_arrival_date`` 를 읽는다. 다시 계산하지 않는다.
+    안에 이미 실려 있다(``schemas/proposal.py``). 도착일을 여기서 또 만들면
+    ⑥이 옮긴 결과와 ⑦이 검사하는 대상이 어긋날 수 있는데, 실린 값을 읽으면
+    그 어긋남이 구조적으로 불가능해진다.
 
-    🔴 **``chosen``·``axis``·``entered`` 를 보지 않는다.** 회차가 하나든 둘이든 같은
-      코드가 돈다. ⑥의 재배분은 timing 축 분할 진입 경로에서만 도는데(``materialize_split``
-      가 ``if not chosen: return`` 으로 조기 반환한다), 컷까지 그 경로에만 두면
-      **"회차를 안 나눌수록 검사를 안 받는" 구조**가 된다 — 실측으로 보수 2,571kg ·
-      기본 6,429kg 이 여유 100kg 을 넘는데 risks 줄조차 없었다 (#93 재현).
-      ``_rounds()`` 가 일괄·분할불가·정상 세 경로를 전부 지나므로 **1회차 안도
-      도착일을 갖고 있다** — 그래서 같은 코드로 검사할 수 있다.
+    ``chosen``·``axis``·``entered`` 를 보지 않는다. 회차가 하나든 둘이든 같은
+    코드가 돈다. ⑥의 재배분은 timing 축 분할 진입 경로에서만 도는데(``materialize_split``
+    가 ``if not chosen:`` 에서 바로 돌려준다), 컷까지 그 경로에만 두면
+    "회차를 안 나눌수록 검사를 안 받는" 구조가 된다 — 실측으로 보수 2,571kg ·
+    기본 6,429kg 이 여유 100kg 을 넘는데 risks 줄조차 없었다 (#93 재현).
+    ``_rounds()`` 가 일괄·분할불가·정상 세 경로를 전부 지나므로 1회차 안도
+    도착일을 갖고 있다 — 그래서 같은 코드로 검사할 수 있다.
 
-    ★ **누적으로 본다.** ``cap_by_date[d]`` 는 그날의 *여유 공간*이고, 물류는 **기존
-      일정만** 재생해 그 값을 낸다 (``logistics/domain/tools.py`` ``calculate_cap_by_date``:
-      guaranteed − projected_occupancy). **우리가 새로 넣을 회차는 거기 없다.**
-      날짜마다 독립으로 비교하면 1회차가 아직 창고에 있는데도 2회차가 그날 상한을
-      통째로 쓰는 계획이 통과한다. ⑥ ``cap_constrained_quantities`` 와 같은 셈이다.
+    누적으로 본다. ``cap_by_date[d]`` 는 그날의 여유 공간이고, 물류는 기존
+    일정만 재생해 그 값을 낸다 (``app/logistics/domain/tools.py`` 의
+    ``calculate_cap_by_date``: guaranteed − projected_occupancy). 우리가 새로 넣을 회차는
+    거기 없다. 날짜마다 독립으로 비교하면 1회차가 아직 창고에 있는데도 2회차가 그날
+    상한을 통째로 쓰는 계획이 통과한다. ⑥ ``cap_constrained_quantities`` 와 같은 셈이다.
 
-    ⚠️ **한계 — 중간 출고를 해제하지 않는다.**
-      회차를 도착일 순으로 **더하기만 하고 빼지 않는다.** 중간에 확정 출고가 앞 회차를
-      실제로 소진해도 해제하지 않는다. 물류 ``_available_capacity`` 도 같은 방식이고
-      (``arrival <= day``), **방향은 안전하다 — 덜 사게 틀린다.**
+    한계 — 중간 출고를 해제하지 않는다.
+      회차를 도착일 순으로 더하기만 하고 빼지 않는다. 중간에 확정 출고가 앞 회차를
+      실제로 소진해도 해제하지 않는다. 물류 ``_available_capacity``
+      (``app/logistics/domain/scenario_engine.py``)도 같은 방식이고 (``arrival <= day``),
+      방향은 안전하다 — 덜 사게 틀린다.
 
-      *"왜 이렇게 빡빡한가"* 가 나오면 원인이 여기일 수 있다
+      "왜 이렇게 빡빡한가" 가 나오면 원인이 여기일 수 있다
       (물류 지적 2026-09-03 · 물류 미결 §0-3).
 
-      ★ **risks 에는 안 싣는다.** 매일 모든 안에 붙으면 신호가 죽는다 — 이건 *"이 안이
-        위험하다"* 가 아니라 우리 검사 방식의 성질이다. 되짚을 실마리는 컷 사유에 이미
-        있다: *"누적 N kg … M회차 …까지 더한 값"*.
+      risks 에는 안 싣는다. 매일 모든 안에 붙으면 신호가 죽는다 — 이건 "이 안이
+      위험하다" 가 아니라 우리 검사 방식의 성질이다. 되짚을 실마리는 컷 사유에 이미
+      있다: "누적 N kg … M회차 …까지 더한 값".
 
-    🔴 **왜 ``orchestrator/band.py`` 의 ``check_occupancy_by_date`` 를 안 쓰나** (2026-09-03 판단).
-      §4-⑦이 "자체 구현 금지"라고 했고 그 함수가 실재하는데도 안 쓴 이유가 넷이었다.
-      나중에 *"왜 안 썼지"* 로 되돌리지 않도록 **지우지 않고** 적어 둔다::
+    왜 ``app/master/domain/band.py`` 의 ``check_occupancy_by_date`` 를 쓰지 않나.
+      §4-⑦이 "자체 구현 금지"라고 했고 그 함수가 실재하는데도 쓰지 않는 이유를 적어
+      둔다 — 나중에 "왜 안 썼지" 로 되돌리지 않도록::
 
-        ㄱ. cap_by_date 의 뜻이 다르다   ✅ **고쳐졌다** (PR #184 · 2026-09-03 02:44)
-              물류  guaranteed − projected_occupancy       → 잔여 여유 (net)
-              band  confirmed_occupancy[d] + arrived ≤ cap → 총 용량 (gross)  ← 이랬다
-            band 가 점유를 따로 더하는데 우리가 받는 값은 이미 뺀 값이었다. 그대로
-            넘기면 이중 계상이거나, confirmed 가 비어 **우연히** 맞는 상태가 됐다.
-            우리가 #93 구현 중 물어 #181 이 서고, band 가 **net 전제로** 바뀌었다.
-            ⚠️ **뜻만 맞췄고 칸은 남는다.** ``confirmed_occupancy_by_date`` 를 지우려던
-            계획은 철회됐다 — ``critic_v0_4.py:929`` L4-7 이 그 칸으로 gross 를 복원해서,
-            지우면 **L4-7 이 영영 죽는다** (#181 · 2026-09-03 정정).
-            🟢 **표준은 net 으로 확정됐다** (#181 CLOSED 2026-09-03). 물류가 세 자리를
-            표로 내면서 생산자(물류)·소비자 하나(우리)가 net 이고 band 만 gross 였음이
-            확인됐고, band 가 net 으로 왔다.
+        ㄱ. cap_by_date 의 뜻 — 지금은 맞다. 표준은 net(물류 guaranteed −
+            projected_occupancy, 잔여 여유)으로 확정됐고(#181), band 도 net 전제다.
+            ``confirmed_occupancy_by_date`` 칸은 남는다 — ``critic_v0_4.py`` 의 L4-7
+            (``check_overlay_cap_by_date``)이 그 칸으로 gross 를 복원해서, 지우면
+            L4-7 이 죽는다.
         ㄴ. 타입이 다르다 — ``Band.cap_by_date_kg`` 는 ``date`` 키, 우리는 ISO 문자열.
             조회가 전부 미스 나면 값이 와 있는데도 "받지 못했다"로 고지된다.
         ㄷ. dataclass 셋을 지어내야 부를 수 있다 — ``ClipResult``·``Band``·``T0Snapshot``.
             ``T0Snapshot`` 만 해도 forecasts·spot_price·finance·budget 을 요구하는데
-            이 검사와 무관하다. **가짜 값을 채워야 부를 수 있는 함수는 공용 모듈이 아니다.**
-        ㄹ. 소유가 저쪽이다 — band.py 를 import 하는 것은 critic/* 과 사이클 그래프
-            뿐이다. 2026-09-07 에 그 파일이 ``app/orchestrator/band.py`` 에서
-            ``app/master/band.py`` 로 옮겨졌고, 주인이 마스터로 바뀌었을 뿐
-            **매입이 부를 자리가 아니라는 것은 그대로다.**
+            이 검사와 무관하다. 가짜 값을 채워야 부를 수 있는 함수는 공용 모듈이 아니다.
+        ㄹ. 소유가 저쪽이다 — band.py 는 마스터 소유이고, import 하는 것은 마스터
+            critic(``critic/critic_v0_4.py`` · ``critic/service.py``)이다. 매입이 부를
+            자리가 아니다.
 
-      🔴 **ㄱ이 풀리고 #181 이 닫혀도 결론은 그대로다** — ㄴ·ㄷ·ㄹ 이 남는다. 셋 다
-        *"부를 수는 있는데 부르기 위해 없는 것을 지어내야 한다"* 는 같은 성질이고,
-        그건 공용화가 아니라 **결합**이다.
+      ㄱ이 맞아도 결론은 그대로다 — ㄴ·ㄷ·ㄹ 이 남는다. 셋 다 "부를 수는 있는데
+      부르기 위해 없는 것을 지어내야 한다" 는 같은 성질이고, 그건 공용화가 아니라
+      결합이다. 남은 것은 표준이 아니라 부르는 비용이고, 그건 #181 이 답할 질문이 아니다.
 
-        ⚠️ 이 자리에 *"``#181`` 은 아직 열려 있다 — 어느 쪽이 표준인가는 안 닫혔다"* 라고
-          적었었다 (2026-09-03 정정). **닫혔고 표준도 정해졌다.** 남은 것은 표준이 아니라
-          **부르는 비용**이고, 그건 #181 이 답할 질문이 아니었다.
-
-      나머지가 풀리고 공용 모듈이 생기면 **이 함수를 지우고 import 로 바꾼다** —
+      나머지가 풀리고 공용 모듈이 생기면 이 함수를 지우고 import 로 바꾼다 —
       ``check_warehouse_capacity`` 와 같은 약속이다.
     """
     cap_by_date = state["inventory"].get("cap_by_date")
@@ -384,21 +368,21 @@ def arrival_capacity(scenario: dict, state: PurchaseAgentState) -> ArrivalCapaci
 
     unknown = [day for day in arrivals if cap_by_date.get(day) is None]
     if unknown:
-        # **하나라도 모르면 아무 회차도 판정하지 않는다.** 아는 날짜만 컷하면 판정이
+        # 하나라도 모르면 아무 회차도 판정하지 않는다. 아는 날짜만 컷하면 판정이
         # "어느 도착일이 우연히 계산 구간 안이었나"에 좌우된다 — ⑥이 재배분을 통째로
         # 포기하는 것과 같은 이유다.
         return ArrivalCapacity(skipped=_unknown_reason(unknown, state))
 
-    # 🔴 **누적 산술은 ``allocation.cumulative_overflow`` 하나가 쥔다** (2026-09-16).
-    #   ⑥ 의 되돌림 판정이 같은 함수를 부른다 — 두 곳이 각자 더하면 ⑥ 이 «선다» 고 본
-    #   분할을 ⑦ 이 컷하고, 그날 안은 왜 죽었는지 설명할 수 없게 된다.
-    # 수용량은 **상한**이라 내림한다 — ⑥·``warehouse_cap_kg`` 와 같은 방향이다.
+    # 누적 산술은 ``domain/allocation.py`` 의 ``cumulative_overflow`` 하나가 쥔다.
+    # ⑥ 의 되돌림 판정이 같은 함수를 부른다 — 두 곳이 각자 더하면 ⑥ 이 «선다» 고 본
+    # 분할을 ⑦ 이 컷하고, 그날 안은 왜 죽었는지 설명할 수 없게 된다.
+    # 수용량은 상한이라 내림한다 — ⑥·``warehouse_cap_kg`` 와 같은 방향이다.
     넘침 = cumulative_overflow([item["qty_kg"] for item in rounds], arrivals, cap_by_date)
     if 넘침 is not None:
-        # 🔴 **정도를 보지 않는다.** cap_by_date 는 물류 guaranteed 기반 하드 제약이라
-        #   넘으면 물리적으로 안 들어간다. 완화 임계를 두면 물류 값을 우리가 무르는
-        #   것이 되고, 총량 축(``check_warehouse_capacity``)이 1kg 초과도 컷하는 것과
-        #   기준이 갈린다 (#93 결정).
+        # 정도를 보지 않는다. cap_by_date 는 물류 guaranteed 기반 하드 제약이라
+        # 넘으면 물리적으로 안 들어간다. 완화 임계를 두면 물류 값을 우리가 무르는
+        # 것이 되고, 총량 축(``check_warehouse_capacity``)이 1kg 초과도 컷하는 것과
+        # 기준이 갈린다 (#93 결정).
         index, occupied, cap = 넘침
         item = rounds[index]
         return ArrivalCapacity(
@@ -421,7 +405,7 @@ def check_arrival_capacity(scenario: dict, state: PurchaseAgentState) -> str | N
 def check_cash_ceiling(scenario: dict, state: PurchaseAgentState, constraints: dict) -> str | None:
     """매입액 ≤ 매입 가능액.
 
-    상한을 ③과 **같은 함수**(``purchase_budget_krw``)로 구한다. 두 노드가 각자 계산하면
+    상한을 ③과 같은 함수(``purchase_budget_krw``)로 구한다. 두 노드가 각자 계산하면
     재무 cap 수신 여부에 따라 한쪽만 바뀌고, ③이 통과시킨 안을 ⑦이 컷하는 상태가 된다.
     """
     budget = purchase_budget_krw(state, constraints)
@@ -431,23 +415,23 @@ def check_cash_ceiling(scenario: dict, state: PurchaseAgentState, constraints: d
 
 
 def check_split_amounts(scenario: dict) -> str | None:
-    """``Σ split_plan[].amount_krw == total_amount_krw`` — **금액의 회차 변** (마스터 #265).
+    """``Σ split_plan[].amount_krw == total_amount_krw`` — 금액의 회차 변 (마스터 #265).
 
-    🔴 **사중 일치(규칙 4)와 별개다.** 저쪽은 수량 3변 + 금액 1변(``total ↔ sourcing``)
-    이고 이건 새로 선 다섯 번째 변이다. ``check_quadruple_match`` 에 끼워 넣지 않는
-    이유는 *"사중"* 이라는 이름이 조용히 다른 것을 뜻하게 되기 때문이다.
+    사중 일치(규칙 4)와 별개다. 저쪽은 수량 3변 + 금액 1변(``total ↔ sourcing``)
+    이고 이건 다섯 번째 변이다. ``check_quadruple_match`` 에 끼워 넣지 않는
+    이유는 "사중" 이라는 이름이 조용히 다른 것을 뜻하게 되기 때문이다.
 
-    ★ **이 어긋남은 원장으로 간다.** 마스터가 ``split_plan[].amount_krw`` 를 읽어
-      ``ArrivalLeg.amount_krw`` 로 옮기고, 그것이 ``purchase_items.line_amount_krw``
-      (NOT NULL)가 된다. 합이 안 맞으면 **재무 cap 검증을 통과한 안이 cap 을 넘는
-      원장을 만든다** — 어느 쪽도 에러를 내지 않는다.
+    이 어긋남은 원장으로 간다. 마스터가 ``split_plan[].amount_krw`` 를 읽어
+    ``ArrivalLeg.amount_krw`` 로 나르고, 그것이 ``purchase_items.line_amount_krw``
+    (NOT NULL)가 된다. 합이 안 맞으면 재무 cap 검증을 통과한 안이 cap 을 넘는
+    원장을 만든다 — 어느 쪽도 에러를 내지 않는다.
 
     스키마 ``validate_split_amount_axis`` 가 같은 검사를 출력 경계에서 한 번 더 한다.
     여기서는 그 안만 컷하고 거기서는 제안 전체를 죽인다 — 사중 일치와 같은 이중 배치다.
     """
-    # ⚠️ **여기서는 ``None`` 이 위반이다.** 스키마는 재무·물류가 공유하는 모델이라
-    #   "아무 회차에도 없음"을 허용하지만, 이 노드는 **우리 산출물만** 본다 —
-    #   ⑥이 ``with_round_amounts`` 를 지났으면 전 회차에 값이 있다.
+    # 여기서는 ``None`` 이 위반이다. 스키마는 재무·물류가 공유하는 모델이라
+    # "아무 회차에도 없음"을 허용하지만, 이 노드는 우리 산출물만 본다 —
+    # ⑥이 ``with_round_amounts`` 를 지났으면 전 회차에 값이 있다.
     missing = [item["seq"] for item in scenario["split_plan"] if item.get("amount_krw") is None]
     if missing:
         return f"회차 금액이 비었다: seq {', '.join(str(s) for s in missing)}"
@@ -460,14 +444,14 @@ def check_split_amounts(scenario: dict) -> str | None:
 
 
 def check_split_dates(scenario: dict, as_of: str) -> str | None:
-    """seq 1의 date는 as_of, seq는 1부터 연속, **날짜는 앞으로만 간다** (IO명세 §2).
+    """seq 1의 date는 as_of, seq는 1부터 연속, 날짜는 앞으로만 간다 (IO명세 §2).
 
-    날짜 검사는 ④가 실제로 분할하면서 붙었다. 회차가 하나뿐이던 동안에는 순서를 어길
-    방법이 없었지만, 2회차가 생기면 "같은 날 두 번"이 통과할 수 있다 — 그건 분할이 아니라
-    같은 매입을 두 줄로 적은 것이고, 사중 일치는 멀쩡히 통과한다.
+    회차가 하나면 순서를 어길 방법이 없지만, 2회차가 생기면 "같은 날 두 번"이 통과할
+    수 있다 — 그건 분할이 아니라 같은 매입을 두 줄로 적은 것이고, 사중 일치는 멀쩡히
+    통과한다.
 
     ISO 날짜 문자열은 사전순 비교가 곧 시간순 비교라 그대로 비교한다.
-    스키마도 같은 검사를 하지만 거기서는 제안 전체가 죽고, 여기서는 **그 안만 컷한다**.
+    스키마도 같은 검사를 하지만 거기서는 제안 전체가 죽고, 여기서는 그 안만 컷한다.
     """
     rounds = scenario["split_plan"]
     if rounds[0]["date"] != as_of:
@@ -481,7 +465,7 @@ def check_split_dates(scenario: dict, as_of: str) -> str | None:
 
 
 class MarketOpenDays(NamedTuple):
-    """회차일 개장 판정. ``ArrivalCapacity`` 와 **같은 이유로** 둘을 나눠 든다.
+    """회차일 개장 판정. ``ArrivalCapacity`` 와 같은 이유로 둘을 나눠 든다.
 
     컷과 미검사는 둘 다 "통과가 아님"이지만 하나는 안을 죽이고 하나는 안 죽인다. 한
     문자열로 돌려주면 호출부가 문면으로 판단하게 되고, 문구를 다듬는 날 컷이 조용히 멈춘다.
@@ -494,7 +478,7 @@ class MarketOpenDays(NamedTuple):
     """미검사 고지. 채워지면 안은 살고 risks 에 한 줄이 붙는다."""
 
 
-#: 미검사 사유. **왜 못 했는지를 갈라 적는다** — 「봉투가 없다」와 「지평 밖이다」는 다른
+#: 미검사 사유. 왜 못 했는지를 갈라 적는다 — 「봉투가 없다」와 「지평 밖이다」는 다른
 #: 사실이고, 고쳐야 할 자리도 다르다 (마스터 배선 / 지평 길이).
 MARKET_SKIP_REASONS = {
     "no_envelope": (
@@ -505,7 +489,7 @@ MARKET_SKIP_REASONS = {
 
 
 def _beyond_horizon_reason(days: list[str], horizon_end: str) -> str:
-    """지평 밖 회차일. **날짜를 이름으로 부른다** — 몇 건인지만 적으면 어느 회차인지 모른다."""
+    """지평 밖 회차일. 날짜를 이름으로 부른다 — 몇 건인지만 적으면 어느 회차인지 모른다."""
     return (
         f"회차일 개장 검사 일부 보류 — {', '.join(days)}이(가) 받은 달력의 마지막 날"
         f"({horizon_end})을 넘어 장이 서는지 확인하지 않았다"
@@ -513,31 +497,31 @@ def _beyond_horizon_reason(days: list[str], horizon_end: str) -> str:
 
 
 def market_open_days(scenario: dict, state: PurchaseAgentState) -> MarketOpenDays:
-    """회차일이 **장이 서는 날인가** (`#300` · `#303`).
+    """회차일이 장이 서는 날인가 (`#300` · `#303`).
 
-    ★ **축이 「살 수 있는 날」이다.** 마스터가 싣는 ``execution_calendar`` 는 ``is_open``
-      으로 만든 것이고, 문 앞 게이트의 「예측이 있어 도는 날」과 **다르다**. 2026년 토요일
-      45일에 가락이 서므로, 문 앞 축으로 밀면 살 수 있는 날에 못 산다고 계획한다.
+    축이 「살 수 있는 날」이다. 마스터가 싣는 ``execution_calendar`` 는 ``is_open``
+    으로 만든 것이고, 문 앞 게이트의 「예측이 있어 도는 날」과 다르다. 2026년 토요일
+    45일에 가락이 서므로, 문 앞 축으로 밀면 살 수 있는 날에 못 산다고 계획한다.
 
-    🔴 **도착일은 안 본다.** 도착일 축은 ``arrival_capacity`` 가 ``cap_by_date`` 로 보고,
-      물류는 주말 칸에도 여유를 준다 (실측: 주말 칸 3,050건 중 **0 이 아닌 것 1,774건**).
-      즉 **「주말엔 못 받는다」가 아니다** — 여기서 도착일을 막으면 없는 제약을 만든다.
+    도착일은 안 본다. 도착일 축은 ``arrival_capacity`` 가 ``cap_by_date`` 로 보고,
+    물류는 주말 칸에도 여유를 준다 (실측: 주말 칸 3,050건 중 0 이 아닌 것 1,774건).
+    즉 「주말엔 못 받는다」가 아니다 — 여기서 도착일을 막으면 없는 제약을 만든다.
 
-    ⚠️ **지금은 한 번도 안 걸린다** (2026-09-10 실측 · 2026년 실행 전수).
+    2026-09-10 실측(2026년 실행 전수)에서는 한 번도 걸리지 않았다.
 
     .. code-block:: text
 
-        회차 155건   전부 1회차뿐 · 그 하나가 **as_of**
+        회차 155건   전부 1회차뿐 · 그 하나가 as_of
         as_of        마스터 문 앞 게이트가 실행일만 통과시킨다
-        요일 분포    매입일 월 26 · 화 55 · 수 22 · 목 23 · 금 29  → **주말 0건**
+        요일 분포    매입일 월 26 · 화 55 · 수 22 · 목 23 · 금 29  → 주말 0건
 
-    ★★ **그래서 이 검사는 「지금 막는 것」이 아니라 「분할이 서는 날 알려 주는 것」이다.**
-      `#308`(분할 임계 20,000kg)이 풀려 2·3회차가 ``as_of + k`` 로 가면 처음 걸린다.
-      `check_split_dates` 가 *"회차가 하나뿐이던 동안에는 순서를 어길 방법이 없었다"* 로
-      같은 모양을 적어 둔 자리와 짝이다.
+    그래서 이 검사는 「지금 막는 것」이 아니라 「분할이 서는 날 알려 주는 것」이다.
+    `#308`(분할 임계 20,000kg)이 풀려 2·3회차가 ``as_of + k`` 로 가면 처음 걸린다.
+    `check_split_dates` 가 "회차가 하나면 순서를 어길 방법이 없다" 로 같은 모양을
+    적어 둔 자리와 짝이다.
 
-    🔴 **못 하면 통과로 읽지 않는다.** 달력이 없으면 ``skipped`` 로 고지하고 안은 살린다 —
-      ``None`` 을 빈 목록으로 접으면 «안 서는 날이 없다» 가 되어 검사가 조용히 멈춘다.
+    못 하면 통과로 읽지 않는다. 달력이 없으면 ``skipped`` 로 고지하고 안은 살린다 —
+    ``None`` 을 빈 목록으로 접으면 «안 서는 날이 없다» 가 되어 검사가 조용히 멈춘다.
     """
     calendar = state.get("execution_calendar")
     if not calendar:
@@ -550,8 +534,8 @@ def market_open_days(scenario: dict, state: PurchaseAgentState) -> MarketOpenDay
         return MarketOpenDays(
             violation=f"회차일이 장이 안 서는 날: {', '.join(hit)} (받은 개장 달력 기준)"
         )
-    # ★ **지평 밖을 위반으로 읽지 않는다.** 달력이 답할 수 없는 날이고, 그건 «안 선다» 가
-    #   아니라 «모른다» 다. 마스터가 지평을 못 덮으면 봉투를 통째로 안 싣는 것과 같은 태도다.
+    # 지평 밖을 위반으로 읽지 않는다. 달력이 답할 수 없는 날이고, 그건 «안 선다» 가
+    # 아니라 «모른다» 다. 마스터가 지평을 못 덮으면 봉투를 통째로 안 싣는 것과 같은 태도다.
     if horizon_end:
         unknown = [day for day in dates if day > horizon_end]
         if unknown:
@@ -560,22 +544,22 @@ def market_open_days(scenario: dict, state: PurchaseAgentState) -> MarketOpenDay
 
 
 def check_document_refs(scenario: dict, context_docs: list[dict]) -> str | None:
-    """인용한 문서가 **실제로 읽은 것인가** (§4-⑦ 근거 환각 대조 중 계산으로 되는 부분).
+    """인용한 문서가 실제로 읽은 것인가 (§4-⑦ 근거 환각 대조 중 계산으로 되는 부분).
 
     ``check_prices_exist``가 단가에 대해 하는 일을 문서에 대해 한다 — 지어낸 ``DOC-``을
     막는 유일한 검사다. 등급·단가는 당일 시세에 실재해야 하고, 문서 근거는 그날 ②가
     실제로 로드한 것이어야 한다.
 
-    **역방향은 검사하지 않는다.** "읽었는데 근거에 안 썼다"는 위반이 아니다 — ② 스텁
-    시절부터 그 상태를 **의도적으로 구분 가능하게** 두었다("문서를 읽었는데 근거에 안 썼다"와
-    "아직 안 읽는다"가 출력에서 구분된다). 컷해버리면 그 구분이 사라지고, ``context_docs_used``와
+    역방향은 검사하지 않는다. "읽었는데 근거에 안 썼다"는 위반이 아니다 — 그 상태를
+    의도적으로 구분 가능하게 둔다("문서를 읽었는데 근거에 안 썼다"와 "아직 안 읽는다"가
+    출력에서 구분된다). 컷해버리면 그 구분이 사라지고, ``context_docs_used``와
     rationale이 항상 같아져 두 필드 중 하나가 무의미해진다.
 
-    **``source``와 ``ref_id`` 접두어 중 하나만 봐서는 안 된다.** 처음엔 ``source == "문서ID"``만
-    봤는데, Codex 교차검증이 P1을 짚었다 — 출처를 "예측"으로 적고 ``ref_id``에 ``"DOC-999"``를
-    넣으면 검사를 통째로 빠져나가고 스키마도 둘의 정합을 요구하지 않는다. 재현해 확인했다.
-    그래서 **둘 중 하나라도 문서를 가리키면** 문서 근거로 보고, 이어서 **둘이 어긋난 것 자체**를
-    막는다. 어긋난 항목은 어느 검사에도 안 걸리는 사각지대였다.
+    ``source``와 ``ref_id`` 접두어 중 하나만 봐서는 안 된다. ``source == "문서ID"``만
+    보면 출처를 "예측"으로 적고 ``ref_id``에 ``"DOC-999"``를 넣은 항목이 검사를 통째로
+    빠져나가고, 스키마도 둘의 정합을 요구하지 않는다 (재현해 확인했다).
+    그래서 둘 중 하나라도 문서를 가리키면 문서 근거로 보고, 이어서 둘이 어긋난 것 자체를
+    막는다. 어긋난 항목은 다른 어느 검사에도 안 걸린다.
     """
     loaded = {document_ref(doc["doc_id"]) for doc in context_docs}
     cited: set[str] = set()
@@ -596,25 +580,25 @@ def check_document_refs(scenario: dict, context_docs: list[dict]) -> str | None:
 
 
 def check_excerpt_fidelity(scenario: dict, context_docs: list[dict]) -> str | None:
-    """인용 발췌가 **원문에 실재하는 문자열인가** (§4-⑦ 근거 환각 대조 · 현서님 2차 합의 8/26).
+    """인용 발췌가 원문에 실재하는 문자열인가 (§4-⑦ 근거 환각 대조 · 현서님 2차 합의 8/26).
 
-    현서님 회신(8/26)으로 역할 경계가 정해졌다: **문서 원문 대조는 매입 소유다.** Critic은
+    현서님 회신(8/26)으로 역할 경계가 정해졌다: 문서 원문 대조는 매입 소유다. Critic은
     월보·기상 문서를 스냅샷으로 받지 않기로 해(8/25 B4-8) 원문 접근권이 없고, 접근권 없는
     쪽은 이 검사를 구조적으로 수행할 수 없다. 대체 불가능하므로 여기가 유일한 자리다.
 
-    **오늘은 이 검사가 통과할 수밖에 없다.** ②의 발췌가 서두 잘라내기라 원문 문자가 변조될
-    길이 없기 때문이다. 그래도 지금 넣는 이유는, ②·⑥에 LLM이 붙어 "구절 선별"과 "claim
-    요약"이 생기는 순간(E3-5 이후) **이 검사가 없으면 환각이 그대로 출력에 실리기 때문**이다.
-    검사를 나중에 만들면 그 사이 산출물은 검증된 적이 없는 채로 남는다.
+    지금은 이 검사가 통과할 수밖에 없다. ②의 발췌가 서두 잘라내기(``leading_excerpt``)라
+    원문 문자가 변조될 길이 없기 때문이다. 그래도 두는 이유는, ②·⑥에 LLM이 붙어 "구절
+    선별"과 "claim 요약"이 생기는 순간 이 검사가 없으면 환각이 그대로 출력에 실리기
+    때문이다. 검사를 나중에 만들면 그 사이 산출물은 검증된 적이 없는 채로 남는다.
 
     두 지점을 본다 — ②가 원문에서 떴는가, ⑥이 그걸 그대로 실었는가:
 
     1. ``excerpt`` ⊆ ``content``  — ②의 발췌가 원문에서 온 문자열인가
     2. ``excerpt`` ⊆ ``evidence_detail`` — ⑥이 옮기며 고치지 않았는가
 
-    **``substring``이지 ``prefix``가 아니다.** 지금 발췌는 항상 서두라 접두어 검사로도
-    통과하지만, LLM이 구절을 고르기 시작하면 발췌는 본문 중간에서 온다. 오늘의 구현이
-    아니라 **계약이 약속하는 것**에 맞춰 검사한다.
+    ``substring``이지 ``prefix``가 아니다. 지금 발췌는 항상 서두라 접두어 검사로도
+    통과하지만, LLM이 구절을 고르기 시작하면 발췌는 본문 중간에서 온다. 지금의 구현이
+    아니라 계약이 약속하는 것에 맞춰 검사한다.
 
     절단 표시는 떼고 맞춘다 — ``…``는 ②가 붙인 표식이지 원문 문자가 아니다.
     접미사를 보고 판별하지 않고 ``excerpt_truncated`` 플래그를 쓰는 이유는
@@ -645,15 +629,15 @@ def check_excerpt_fidelity(scenario: dict, context_docs: list[dict]) -> str | No
 def check_document_publication(
     scenario: dict, context_docs: list[dict], as_of: str
 ) -> str | None:
-    """인용 문서가 **as_of 시점에 실재하는 발행물인가** (규칙 1 look-ahead 방어).
+    """인용 문서가 as_of 시점에 실재하는 발행물인가 (규칙 1 look-ahead 방어).
 
     포트가 이미 ``published_at <= as_of``로 거른다(``mocks._load.filter_by_published_at``).
-    그런데도 출력 경계에서 한 번 더 보는 이유는, **필터를 통과하는 것과 출력이 지키는 것이
-    다른 약속**이기 때문이다 — 스키마의 ``DOC-`` backstop을 ⑦ 검사와 별개로 둔 것과 같은
+    그런데도 출력 경계에서 한 번 더 보는 이유는, 필터를 통과하는 것과 출력이 지키는 것이
+    다른 약속이기 때문이다 — 스키마의 ``DOC-`` backstop을 ⑦ 검사와 별개로 둔 것과 같은
     자리다. 9/4에 9/5 발행 문서(DOC-6)를 인용하면 백테스트 성적이 무효가 되는데, 그건
     사업적 판단이 아니라 버그이므로 컷 사유로 남긴다.
 
-    ``published_at``이 **없는** 것도 위반이다. 없으면 비교 자체가 불가능한데 조용히
+    ``published_at``이 없는 것도 위반이다. 없으면 비교 자체가 불가능한데 조용히
     넘기면 "검사했다"가 거짓이 된다 — 로더가 ``published_at`` 없는 문서를 적재 거부하는
     것과 같은 이유다 (IO명세 §1-⑥).
 
@@ -680,18 +664,18 @@ def check_document_publication(
 def check_payment_schedule(
     scenario: dict, state: PurchaseAgentState, constraints: dict
 ) -> str | None:
-    """지급 계획이 **분할·총량·총액과 어긋나지 않는가** (재무 확정분 · 제안 §3.2 항등식 5).
+    """지급 계획이 분할·총량·총액과 어긋나지 않는가 (재무 확정분 · 제안 §3.2 항등식 5).
 
     재무가 이 값을 자기 Cashflow에 얹어 검증하므로(회신 §6), 여기서 어긋난 채 나가면
-    **재무 판정이 틀린 입력 위에서 이뤄진다.** 어느 쪽도 에러를 내지 않는다.
+    재무 판정이 틀린 입력 위에서 이뤄진다. 어느 쪽도 에러를 내지 않는다.
 
-    다섯 가지를 본다:
+    다음을 본다:
 
     1. ``Σ qty_kg == total_qty_kg``            — 사중 일치의 지급 축 판
     2. ``Σ amount_krw == total_amount_krw``    — BASE Cashflow의 전제
     3. ``purchase_date == split_plan[i].date`` — seq 대응. 어긋나면 다른 회차의 돈이 된다
     4. ``payment_date == purchase_date + N5``  — calendar day, 영업일 보정 없음
-    5. **일괄 안에는 키가 없다**               — 있으면 실을 것이 없는데 실은 것이다
+    5. 일괄 안에는 키가 없다                    — 있으면 실을 것이 없는데 실은 것이다
     6. ``amount_krw == split_plan[i].amount_krw`` — 같은 숫자가 두 필드에 산다 (#265)
 
     N5가 미결이면 애초에 만들어지지 않으므로(``build_payment_schedule``) 검사 대상도
@@ -700,12 +684,12 @@ def check_payment_schedule(
     schedule = scenario.get("payment_schedule")
     rounds = scenario["split_plan"]
     payment_days = pending_value(state, constraints, "purchase_payment_days")
-    #: N5를 받았고 분할이면 **있어야 한다.** 없으면 만들어야 할 것이 사라진 것이다.
+    #: N5를 받았고 분할이면 있어야 한다. 없으면 만들어야 할 것이 사라진 것이다.
     expected = payment_days is not None and payment_days >= 0 and len(rounds) > 1
 
     if schedule is None:
-        # ⚠️ 처음엔 여기서 무조건 통과시켰는데, **키를 지우면 검사가 통째로 빠졌다**
-        # (Codex 교차검증 P1). 있어야 하는 날 없는 것도 위반이다.
+        # 여기서 무조건 통과시키면 키를 지우는 것만으로 검사가 통째로 빠진다.
+        # 있어야 하는 날 없는 것도 위반이다.
         if expected:
             return f"분할 {len(rounds)}회인데 payment_schedule이 없다 (N5={payment_days} 수신)"
         return None
@@ -730,18 +714,18 @@ def check_payment_schedule(
                 f"지급 계획이 분할과 어긋난다: seq {row['seq']}/{item['seq']} · "
                 f"{row['purchase_date']}/{item['date']}"
             )
-        # ⚠️ **회차별 수량도 본다.** 합만 보면 1회차에서 빼 2회차에 더하는 이동이
-        # 통과하고, 그러면 **BASE 현금유출이 잘못된 날짜에 배치된다** (Codex 교차검증 P1).
+        # 회차별 수량도 본다. 합만 보면 1회차에서 빼 2회차에 더하는 이동이
+        # 통과하고, 그러면 BASE 현금유출이 잘못된 날짜에 배치된다.
         if row["qty_kg"] != item["qty_kg"]:
             return (
                 f"회차 {item['seq']} 수량이 분할과 다르다: "
                 f"{row['qty_kg']:,}kg ≠ {item['qty_kg']:,}kg"
             )
-        # 🔴 **같은 숫자가 두 필드에 산다** (``split_plan[].amount_krw`` · 마스터 #265).
-        #   지금은 ``build_payment_schedule`` 이 회차 목록에서 **읽어** 쓰므로 구조적으로
-        #   같지만, 한쪽이 다시 자기 계산을 갖는 순간 갈린다. 그때 마스터는 원장에
-        #   ``split_plan`` 값을, 재무는 Cashflow 에 ``payment_schedule`` 값을 써서
-        #   **두 장부가 다른 금액을 든다.** 백스톱을 여기 둔다.
+        # 같은 숫자가 두 필드에 산다 (``split_plan[].amount_krw`` · 마스터 #265).
+        # 지금은 ``build_payment_schedule`` 이 회차 목록에서 읽어 쓰므로 구조적으로
+        # 같지만, 한쪽이 다시 자기 계산을 갖는 순간 갈린다. 그때 마스터는 원장에
+        # ``split_plan`` 값을, 재무는 Cashflow 에 ``payment_schedule`` 값을 써서
+        # 두 장부가 다른 금액을 든다. 백스톱을 여기 둔다.
         if row["amount_krw"] != item["amount_krw"]:
             return (
                 f"회차 {item['seq']} 금액이 분할과 다르다: "
@@ -753,8 +737,8 @@ def check_payment_schedule(
                 f"지급일이 매입일 + N5({payment_days})와 다르다: "
                 f"{row['payment_date']} ≠ {due.isoformat()}"
             )
-        # ⚠️ **STRESS 금액을 검증한다.** 재무가 이 값을 그대로 STRESS Cashflow에 쓰므로
-        # 틀리면 REVIEW/FAIL이 PASS로 왜곡된다 (Codex 교차검증 P1).
+        # STRESS 금액을 검증한다. 재무가 이 값을 그대로 STRESS Cashflow에 쓰므로
+        # 틀리면 REVIEW/FAIL이 PASS로 왜곡된다.
         stress = row["qty_kg"] * scenario["max_price"]
         if row["amount_max_krw"] != stress:
             return (
@@ -767,7 +751,7 @@ def check_payment_schedule(
 def check_axis_diversity(scenarios: list[dict], allowed_axes: list[str]) -> str | None:
     """전 안이 동일 축이면 반려 (정의서 §3.5.1-3 — "코드가 최종 중복 검사 ... (self_check)").
 
-    **축이 하나뿐인 날은 면제한다.** 하락일처럼 timing 트리거가 미달하고 mix가 편중으로
+    축이 하나뿐인 날은 면제한다. 하락일처럼 timing 트리거가 미달하고 mix가 편중으로
     게이팅되면 남는 축이 quantity뿐이라, 전 안이 같은 축인 게 정상이다. 그날까지 반려하면
     제안 자체가 불가능해진다.
 
@@ -777,11 +761,12 @@ def check_axis_diversity(scenarios: list[dict], allowed_axes: list[str]) -> str 
     이 검사가 스키마가 아니라 여기 있는 이유: ``allowed_axes``는 ①이 그날 계산한 런타임
     값이라 출력 JSON만 보고는 알 수 없다.
 
-    🔴 **받는 것은 「열린 축」이 아니라 「실효 축」이다** (`#308` · 2026-09-12). ①이 축을
-      열어도 ④가 안 나눈 날이 있고, 그날 ⑥은 ``timing`` 을 배정하지 않는다. 여기에
-      ①의 목록을 그대로 넘기면 *"허용 축이 둘인데 전 안이 quantity"* 가 되어 **그날 안이
-      통째로 반려된다** — 실측 20셀 (안이 있는 672셀 기준). ⑥과 **같은 함수**
-      (``effective_allowed_axes``)가 만든 목록을 봐야 둘이 갈리지 않는다.
+    받는 것은 「열린 축」이 아니라 「실효 축」이다 (`#308`). ①이 축을 열어도 ④가 안
+    나눈 날이 있고, 그날 ⑥은 ``timing`` 을 배정하지 않는다. 여기에 ①의 목록을 그대로
+    넘기면 "허용 축이 둘인데 전 안이 quantity" 가 되어 그날 안이 통째로 반려된다 —
+    2026-09-12 실측 20셀 (안이 있는 672셀 기준). ⑥과 같은 함수
+    (``domain/split_plan.py`` 의 ``effective_allowed_axes``)가 만든 목록을 봐야 둘이
+    갈리지 않는다.
     """
     if len(allowed_axes) < 2 or len(scenarios) < 2:
         return None
@@ -794,18 +779,18 @@ def check_axis_diversity(scenarios: list[dict], allowed_axes: list[str]) -> str 
     return None
 
 
-#: 문서를 못 읽고 판단했다는 **고지**. 컷 사유가 아니다 (2026-09-04 · 마스터 결정).
+#: 문서를 못 읽고 판단했다는 고지. 컷 사유가 아니다 (2026-09-04 · 마스터 결정).
 #:
-#: ★ *"문서 없으면 없이 진행"* 이라, 이건 안을 죽이는 게 아니라 **안에 붙는 위험 표시**다.
-#:   사람이 화면에서 *"이 안은 문서 보강 없이 나왔다"* 를 읽고 감안한다.
+#: "문서 없으면 없이 진행" 이라, 이건 안을 죽이는 게 아니라 안에 붙는 위험 표시다.
+#: 사람이 화면에서 "이 안은 문서 보강 없이 나왔다" 를 읽고 감안한다.
 _CONTEXT_NOTE = "판단 재료(관측월보·기상·작년동기)를 읽지 못해 문서 보강 없이 판단했다"
 
 
 def with_context_note(scenarios: list[dict], unavailable: str | None) -> list[dict]:
-    """문서를 못 읽었으면 각 안의 risks 에 고지를 얹는다. **컷하지 않는다.**
+    """문서를 못 읽었으면 각 안의 risks 에 고지를 얹는다. 컷하지 않는다.
 
-    ⚠️ 빈 `context_docs`(무·양파처럼 원래 문서가 없는 날)와 다르다 — 그건 사실이라
-      고지도 안 붙는다. `context_unavailable` 은 *"읽으려 했는데 못 읽었다"* 일 때만 찬다.
+    빈 `context_docs`(무·양파처럼 원래 문서가 없는 날)와 다르다 — 그건 사실이라
+    고지도 안 붙는다. `context_unavailable` 은 "읽으려 했는데 못 읽었다" 일 때만 찬다.
     """
     if not unavailable:
         return scenarios
@@ -813,13 +798,12 @@ def with_context_note(scenarios: list[dict], unavailable: str | None) -> list[di
 
 
 def no_proposal_reason(rejected: list[dict], cut_here: int) -> str:
-    """안이 하나도 없는 날, **어느 단계에서 없어졌는지**를 정확히 말한다.
+    """안이 하나도 없는 날, 어느 단계에서 없어졌는지를 정확히 말한다.
 
-    🔴 전에는 무조건 "모든 안이 self_check에서 컷됨"으로 시작했다. 시세를 못 받아 ③이
-      초안을 아예 만들지 않은 날에도 그렇게 나갔고 — 2025-12-31 피마늘이 실제로 그랬다 —
-      어댑터의 Evidence 도 그 문장을 그대로 "자기 검증에서 컷된 안"으로 옮겼다
-      (Codex 교차검증 2026-08-31). 사유는 맞고 **원인 분류가 틀린** 종류의 거짓이라,
-      읽는 사람이 검증 로직을 들여다보게 된다.
+    무조건 "모든 안이 self_check에서 컷됨"으로 시작하면, 시세를 못 받아 ③이 초안을
+    아예 만들지 않은 날(예: 2025-12-31 피마늘)에도 그렇게 나가고, 어댑터의 Evidence 도
+    그 문장을 그대로 "자기 검증에서 컷된 안"으로 옮긴다. 사유는 맞고 원인 분류가 틀린
+    종류의 거짓이라, 읽는 사람이 검증 로직을 들여다보게 된다.
 
     ``cut_here`` 는 ⑦이 직접 컷한 안의 수다. 0이면 여기 오기 전에 이미 없었다는 뜻이다.
     """

@@ -1,8 +1,6 @@
 """누적 수금 — 수금 사건 · 전이 계획 · 충돌 · 요청.
 
-★ 2026-09-29 재구성 BL-014: 사건 · 계획 · 충돌 · 사건 원천(`DeterministicCollectionFixtureSource`)은
-  `finance/collection.py`, 요청 모델(`ReceivableCollectionChange`)은 `finance/router.py` 에서
-  옮겼다. 전이 계산은 `domain/collections.py`, 순서 · 트랜잭션은 `service/collections.py`.
+전이 계산은 `domain/collections.py`, 순서 · 트랜잭션은 `service/collections.py`.
 """
 
 from collections.abc import Iterable

@@ -7,12 +7,11 @@
 기간 재고 추이              onhand_total_by_day + snapshot_days_between
 ```
 
-🔴 **커넥션은 한 보고서에 하나다.** `reservation_state_at` 도 한 번만 읽어 재고 콘솔과 출고 콘솔이
-   나눠 쓴다 — 화면(`app/logistics/readmodel/console.read_console_page`)과 같은 조립 순서다.
+커넥션은 한 보고서에 하나다(`core_db.connection` + `core_db.transaction`).
+`reservation_state_at` 도 한 번만 읽어 재고 콘솔과 출고 콘솔이 나눠 쓴다 —
+화면(`app/logistics/readmodel/console.read_console_page`)과 같은 조립 순서다.
 
-★ 2026-09-30 재구성 BL-018: `master/report.py` 의 `render_logistics_chat_report` 앞머리(연결 대여와
-  조회 일곱)를 옮겼다 — 블록 본문 · 경계(`core_db.connection` + `core_db.transaction`) · 순서
-  그대로다. 문장 조립은 `report/chat_reports.py` 가 한다(보고서 계층은 연결을 빌리지 않는다).
+문장 조립은 `report/chat_reports.py` 가 한다(보고서 계층은 연결을 빌리지 않는다).
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ class LogisticsReportFacts:
 def read_logistics_report_facts(
     *, sim_run_id: str, as_of: date, start_date: date, end_date: date
 ) -> LogisticsReportFacts:
-    """물류 사실을 한 연결 · 한 트랜잭션에서 읽는다. **새 판정 · 새 SQL 0.**"""
+    """물류 사실을 한 연결 · 한 트랜잭션에서 읽는다. 새 판정 · 새 SQL 은 없다."""
     with core_db.connection() as conn, core_db.transaction(conn):
         runtime = load_console_runtime(conn=conn, sim_run_id=sim_run_id, as_of=as_of)
         reservations = reservation_state_at(conn, sim_run_id=sim_run_id, as_of=as_of)

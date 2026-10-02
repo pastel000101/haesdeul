@@ -1,4 +1,4 @@
-"""예측 질의응답이 읽는 표의 SQL. **전부 SELECT 다.**
+"""예측 질의응답이 읽는 표의 SQL. 전부 SELECT 다.
 
 두 창고를 읽는다 — 어느 연결을 넘길지는 `readmodel/qa_reads.py` 가 정한다.
 
@@ -12,12 +12,8 @@
             model_cutover                  모델 교체 이력 (아직 없는 표일 수 있다)
 ```
 
-★ **받은 연결로 SQL 만 실행한다.** 연결을 빌리지 않고 commit 하지 않는다.
-
-🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/qa_tools.py` 한 파일에 SQL · 봉인
-  성능표 · 라벨 · ML 백엔드 HTTP 호출이 함께 있었고, 실행은 `app/ml/db.py` 헬퍼가 SQL 마다
-  연결을 빌려 했다. SQL 문면 · 매개변수는 그대로다. 상수는 `config.py`, 호출 순서와 연결은
-  `readmodel/qa_reads.py`, ML 백엔드 호출은 `ml_backend.py` 에 있다.
+받은 연결로 SQL 만 실행한다. 연결을 빌리지 않고 commit 하지 않는다. 상수는 `config.py`,
+호출 순서와 연결은 `readmodel/qa_reads.py`, ML 백엔드 호출은 `ml_backend.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -72,14 +68,14 @@ SELECT use_recommended, quality_note, band_method, is_gated, gate_reason
 
 # ── 배치 결과 · 점검 보고서 ────────────────────────────────────────────
 #
-# 🔴 **시간대가 표마다 다르다** (2026-09-16 실측).
+# 시간대가 표마다 다르다(2026-09-16 실측).
 #
 # ```text
 # batch_run.started_at    timestamptz · UTC 로 앉아 있다  -> AT TIME ZONE 으로 돌린다
 # agent_report.ran_at     timestamp   · 이미 한국 시간이다 -> 그대로 자른다
 # ```
 #
-# 한국 09:00 이 UTC 자정이라(CLAUDE.md §9) **UTC 로 날짜를 자르면 하루가 밀린다.**
+# 한국 09:00 이 UTC 자정이라(CLAUDE.md §9) UTC 로 날짜를 자르면 하루가 밀린다.
 # 09:00 배치가 전날 것으로 세어진다.
 
 _BATCH_RUN_SQL = """
@@ -105,7 +101,7 @@ SELECT id, name, verdict, ran_at, payload, body
  LIMIT 1
 """
 
-#: 그날 같은 이름의 보고서 **전부**. 시간 오름차순 — 돈 순서가 읽는 순서다.
+#: 그날 같은 이름의 보고서 전부. 시간 오름차순 — 돈 순서가 읽는 순서다.
 _REPORTS_SQL = """
 SELECT id, name, verdict, ran_at, payload, body
   FROM agent_report
@@ -115,15 +111,14 @@ SELECT id, name, verdict, ran_at, payload, body
 
 # ── 지금 무엇이 도나 ──────────────────────────────────────────────────
 #
-# 🔴 **이름으로는 알 수 없다.** `ops_auc` · `ops_whsl` · `ops_rtl` 은 모델을
-#   갈아 끼워도 **그대로 둔다** — 매입 파트 필터가 이름 정확히 일치라 바꾸면
-#   에러 없이 0건이 된다 (CLAUDE.md §5.11).
+# 이름으로는 알 수 없다. `ops_auc` · `ops_whsl` · `ops_rtl` 은 모델을 갈아 끼워도
+# 그대로 둔다 — 매입 파트 필터가 이름 정확히 일치라 바꾸면 에러 없이 0건이 된다
+# (CLAUDE.md §5.11).
 #
-#   그래서 «현재 모델» 은 **이름 + 만든 날 + 학습 끝** 셋이 있어야 가려진다.
-#   실제로 2026-09-15 저녁에 소매가 모델이 바뀌었는데, 이름이 같아 답에
-#   그 사실이 한 글자도 안 남았다.
+# 그래서 «현재 모델» 은 이름 + 만든 날 + 학습 끝 셋이 있어야 가려진다. 이름만 보면 모델이
+# 바뀌어도 답에 그 사실이 남지 않는다.
 
-#: 지금 예측을 내고 있는 번들을 만든 시각. **최신 기준일 행에서 읽는다** —
+#: 지금 예측을 내고 있는 번들을 만든 시각. 최신 기준일 행에서 읽는다 —
 #: 옛 기준일 행에는 교체 전 번들의 시각이 그대로 남아 있다 (실측: `ops_rtl` 이
 #: 2026-09-15 까지 09-08 번들, 09-16 부터 09-12 번들).
 _MODEL_NOW_SQL = """
@@ -134,7 +129,7 @@ SELECT model_ver, base_dt, model_created_at
  LIMIT 1
 """
 
-#: 교체 이력. **아직 없는 표다** (2026-09-16 실측 · 두 창고 다 없음).
+#: 교체 이력. 아직 없을 수 있는 표다(2026-09-16 실측: 두 창고 다 없음).
 #: 다른 일꾼이 만들고 있어 칸 이름이 바뀔 수 있으므로 `*` 로 받아 키로 읽는다.
 _CUTOVER_SQL = """
 SELECT DISTINCT ON (kind) *
@@ -164,7 +159,7 @@ def latest_base_date(conn: Connection, as_of: date | None) -> date | None:
 def forecast_rows(
     conn: Connection, item: str, kind: str, base_dt: date, targets: list[date]
 ) -> list[dict[str, Any]]:
-    """전달표에서 여러 대상일을 **한 번에** 읽는다. 날짜마다 묻지 않는다."""
+    """전달표에서 여러 대상일을 한 번에 읽는다. 날짜마다 묻지 않는다."""
     query = _ROWS_SQL.format(schema=get_db_schema())
     return _all(conn, query, (item, kind, base_dt, list(targets)))
 
@@ -175,7 +170,7 @@ def latest_model_base_date(conn: Connection, model: str) -> dict[str, Any] | Non
 
 
 def today_row(conn: Connection, model: str, item: str, base_dt: date) -> dict[str, Any] | None:
-    """당일(리드 0) 한 행. **원본 창고** — 전달표에는 없는 값이다."""
+    """당일(리드 0) 한 행. 원본 창고에서 읽는다 — 전달표에는 없는 값이다."""
     return _one(conn, _TODAY_SQL, (model, item, base_dt))
 
 
@@ -185,22 +180,22 @@ def usability(conn: Connection, item: str, kind: str) -> dict[str, Any] | None:
 
 
 def batch_run(conn: Connection, on: date) -> dict[str, Any] | None:
-    """그날 배치 **한 행** (시작 시각 내림차순 첫 행)."""
+    """그날 배치 한 행 (시작 시각 내림차순 첫 행)."""
     return _one(conn, _BATCH_RUN_SQL, (on,))
 
 
 def failed_stages(conn: Connection, run_id: int) -> list[dict[str, Any]]:
-    """그 실행에서 **실패한 단계만**."""
+    """그 실행에서 실패한 단계만."""
     return _all(conn, _FAILED_STAGE_SQL, (run_id,))
 
 
 def agent_report(conn: Connection, name: str, on: date) -> dict[str, Any] | None:
-    """그날 그 이름의 보고서 **한 건** (가장 나중 것)."""
+    """그날 그 이름의 보고서 한 건 (가장 나중 것)."""
     return _one(conn, _REPORT_SQL, (name, on))
 
 
 def agent_reports(conn: Connection, name: str, on: date) -> list[dict[str, Any]]:
-    """그날 그 이름의 보고서 **전부** (돈 순서)."""
+    """그날 그 이름의 보고서 전부 (돈 순서)."""
     return _all(conn, _REPORTS_SQL, (name, on))
 
 

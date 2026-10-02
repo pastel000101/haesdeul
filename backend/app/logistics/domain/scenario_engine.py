@@ -1,7 +1,4 @@
-"""고정 Inventory/Logistics Snapshot에서 A/B 계산과 Rule 호출을 조립한다.
-
-★ 2026-09-30 재구성 BL-015: `logistics/scenario_engine.py` 에서 자리만 옮겼다(내용 그대로).
-"""
+"""고정 Inventory/Logistics Snapshot에서 A/B 계산과 Rule 호출을 조립한다."""
 
 from datetime import date, timedelta
 from decimal import Decimal
@@ -195,7 +192,7 @@ def derive_preferred_adjustment(
 ) -> str | None:
     """Rule 이 낸 조정 제안에서 우선 조정 축을 집계한다 (LLM 정책 결정서 §5).
 
-    **reject 시나리오는 집계에서 명시적으로 제외한다** (#121 2단계). multi-split
+    reject 시나리오는 집계에서 명시적으로 제외한다 (#121 2단계). multi-split
     에서는 앞 회차의 adjustment 가 쌓인 채 뒤 회차 불가로 reject 가 될 수 있어,
     "reject 는 adjustments 가 비므로 자연히 빠진다"는 가정이 성립하지 않는다.
     reject 안의 adjustment 는 "어디까지는 됐는지"의 진단 기록이지 행동 제안의

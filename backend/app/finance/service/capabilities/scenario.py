@@ -1,21 +1,17 @@
-"""SCENARIO_VALIDATION capability — 제출된 시나리오를 **검증**한다.
+"""SCENARIO_VALIDATION capability — 제출된 시나리오를 검증한다.
 
 이 파일이 소유하는 것
-    지급 일정 재구성과 정규화 · BASE/STRESS 현금 사건 ·
-    시나리오 투영 overlay · 시나리오 Finance Cap · 판정 조립 · 금액 대안 검증
+    DataPort 로 읽는 Tool 실행 둘 — 시나리오 투영 overlay · 판정 조립 · 금액 대안 검증
 
-여기 **없는 것**
-    금액 공식(`tools`) · BASE/STRESS 판정 규칙(`rules`) · 컨텍스트 적재
-    (`capabilities.procurement`) · 실행 통제(`application.harness`)
+여기 없는 것
+    지급 일정 재구성과 정규화 · BASE/STRESS 현금 사건 · 일정 상한(`domain/scenario.py`) ·
+    금액 공식(`domain/tools.py`) · BASE/STRESS 판정 규칙(`domain/rules.py`) · 컨텍스트 적재
+    (`service/capabilities/procurement.py`) · 실행 통제(`service/harness.py`)
 
-★ 재무는 매입 제안을 **고쳐 쓰지 않는다.** 제출된 사실을 읽고 투영해 판정할 뿐이고,
-  조정은 금액 축에서만 제안한다.
+재무는 매입 제안을 고쳐 쓰지 않는다. 제출된 사실을 읽고 투영해 판정할 뿐이고, 조정은 금액
+축에서만 제안한다.
 
-★ 금액 대안은 **원천이 있는 값만** 받는다. 모델이 만든 숫자는 여기 닿지 못한다.
-
-★ 2026-09-29 재구성 BL-014: `finance/capabilities/scenario.py` 에서 Tool 실행 둘만 옮겼다. DataPort
-  를 부르지
-  않는 일정 계산은 `domain/scenario.py`.
+금액 대안은 원천이 있는 값만 받는다. 모델이 만든 숫자는 여기 닿지 못한다.
 """
 
 from __future__ import annotations
@@ -131,25 +127,24 @@ data_port: FinanceAsOfDataPort, args: dict[str, Any], state: FinanceAgentState
         "stress_projected_cash_min": str(stress_scenario_projection.projected_cash_min),
         "critical_cash_date": base_scenario_projection.projected_cash_min_date.isoformat(),
         "rule_id": rule_id,
-        # 🔴 한 배열 안에서 **행 모양이 갈리지 않는다.** 예전에는 분할 건과 재구성
-        #    건이 서로 다른 키 집합을 냈다 — 읽는 쪽이 매번 어느 모양인지 확인해야
-        #    했고, 없는 키를 조용히 놓치기 쉬웠다.
+        # 한 배열 안에서 행 모양이 갈리지 않는다. 분할 건과 재구성 건이 서로 다른 키 집합을
+        # 내면 읽는 쪽이 매번 어느 모양인지 확인해야 하고, 없는 키를 조용히 놓치기
+        # 쉽다.
         #
-        # ★ 이것은 **재무 검증 메타데이터**다. 고쳐 쓴 매입 제안이 아니다.
+        # 이것은 재무 검증 메타데이터다. 고쳐 쓴 매입 제안이 아니다.
         "payment_schedule": [payment_row(item) for item in schedule],
         "reason": reason,
         "rules": [{"rule_id": rule_id, "status": "PASS" if verdict == "ok" else "FAIL"}],
         "evidence": [
-            # ⚠️ `1` 은 **시나리오 id 가 아니다.** 실제 식별자는 `ref_ids` 에 있다.
+            # 주의: `1` 은 시나리오 id 가 아니다. 실제 식별자는 `ref_ids` 에 있다.
             #
-            #    공용 `Evidence.value` 가 `float` 필수라, 문자열 식별자를 실을 자리가
-            #    없어서 "이 시나리오가 있다"는 존재 표시로 1 을 넣는다. 값을 시나리오
-            #    번호로 읽으면 안 된다.
+            # 공용 `Evidence.value` 가 `float` 필수라, 문자열 식별자를 실을 자리가 없어서
+            # "이 시나리오가 있다"는 존재 표시로 1 을 넣는다. 값을 시나리오 번호로 읽으면
+            # 안 된다.
             #
-            #    제대로 고치려면 공용 계약(`app.contracts.core.Evidence`)이
-            #    비수치 식별을 허용해야 한다 — 재무 밖이라 이번 범위에서 바꾸지 않는다
-            #    (CROSS-DOMAIN). 현재 이 값을 읽는 소비자는 없다(Critic 의 재무 claim
-            #    목록에도 없다).
+            # 제대로 고치려면 공용 계약(`app.contracts.core.Evidence`)이 비수치 식별을
+            # 허용해야 한다 — 재무 밖이라 여기서 바꾸지 않는다(CROSS-DOMAIN). 현재 이 값을
+            # 읽는 소비자는 없다(Critic 의 재무 claim 목록에도 없다).
             make_evidence("scenario_id", 1, "identity", scenario_ref),
             make_evidence(
                 "finance_cap_amount_krw",

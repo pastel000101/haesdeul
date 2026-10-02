@@ -17,11 +17,12 @@ from app.master.registry.bootstrap import wire_registries
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """앱이 떠 있는 동안 DB 연결 풀을 쓴다 — 시작 때 열고, 끝날 때 닫는다 (2026-09-29).
+    """앱이 떠 있는 동안 DB 연결 풀을 쓴다 — 시작 때 열고, 끝날 때 닫는다.
 
-    ★ **풀만 다룬다.** 테이블을 만들거나 고치지 않는다(정의는 `database/**/*.sql` 하나다).
-    ★ DB 설정이 없으면 미리 열지 않고 뜬다 — `/health` 와 DB 를 안 쓰는 경로는 그대로 돌고,
-      DB 경로는 첫 대여에서 종전 문구로 실패한다 (`app/core/db.py::pool_lifespan`).
+    - 풀만 다룬다. 테이블을 만들거나 고치지 않는다(정의는 `database/**/*.sql` 하나다).
+    - DB 설정이 없으면 미리 열지 않고 뜬다 — `/health` 와 DB 를 안 쓰는 경로는 그대로 돌고,
+      DB 경로는 첫 대여에서 `MissingDatabaseEnvironment` 로 실패한다
+      (`app/core/db.py::pool_lifespan`).
     """
     with core_db.pool_lifespan():
         yield
@@ -29,54 +30,24 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="mainproject", lifespan=lifespan)
 # HTTP 입구 전부 — 화면 탭(`/api/…`) · 부서 · 마스터 · Critic · ML 라우트를 `app/api/router.py`
-# 한 곳이 모은다 (2026-09-30 재구성 BL-019 · 전에는 여기서 라우터 여덟을 하나씩 등록했다).
-# 등록 순서 · 주소로 가르는 규칙 · 물류에 자기 라우터가 없는 이유는 그 파일에 있다.
+# 한 곳이 모은다. 등록 순서 · 주소로 가르는 규칙 · 물류에 자기 라우터가 없는 이유는 그 파일에
+# 있다.
 app.include_router(api_router)
 
 # ── 등록소를 채운다 ────────────────────────────────────────────────────
 #
-# 🔴 **등록 줄은 여기 없다. `app/master/registry/bootstrap.py` 하나에 있다** (2026-09-09).
+# 등록 줄은 여기 없다. `app/master/registry/bootstrap.py` 하나에 있다.
 #
-#   전에는 이 자리에 register_agent · register_transition · register_day_opening ·
-#   register_cancellation · register_inbound · register_collection 이 모듈 수준으로
-#   늘어서 있었다. 그러면 **이 모듈을 임포트한 사람만** 등록된 세상을 본다.
+#   이 모듈에 register_* 줄을 모듈 수준으로 늘어놓으면 이 모듈을 임포트한 쪽만 등록된
+#   세상을 본다. FastAPI 는 `app/main.py` 를 임포트하지만 CLI 러너(`app/master/cli/`)는
+#   거치지 않으므로, 등록소가 빈 채로 걷게 된다("하루 넘김 미등록: finance, logistics").
+#   그래서 앱과 CLI 러너가 같은 `wire_registries()` 를 부른다.
 #
-#   ```text
-#   FastAPI      app/main.py 를 임포트한다        → 등록소가 찬다
-#   CLI 걷기      app/master/backtest_runner.py    → 안 거친다 → 전부 빈 채로 걸었다
-#   ```
-#
-#   ⚠️ 실측으로 5일을 걸으니 5일 다 사고였다 — *"하루 넘김 미등록: finance,
-#     logistics"*. 러너는 미등록을 이름까지 정확히 말했고, 고칠 곳은 조립 자리였다.
-#
-# ★ **임포트 시점에 부르는 것은 그대로다.** 옮긴 것은 자리뿐이고 시점도 대상도
-#   안 바꿨다. 무엇을 왜 등록하는지는 그 파일의 각 줄 위에 그대로 있다.
+# 임포트 시점에 부른다. 무엇을 왜 등록하는지는 그 파일의 각 줄 위에 있다.
 wire_registries()
 
-# ★ **오케스트레이터 라우터는 2026-08-30 에 걷어냈다.**
-#
-#   `/orchestrator/{procurement,sales,day,runs,runs/{id}}` 5개. 오케스트레이터가
-#   마스터 에이전트가 되면서 대체됐고, 저장소 전체에서 **부르는 곳이 없었다** —
-#   프론트도 테스트도 다른 파트도 안 썼다 (실측 2026-08-30).
-#
-#   🔴 **표는 그대로다.** `orchestrator_agent_runs` 는 오케·Critic·마스터가 함께
-#   쓰는 실행이력이고, `agent` 축이 셋을 구분한다. 과거 행(agent='orchestrator'
-#   21건)은 그때 실제로 있었던 일이라 지우거나 옮기지 않는다.
-#
-#   🟢 **`app/orchestrator/` 폴더는 2026-09-07 에 없어졌다** (지시).
-#
-#   전에는 이 자리에 *"폴더도 남는다 — `contracts_core.py` 가 다섯 파트의 공용
-#   계약이라 중립 위치로 옮기는 것은 저장소 전체의 import 를 건드리는 별도 작업"*
-#   이라고 적어 뒀다. 그 별도 작업이 두 판에 걸쳐 끝났다.
-#
-#   ```text
-#   2026-09-03  공용 계약 → app/contracts/core.py   (재수출 shim 을 남겨 파트별 이전)
-#   2026-09-07  나머지 전부 → app/master/           (shim 을 닫고 폴더를 지웠다)
-#   ```
-#
-#   ⚠️ **표는 그대로다** — 위 문단의 `orchestrator_agent_runs` 는 안 건드렸다.
-#   코드 경로만 옮겼다. `tests/master/test_orchestrator_is_gone.py` 가 폴더가
-#   돌아오지 못하게 잠근다.
+# 옛 `app/orchestrator/` 패키지와 `/orchestrator/…` 라우터는 없다. 마스터 에이전트가 그 역할을
+# 맡는다. 폴더가 돌아오지 못하게 `tests/master/test_orchestrator_is_gone.py` 가 잠근다.
 
 
 @app.get("/health")

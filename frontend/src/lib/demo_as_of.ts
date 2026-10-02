@@ -1,17 +1,17 @@
 /**
- * 🔴 **임시다. 2026-09-08 시연이 끝나면 지운다** (`#431`).
+ * 시연용 임시 자리다. 시연이 끝나면 지운다 (`#431`).
  *
  * 기준일은 화면이 정할 값이 아니다. 운영에서는 스케줄러가 `clock.today_in_seoul()` 로
- * 하루를 정하고 그 아래로는 `as_of` 가 **인자로만** 흐른다 (`app/core/clock.py` · `#422`).
+ * 하루를 정하고 그 아래로는 `as_of` 가 인자로만 흐른다 (`app/core/clock.py` · `#422`).
  *
- * ★ 화면이 날짜를 고르면 **시간축의 주인이 둘**이 된다. 지금은 시연 때문에 그렇게
- *   두지만, 그 상태가 남으면 *"어느 날을 보고 있는가"* 를 두 곳이 각자 답하게 된다.
+ * 화면이 날짜를 고르면 시간축의 주인이 둘이 된다. 지금은 시연 때문에 그렇게
+ * 두지만, 그 상태가 남으면 "어느 날을 보고 있는가" 를 두 곳이 각자 답하게 된다.
  *
  * 지우는 조건과 순서는 `#431` 에 있다.
  *
  * ── 모양은 `session.ts` 를 그대로 베꼈다 ────────────────────────────────
  *
- * `localStorage` 는 React 바깥의 저장소라 **`useSyncExternalStore` 로 읽는다.**
+ * `localStorage` 는 React 바깥의 저장소라 `useSyncExternalStore` 로 읽는다.
  * 새 관습을 만들지 않는다 — 읽는 쪽 코드가 세션과 같은 모양이면 지울 때도 같이 지운다.
  */
 
@@ -20,29 +20,20 @@ const KEY = "haetdeul.demo_as_of";
 /**
  * 기본 기준일.
  *
- * ★ **`2026-01-30`.** 발표는 2026-09-21 에 하지만, 화면이 여는 날은 **데이터가 있는
- *   날**이어야 한다. 실측(2026-09-10):
+ * 화면이 여는 날은 데이터가 있는 날이어야 한다. 실행이 닿지 않은 날로 열면 여섯 탭이
+ * 전부 빈 칸이다.
  *
- *   ```text
- *   2026-09-21   master_agent_runs 0건 · daily_closings 0건 · sales 0건 · 예측 0건
- *   2026-01-30   매입 여섯 안이 서고, 걷기의 **마지막 실행일**이다
- *   ```
+ * 값의 주인은 여기 하나다. `lib/api.ts` 와 `components/console/useTab.ts` 가 각자
+ * 기본값을 들면 같은 화면에서 마스터는 한 날로 판단하고 탭 여섯은 다른 날을 보여 준다.
  *
- *   발표일을 그대로 쓰면 여섯 탭이 전부 빈 칸이다. 걷기가 실제로 닿은 마지막 날로 연다.
- *
- * 🔴 예전에는 이 값이 **두 곳에서 갈려 있었다** — `lib/api.ts` 는 `2025-12-31`,
- *    `components/console/useTab.ts` 는 `2026-01-06`. 같은 화면에서 마스터는 한 날로
- *    판단하고 탭 여섯은 다른 날을 보여 주고 있었다. **여기 하나로 모은다.**
- *
- * ★ `NEXT_PUBLIC_AS_OF` 갈래는 그대로 둔다 — 환경으로 덮을 수 있는 것이 맞다. 다만
- *   `frontend/` 에 `.env` 가 하나도 없어서(실측 2026-09-10) 지금 쓰이는 것은 이 코드값이다.
+ * `NEXT_PUBLIC_AS_OF` 갈래는 그대로 둔다 — 환경으로 덮을 수 있는 것이 맞다. `frontend/` 에
+ * `.env` 가 없어 개발에서는 이 코드값을 쓰고, 배포 이미지는 `frontend/Dockerfile` 의
+ * `ARG NEXT_PUBLIC_AS_OF` 기본값을 싣는다.
  */
 /*
- * 🔴 **백엔드 `app/core/settings.py` 의 `SHOWN_AS_OF` 와 같은 값이어야 한다** (2026-09-14).
- *    화면 API 가 읽는 실행(`SHOWN_SIM_RUN_ID` = SIM-CHAIN-REH-0914)의 기준일이 `2026-08-31` 이다.
- *    멘토링 시연(2026-09-15) 전용 리허설 값이다 (정본 아님).
- *    발표 전 두 곳을 함께 V13 `2026-01-26` 또는 최종 실행(SIM-CHAIN-FINAL) `2026-09-20` 로 되돌린다.
- *    `backend/tests/api/test_shown_run.py` 가 두 값이 갈리면 빨간불을 켠다.
+ * 제약: 백엔드 `app/core/settings.py` 의 `SHOWN_AS_OF` 와 같은 값이어야 한다.
+ * 화면 API 가 읽는 실행(`SHOWN_SIM_RUN_ID` = SIM-MENTOR-0918)과 같은 자리에서 정한 기준일이다.
+ * `backend/tests/api/test_shown_run.py` 가 두 값이 갈리면 빨간불을 켠다.
  */
 export const DEFAULT_AS_OF = process.env.NEXT_PUBLIC_AS_OF ?? "2026-09-17";
 
@@ -65,8 +56,8 @@ export function subscribeAsOf(listener: () => void): () => void {
 /**
  * 지금 고른 기준일.
  *
- * ★ 값이 **문자열**이라 스냅샷을 캐시할 필요가 없다. `useSyncExternalStore` 가
- *   같다고 보는 조건은 `Object.is` 이고, 같은 문자열은 같다.
+ * 값이 문자열이라 스냅샷을 캐시할 필요가 없다. `useSyncExternalStore` 가
+ * 같다고 보는 조건은 `Object.is` 이고, 같은 문자열은 같다.
  */
 export function asOfSnapshot(): string {
   try {
@@ -77,7 +68,7 @@ export function asOfSnapshot(): string {
   }
 }
 
-/** 서버 렌더에는 저장소가 없다. **항상 같은 값을 돌려줘야** 하이드레이션이 안 어긋난다. */
+/** 서버 렌더에는 저장소가 없다. 항상 같은 값을 돌려줘야 하이드레이션이 안 어긋난다. */
 export function serverAsOf(): string {
   return DEFAULT_AS_OF;
 }

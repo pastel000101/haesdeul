@@ -1,7 +1,4 @@
-"""재무 화면 현황 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/dashboard.py` 에서 옮겼다(문면 그대로).
-"""
+"""재무 화면 현황 SQL."""
 
 from datetime import date
 from typing import Any

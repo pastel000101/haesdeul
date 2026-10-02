@@ -1,8 +1,7 @@
 """미지급 매입채무 취소 — 결과와 충돌.
 
-★ 2026-09-29 재구성 BL-014: `finance/cancellation.py` 에서 옮겼다. 판정은 `domain/cancellation.py`,
-  순서는
-  `service/cancellation.py`, SQL 은 `repository/cancellation.py`.
+판정은 `domain/cancellation.py`, 순서는 `service/cancellation.py`, SQL 은
+`repository/cancellation.py`.
 """
 
 from __future__ import annotations

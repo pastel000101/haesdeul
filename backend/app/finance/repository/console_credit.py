@@ -1,7 +1,4 @@
-"""운영 콘솔 거래처 여신 SQL.
-
-★ 2026-09-29 재구성 BL-014: `finance/console_credit.py` 에서 옮겼다(문면 그대로).
-"""
+"""운영 콘솔 거래처 여신 SQL."""
 
 from datetime import date
 from typing import Any
@@ -16,7 +13,7 @@ from app.finance.repository.receivable_history import history_columns, history_j
 def load_credit_partner_rows(
     conn: Any, *, sim_run_id: str, as_of: date
 ) -> list[dict[str, object]]:
-    """여신을 보여 줄 거래처. **한도가 서 있거나, 이 실행에서 판 적이 있는 고객이다.**"""
+    """여신을 보여 줄 거래처. 한도가 서 있거나, 이 실행에서 판 적이 있는 고객이다."""
     schema = sql.Identifier(get_db_schema())
     query = sql.SQL(
         """
@@ -80,5 +77,5 @@ def select_partner_receivables_as_of(
         """
         )
     )
-    #  ⚠️ `%s` 는 넷이다 — LATERAL 의 기준일이 WHERE 보다 **먼저** 온다.
+    # 주의: `%s` 는 넷이다 — LATERAL 의 기준일이 WHERE 보다 먼저 온다.
     return fetch_all(conn, query, [as_of, sim_run_id, partner_id, as_of, as_of])

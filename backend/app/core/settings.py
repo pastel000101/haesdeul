@@ -1,22 +1,22 @@
 """프로세스 설정 — `.env` 위치, DB 접속 정보(서비스 DB · ML 원본 창고), 연결 풀 크기,
 SQL 이 쓸 스키마 이름, 화면이 보는 실행과 기준일(발표용 고정값 · 맨 아래).
 
-2026-09-28 부서별 `db.py` 다섯 벌에 복제돼 있던 부분을 여기로 모았다.
+부서들이 함께 쓰는 접속 설정을 한 자리에 둔다.
 
 ```text
-.env 위치      backend/.env (부서 db.py 들이 가리키던 곳과 같다)
+.env 위치      backend/.env
 읽는 시점      호출할 때마다 load_dotenv — 기본값. 이미 있는 환경변수는 덮지 않는다
 값             적재 뒤 os.getenv 로 매번 읽는다 → 검사가 환경변수를 바꾸면 그대로 따라간다
 빠진 값        MissingDatabaseEnvironment("Missing required database environment variables: …")
-               (RuntimeError 의 하위 종류 — 종전 문구·종류 그대로 잡힌다)
+               (RuntimeError 의 하위 종류)
 ```
 
-★ **읽는 시점은 부서가 고른다.** 물류는 `.env` 를 프로세스에서 한 번만 읽는다
+읽는 시점은 부서가 고른다. 물류는 `.env` 를 프로세스에서 한 번만 읽는다
   (`load_env_file_once` · 물류 스키마 이름 `app/logistics/repository/rows.py` — 대시보드 한 요청에
-  550회 불리던 비용. 2026-09-30 재구성 BL-015 전에는 `app/logistics/db.py` 에 있었다). 그래서 적재
-  함수를 `load` 인자로 받는다 — 한 벌로 합치면 어느 한쪽 동작이 바뀐다.
+  550회 불리던 비용). 그래서 적재 함수를 `load` 인자로 받는다 — 한 벌로 합치면 어느 한쪽 동작이
+  바뀐다.
 
-★ **접속 정보는 풀을 열 때 한 번 읽는다** (2026-09-29 · 풀 전환). 연결마다 새로 읽지 않으므로
+접속 정보는 풀을 열 때 한 번 읽는다. 연결마다 새로 읽지 않으므로
   실행 중에 `DB_*` 를 바꿔도 이미 열린 풀에는 반영되지 않는다. 스키마 이름(`DB_SCHEMA`)은
   SQL 을 만들 때마다 그대로 읽는다.
 """
@@ -29,7 +29,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-#: `backend/.env`. 부서 `db.py` 의 `Path(__file__).parent.parent.parent / ".env"` 와 같은 파일.
+#: `backend/.env`.
 ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 #: 서비스 DB 연결에 필요한 환경변수. `DB_SCHEMA` 는 연결이 아니라 SQL 에 쓰므로 따로 읽는다.
@@ -48,12 +48,11 @@ _env_file_loaded_once = False
 
 
 def load_env_file_once() -> None:
-    """`backend/.env` 를 프로세스에서 **한 번만** 적재한다 — 물류 스키마 이름이 쓴다.
+    """`backend/.env` 를 프로세스에서 한 번만 적재한다 — 물류 스키마 이름이 쓴다.
 
-    🔴 대시보드 한 요청에 물류 스키마 이름이 550번 읽히며 매번 파일을 다시 파싱해 7.8초를 썼다.
-       값은 적재 뒤 `os.getenv` 로 매번 읽으므로 검사가 환경변수를 바꿔도 그대로 따라간다.
-
-    ★ 2026-09-30 재구성 BL-015: `app/logistics/db.py::_load_env_file_once` 를 옮겼다(동작 그대로).
+    대시보드 한 요청에 물류 스키마 이름이 550번 읽히며 매번 파일을 다시 파싱해 7.8초를 쓴
+    적이 있다. 값은 적재 뒤 `os.getenv` 로 매번 읽으므로 검사가 환경변수를 바꿔도 그대로
+    따라간다.
     """
     global _env_file_loaded_once
     if _env_file_loaded_once:
@@ -63,11 +62,11 @@ def load_env_file_once() -> None:
 
 
 class MissingDatabaseEnvironment(RuntimeError):
-    """필수 DB 환경변수가 비었다. 문구는 종전 `RuntimeError` 와 같다.
+    """필수 DB 환경변수가 비었다. `RuntimeError` 의 하위 종류다.
 
-    ★ 따로 이름을 둔 이유: 앱·CLI 가 시작할 때 풀을 미리 열다 **설정이 아예 없는 자리**
-      (DB 없이 도는 검사 · DB 없는 개발 PC)만 골라 넘기기 위해서다 (`app/core/db.py::
-      pool_lifespan`). 그 밖의 오류는 시작을 막는다.
+    따로 이름을 둔 이유: 앱·CLI 가 시작할 때 풀을 미리 열다 설정이 아예 없는 자리
+    (DB 없이 도는 검사 · DB 없는 개발 PC)만 골라 넘기기 위해서다 (`app/core/db.py::
+    pool_lifespan`). 그 밖의 오류는 시작을 막는다.
     """
 
 
@@ -90,7 +89,7 @@ def required_database_environment(
 
 @dataclass(frozen=True)
 class DatabaseSettings:
-    """PostgreSQL 에 접속할 곳과 계정. `app.core.db.connect` 가 이 값으로 연결을 연다."""
+    """PostgreSQL 에 접속할 곳과 계정. `app.core.db.DatabasePool` 이 풀을 열 때 이 값을 쓴다."""
 
     host: str
     port: str
@@ -126,7 +125,7 @@ class PoolSettings:
 #: 풀 크기·대기 시간을 바꾸는 환경변수. 비었으면 `DEFAULT_POOL_SETTINGS` 를 쓴다.
 DB_POOL_ENV_KEYS = ("DB_POOL_MIN_SIZE", "DB_POOL_MAX_SIZE", "DB_POOL_TIMEOUT_SECONDS")
 
-#: 기본값과 그 이유 (2026-09-29 · 실 DB 로 잰 값이 아니라 실행 방식에서 고른 값이다).
+#: 기본값과 그 이유 (실 DB 로 잰 값이 아니라 실행 방식에서 고른 값이다).
 #:
 #: - `min_size=1` — 백엔드는 uvicorn 프로세스 하나로 돌고(`Dockerfile` CMD 에 workers 없음),
 #:   CLI 는 하루 단계를 한 줄로 걷는다. 팀이 PostgreSQL 한 대를 같이 쓰므로 쉬는 동안
@@ -135,8 +134,8 @@ DB_POOL_ENV_KEYS = ("DB_POOL_MIN_SIZE", "DB_POOL_MAX_SIZE", "DB_POOL_TIMEOUT_SEC
 #:   연결 하나를 쥔 채 이력 저장·조회로 하나를 더 빌린다(한 흐름에 2~3개). 상한이 그보다
 #:   작으면 겹친 대여가 서로를 기다리다 시간 초과가 난다.
 #: - `timeout_seconds=5` — 접속 타임아웃(`app/core/db.py::CONNECT_TIMEOUT_SECONDS`)과 같은 값.
-#:   DB 가 답하지 않을 때 대여 한 번이 포기하는 시간이 종전(연결마다 5초)과 같고, 프론트
-#:   읽기 20초보다 짧아 백엔드가 먼저 사유를 낸다.
+#:   DB 가 답하지 않을 때 대여 한 번이 포기하는 시간이 새 연결 하나의 접속 제한과 같고,
+#:   프론트 읽기 20초보다 짧아 백엔드가 먼저 사유를 낸다.
 DEFAULT_POOL_SETTINGS = PoolSettings(min_size=1, max_size=10, timeout_seconds=5.0)
 
 
@@ -170,26 +169,26 @@ def pool_settings(*, load: Load = load_env_file) -> PoolSettings:
 class ConnectionHealthSettings:
     """끊긴 · 응답 없는 연결을 알아채는 시간. 서비스 풀과 ML 원본 풀이 같은 값을 쓴다.
 
-    ★ 2026-10-01 재구성 BL-010(사용자 결정): 풀 적용 뒤 장애 검증에서 «DB 가 뜬 뒤에도 재접속이
-      늦다» 와 «응답 없는 DB 앞에서 빌려 주기 전 확인이 끝나지 않는다» 가 나와 설정으로 두었다.
+    설정으로 두는 이유: 장애 검증에서 «DB 가 뜬 뒤에도 재접속이 늦다» 와 «응답 없는 DB 앞에서
+    빌려 주기 전 확인이 끝나지 않는다» 가 관찰됐다(사용자 결정).
 
     ```text
-    connect_timeout (core/db.py)   새 연결 하나를 만드는 시간 — 5초(종전 그대로)
+    connect_timeout (core/db.py)   새 연결 하나를 만드는 시간 — 5초
     풀 timeout_seconds             빌릴 연결을 기다리는 시간 — 5초(PoolSettings)
     reconnect_timeout_seconds      DB 에 못 닿을 때 풀이 새 연결을 다시 시도하는 한 번의 기간
     check_timeout_seconds          빌려 주기 전 연결 확인(빈 질의 한 왕복)을 기다리는 시간
     keepalive · tcp_user_timeout   OS 가 망 단절을 알아채는 시간(아래)
     ```
 
-    🔴 **어느 것도 SQL · 요청의 시간 상한이 아니다.** 빌린 연결로 실행하는 질의에는 클라이언트 쪽
-       시간 제한이 없다(재구성 전과 같음). TCP 설정은 OS 가 패킷에 응답하는 한 — 예: DB 프로세스만
-       멈춘 경우 — 아무것도 알아채지 못한다.
+    주의: 어느 것도 SQL · 요청의 시간 상한이 아니다. 빌린 연결로 실행하는 질의에는 클라이언트
+    쪽 시간 제한이 없다. TCP 설정은 OS 가 패킷에 응답하는 한 — 예: DB 프로세스만 멈춘 경우 —
+    아무것도 알아채지 못한다.
     """
 
     #: 풀이 새 연결을 다시 시도하는 한 번의 기간(초) — psycopg_pool `reconnect_timeout`. 시도
     #: 간격은 1 · 2 · 4 · 8초로 늘다가 이 시간이 지나면 그 시도를 접고, 다음 대여가 새 시도를
     #: 시작한다. «이 간격마다 접속한다» 는 뜻이 아니다. 라이브러리 기본 300초에서는 DB 가 뜬 뒤에도
-    #: 다음 예정 시도까지 대여가 실패했다(2026-10-01 실측 — 101.7초 중단 뒤 57초).
+    #: 다음 예정 시도까지 대여가 실패했다(실측 — 101.7초 중단 뒤 57초).
     reconnect_timeout_seconds: float
     #: 빌려 주기 전 연결 확인의 시간 제한(초). 넘기면 그 연결을 닫고 버린다(`app.core.db`).
     check_timeout_seconds: float
@@ -199,11 +198,11 @@ class ConnectionHealthSettings:
     keepalives_idle_seconds: int
     #: libpq `keepalives_interval` — 답이 없을 때 확인 패킷 간격(초).
     keepalives_interval_seconds: int
-    #: libpq `keepalives_count` — 답 없는 확인 패킷 몇 번이면 끊긴 것으로 보나. **Windows 에서는
-    #: 효과가 없다**(libpq 문서 — `TCP_KEEPCNT` 가 있는 시스템만).
+    #: libpq `keepalives_count` — 답 없는 확인 패킷 몇 번이면 끊긴 것으로 보나. Windows 에서는
+    #: 효과가 없다(libpq 문서 — `TCP_KEEPCNT` 가 있는 시스템만).
     keepalives_count: int
-    #: libpq `tcp_user_timeout` — 보낸 데이터가 이 시간(**밀리초**) 동안 확인 응답을 못 받으면
-    #: 연결을 끊는다. 0 이면 OS 기본값. **Linux 에서만 효과가 있다**(`TCP_USER_TIMEOUT`).
+    #: libpq `tcp_user_timeout` — 보낸 데이터가 이 시간(밀리초) 동안 확인 응답을 못 받으면
+    #: 연결을 끊는다. 0 이면 OS 기본값. Linux 에서만 효과가 있다(`TCP_USER_TIMEOUT`).
     tcp_user_timeout_ms: int
 
 
@@ -219,7 +218,7 @@ DB_CONNECTION_HEALTH_ENV_KEYS = (
 
 #: 기본값과 이유.
 #:
-#: - 재접속 15초: 시도 간격이 8초를 넘지 않는다(1 · 2 · 4 · 8). 2026-10-01 시험 한 번에서 약 100초
+#: - 재접속 15초: 시도 간격이 8초를 넘지 않는다(1 · 2 · 4 · 8). 시험 한 번에서 약 100초
 #:   중단 뒤 1.61초에 복구됐다.
 #: - 확인 5초: 빌릴 연결 대기 · 접속 시간과 같은 값. 프론트 읽기 20초보다 짧다.
 #: - keepalive 30 · 10 · 3: 쉬는 연결이 망에서 끊겼으면 약 60초 안에 OS 가 알아챈다(Linux).
@@ -287,10 +286,8 @@ def get_db_schema(*, load: Load = load_env_file) -> str:
 
 # ── ML 원본 창고 접속 정보 ─────────────────────────────────────────────────────
 #
-# 🟢 **자리 (2026-09-29 · 재구성 BL-017).** 전에는 `app/ml/db.py::source_database_settings`
-#    였다. 원본 창고 풀을 연결 모듈(`app/core/db.py::ML_SOURCE_POOL`)이 서비스 풀과 나란히
-#    준비하게 되어, 그 풀이 열 때 읽는 접속 정보도 이리로 옮겼다. 읽는 환경변수 · 물려받는
-#    기본값 · 오류 종류와 문구는 그대로다.
+# 원본 창고 풀(`app/core/db.py::ML_SOURCE_POOL`)이 열 때 읽는다. 서비스 풀의 접속 정보와
+# 나란히 여기 둔다.
 
 
 def ml_source_database_settings() -> DatabaseSettings:
@@ -317,44 +314,25 @@ def ml_source_database_settings() -> DatabaseSettings:
     )
 
 
-# ── 화면이 읽는 실행과 기준일 — **발표용 임시 설정이다** ─────────────────────────
+# ── 화면이 읽는 실행과 기준일 — 발표용 임시 설정이다 ─────────────────────────────
 #
-# 🟢 **자리 (2026-09-29 · 재구성 BL-012).** 전에는 `app/api/shown_run.py` 한 파일이었다.
-#    화면 API 와 마스터(지금 `app/master/service/ask.py`)가 함께 읽는 값이라, 마스터가 화면
-#    모듈을 import 하지 않도록 공용 설정 자리로 옮겼다. **값 · 뜻 · 쓰는 곳은 그대로다.**
-#    발표용 고정을 없앨지(주소 파라미터 방식)는 옮긴 것과 별개로 아직 정하지 않았다.
+# 화면 API 와 마스터(`app/master/service/ask.py`)가 함께 읽는 값이라, 마스터가 화면 모듈을
+# import 하지 않도록 공용 설정 자리에 둔다. 발표용 고정을 없앨지(주소 파라미터 방식)는
+# 아직 정하지 않았다.
 #
 # `app/api/dashboard/AGENTS.md` 의 「아직 안 정한 것 — `sim_run_id`」 에서 ㉰ (설정값으로
-# 하나 못 박는다) 를 골랐다. 화면 API 가 읽는 실행은 이 두 줄 한 자리에서만 정한다.
+# 하나 못 박는다) 를 골랐다. 화면 API 가 읽는 실행은 아래 두 줄 한 자리에서만 정한다.
+# 보여 줄 실행을 바꿀 때는 이 두 줄만 바꾼다.
 #
-#     멘토링 시연(9/15)   SIM-CHAIN-REH-0914   2026-08-31   리허설(정본 아님) · 지금 값
-#     9/18 제출 숫자      SIM-CHAIN-V13        2026-01-26   1~3월 중간 정본
-#     최종 실행 뒤        SIM-CHAIN-FINAL      2026-09-20   2026-01-01~09-20 한 줄기
+# 프론트 기준일 `frontend/src/lib/demo_as_of.ts` 의 코드 기본값은 `SHOWN_AS_OF` 와 같은
+# 값이어야 한다 (`tests/api/test_shown_run.py` 가 잡는다).
 #
-# ★ **지금 값은 멘토링 시연(2026-09-15 17시) 전용이다.** 리허설 실행 SIM-CHAIN-REH-0914
-#   (01-01~09-14 · dev@434f8e7 로 걸음)의 2026-08-31, 매입이 마지막으로 정상 승인된 날로 연다.
-#   V13 은 1~3월만 있어 9월 흐름을 못 보여 준다.
-#   **발표 전 V13 또는 FINAL 로 되돌린다.** 9/18 제출 숫자는 V13, 9/21 발표 화면은
-#   FINAL 검증 시 FINAL · 09-20, 아니면 V13 · 01-26 이다.
+# 화면에서 번인 상수(`app/master/domain/sim_run.py` 의 `BURN_IN_SIM_RUN_ID`)를 쓰지 않는다.
+# 번인은 2025-12 한 달치라 발표 숫자와 다른 장부를 보여 준다.
 #
-# ★ **최종 실행 SIM-CHAIN-FINAL 이 끝나면 아래 두 줄만 바꾼다.**
-#
-#     SHOWN_SIM_RUN_ID = "SIM-CHAIN-FINAL"
-#     SHOWN_AS_OF = date(2026, 9, 20)
-#
-#   그 전까지는 1~3월 중간 정본 V13 을 본다.
-#
-# ★ 프론트 기준일 `frontend/src/lib/demo_as_of.ts` 의 코드 기본값은 `SHOWN_AS_OF` 와 같은
-#   값이어야 한다 (`tests/api/test_shown_run.py` 가 잡는다).
-#
-# ★ 발표 뒤에는 주소 파라미터 방식(㉮)으로 올린다. 그때 이 두 값과 이 절은 지운다.
-#
-# 🔴 **화면에서 번인 상수(`ledger_repository.BURN_IN_SIM_RUN_ID`)를 다시 쓰지 않는다.**
-#    번인은 2025-12 한 달치라 발표 숫자와 다른 장부를 보여 준다.
-#
-# 🔴 **환경변수로 덮어쓰지 않는다.** 이 파일의 다른 설정과 달리 `os.getenv` 로 읽지 않는
-#    상수다. 덮어쓸 길을 두면 값의 주인이 둘이 되어 화면과 검사가 서로 다른 실행을 보게
-#    된다.
+# 환경변수로 덮어쓰지 않는다. 이 파일의 다른 설정과 달리 `os.getenv` 로 읽지 않는
+# 상수다. 덮어쓸 길을 두면 값의 주인이 둘이 되어 화면과 검사가 서로 다른 실행을 보게
+# 된다.
 
 SHOWN_SIM_RUN_ID = "SIM-MENTOR-0918"
 SHOWN_AS_OF = date(2026, 9, 17)

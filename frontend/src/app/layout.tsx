@@ -7,8 +7,8 @@ import "./globals.css";
 /**
  * 한글이 본문이라 한글 지원 서체를 쓰고, 수치는 모노스페이스로 줄을 맞춘다.
  *
- * ★ `next/font` 로 받는다 — `<link>` 로 붙이면 페이지마다 다시 받고 레이아웃이 튄다.
- *   정적 내보내기(`output: "export"`)에서도 번들에 들어가므로 배포가 같다.
+ * 서체는 `next/font` 로 받는다 — `<link>` 로 붙이면 페이지마다 다시 받고 레이아웃이 튄다.
+ * 정적 내보내기(`output: "export"`)에서도 번들에 들어가므로 배포가 같다.
  */
 const sans = IBM_Plex_Sans_KR({
   subsets: ["latin"],

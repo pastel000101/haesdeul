@@ -3,14 +3,14 @@
 /**
  * 자금 흐름 그래프.
  *
- * 🔴 **화면이 금액을 만들지 않는다.** 일마감이 저장한 `base_cash_balance_krw` ·
- *    `loan_cash_balance_krw` · `minimum_operating_cash_krw` 를 그대로 찍는다.
+ * 화면이 금액을 만들지 않는다. 일마감이 저장한 `base_cash_balance_krw` ·
+ * `loan_cash_balance_krw` · `minimum_operating_cash_krw` 를 그대로 찍는다.
  *
- * ★ **계열을 켜고 끌 수 있어야 한다.** 실측(SIM-CHAIN-V13, 71일)에서 대출 포함과
- *   제외가 **항상 45,272,104 원 상수 간격**이라, 둘을 한 축에 같이 그리면 축 폭이
- *   66,104,805 원으로 벌어지고 각 계열 자체 변동(20,832,701 원)은 축의 31.5% 로
- *   눌린다. 대출 제외만 그리면 같은 변동이 축의 74.3% 를 쓴다 — 선이 평평해 보이는
- *   것은 데이터가 평평해서가 아니다.
+ * 계열을 켜고 끌 수 있어야 한다. 실측(SIM-CHAIN-V13, 71일)에서 대출 포함과
+ * 제외가 항상 45,272,104 원 상수 간격이라, 둘을 한 축에 같이 그리면 축 폭이
+ * 66,104,805 원으로 벌어지고 각 계열 자체 변동(20,832,701 원)은 축의 31.5% 로
+ * 눌린다. 대출 제외만 그리면 같은 변동이 축의 74.3% 를 쓴다 — 선이 평평해 보이는
+ * 것은 데이터가 평평해서가 아니다.
  */
 
 import { useState } from "react";
@@ -52,7 +52,7 @@ const COLOR: Record<CashSeries, string> = {
 };
 
 export function FinanceCashChart({ rows }: { rows: ClosingItem[] }) {
-  //  ★ 기본은 **대출 제외만** 이다. 둘 다 켠 상태로 시작하면 첫 화면이 이미 눌려 있다.
+  //  기본은 대출 제외만 이다. 둘 다 켠 상태로 시작하면 첫 화면이 이미 눌려 있다.
   const [shown, setShown] = useState<Set<CashSeries>>(new Set<CashSeries>(["base"]));
   const [showMinimum, setShowMinimum] = useState(true);
 
@@ -61,7 +61,7 @@ export function FinanceCashChart({ rows }: { rows: ClosingItem[] }) {
       const next = new Set(current);
       if (next.has(series)) next.delete(series);
       else next.add(series);
-      //  ⚠️ 둘 다 끄면 빈 그래프가 남는다. 마지막 하나는 끄지 않는다.
+      //  주의: 둘 다 끄면 빈 그래프가 남는다. 마지막 하나는 끄지 않는다.
       return next.size === 0 ? current : next;
     });
   }
@@ -181,9 +181,9 @@ export function FinanceCashChart({ rows }: { rows: ClosingItem[] }) {
 }
 
 /**
- * 🔴 **«여유» 가 어느 현금 기준인지 숨기지 않는다.** 전에는 `base ?? loan` 으로 하나만
- *    골라 «여유» 라고만 적어, 두 선을 함께 켜 놓은 사람은 그 숫자가 어느 선의 것인지
- *    알 수 없었다. 켜져 있는 계열마다 따로 적는다.
+ * «여유» 가 어느 현금 기준인지 숨기지 않는다. 켜져 있는 계열마다 따로 적는다 —
+ * 하나만 골라 «여유» 라고만 적으면, 두 선을 함께 켜 놓은 사람은 그 숫자가 어느 선의
+ * 것인지 알 수 없다.
  */
 function CashTooltip({ active, payload }: { active?: boolean; payload?: TooltipEntry[] }) {
   const point = payload?.[0]?.payload;

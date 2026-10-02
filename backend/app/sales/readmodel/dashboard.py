@@ -1,9 +1,7 @@
 """판매 현황(대시보드) 조회 — 실행 하나 · 기준일 하나의 판매 · 채권 사실을 응답으로 편다.
 
-★ 2026-09-29 BL-013: `sales/dashboard.py` 에서 응답 조립을 옮겼다. SQL 은
-  `repository/dashboard.py`, 채권 상태 규칙은 계약 `app/contracts/receivable_history.py`
-  다(2026-09-29 재구성 BL-014 전에는 `domain/receivable_history.py`). 종전에는 조회 일곱 개가
-  조회마다 연결을 빌렸고, 지금은 한 번 빌린 조회 연결로 같은 순서로 읽는다.
+SQL 은 `repository/dashboard.py`, 채권 상태 규칙은 계약 `app/contracts/receivable_history.py`
+다. 조회 일곱 개를 한 번 빌린 조회 연결로 읽는다.
 """
 
 from datetime import date
@@ -167,7 +165,7 @@ def _today_confirmed_sales(rows: list[dict[str, object]]) -> list[TodayConfirmed
 def _receivables(rows: list[dict[str, object]], *, as_of: date) -> list[SalesReceivableItem]:
     result = []
     for row in rows:
-        #  🔴 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
+        # 저장된 status 는 덮여 쓰인다. 복원한 금액에서 다시 세운다.
         status = projected_status(
             original_amount_krw=decimal_or_zero(row["original_amount_krw"]),
             received_amount_krw=decimal_or_zero(row["received_amount_krw"]),

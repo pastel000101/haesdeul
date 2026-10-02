@@ -1,24 +1,23 @@
-"""`logistics_exceptions` 한 표만 읽고 쓴다. **업무 판단이 여기 없다.**
+"""`logistics_exceptions` 한 표만 읽고 쓴다. 업무 판단이 여기 없다.
 
 ```text
-읽기   live_exceptions          **지금** 살아 있는(OPEN·PROPOSED) 행
-       live_exceptions_at       **그날** 살아 있던 행 — 과거 조사용 (Commit 3 Tool)
+읽기   live_exceptions          지금 살아 있는(OPEN·PROPOSED) 행
+       live_exceptions_at       그날 살아 있던 행 — 과거 조사용 (`get_open_exceptions` Tool)
        previous_exception_id_for 같은 축의 가장 최근 닫힌 행 — 재발을 잇는 고리
-       resolved_exceptions_on   **그날 닫힌** 행 — 화면의 «해소» 칸
+       resolved_exceptions_on   그날 닫힌 행 — 화면의 «해소» 칸
 쓰기   open_exception           INSERT (status=OPEN)
        touch_exception          UPDATE evidence · severity · last_detected · observed
        resolve_exception        UPDATE status=RESOLVED
 ```
 
-🔴 **커밋도 롤백도 안 한다.** 트랜잭션의 주인은 부르는 쪽이다
-   (`master/service/inspection.py` — `service/maintenance` ↔ `master/service/maintenance.py`
-   와 같은 나눔).
+커밋도 롤백도 안 한다. 트랜잭션의 주인은 부르는 쪽이다
+(`master/service/inspection.py` — `service/maintenance` ↔ `master/service/maintenance.py`
+와 같은 나눔).
 
-🔴 **상태를 여기서 정하지 않는다.** 무엇을 열고 무엇을 닫을지는 `detect.py` 가 정하고,
-   이 파일은 그 결정을 표에 옮기기만 한다.
+상태를 여기서 정하지 않는다. 무엇을 열고 무엇을 닫을지는 `service/monitoring.py` 의
+`detect_logistics_exceptions` 가 정하고, 이 파일은 그 결정을 표에 적기만 한다.
 
-★ 2026-09-30 재구성 BL-015: `logistics/monitoring/exceptions.py` 에서
-  옮겼다. 결과 모델 · 실패 종류는 `schemas/monitoring.py`.
+결과 모델 · 실패 종류는 `schemas/monitoring.py`.
 """
 
 from __future__ import annotations
@@ -93,11 +92,11 @@ def _row(raw: dict[str, Any]) -> ExceptionRow:
 
 
 def live_exceptions(conn: Any, *, sim_run_id: str) -> tuple[ExceptionRow, ...]:
-    """지금 살아 있는 Exception 전부. **축은 실행 하나다.**
+    """지금 살아 있는 Exception 전부. 축은 실행 하나다.
 
-    🔴 **`as_of` 로 자르지 않는다.** Exception 은 열린 뒤 닫힐 때까지 계속 살아 있는
-       상태이지 그날의 사건이 아니다 — 어제 열린 행을 오늘 못 보면 같은 문제로 새 행을
-       또 만든다.
+    `as_of` 로 자르지 않는다. Exception 은 열린 뒤 닫힐 때까지 계속 살아 있는
+    상태이지 그날의 사건이 아니다 — 어제 열린 행을 오늘 못 보면 같은 문제로 새 행을
+    또 만든다.
     """
     rows = dict_rows(
         conn,
@@ -119,7 +118,7 @@ def live_exceptions(conn: Any, *, sim_run_id: str) -> tuple[ExceptionRow, ...]:
 
 
 def live_exceptions_at(conn: Any, *, sim_run_id: str, as_of: date) -> LiveExceptionsAt:
-    """**그날** 살아 있던 Exception 과 못 가른 것들. 🔴 지금 값을 과거로 쓰지 않는다.
+    """그날 살아 있던 Exception 과 못 가른 것들. 지금 값을 과거로 쓰지 않는다.
 
     ```text
     열렸다      opened_as_of <= as_of                    그날 이미 장부에 서 있었다
@@ -127,26 +126,27 @@ def live_exceptions_at(conn: Any, *, sim_run_id: str, as_of: date) -> LiveExcept
              또는 resolved_as_of > as_of                 그날 뒤에 닫혔다
     ```
 
-    🔴 **`live_exceptions` 만으로는 과거를 못 센다.** 저 함수는 *"지금"* 살아 있는 행을
-       내므로 두 가지로 틀린다 — ① `opened_as_of > as_of` 인 **미래 문제**가 섞이고
-       (look-ahead), ② 그날 열려 있다가 **그 뒤 닫힌** 문제가 통째로 빠진다.
-       ②는 조사에서 *"그날 아무 문제 없었다"* 로 읽혀 더 위험하다.
+    `live_exceptions` 만으로는 과거를 못 센다. 저 함수는 "지금" 살아 있는 행을
+    내므로 두 가지로 틀린다 — ① `opened_as_of > as_of` 인 미래 문제가 섞이고
+    (look-ahead), ② 그날 열려 있다가 그 뒤 닫힌 문제가 통째로 빠진다.
+    ②는 조사에서 "그날 아무 문제 없었다" 로 읽혀 더 위험하다.
 
-    ★ **재오픈이 없어서 이 셈이 성립한다.** 재발은 새 행 + `previous_exception_id` 라
-      (§6.3) 한 행의 상태는 앞으로만 간다 — 지금 `OPEN` 인데 `opened_as_of <= as_of` 면
-      그날에도 `OPEN` 이었다.
+    재오픈이 없어서 이 셈이 성립한다. 재발은 새 행 + `previous_exception_id` 라
+    (§6.3) 한 행의 상태는 앞으로만 간다 — 지금 `OPEN` 인데 `opened_as_of <= as_of` 면
+    그날에도 `OPEN` 이었다.
 
-    ⚠️ **닫은 날을 모르는 닫힌 행은 뺀다.** 그날 살아 있었음을 증명할 수 없다 —
-       사유를 함께 돌려준다 (`EXCEPTION_CLOSE_DATE_UNRESOLVED:{exception_id}`).
+    닫은 날을 모르는 닫힌 행은 뺀다. 그날 살아 있었음을 증명할 수 없다 —
+    사유를 함께 돌려준다(`EXCEPTION_CLOSE_DATE_UNRESOLVED:{exception_id}`).
 
-    ⚠️ **행이 들고 있는 `severity` · `evidence_json` · `last_detected_as_of` ·
-       `observed_as_of` · `note` 는 «지금» 값이다.** `touch_exception` 이 매일 덮으므로
-       이 함수가 돌려주는 행의 그 칸들은 **과거 값이 아니다** — 그날 값으로 읽어도 되는지는
-       `last_detected_as_of <= as_of` 로 부르는 쪽이 가른다 (`agent.tools.get_open_exceptions`).
-       여기서 미리 비우지 않는 이유는, 이 함수가 표를 그대로 내는 자리이기 때문이다.
+    주의: 행이 들고 있는 `severity` · `evidence_json` · `last_detected_as_of` ·
+    `observed_as_of` · `note` 는 «지금» 값이다. `touch_exception` 이 매일 덮으므로
+    이 함수가 돌려주는 행의 그 칸들은 과거 값이 아니다 — 그날 값으로 읽어도 되는지는
+    `last_detected_as_of <= as_of` 로 부르는 쪽이 가른다
+    (`readmodel/status_tools.get_open_exceptions`). 여기서 미리 비우지 않는 이유는, 이
+    함수가 표를 그대로 내는 자리이기 때문이다.
 
     :returns: 그날 살아 있던 행들 · 목록을 바꾼 날들 · 못 가른 사유들.
-        🔴 **아무것도 쓰지 않는다.**
+        아무것도 쓰지 않는다.
     """
     rows = dict_rows(
         conn,
@@ -188,24 +188,24 @@ def live_exceptions_at(conn: Any, *, sim_run_id: str, as_of: date) -> LiveExcept
 
 
 def resolved_exceptions_on(conn: Any, *, sim_run_id: str, as_of: date) -> tuple[ExceptionRow, ...]:
-    """**그날 닫힌** Exception 들. 🔴 `live_exceptions_at` 이 못 내는 나머지 반쪽이다.
+    """그날 닫힌 Exception 들. `live_exceptions_at` 이 못 내는 나머지 반쪽이다.
 
     ```text
     live_exceptions_at      그날 아직 살아 있던 행   ← 닫힌 행은 빠진다
     resolved_exceptions_on  그날 닫힌 행            ← 이 함수
     ```
 
-    ★ **두 목록은 겹치지 않는다.** 저쪽은 `resolved_as_of <= as_of` 를 빼고, 이쪽은
-      `resolved_as_of = as_of` 만 낸다. 그래서 «그날 화면» 은 둘을 이어 붙이면 된다.
+    두 목록은 겹치지 않는다. 저쪽은 `resolved_as_of <= as_of` 를 빼고, 이쪽은
+    `resolved_as_of = as_of` 만 낸다. 그래서 «그날 화면» 은 둘을 이어 붙이면 된다.
 
-    🔴 **`DISMISSED` 는 세지 않는다.** 사람이 덮은 것과 조건이 없어진 것은 다른
-       사실이다 (`resolve_exception` 이 쓰는 것은 `RESOLVED` 뿐이다). 덮은 문제를
-       «해소» 로 세면 그날 창고가 나아진 것처럼 읽힌다.
+    `DISMISSED` 는 세지 않는다. 사람이 덮은 것과 조건이 없어진 것은 다른
+    사실이다(`resolve_exception` 이 쓰는 것은 `RESOLVED` 뿐이다). 덮은 문제를
+    «해소» 로 세면 그날 창고가 나아진 것처럼 읽힌다.
 
-    ⚠️ **행이 들고 있는 «지금» 값들은 여기서도 그대로다** (`live_exceptions_at` 의
-       같은 주의). 그날 값으로 읽어도 되는지는 부르는 쪽이 가른다.
+    주의: 행이 들고 있는 «지금» 값들은 여기서도 그대로다(`live_exceptions_at` 의
+    같은 주의). 그날 값으로 읽어도 되는지는 부르는 쪽이 가른다.
 
-    :returns: 그날 닫힌 행들. 🔴 **아무것도 쓰지 않는다.**
+    :returns: 그날 닫힌 행들. 아무것도 쓰지 않는다.
     """
     rows = dict_rows(
         conn,
@@ -230,13 +230,13 @@ def resolved_exceptions_on(conn: Any, *, sim_run_id: str, as_of: date) -> tuple[
 def previous_exception_id_for(
     conn: Any, *, sim_run_id: str, code: str, subject_type: str, subject_id: str
 ) -> str | None:
-    """같은 축에서 **가장 최근에 닫힌** Exception 의 ID. 없으면 `None`.
+    """같은 축에서 가장 최근에 닫힌 Exception 의 ID. 없으면 `None`.
 
-    ★ 재발을 새 행으로 열되 **이전 행을 가리킨다** (§6.3). 재오픈하지 않는 이유는
-      닫힌 날과 다시 열린 날이 한 행에 겹치면 *"며칠째"* 를 셀 수 없어서다.
+    재발을 새 행으로 열되 이전 행을 가리킨다(§6.3). 재오픈하지 않는 이유는
+    닫힌 날과 다시 열린 날이 한 행에 겹치면 "며칠째" 를 셀 수 없어서다.
 
-    ⚠️ `DISMISSED` 도 대상이다 — 사람이 한 번 덮은 문제가 다시 나왔다는 것은 이어서
-       보여야 할 사실이다.
+    `DISMISSED` 도 대상이다 — 사람이 한 번 덮은 문제가 다시 나왔다는 것은 이어서
+    보여야 할 사실이다.
     """
     rows = dict_rows(
         conn,
@@ -266,12 +266,12 @@ def previous_exception_id_for(
 def exception_id_for(
     conn: Any, *, sim_run_id: str, code: str, subject_id: str, opened_as_of: date
 ) -> str:
-    """`EX-{실행}-{코드}-{대상}-{연월일}`. **업무 키다 — 같은 날 같은 대상은 하나.**
+    """`EX-{실행}-{코드}-{대상}-{연월일}`. 업무 키다 — 같은 날 같은 대상은 하나.
 
-    ⚠️ 그런데 하루 안에 닫고 다시 여는 일이 생기면 같은 이름이 두 번 필요하다.
-       production 흐름에서는 안 난다(닫는 판과 다시 잡는 판이 같은 탐지라 서로 배타다)
-       — 그래도 **이름이 겹치면 조용히 덮는 대신 뒤에 번호를 붙인다.** PK 충돌로
-       하루가 터지는 것보다 낫고, 번호가 붙었다는 것 자체가 그날의 이상 신호다.
+    주의: 하루 안에 닫고 다시 여는 일이 생기면 같은 이름이 두 번 필요하다.
+    production 흐름에서는 안 난다(닫는 판정과 다시 잡는 판정이 같은 탐지라 서로 배타다)
+    — 그래도 이름이 겹치면 조용히 덮는 대신 뒤에 번호를 붙인다. PK 충돌로
+    하루가 터지는 것보다 낫고, 번호가 붙었다는 것 자체가 그날의 이상 신호다.
     """
     base = f"EX-{sim_run_id}-{code}-{subject_id}-{opened_as_of:%Y%m%d}"
     candidate = base
@@ -294,7 +294,7 @@ def _exists(conn: Any, *, exception_id: str) -> bool:
 
 
 def open_exception(conn: Any, *, row: ExceptionRow) -> ExceptionRow:
-    """새 Exception 한 행. 🔴 **근거가 비면 만들지 않는다.**"""
+    """새 Exception 한 행. 근거가 비면 만들지 않는다."""
     if not row.evidence:
         raise EmptyEvidence(
             f"{row.code}/{row.subject_id} 에 근거가 하나도 없다 —"
@@ -352,16 +352,16 @@ def touch_exception(
     last_detected_as_of: date,
     observed_as_of: date | None,
 ) -> None:
-    """같은 문제가 **오늘도** 참이다. 🔴 **`status` 와 `opened_as_of` 는 안 건드린다.**
+    """같은 문제가 오늘도 참이다. `status` 와 `opened_as_of` 는 안 건드린다.
 
-    ★ 그 둘이 불변인 것이 *"며칠째"* 의 근거다. 매일 새 행을 만들면 그 수가 사라지고,
-      `status` 를 되돌리면 조사·제안이 붙은 문제가 조용히 처음으로 돌아간다.
+    그 둘이 불변인 것이 "며칠째" 의 근거다. 매일 새 행을 만들면 그 수가 사라지고,
+    `status` 를 되돌리면 조사·제안이 붙은 문제가 조용히 처음으로 돌아간다.
 
-    🔴 **`severity` 는 «지금» 값으로 덮되(캐시), `detection_history_json` 에는 «그날
-       severity» 를 쌓는다** (LOG-AGENT-005). 걷기는 하루에 AFTER_INBOUND ·
-       AFTER_OUTBOUND 두 번 감지할 수 있어 같은 날짜 원소는 **마지막 감지값으로
-       교체**한다(최고값이 아니다) — 그날 최종값 하나만 남긴다. 다른 날짜는 누적한다.
-       같은 UPDATE 안에서 옛 같은-날 원소를 빼고 새 원소를 얹는다.
+    `severity` 는 «지금» 값으로 덮되(캐시), `detection_history_json` 에는 «그날
+    severity» 를 쌓는다(LOG-AGENT-005). 걷기는 하루에 AFTER_INBOUND · AFTER_OUTBOUND
+    두 번 감지할 수 있어 같은 날짜 원소는 마지막 감지값으로 교체한다(최고값이 아니다)
+    — 그날 최종값 하나만 남긴다. 다른 날짜는 누적한다. 같은 UPDATE 안에서 옛 같은-날
+    원소를 빼고 새 원소를 얹는다.
     """
     if not evidence:
         raise EmptyEvidence(f"{exception_id} 를 근거 없이 갱신할 수 없다")
@@ -407,10 +407,10 @@ def resolve_exception(
     resolved_by: str,
     note: str | None = None,
 ) -> None:
-    """조건이 사라졌다. **결정론이 닫는다 — 사람 확인을 기다리지 않는다.**
+    """조건이 사라졌다. 결정론이 닫는다 — 사람 확인을 기다리지 않는다.
 
     :param resolved_by: 무엇이 닫았나 (`REDETECT` · `LOT_EMPTY` · `COMMITTED` ·
-        `ESCALATED:FRESHNESS_EXPIRED`). 🔴 **사람 이름을 지어내지 않는다.**
+        `ESCALATED:FRESHNESS_EXPIRED`). 사람 이름을 지어내지 않는다.
     """
     with conn.cursor() as cursor:
         cursor.execute(

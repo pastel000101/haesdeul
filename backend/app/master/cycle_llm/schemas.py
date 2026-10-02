@@ -1,18 +1,13 @@
-"""★ **`app/orchestrator/` 에서 옮겼다** (2026-09-07 · 지시). 옛 경로는 없다.
+"""사이클 LLM 계약과 응답 확장 필드.
 
-⚠️ **`cycle_` 는 옮겨 온 사이클 묶음을 한 이름 아래 모으려고 붙였다.**
-  마스터의 Flow 골격과 섞이지 않게 한다.
+사이클의 LLM 지점은 T3-5 선정 하나다(설계서 §5.3). LLM 은 순위만 정하고 사람이 읽을
+문장을 쓴다. 수량·금액은 T3-2 클리핑이 이미 확정했다.
 
-Orchestrator Local LLM contracts and response extension fields.
+출력 스키마(`SelectionInterpretation`)에 수량·금액 필드가 존재하지 않으므로 생성이
+불가능하다. §1.2-3 을 프롬프트가 아니라 타입으로 보장하는 방법이다.
 
-★ 오케스트레이터의 LLM 지점은 T3-5 선정 하나뿐이다 (설계서 §5.3).
-  LLM 은 **순위만 정하고 사람이 읽을 문장을 쓴다.** 수량·금액은 T3-2 클리핑이 이미 확정했다.
-
-  출력 스키마(`SelectionInterpretation`)에 수량·금액 필드가 **존재하지 않으므로**
-  생성이 불가능하다. §1.2-3 을 프롬프트가 아니라 타입으로 보장하는 방법이다.
-
-  상태 필드 5종(`llm_status` ~ `llm_fallback_used`)은 Finance / Logistics 와 동일하다.
-  `summary` 도 공통으로 유지해 Frontend 의 공통 AI 카드가 수정 없이 동작한다.
+상태 필드 5종(`llm_status` ~ `llm_fallback_used`)은 Finance / Logistics 와 같다.
+`summary` 도 공통으로 유지해 Frontend 의 공통 AI 카드가 수정 없이 동작한다.
 """
 
 from typing import Literal

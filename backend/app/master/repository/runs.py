@@ -1,28 +1,20 @@
-"""run_repository.py - 마스터 실행이력 표 접근. **마스터 소유다.**
+"""마스터 실행이력 표(`master_agent_runs`) SQL. 마스터 소유다.
 
-★ 왜 `app/orchestrator/run_repository.py` 를 안 쓰는가 (2026-09-02)
-  그 모듈은 오케 · Critic · 마스터가 한 표(`orchestrator_agent_runs`)를 쓰던 시절의
-  것이고, `agent` 축으로 셋을 갈랐다. 어휘의 소유가 없어서 마스터가 조회(`STATUS`)를
-  이력에 남기려 해도 CHECK 를 못 고쳤다 - 남의 행의 뜻까지 건드리기 때문이다.
+마스터 이력은 오케 · Critic 이력(`orchestrator_agent_runs`, `repository/cycle_runs.py`)과 표를
+따로 둔다. 한 표를 `agent` 축으로 나눠 쓰면 어휘의 주인이 없어, 마스터가 조회(`STATUS`)를
+이력에 남기려 해도 CHECK 를 고칠 수 없다 - 남의 행의 뜻까지 건드리기 때문이다.
 
-  마스터 표를 따로 두면서 이 모듈이 그 표를 소유한다. Critic 은 옛 모듈을 그대로
-  쓴다 - 남의 코드를 건드리지 않는다.
+계산과 적재를 섞지 않는다. Flow 판단은 DB 를 모르고, 여기서만 SQL 을 쓴다.
 
-★ 계산과 적재를 섞지 않는다.
-  `flow.py` 는 DB 를 모르고 `service.py` 는 경계 변환만 한다. 여기서만 SQL 을 쓴다.
+실패 처리: 적재 실패가 응답을 막지 않는다. 이력이 없는 것보다 결과를 못 주는 것이
+나쁘다 - `service/run_history.py` 의 `try_save_run` 이 삼킨다. 다만 읽기는 삼키지 않는다.
+없는 실행을 빈 값으로 돌려주면 화면이 "실행이 없다" 와 "DB 가 죽었다" 를 구별하지 못한다.
 
-★ 적재 실패가 응답을 막지 않는다.
-  이력이 없는 것보다 결과를 못 주는 것이 나쁘다 - `try_save_run` 이 삼킨다.
-  다만 **읽기는 삼키지 않는다.** 없는 실행을 빈 값으로 돌려주면 화면이
-  "실행이 없다" 와 "DB 가 죽었다" 를 구별하지 못한다.
-
-★ 2026-09-30 재구성 BL-018: `master/run_repository.py` 에서 SQL 만 남겼다. 전에는 함수마다
-  `master/db.py` 의 헬퍼가 호출마다 연결을 스스로 빌렸다. 이제 여기는 **받은 연결로 실행만**
-  하고, 연결은 부르는 쪽이 빌린다 — 조회는 `readmodel/runs.py`(조회 하나에 조회 연결 하나),
-  적재는 `service/run_history.py`(연결 하나 · 트랜잭션 하나). 빌리는 횟수와 종류는 종전 헬퍼와
-  같다. 업무 키 규칙은 `domain/request_ids.py`, 행 모양은 `schemas/runs.py`, 빈 축 접기와 걷기
-  범위 검사는 `domain/runs.py`, 적재 스위치(`history_enabled`)와 실패 삼킴(`try_save_run`)은
-  `service/run_history.py` 로 갈랐다.
+여기는 받은 연결로 실행만 하고, 연결은 부르는 쪽이 빌린다 — 조회는 `readmodel/runs.py`(조회
+하나에 조회 연결 하나), 적재는 `service/run_history.py`(연결 하나 · 트랜잭션 하나). 업무 키
+규칙은 `domain/request_ids.py`, 행 모양은 `schemas/runs.py`, 빈 축 접기와 걷기 범위 검사는
+`domain/runs.py`, 적재 스위치(`history_enabled`)와 실패 삼킴(`try_save_run`)은
+`service/run_history.py` 에 있다.
 """
 
 from __future__ import annotations
@@ -87,9 +79,9 @@ def insert_run(
     plan: list[dict[str, object]] | None,
     sim_run_id: str | None,
 ) -> dict[str, Any]:
-    """실행 1건 INSERT … RETURNING. **행이 안 나오면 예외다** — 문구는 종전 헬퍼와 같다.
+    """실행 1건 INSERT … RETURNING. 행이 안 나오면 예외다.
 
-    🔴 빈 축은 NULL 로 접는다 (`null_if_blank`). 기본값 `""` 는 *"아직 안 실렸다"* 이지 값이 아니다.
+    빈 축은 NULL 로 접는다 (`null_if_blank`). 기본값 `""` 는 "아직 안 실렸다" 이지 값이 아니다.
     """
     query = sql.SQL(
         """

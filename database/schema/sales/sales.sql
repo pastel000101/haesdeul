@@ -1,11 +1,9 @@
 -- sales — 판매
 --
--- 2026-09-30 BL-021: 아래 출처에서 이 객체의 문장만 **그대로** 옮겼다(문장 · 순서 불변).
---   옛 `database/10_domain_schema.sql` (2026-08-30 test DB 에서 뜬 pg_dump 스냅샷)
--- 옛 파일 전체와 머리말은 git `3525c8f3` 에 있다. 적용 순서는 `database/new_database_order.txt`.
--- 2026-09-30 BL-021 보완: 새 DB 목록 끝에서 따로 돌던 이관판의 최종 효과를 이 파일에 담았다 —
---   `migrations/sales/sales_source_order_id_nullable.sql` 의 `source_order_id` NOT NULL 해제.
---   그 칸 정의만 스냅샷과 다르다. 이미 쓰는 DB 는 그 이관판을 그대로 쓴다(`database/README.md` §2).
+-- 적용 순서는 `database/new_database_order.txt`.
+-- 이 파일은 `migrations/sales/sales_source_order_id_nullable.sql` 의 최종 효과인
+--   `source_order_id` NOT NULL 해제를 담는다. 이미 쓰는 DB 는 그 이관판을 쓴다
+--   (`database/README.md` §2).
 
 BEGIN;
 

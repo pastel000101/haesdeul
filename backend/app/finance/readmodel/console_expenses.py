@@ -1,7 +1,6 @@
 """Finance operations-console expense read model; strictly run-scoped.
 
-★ 2026-09-29 재구성 BL-014: 응답 모델은 `schemas/console_expenses.py`, SQL 은
-  `repository/console_expenses.py`.
+응답 모델은 `schemas/console_expenses.py`, SQL 은 `repository/console_expenses.py`.
 """
 
 from datetime import date
@@ -19,7 +18,7 @@ from app.finance.schemas.console_expenses import (
 #: Screen wording for the categories the ledger actually stores.  The stored value
 #: is the record; this only names it in Korean.
 #:
-#: A category missing from this table is **not** an error and is never re-bucketed
+#: A category missing from this table is not an error and is never re-bucketed
 #: into "기타" — the row keeps its stored name in both fields, so a category added
 #: to the ledger shows up as itself instead of quietly joining someone else's total.
 _DISPLAY_NAMES: dict[str, str] = {
@@ -59,9 +58,9 @@ def get_console_expenses(
     the sum of the lines under it.  A filtered view therefore totals the filtered
     lines — the alternative is a header that no visible row explains.
 
-    🔴 **상태별 합계를 따로 센다.** 예전에는 «누적 비용» 한 칸뿐이라 아직 안 나간 돈과
-       이미 나간 돈이 같은 숫자에 들어 있었다. 취소한 비용까지 그 안에 있었다 — 나가지
-       않기로 한 돈이 비용 총액에 섞여 있으면 그 숫자로는 아무 판단도 못 한다.
+    상태별 합계를 따로 센다. «누적 비용» 한 칸이면 아직 안 나간 돈과 이미 나간 돈, 취소한
+    비용까지 같은 숫자에 들어간다 — 나가지 않기로 한 돈이 비용 총액에 섞여 있으면 그 숫자로는
+    아무 판단도 못 한다.
     """
     rows: list[ConsoleExpenseRow] = []
     totals: dict[str, ConsoleExpenseCategoryTotal] = {}
@@ -97,8 +96,8 @@ def get_console_expenses(
                 status=row_status,
                 due_date=raw.get("due_date"),  # type: ignore[arg-type]
                 paid_date=paid_date,  # type: ignore[arg-type]
-                #  ★ 지급했다고 적혀 있는데 날짜가 없으면 «모른다» 다. 발생일을 대신
-                #    넣지 않는다 — 화면은 사실만 말한다.
+                # 지급했다고 적혀 있는데 날짜가 없으면 «모른다» 다. 발생일을 대신
+                # 넣지 않는다 — 화면은 사실만 말한다.
                 paid_date_known=row_status == "PAID" and paid_date is not None,
                 related_delivery_id=(
                     None

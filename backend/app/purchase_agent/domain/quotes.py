@@ -1,4 +1,4 @@
-"""시세 **판정** — 선언 좌표 확인, 물량가중 단가의 반올림, 관측 품질(뒤처짐 · 규격 · 표기).
+"""시세 판정 — 선언 좌표 확인, 물량가중 단가의 반올림, 관측 품질(뒤처짐 · 규격 · 표기).
 
 ```text
 validate_coordinates · source_table · spec_for_item · min_trade_volume_kg   선언을 읽고 확인
@@ -6,13 +6,12 @@ krw_per_kg · to_price                                                     단�
 provenance_problem · stale_quote_reason · quote_block_reason · …          이 시세를 써도 되나
 ```
 
-★ 노드는 DB 를 모른다 — 관측일 · 규격 · 시장 개장일은 시세 한 줄에 실려
-  오고(`readmodel/quotes.py`),
-  여기서 그 값으로만 판정한다.
+노드는 DB 를 모른다 — 관측일 · 규격 · 시장 개장일은 시세 한 줄에 실려
+오고(`readmodel/quotes.py`), 여기서 그 값으로만 판정한다.
 
-🟢 **자리 (2026-09-29 · 재구성 BL-016).** 전에는 `quotes.py` 한 파일에 SQL · 결과 조립과 함께
-  있었다. 몸통은 그대로이고, 조립(readmodel)과 판정이 같이 쓰는 `_iso_or_none` · `_spec_label_on`
-  만 공개 이름으로 올렸다. 시리즈 · 좌표에 대한 설명은 `readmodel/quotes.py` 머리말에 있다.
+SQL 은 `repository/quotes.py`, 결과 조립은 `readmodel/quotes.py` 에 있다. 조립과 판정이 같이
+쓰는 `iso_or_none` · `spec_label_on` 은 여기 공개 이름으로 둔다. 시리즈 · 좌표에 대한 설명은
+`readmodel/quotes.py` 머리말에 있다.
 """
 
 from collections.abc import Mapping
@@ -20,11 +19,11 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-#: 이 모듈이 **실제로 구현한** 좌표. 선언과 다르면 조회를 시작하지 않는다.
+#: 이 모듈이 실제로 구현한 좌표. 선언과 다르면 조회를 시작하지 않는다.
 #:
-#: 🔴 선언만 있고 아무도 안 읽는 값은 **단일 소스인 척하는 주석**이다 (Codex 교차검증
-#:   2026-08-31). ``weighting`` 을 ``simple`` 로 바꿔도 계산이 그대로면, YAML 은 사실을
-#:   말하는 게 아니라 사실처럼 보이는 글자다. 여기서 대조해 선언이 실행에 닿게 한다.
+#: 선언만 있고 아무도 안 읽는 값은 단일 소스인 척하는 주석이다. ``weighting`` 을
+#: ``simple`` 로 바꿔도 계산이 그대로면, YAML 은 사실을 말하는 게 아니라 사실처럼 보이는
+#: 글자다. 여기서 대조해 선언이 실행에 닿게 한다.
 _IMPLEMENTED = {
     # 이 테이블 전체가 경락이다 — 가격종류 컬럼이 없어 필터로 못 쓰고, 선언으로만 남는다.
     # 그래서 더더욱 대조가 필요하다: WHSL/RTL 로 바꿔 적어도 조회가 그대로 돌아버린다.
@@ -37,7 +36,7 @@ _IMPLEMENTED = {
 
 
 def validate_coordinates(cfg: Mapping[str, Any]) -> None:
-    """선언된 좌표가 이 모듈이 구현한 것과 같은지 본다. 다르면 **조회하지 않는다.**
+    """선언된 좌표가 이 모듈이 구현한 것과 같은지 본다. 다르면 조회하지 않는다.
 
     조용히 무시하면 "설정을 바꿨는데 왜 그대로지"가 되고, 최악은 바꾼 줄 알고 쓰는 것이다.
     """
@@ -52,13 +51,13 @@ def validate_coordinates(cfg: Mapping[str, Any]) -> None:
 
 
 def min_trade_volume_kg(cfg: Mapping[str, Any]) -> float:
-    """등급 하나가 그날 **시세로 실리기 위한 최소 거래중량** (`#559`).
+    """등급 하나가 그날 시세로 실리기 위한 최소 거래중량 (`#559`).
 
-    선언에서 읽는다 (규칙 7). 없으면 조회하지 않는다 — 기본값을 코드에 두면 *"선언을
-    지웠는데 왜 그대로지"* 가 되고, 그 상태는 이 모듈이 ``_IMPLEMENTED`` 로 막으려는
+    선언에서 읽는다 (규칙 7). 없으면 조회하지 않는다 — 기본값을 코드에 두면 "선언을
+    지웠는데 왜 그대로지" 가 되고, 그 상태는 이 모듈이 ``_IMPLEMENTED`` 로 막으려는
     것과 같은 종류다.
 
-    ⚠️ ``0`` 은 **받는다** — 「하한 없음」이라는 확정된 값이다 (규칙 3). 미결이면 키를
+    ``0`` 은 받는다 — 「하한 없음」이라는 확정된 값이다 (규칙 3). 미결이면 키를
     두지 않고, 그때는 여기서 멈춘다. 음수는 뜻이 없으므로 막는다.
     """
     value = cfg.get("min_trade_volume_kg")
@@ -73,15 +72,14 @@ def min_trade_volume_kg(cfg: Mapping[str, Any]) -> float:
 
 
 def source_table(cfg: Mapping[str, Any]) -> tuple[str, str]:
-    """읽을 ``(schema, table)``. **환경변수가 아니라 선언에서 온다** (규칙 7).
+    """읽을 ``(schema, table)``. 환경변수가 아니라 선언에서 온다 (규칙 7).
 
-    🔴 전에는 스키마를 ``db.get_db_schema()`` 가 ``DB_SCHEMA`` 환경변수에서 가져왔다.
-      그러면 **``.env`` 가 어느 테이블을 읽을지 정한다** — 팀원마다 값이 달라 같은 코드가
-      다른 시세를 보고, 그 상태는 이 저장소에서 이미 한 번 겪었다 (LLM_PROVIDER 건).
-      스키마는 접속 정보가 아니라 **좌표**라서 다른 다섯과 같은 자리에 있어야 한다.
+    스키마를 ``DB_SCHEMA`` 환경변수에서 가져오면 ``.env`` 가 어느 테이블을 읽을지 정한다
+    — 팀원마다 값이 달라 같은 코드가 다른 시세를 본다 (LLM_PROVIDER 와 같은 종류의 문제).
+    스키마는 접속 정보가 아니라 좌표라서 다른 다섯과 같은 자리에 있어야 한다.
 
     ``haetdeul`` 사본이 아니라 ``source_raw`` 를 읽는다 — 사본은 ML 소관이 아니고
-    2026-08-31 실측으로 **3일** 뒤처져 있었다(08-26 vs 08-29). rise_rate 분모가 ML 예측과
+    2026-08-31 실측으로 3일 뒤처져 있었다(08-26 vs 08-29). rise_rate 분모가 ML 예측과
     다른 날의 시장을 보게 된다.
 
     두 값 다 식별자로 쿼리에 들어가므로 문자열인지 여기서 본다 — 아니면
@@ -101,20 +99,20 @@ def source_table(cfg: Mapping[str, Any]) -> tuple[str, str]:
 
 
 def spec_for_item(item: str, constraints: Mapping[str, Any]) -> dict[str, Any] | None:
-    """그 품목의 조회 규격. **미확정이면 None 이다 — 임의 규격으로 채우지 않는다** (규칙 3).
+    """그 품목의 조회 규격. 미확정이면 None 이다 — 임의 규격으로 채우지 않는다 (규칙 3).
 
-    ⚠️ **키가 없는 것과 값이 null 인 것을 구분한다.** 셋을 갈라야 한다::
+    키가 없는 것과 값이 null 인 것을 구분한다. 셋을 갈라야 한다::
 
         키가 있고 값이 spec    조회한다
-        키가 있고 값이 null    **미결이라 안 읽는다** — 결정이다 (규칙 3)
-        키가 없다              🔴 **계약 밖이거나 빠뜨린 것** — 여기서 멈춘다
+        키가 있고 값이 null    미결이라 안 읽는다 — 결정이다 (규칙 3)
+        키가 없다              계약 밖이거나 빠뜨린 것 — 여기서 멈춘다
 
     셋째를 조용히 넘기면 실수로 지운 품목이 «미결» 과 똑같이 보이고, 그 품목은
     그날부터 영원히 시세 없이 돈다.
 
-    🔴 **지금 둘째(값이 null)에 해당하는 품목이 없다** (2026-09-09). 피마늘이
-      그 자리였는데 계약에서 빠져(`#216` · `contracts/core.py ITEMS`) 선언에서도
-      걷었다. **분기는 남긴다** — 규격 미결 품목이 다시 생기면 그날 이 길로 온다.
+    지금 둘째(값이 null)에 해당하는 품목은 없다 — 계약 품목 셋(`#216` ·
+    `contracts/core.py` 의 `ITEMS`)이 모두 규격을 선언했다. 분기는 남긴다 — 규격 미결
+    품목이 다시 생기면 그날 이 길로 온다.
 
     규격이 반쯤 적힌 상태도 여기서 막는다. ``packages`` 만 있고 ``unit_weight_kg`` 이 없으면
     조회 시점에 ``KeyError`` 로 죽는데, 그때는 사유를 낼 자리가 이미 지나갔다.
@@ -140,7 +138,7 @@ def _checked_spec(item: str, spec: Mapping[str, Any]) -> dict[str, Any]:
     packages = spec.get("packages")
     weight = spec.get("unit_weight_kg")
     label = spec.get("label")
-    # 문자열을 넘기면 ``list("그물망")`` 이 글자 목록이 되어 **조용히 0건**이 된다.
+    # 문자열을 넘기면 ``list("그물망")`` 이 글자 목록이 되어 조용히 0건이 된다.
     if not isinstance(packages, list) or not packages:
         raise ValueError(
             f"spec_by_item[{item!r}].packages must be a non-empty list, got {packages!r}"
@@ -159,9 +157,9 @@ def _checked_spec(item: str, spec: Mapping[str, Any]) -> dict[str, Any]:
 def _check_before(item: str, before: Any) -> None:
     """규격 전환 블록(``before``)도 같은 검사를 받는다.
 
-    ⚠️ 여기서 안 보면 ``date`` 누락은 쿼리 파라미터를 채울 때 **늦게 ``KeyError``** 로 터지고
-      (그때는 사유를 낼 자리가 지나갔다), 음수 중량은 조용히 0행 → "거래 기록이 없다"는
-      **틀린 사유**로 이어진다 (Codex 2차 지적).
+    여기서 안 보면 ``date`` 누락은 쿼리 파라미터를 채울 때 늦게 ``KeyError`` 로 터지고
+    (그때는 사유를 낼 자리가 지나갔다), 음수 중량은 조용히 0행 → "거래 기록이 없다"는
+    틀린 사유로 이어진다.
     """
     if before is None:
         return
@@ -186,7 +184,7 @@ def _check_before(item: str, before: Any) -> None:
 
 
 def krw_per_kg(amount_krw: Decimal, volume_kg: Decimal) -> Decimal:
-    """물량가중 단가 = 거래대금 합 ÷ 거래중량 합. **단순평균이 아니다.**
+    """물량가중 단가 = 거래대금 합 ÷ 거래중량 합. 단순평균이 아니다.
 
     2026-08-03 배추 특(가락, 규격 무필터) 물량가중 938.5 vs 단순평균 2,009.9 — 2.1배다.
     ``grade_unit_price`` 는 사중 일치 금액 축에 직접 걸리므로 식이 틀리면 금액이 통째로
@@ -201,12 +199,13 @@ def krw_per_kg(amount_krw: Decimal, volume_kg: Decimal) -> Decimal:
 
 
 def to_price(unit_price: Decimal) -> int:
-    """계약이 요구하는 정수 원/kg (``schemas.SourcingLine.grade_unit_price: int``).
+    """계약이 요구하는 정수 원/kg (``schemas/proposal.py`` 의
+    ``SourcingPlanItem.grade_unit_price: int``).
 
-    ⚠️ **내장 ``round()`` 를 쓰지 않는다.** 파이썬은 은행가 반올림이라 ``round(938.5)`` 가
-      **938** 이다. DoD 재현치가 하필 ``.5`` 로 끝나는 값이라(938.5) 이 차이가 그대로
-      드러나고, 그런 값은 실데이터에서 드물지 않다. 통상적인 금액 반올림(사사오입)으로
-      고정한다.
+    내장 ``round()`` 를 쓰지 않는다. 파이썬은 은행가 반올림이라 ``round(938.5)`` 가
+    938 이다. DoD 재현치가 하필 ``.5`` 로 끝나는 값이라(938.5) 이 차이가 그대로
+    드러나고, 그런 값은 실데이터에서 드물지 않다. 통상적인 금액 반올림(사사오입)으로
+    고정한다.
     """
     return int(unit_price.quantize(Decimal(1), rounding=ROUND_HALF_UP))
 
@@ -222,7 +221,7 @@ def spec_label_on(spec: Mapping[str, Any], observed: str | None) -> str:
     """그날 유효했던 규격 이름. 전환일 이전이면 옛 규격 이름을 쓴다.
 
     라벨은 사유 문장에 그대로 실린다 — 2017년 값을 보면서 "상자·파렛트 20kg"이라고 적으면
-    **무엇을 봤는지가 거짓**이 된다.
+    무엇을 봤는지가 거짓이 된다.
     """
     before = spec.get("before")
     if before is None or observed is None:
@@ -230,7 +229,7 @@ def spec_label_on(spec: Mapping[str, Any], observed: str | None) -> str:
     return str(before["label"] if observed < str(before["date"]) else spec["label"])
 
 
-#: 실측 시세임을 나타내는 표시 두 개. **한 묶음이다** — 반쪽만 있으면 계약 위반이다.
+#: 실측 시세임을 나타내는 표시 두 개. 한 묶음이다 — 반쪽만 있으면 계약 위반이다.
 #: mock 은 둘 다 없고, DB 공급자는 둘 다 싣는다.
 PROVENANCE_KEYS = ("spec", "observed_at")
 
@@ -238,17 +237,17 @@ PROVENANCE_KEYS = ("spec", "observed_at")
 def provenance_problem(
     quotes: list[dict[str, Any]], as_of: str, constraints: Mapping[str, Any]
 ) -> str | None:
-    """관측 표기가 계약대로인가. 어긋나면 **사유 문장**을 돌려준다 (예외가 아니다).
+    """관측 표기가 계약대로인가. 어긋나면 사유 문장을 돌려준다 (예외가 아니다).
 
-    🔴 이 검사는 **주입 경로에도 걸려야 한다.** 전에는 ``_materialize`` 안에만 있어서
-      DB 경로만 지켰고, 주입 시세는 관측일이 미래여도·섞여도·아예 없어도 그대로 통과했다
-      (Codex 2차 지적, 전부 재현됨).
+    이 검사는 주입 경로에도 걸려야 한다. DB 조립(``readmodel/quotes.py`` 의
+    ``_materialize``) 안에만 두면 DB 경로만 지키고, 주입 시세는 관측일이 미래여도·섞여도·
+    아예 없어도 그대로 통과한다.
 
-    ⚠️ **왜 ``ports`` 가 아니라 여기인가.** 포트는 T0(``build_initial_state``)에서 도는데,
-      거기서 예외를 던지면 그래프가 시작조차 못 하고 **어느 노드도 사유를 쓸 자리가 없다**
-      — 결정 d 가 막으려던 그것이다. 그리고 mock 은 관측 표기가 정당하게 없어서 포트에서
-      일률적으로 요구할 수도 없다. 그래서 판정은 ③·⑤ 가 공유하는 이 함수가 하고, 포트는
-      구조 계약(market·grade·price)만 본다.
+    왜 ``ports`` 가 아니라 여기인가: 포트는 T0(``build_initial_state``)에서 도는데,
+    거기서 예외를 던지면 그래프가 시작조차 못 하고 어느 노드도 사유를 쓸 자리가 없다
+    — 결정 d 가 막으려던 그것이다. 그리고 mock 은 관측 표기가 정당하게 없어서 포트에서
+    일률적으로 요구할 수도 없다. 그래서 판정은 ③·⑤ 가 공유하는 이 함수가 하고, 포트는
+    구조 계약(market·grade·price)만 본다.
 
     검사 다섯. 앞의 것이 걸리면 뒤는 보지 않는다 — 원인을 하나로 말해야 읽는 사람이 그 자리를 본다.
     """
@@ -289,17 +288,17 @@ def provenance_problem(
 def _lag_problem(
     quotes: list[dict[str, Any]], observed: str, today: date, cfg: Mapping[str, Any]
 ) -> str | None:
-    """뒤처짐 둘을 **갈라서** 본다 — 사유가 원인을 잘못 말하면 엉뚱한 자리를 보게 된다.
+    """뒤처짐 둘을 갈라서 본다 — 사유가 원인을 잘못 말하면 엉뚱한 자리를 보게 된다.
 
-    1. **적재가 멈췄다** — 시장 전체의 최신 기록이 너무 오래됐다. 규격과 무관하다.
-    2. **이 규격이 안 팔렸다** — 시장은 그 뒤로도 열렸는데 우리 규격에 거래가 없다.
+    1. 적재가 멈췄다 — 시장 전체의 최신 기록이 너무 오래됐다. 규격과 무관하다.
+    2. 이 규격이 안 팔렸다 — 시장은 그 뒤로도 열렸는데 우리 규격에 거래가 없다.
 
-    순서가 1→2 인 것은 1이 더 근본이기 때문이다. 적재가 멈춘 상태에서는 2가 **0으로 읽힌다**
+    순서가 1→2 인 것은 1이 더 근본이기 때문이다. 적재가 멈춘 상태에서는 2가 0으로 읽힌다
     (우리 관측일과 시장 최신일이 같이 뒤로 밀린다) — 그때 2만 보면 "정상"이 되어버린다.
 
-    ⚠️ **연휴는 어느 쪽도 아니다.** 시장이 쉰 날은 개장일이 아니라 2에서 세지 않고,
-      1의 임계는 최장 연휴(2025년 6일)를 넘겨 잡아 통과시킨다. 연휴 직후 첫 아침에
-      0안이 나오지 않는 것이 이 설계의 목적이다.
+    연휴는 어느 쪽도 아니다. 시장이 쉰 날은 개장일이 아니라 2에서 세지 않고,
+    1의 임계는 최장 연휴(2025년 6일)를 넘겨 잡아 통과시킨다. 연휴 직후 첫 아침에
+    0안이 나오지 않는 것이 이 설계의 목적이다.
 
     시장 쪽 표기가 없으면(mock·주입) 두 검사 다 건너뛴다 — 없는 값으로 판정하지 않는다.
     """
@@ -331,10 +330,10 @@ def _lag_problem(
 
 
 def _single_market_value(quotes: list[dict[str, Any]], key: str) -> Any:
-    """행마다 같아야 하는 시장 쪽 값. 갈라져 있으면 **쓰지 않는다**.
+    """행마다 같아야 하는 시장 쪽 값. 갈라져 있으면 쓰지 않는다.
 
     ``0`` 이 정상값이라 ``or`` 로 접을 수 없다 (규칙 3) — ``trading_days_behind`` 의
-    0은 *"안 밀렸다"* 는 확정된 사실이지 미결이 아니다.
+    0은 "안 밀렸다" 는 확정된 사실이지 미결이 아니다.
     """
     values = {q.get(key) for q in quotes}
     if len(values) != 1:
@@ -365,9 +364,9 @@ def stale_quote_reason(
 ) -> str | None:
     """너무 오래된 시세면 사유를 돌려준다 — ``provenance_problem`` 의 staleness 부분.
 
-    🔴 **오래된 값을 당일인 척 쓰지 않는다** (규칙 3). 다만 *"오래됐다"* 를 달력일로 세지
-      않는다 — 주말·연휴가 그대로 지연으로 잡혀 **연휴 직후 첫 아침**이 반드시 0안이 되고,
-      그날이 하필 가장 판단이 필요한 아침이다.
+    오래된 값을 당일인 척 쓰지 않는다 (규칙 3). 다만 "오래됐다" 를 달력일로 세지
+    않는다 — 주말·연휴가 그대로 지연으로 잡혀 연휴 직후 첫 아침이 반드시 0안이 되고,
+    그날이 하필 가장 판단이 필요한 아침이다.
 
     거래일 기준으로 세면 원인이 갈린다 (``_lag_problem``). 임계 둘 다 규칙 7이다 —
     ``max_trading_days_behind`` · ``max_calendar_days_behind``.
@@ -378,7 +377,7 @@ def stale_quote_reason(
 def observed_spec(quotes: list[dict[str, Any]]) -> str | None:
     """받은 시세가 어느 규격에서 온 것인지. mock 처럼 규격 표기가 없으면 None.
 
-    **데이터가 말하게 한다** — 사유 문장이 여기서 규격을 가져간다.
+    데이터가 말하게 한다 — 사유 문장이 여기서 규격을 가져간다.
     """
     labels = sorted({str(q["spec"]) for q in quotes if q.get("spec")})
     return " · ".join(labels) if labels else None
@@ -392,7 +391,7 @@ def quote_block_reason(
 ) -> str | None:
     """오늘 시세를 쓸 수 없는 사유. 쓸 수 있으면 None.
 
-    막히는 길이 둘이라 한 함수로 모은다 — ③과 ⑤가 **같은 판정**을 봐야 하기 때문이다.
+    막히는 길이 둘이라 한 함수로 모은다 — ③과 ⑤가 같은 판정을 봐야 하기 때문이다.
     각자 판단하면 한쪽만 바뀌고, 그러면 ③은 안을 안 만들었는데 ⑤는 배분을 만드는(또는
     그 반대) 상태가 조용히 생긴다.
 
@@ -407,28 +406,28 @@ def quote_block_reason(
 
 
 def missing_quote_reason(item: str, as_of: str, constraints: Mapping[str, Any]) -> str:
-    """시세를 한 건도 못 받은 날의 사유. **오케스트레이터가 원인을 알 수 있어야 한다.**
+    """시세를 한 건도 못 받은 날의 사유. 오케스트레이터가 원인을 알 수 있어야 한다.
 
-    ⚠️ 이 문장은 **DB 경로에서만 나온다.** mock 은 어느 앵커·품목에서도 빈 목록을 돌려주지
-      않는다(모르는 품목이면 KeyError 로 멈춘다). 그래서 여기서 규격을 이름으로 말해도
-      "안 쓴 규격을 썼다고 적는" 일이 생기지 않는다 — 계약 테스트가 그 전제를 잠근다.
+    이 문장은 DB 경로에서만 나온다. mock 은 어느 앵커·품목에서도 빈 목록을 돌려주지
+    않는다(모르는 품목이면 KeyError 로 멈춘다). 그래서 여기서 규격을 이름으로 말해도
+    "안 쓴 규격을 썼다고 적는" 일이 생기지 않는다 — 계약 테스트가 그 전제를 잠근다.
 
-    🔴 **"그날 휴장"이라고 말하지 않는다.** 쿼리가 ``auction_date < as_of`` 로 **전 기간**을
-      훑어 최신일을 고르므로, 빈 결과는 그날 하루의 사정이 아니라 *"as_of 이전 어느 날에도
-      그 좌표로 쓸 수 있는 기록이 없다"* 는 뜻이다. 쿼리를 바꾸면서 사유를 안 바꿔
-      한동안 틀린 말을 하고 있었다 (Codex 2차 지적) — 이번 수정이 없애려던 바로 그 종류다.
+    "그날 휴장"이라고 말하지 않는다. 쿼리(``repository/quotes.py``)가
+    ``auction_date < as_of`` 로 전 기간을 훑어 최신일을 고르므로, 빈 결과는 그날 하루의
+    사정이 아니라 "as_of 이전 어느 날에도 그 좌표로 쓸 수 있는 기록이 없다" 는 뜻이다.
+    쿼리를 바꾸면 이 사유 문장도 함께 맞춰야 한다.
     """
     market = constraints["market_quotes"]["market_category"]
     spec = spec_for_item(item, constraints)
     if spec is None:
-        # 조사를 붙이지 않는다 — "피마늘는"이 실제로 나갔다 (2026-08-31 관통). 품목명이
+        # 조사를 붙이지 않는다 — "피마늘는" 같은 문장이 실제로 나간 적이 있다. 품목명이
         # 받침으로 끝나는지에 따라 은/는이 갈리는데, 그걸 코드가 판정하게 만들 이유가 없다.
         return (
             f"{item} 조회 규격이 아직 정해지지 않아 등급별 경락가를 받지 못했다 "
             f"— 시세 없이 매입 수량을 정할 수 없어 안을 만들지 않았다"
         )
-    # 규격 이름도 **as_of 에 맞는 것**을 고른다. 2017년 무를 18kg 로 조회해 놓고
-    # "20kg 규격에서"라고 적으면 무엇을 봤는지가 거짓이 된다 (Codex 2차 지적).
+    # 규격 이름도 as_of 에 맞는 것을 고른다. 2017년 무를 18kg 로 조회해 놓고
+    # "20kg 규격에서"라고 적으면 무엇을 봤는지가 거짓이 된다.
     label = spec_label_on(spec, as_of)
     return (
         f"{as_of} 이전 기간에 {market} {label} 규격으로 쓸 수 있는 낙찰 기록이 없다 "

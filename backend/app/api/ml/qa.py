@@ -1,6 +1,6 @@
 """ML 가격 예측 API Router.
 
-★ 2026-09-11 — 두 주소를 **주석 처리**했습니다 (지우지 않음).
+두 주소는 주석 처리돼 있습니다 (지우지 않음).
 
     GET  /ml/forecast        코드에서 부르는 곳이 없습니다
     POST /ml/forecast/push   부르는 곳이 없습니다. 매입 DB 적재는 ML 배치가
@@ -8,16 +8,13 @@
                              하는 코드가 두 벌이면 날짜 변환 규칙이 갈라집니다
 
   마스터는 `ml_price_forecasts` 를 DB 에서 직접 읽고, 판매는 `app.contracts.forecast.Forecast`
-  모양만 씁니다 (2026-09-29 전 `app.ml.schemas.Forecast`).
-  **쓰던 함수는 그대로 둡니다** — 2026-09-29 재구성 BL-017 에 자리만 옮겼습니다
-  (예측 설정 `app/ml/schemas/forecast.py` · 조회 `app/ml/readmodel/forecasts.py` · 적재
-  `app/ml/service/forecasts.py`).
-  되살리려면 아래 `# ` 를 지우면 됩니다.
+  모양만 씁니다. 두 주소가 부르던 함수는 남아 있습니다(예측 설정
+  `app/ml/schemas/forecast.py` · 조회 `app/ml/readmodel/forecasts.py` · 적재
+  `app/ml/service/forecasts.py`). 되살리려면 아래 `# ` 를 지우면 됩니다.
 
-★ 이 파일은 HTTP 입구다 — `/ml/qa` 두 라우트는 질의응답 service
-  (`app/ml/service/qa_graph.py::answer`, 마스터 어댑터와 같은 함수)를 부르고 응답 모델로
-  돌려준다. 2026-09-30 재구성 BL-019 에
-  `app/ml/router.py` 에서 옮겼다(주석 처리한 두 주소 포함 · 핸들러 이름 · 설명 · URL 그대로).
+이 파일은 HTTP 입구다 — `/ml/qa` 두 라우트는 질의응답 service
+(`app/ml/service/qa_graph.py::answer`, 마스터 어댑터와 같은 함수)를 부르고 응답 모델로
+돌려준다.
 """
 
 from typing import Annotated
@@ -107,9 +104,10 @@ router = APIRouter(prefix="/ml", tags=["ml"])
     description=(
         "값을 말로 묻고 마크다운으로 받는다. 읽기만 한다 — 예측을 새로 만들지 않고 "
         "어떤 표에도 쓰지 않는다. 부르는 법은 두 가지다: item·kind·dates 를 직접 주면 "
-        "규칙 경로가 끝까지 돌고, question 만 주면 LLM 해석 자리로 간다(아직 안 붙여 "
-        "LLM_UNAVAILABLE 을 돌려준다 — 지어내지 않는다). status 가 OK 가 아니어도 "
-        "markdown 은 항상 찬다."
+        "LLM 해석 없이 규칙 경로로 답하고, question 만 주면 LLM 이 질문을 해석한 뒤 "
+        "규칙이 그 값의 범위를 다시 확인한다. LLM 을 쓸 수 없거나(키 없음 · 꺼짐 · 호출 "
+        "실패) 질문을 해석하지 못하면 값을 지어내지 않고 status=LLM_UNAVAILABLE 로 "
+        "답한다. status 가 OK 가 아니어도 markdown 은 항상 채워진다."
     ),
 )
 def ask(request: QaRequest) -> QaAnswer:

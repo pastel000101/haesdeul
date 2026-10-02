@@ -1,15 +1,17 @@
-"""영업 Agent API 요청·응답과 실행이력 조회 계약.
+"""판매 제안의 입력 · 안 · 회신 계약.
 
-입력·출력은 팀 공통 I/O 계약(캐논)의 구조에 맞춘다. 다만 미구현 결과를 정상값처럼 채우지 않는다.
+입력·출력은 팀 공통 I/O 계약(캐논)의 구조에 맞춘다. 다만 확인되지 않은 결과를 정상값처럼
+채우지 않는다.
 
-- 실제 산출 값(floor_vector, band, 확정 의무량)은 결정론 계산 결과다.
-- 후보 생성·정책값·제약 판정처럼 미구현인 부분은 null·빈 목록·명시적 미구현 상태로 낸다.
-- 계산에 실제로 쓰는 입력(confirmed_orders·inventory·inbound_lead_days)만 엄격히 검증한다.
-- 캐논이 필수로 두는 입력·추적 키는 값이 null이더라도 키 자체는 요구한다.
-- 아직 계산에 쓰지 않는 입력 블록은 관대한 모델로 받아 실행이력 JSONB에 그대로 보존한다.
+- 안의 수량·단가·금액은 결정론 계산(`domain/proposal.py`) 결과다.
+- 모르는 값은 0 이나 빈 판정으로 메우지 않고 null·빈 목록으로 낸다.
+- 판매가 소유한 모델은 `extra="forbid"` 로 엄격히 검증하고, bool 이 숫자로 들어오는 것을
+  막는다. 다른 부서 회신에서 읽는 부분집합(`PurchaseAdditionalSupplyResult` ·
+  `SalesFinanceReplySubset`)은 모르는 칸을 무시한다.
+- 형태를 정하지 않은 입력 블록(`PassThrough`)은 관대한 모델로 받아 실행이력 JSONB 에 그대로
+  보존한다.
 
-★ 2026-09-29 BL-013: `sales/schemas.py` 에서 판매 제안의 입력 · 안 · 회신 모델을 옮겼다.
-  원장 기록 입력은 `sale_ledger.py`, 실행이력은 `runs.py`, 현황 응답은 `dashboard.py` 다.
+원장 기록 입력은 `sale_ledger.py`, 실행이력은 `runs.py`, 현황 응답은 `dashboard.py` 다.
 """
 
 from datetime import date
@@ -29,13 +31,13 @@ SalesBusinessMode = Literal[
     "SPOT_SALES",
 ]
 
-#: 결제방식. **Sales 가 소비하는 사용자·계약 사실이지 재무가 추론하는 값이 아니다.**
+#: 결제방식. Sales 가 소비하는 사용자·계약 사실이지 재무가 추론하는 값이 아니다.
 #:
-#: ★ Sales-local 어휘로 둔다. 재무 실행계층 타입을 import 하면 두 Agent 가 실행
-#:   계층에서 붙는다 — 마스터가 중개할 자리가 사라진다.
+#: Sales-local 어휘로 둔다. 재무 실행계층 타입을 import 하면 두 Agent 가 실행
+#: 계층에서 붙는다 — 마스터가 중개할 자리가 사라진다.
 #:
-#: 🔴 `payment_days` 가 있다는 이유로 `SINGLE` 을 만들지 않는다. 결제일수는 *언제*
-#:   받는지이고 결제방식은 *몇 번에 나눠* 받는지다 — 하나에서 다른 하나가 따라오지 않는다.
+#: `payment_days` 가 있다는 이유로 `SINGLE` 을 만들지 않는다. 결제일수는 언제
+#: 받는지이고 결제방식은 몇 번에 나눠 받는지다 — 하나에서 다른 하나가 따라오지 않는다.
 SalesPaymentTermsType = Literal["SINGLE", "INSTALLMENT"]
 
 
@@ -48,7 +50,8 @@ def reject_boolean(value: object) -> object:
 
 # ---------------------------------------------------------------------------
 # 통과(pass-through) 입력 블록
-# 아직 계산에 쓰지 않지만 캐논 입력에 포함되는 블록. 그대로 받아 JSONB에 보존한다.
+# 형태를 검증하지 않고 받아 JSONB에 보존하는 캐논 입력 블록. `finance_context` 처럼
+# 일부 칸을 읽는 블록도 있다(`domain/strategy.py` 의 `derive_signals`).
 # ---------------------------------------------------------------------------
 
 
@@ -285,23 +288,25 @@ class LogisticsSupplyByDate(BaseModel):
 
 
 class LogisticsInventoryCostBasis(BaseModel):
-    """Logistics 가 확정 물량에 FEFO 로 배부한 **예상** 재고 취득원가를 그대로 보관한다.
+    """Logistics 가 확정 물량에 FEFO 로 배부한 예상 재고 취득원가를 그대로 보관한다.
 
-    🔴 **Sales 가 원가를 만들지 않는다.** 금액을 다시 셈하거나, 수량이 달라졌다고
-       비례 배분하거나, Lot 근거를 줄이지 않는다 — 어느 것을 해도 그 순간 장부에 없는
-       원가가 재무 판정에 들어간다. 안 맞으면 **버린다**(전달하지 않는다).
+    Sales 는 원가를 만들지 않는다. 금액을 다시 셈하거나, 수량이 달라졌다고 비례
+    배분하거나, Lot 근거를 줄이지 않는다 — 어느 것을 해도 장부에 없는 원가가 재무 판정에
+    들어간다. 품목이나 덮는 양(`quantity_kg`)이 안의 확정 물량과 맞지 않으면 안에 싣지
+    않는다(재무에 전달하지 않는다).
 
-    🔴 **FEFO 를 여기서 다시 고르지 않는다.** Lot 선택 순서의 주인은 Logistics 이고
-       (`turnover.fefo_sort_key`), 이 모델은 받은 것을 보관만 한다.
+    FEFO 를 여기서 다시 고르지 않는다. Lot 선택 순서는 Logistics 가 정하고
+    (`turnover.fefo_sort_key`), 이 모델은 받은 것을 보관만 한다.
 
-    ★ 현재 계약의 `allocation_method=FEFO` 와 `source_refs` 순서가 배부 근거의
-      정본이다. `source_ref` 는 하위 호환용 대표 하나다.
-      ⚠️ PRE_SALES 시점 값이라 **«출고된 Lot» 이 아니다** — 그 판매의 할당은 아직 없다.
+    `allocation_method=FEFO` 와 `source_refs` 순서가 배부 근거의 정본이다. `source_ref` 는
+    하위 호환용 대표 하나다.
+
+    주의: PRE_SALES 시점 값이라 출고된 Lot 이 아니다 — 그 판매의 할당은 아직 없다.
     """
 
     model_config = ConfigDict(extra="forbid")
     item: str
-    #: 이 금액이 덮는 양. Sales 는 이것을 **대조에만** 쓴다.
+    #: 이 금액이 덮는 양. Sales 는 이것을 대조에만 쓴다.
     quantity_kg: Decimal = Field(ge=0)
     amount_krw: Decimal = Field(ge=0)
     allocation_method: str
@@ -318,14 +323,14 @@ class LogisticsInventoryCostBasis(BaseModel):
 
 
 class LogisticsSellableSupply(BaseModel):
-    """최종 Logistics PRE_SALES의 판매 가능 공급 블록을 그대로 소비한다."""
+    """Logistics PRE_SALES 회신의 판매 가능 공급 블록을 재계산 없이 그대로 받는다."""
 
     model_config = ConfigDict(extra="forbid")
     status: Literal["READY", "UNRESOLVED", "FAIL"]
     inventory_by_item: list[LogisticsInventoryByItem] = Field(default_factory=list)
     lot_constraints: list[LogisticsLotConstraint] = Field(default_factory=list)
     supply_capacity_by_date: list[LogisticsSupplyByDate] = Field(default_factory=list)
-    #: 🔴 `None` 은 0원이 아니라 *"확정 물량의 재고원가를 내지 못했다"* 는 사실이다.
+    #: `None` 은 0원이 아니라 "확정 물량의 재고원가를 내지 못했다" 는 사실이다.
     inventory_cost_basis: LogisticsInventoryCostBasis | None = None
     uncertainties: list[str] = Field(default_factory=list)
 
@@ -358,27 +363,27 @@ class SalesDomainReply(BaseModel):
 
 
 class PurchaseAdditionalSupplyResult(BaseModel):
-    """Purchase 추가공급 회신에서 Sales 가 **실제로 읽는** 사실.
+    """Purchase 추가공급 회신에서 Sales 가 실제로 읽는 사실.
 
-    ★ Sales 안에 두는 **수신 전용** 모델이다. Purchase 모델을 import 하지 않는다 —
-      두 Agent 를 실행 계층에서 붙이면 마스터가 중개할 자리가 사라진다.
+    Sales 안에 두는 수신 전용 모델이다. Purchase 모델을 import 하지 않는다 — 두 Agent 를
+    실행 계층에서 붙이면 마스터가 중개할 자리가 사라진다.
 
-    🔴 **칸은 필수, 값은 nullable 이다.** 예전에는 `payload.get(...)` 로 읽어서
-       *키가 없는 것*과 *명시적 null* 이 같아졌다. 앞의 것은 "약속한 사실을 안 보냈다"
-       이고 뒤의 것은 "모른다고 답했다" 라 대응이 다르다.
+    칸은 필수, 값은 nullable 이다. `payload.get(...)` 으로 읽으면 키가 없는 것과 명시적
+    null 이 같아진다. 앞의 것은 "약속한 사실을 안 보냈다" 이고 뒤의 것은 "모른다고
+    답했다" 라 대응이 다르다.
 
            {"procurable_quantity_kg": null, "risks": []}   유효 — 모른다고 답함
            {"risks": []}                                   무효 — 수량 칸이 없음
            {"procurable_quantity_kg": 0}                   무효 — risks 칸이 없음
 
-    ★ `risks: []` 는 정상 사실이다 — "위험 0건 확인". 키가 없을 때 `[]` 로 메우면
-      *확인 안 함*이 *위험 없음*이 된다.
+    `risks: []` 는 정상 사실이다 — "위험 0건 확인". 키가 없을 때 `[]` 로 메우면
+    "확인 안 함" 이 "위험 없음" 이 된다.
 
-    ★ **모르는 칸은 무시한다 (`extra="ignore"`).** 이 모델은 Purchase 가 소유한 전체
-      공급가능성 DTO 의 정본이 아니라 Sales 가 쓰는 부분집합 계약이다. 매입이 나중에
-      도착예정일·제약축·원가 같은 칸을 더 실어 보낼 때 Sales 가 안 쓰는 칸 때문에
-      회신 전체를 무효로 만들면 안 된다 — 그건 남의 계약을 Sales 가 소유하는 셈이다.
-      원본 payload 는 `SalesDomainReply.payload` 에 그대로 남으므로 잃는 것도 없다.
+    모르는 칸은 무시한다 (`extra="ignore"`). 이 모델은 Purchase 가 소유한 전체
+    공급가능성 DTO 의 정본이 아니라 Sales 가 쓰는 부분집합 계약이다. 매입이 나중에
+    도착예정일·제약축·원가 같은 칸을 더 실어 보낼 때 Sales 가 안 쓰는 칸 때문에
+    회신 전체를 무효로 만들면 안 된다 — 그건 남의 계약을 Sales 가 소유하는 셈이다.
+    원본 payload 는 `SalesDomainReply.payload` 에 그대로 남으므로 잃는 것도 없다.
     """
 
     model_config = ConfigDict(extra="ignore", frozen=True)
@@ -412,7 +417,7 @@ class SalesFeedback(BaseModel):
 
 
 class SalesExecutionIdentity(BaseModel):
-    """Master wiring 전에도 받을 수 있는 Sales-local 실행 식별자."""
+    """Sales 실행 식별자. 모든 칸이 선택이라 마스터 없이 독립 실행할 때도 받을 수 있다."""
 
     model_config = ConfigDict(extra="forbid")
     request_id: str | None = None
@@ -432,7 +437,7 @@ class SalesFinanceSummarySubset(BaseModel):
     depends_on_projected_inflow: bool | None = None
     overdue_ar_krw: Decimal | None = None
     required_collection_before_sale_krw: Decimal | None = None
-    #: 🔴 아래는 **재무가 센 여신 사실**이다. 판매는 옮겨 담기만 하고 다시 세지 않는다.
+    #: 아래는 재무가 센 여신 사실이다. 판매는 옮겨 담기만 하고 다시 세지 않는다.
     current_partner_ar_krw: Decimal | None = None
     projected_partner_ar_krw: Decimal | None = None
     credit_limit_krw: Decimal | None = None
@@ -455,7 +460,7 @@ class SalesFinanceReplySubset(BaseModel):
 
 
 class SalesProposalInput(BaseModel):
-    """Master 연동 전에도 독립 실행 가능한 최종 Sales 제안 입력이다."""
+    """Sales 제안 입력. 마스터가 부를 때와 독립 실행(`/sales/proposal`)할 때 같은 모델을 쓴다."""
 
     model_config = ConfigDict(extra="forbid")
     business_mode: SalesBusinessMode
@@ -471,21 +476,23 @@ class SalesProposalInput(BaseModel):
 
 
 class ScenarioSupply(BaseModel):
-    """세 수량은 **서로 다른 사실**이다. 섞거나 합산하지 않는다.
+    """안이 기댄 공급 수량. 세 수량은 서로 다른 사실이라 섞거나 합산하지 않는다.
 
-        confirmed_quantity_kg          Logistics 가 확정한 판매 가능 수량
-        required_additional_quantity_kg Sales 가 계산한 부족량 (필요한 양)
-        conditional_quantity_kg        Purchase 가 조건부 확보 가능하다고 확인한 수량
+    ```text
+    confirmed_quantity_kg            Logistics 가 확정한 판매 가능 수량
+    required_additional_quantity_kg  Sales 가 계산한 부족량 (필요한 양)
+    conditional_quantity_kg          Purchase 가 조건부로 확보 가능하다고 확인한 수량
+    ```
 
-    🔴 '필요한 양' 은 '확보 가능한 양' 이 아니다. 앞의 것을 뒤의 칸에 넣으면 아직
-       아무도 확보해 주지 않은 수량이 확보된 것처럼 읽힌다.
+    주의: '필요한 양' 은 '확보 가능한 양' 이 아니다. 앞의 값을 뒤의 칸에 넣으면 아무도
+    확보해 주지 않은 수량이 확보된 것처럼 읽힌다.
     """
 
     model_config = ConfigDict(extra="forbid")
     confirmed_quantity_kg: Decimal | None = Field(default=None, ge=0)
     required_additional_quantity_kg: Decimal | None = Field(default=None, ge=0)
     additional_supply_required: bool = False
-    #: Purchase 가 **실제로 확인해 준** 조건부 확보 가능량.
+    #: Purchase 가 실제로 확인해 준 조건부 확보 가능량.
     #: None = 모름(검증 전·미실행·수량 미제공), 0 = 확보 가능량이 0으로 확인됨.
     conditional_quantity_kg: Decimal | None = Field(default=None, ge=0)
     #: 위 조건부 수량을 만든 원본 Purchase 회신 ref. 수량과 근거가 같이 다닌다.
@@ -515,22 +522,23 @@ class SalesScenario(BaseModel):
     partner_id: str | None = None
     quantity_kg: Decimal | None = Field(default=None, ge=0)
     unit_price_krw: Decimal | None = Field(default=None, ge=0)
-    #: 🔴 **전선에서는 `reported_sales_amount_krw` 로 나간다** (2026-09-11).
+    #: 전선에서는 `reported_sales_amount_krw` 로 나간다.
     #:
-    #: 재무가 이 값을 **믿지 않고 다시 세서 맞대 본다** — `compare_reported_sales_amount(
+    #: 재무가 이 값을 믿지 않고 다시 세서 맞대 본다 — `compare_reported_sales_amount(
     #: reported, recalculated)` 가 그 대조이고 허용 오차가 없다. 그래서 재무 쪽 이름에
-    #: 「보고된」이 붙어 있고, **그 말이 대조의 반쪽**이다. 두 항의 이름이 같아지면
+    #: 「보고된」이 붙어 있고, 그 말이 대조의 반쪽이다. 두 항의 이름이 같아지면
     #: 검사가 무슨 둘을 맞대는지 읽을 수 없다.
     #:
-    #: ★★ **판매 안쪽 이름은 안 바꾼다.** 판매는 제안하는 것이지 보고하는 것이 아니고,
-    #:   자기 코드에서 `reported_` 는 틀린 말이다. 안쪽 이름과 전선 이름이 다른 것은
-    #:   **한 사실에 두 이름**이 아니라 **한 사실의 두 자리**다.
+    #: 판매 안쪽 이름은 바꾸지 않는다. 판매는 제안하는 것이지 보고하는 것이 아니고,
+    #: 자기 코드에서 `reported_` 는 틀린 말이다. 안쪽 이름과 전선 이름이 다른 것은
+    #: 한 사실에 두 이름이 아니라 한 사실의 두 자리다.
     #:
-    #: ⚠️ 이 별칭은 `model_dump(by_alias=True)` 여야 실린다 — `proposal_reply.proposal_payload`
-    #:   가 그 자리다. 거기서 `by_alias` 를 떼면 재무가 다시 못 읽는다.
+    #: 주의: 이 별칭은 `model_dump(by_alias=True)` 여야 실린다 —
+    #: `proposal_reply.proposal_payload` 가 그 자리다. 거기서 `by_alias` 를 떼면 재무가
+    #: 다시 못 읽는다.
     #:
-    #: 🔴 **읽는 쪽이 두 이름을 다 안다** (2026-09-11). `serialization_alias` 만 달면
-    #:   **나가는 길만 열리고 돌아오는 길이 막힌다.**
+    #: 읽는 쪽도 두 이름을 다 안다(`validation_alias`). `serialization_alias` 만 달면
+    #: 나가는 길만 열리고 돌아오는 길이 막힌다.
     #:
     #:   ```text
     #:   ① 판매가 by_alias=True 로 덤프한다      → reported_sales_amount_krw
@@ -539,15 +547,15 @@ class SalesScenario(BaseModel):
     #:      → extra="forbid" → ValidationError → 확정이 BLOCKED
     #:   ```
     #:
-    #:   그 전선은 재무만이 아니라 **판매 → 마스터**이기도 했고, 그래서 확정이
-    #:   통째로 못 섰다 (실측: 재검증 `PASSED` 7건인데 `sales` 0행).
+    #: 그 전선은 재무만이 아니라 판매 → 마스터이기도 하다(2026-09-11 실측: 돌아오는
+    #: 길이 막혔을 때 재검증 `PASSED` 7건인데 `sales` 0행).
     #:
-    #: 🔴 **마스터가 이름을 되돌리는 길로 고치지 않았다.** 그러면 마스터가 두 파트
-    #:   사이의 **번역기**가 된다 — `interop.py` 를 2026-08-29 에 지운 이유다.
+    #: 마스터가 이름을 되돌리는 방식으로 풀지 않는다. 그러면 마스터가 두 파트 사이의
+    #: 번역기가 된다.
     #:
-    #: ⚠️ **`extra="forbid"` 를 풀어서 고치지 않았다.** `validation_alias` 가 붙으면
-    #:   그 이름이 **아는 칸**이 되어 더 막지 않는다. 금지를 풀면 오타가 조용히
-    #:   통과하고, 그것은 다른 병을 들여오는 것이다.
+    #: `extra="forbid"` 를 풀지 않는다. `validation_alias` 가 붙으면 그 이름이 아는
+    #: 칸이 되어 더 막지 않는다. 금지를 풀면 오타가 조용히 통과하고, 그것은 다른 병을
+    #: 들여오는 것이다.
     sales_amount_krw: Decimal | None = Field(
         default=None,
         ge=0,
@@ -555,35 +563,35 @@ class SalesScenario(BaseModel):
         serialization_alias="reported_sales_amount_krw",
     )
     delivery_date: date | None = None
-    #: 대금 회수를 **어느 날부터** 세는가. MVP 계약은 `delivery_date` 다.
+    #: 대금 회수를 어느 날부터 세는가. MVP 계약은 `delivery_date` 다.
     #:
-    #: ★ **판매가 자기 계약 의미를 재무 wire 에 명시한다.** 재무가 물류 날짜를 직접
-    #:   읽지도, 마스터가 `delivery_date → collection_reference_date` 로 번역하지도
-    #:   않는다 — 번역이 조정자에 있으면 판매가 계약을 바꿀 때 두 곳을 같이 고쳐야
-    #:   하고, 어느 쪽이 정본인지 흐려진다. 마스터는 그대로 운반한다.
+    #: 판매가 자기 계약 의미를 재무 wire 에 명시한다. 재무가 물류 날짜를 직접 읽지도,
+    #: 마스터가 `delivery_date → collection_reference_date` 로 번역하지도 않는다 —
+    #: 번역이 조정자에 있으면 판매가 계약을 바꿀 때 두 곳을 같이 고쳐야 하고, 어느
+    #: 쪽이 정본인지 흐려진다. 마스터는 그대로 운반한다.
     #:
-    #: ⚠️ 회수일 자체가 아니다. 회수일은 재무가 `+ payment_days` 로 만든다
-    #:   (`tools.calculate_collection_date`) — 여기는 그 **기준일**이다.
+    #: 주의: 회수일 자체가 아니다. 회수일은 재무가 `+ payment_days` 로 만든다
+    #: (`tools.calculate_collection_date`) — 여기는 그 기준일이다.
     collection_reference_date: date | None = None
     payment_days: int | None = Field(default=None, ge=0)
     #: 결제방식. 사용자/계약이 말해 준 경우에만 값이 있고, 아니면 None 이다.
     payment_terms_type: SalesPaymentTermsType | None = None
     contract_term_days: int | None = Field(default=None, ge=0)
-    #: 이 Scenario 의 **상업조건이 출발한 직접 authoritative source** 하나.
+    #: 이 Scenario 의 상업조건이 출발한 직접 authoritative source 하나.
     #:
-    #: ★ `evidence_refs` 와 역할이 다르다. 저쪽은 Logistics·계약·ML·Domain 회신까지
-    #:   포함한 전체 보조 근거 계보이고, 이쪽은 "이 조건을 누가 정했나" 한 곳이다.
-    #:   그래서 `evidence_refs[0]` 같은 위치 기반 선택으로 만들지 않는다.
+    #: `evidence_refs` 와 역할이 다르다. 저쪽은 Logistics·계약·ML·Domain 회신까지
+    #: 포함한 전체 보조 근거 계보이고, 이쪽은 "이 조건을 누가 정했나" 한 곳이다.
+    #: 그래서 `evidence_refs[0]` 같은 위치 기반 선택으로 만들지 않는다.
     source_ref: str | None = None
     supply: ScenarioSupply
-    #: 확정 물량의 재고 취득원가. **Logistics 가 낸 것을 그대로 나른다.**
+    #: 확정 물량의 재고 취득원가. Logistics 가 낸 것을 그대로 나른다.
     #:
-    #: ★ 재무 `parse_sales_validation_input` 이 후보 최상위에서 `inventory_cost_basis`
-    #:   를 읽는다 — 마스터는 후보를 통째로 넘기므로 이 칸이 그대로 전선에 실린다.
+    #: 재무 `parse_sales_validation_input` 이 후보 최상위에서 `inventory_cost_basis`
+    #: 를 읽는다 — 마스터는 후보를 통째로 넘기므로 이 칸이 그대로 전선에 실린다.
     #:
-    #: 🔴 **확정 물량과 덮는 양이 다르면 싣지 않는다.** 모자란 원가를 실으면 재무는
-    #:    그것을 «이 판매의 원가» 로 읽고 마진을 판정한다 — 없는 것을 채우는 대신
-    #:    `None` 으로 두면 재무가 `RUNTIME_NOT_READY` 로 멈춘다.
+    #: 확정 물량과 덮는 양이 다르면 싣지 않는다. 모자란 원가를 실으면 재무는 그것을
+    #: «이 판매의 원가» 로 읽고 마진을 판정한다 — 없는 것을 채우는 대신 `None` 으로
+    #: 두면 재무가 `RUNTIME_NOT_READY` 로 멈춘다.
     inventory_cost_basis: LogisticsInventoryCostBasis | None = None
     sales_decision_axes: list[str] = Field(default_factory=list)
     required_validations: list[SalesCapability] = Field(default_factory=list)
@@ -602,15 +610,15 @@ class SalesScenario(BaseModel):
     contribution_margin_krw: Decimal | None = None
     contribution_margin_rate: Decimal | None = None
     required_collection_before_sale_krw: Decimal | None = None
-    #: 🔴 **여신 칸은 전부 재무 회신에서 옮긴다.** 판매가 미수금이나 가용 여신을 세면
-    #:    같은 사실의 주인이 둘이 되고, 두 화면이 다른 숫자를 말하는 날이 온다.
-    #:    회신이 없으면 전부 `None` 이다 — 0 은 «미수금 0원» 이라는 다른 사실이다.
+    #: 여신 칸은 전부 재무 회신에서 그대로 싣는다. 판매가 미수금이나 가용 여신을 세면
+    #: 같은 사실의 주인이 둘이 되고, 두 화면이 다른 숫자를 말하는 날이 온다.
+    #: 회신이 없으면 전부 `None` 이다 — 0 은 «미수금 0원» 이라는 다른 사실이다.
     current_partner_ar_krw: Decimal | None = None
     projected_partner_ar_krw: Decimal | None = None
     credit_limit_krw: Decimal | None = None
     available_credit_krw: Decimal | None = None
     credit_utilization_rate: Decimal | None = None
-    #: 계약상 결제 예정일 기준의 **예상**이다. 입금 보장일이 아니고 판정에 쓰지 않는다.
+    #: 계약상 결제 예정일 기준의 예상이다. 입금 보장일이 아니고 판정에 쓰지 않는다.
     expected_credit_recovery_date: date | None = None
     scenario_projected_cash_min: Decimal | None = None
     depends_on_projected_inflow: bool | None = None
@@ -618,19 +626,19 @@ class SalesScenario(BaseModel):
     authoritative_inventory_risk_severity: str | None = None
     remaining_freshness_days: int | None = None
     ml_support_used: bool = False
-    #: 이 안의 단가를 **무엇이 정했는가**. `MARKET_UPPER` · `MARGIN_FLOOR` 같은 코드다.
+    #: 이 안의 단가를 무엇이 정했는가. `MARKET_UPPER` · `MARGIN_FLOOR` 같은 코드다.
     #:
-    #: ★ **rationale 문장에서 뽑아 쓰지 않으려고 칸으로 세웠다.** 세 안의 숫자가
-    #:   같아졌을 때 *"무엇이 묶었나"* 를 기계가 읽어야 하는데, 문장을 파싱하면
-    #:   판매가 낱말을 바꾸는 날 조용히 빈 목록이 된다.
+    #: rationale 문장에서 뽑아 쓰지 않으려고 칸으로 세웠다. 세 안의 숫자가 같아졌을 때
+    #: "무엇이 묶었나" 를 기계가 읽어야 하는데, 문장을 파싱하면 판매가 낱말을 바꾸는 날
+    #: 조용히 빈 목록이 된다.
     price_strategy_codes: list[str] = Field(default_factory=list)
-    #: 이 안을 만든 **전략 자세**. 숫자가 아니라 기준이다 (`app/sales/schemas/strategy.py`).
+    #: 이 안을 만든 전략 자세. 숫자가 아니라 기준이다 (`app/sales/schemas/strategy.py`).
     #:
-    #: ★ **누가 골랐는지는 회신 최상위(`strategy_source`)가 말한다.** 안마다 적으면
-    #:   같은 사실이 세 벌이 되고, 한 안만 모델이 고른 것처럼 읽힌다.
+    #: 누가 골랐는지는 회신 최상위(`strategy_source`)가 말한다. 안마다 적으면 같은
+    #: 사실이 세 벌이 되고, 한 안만 모델이 고른 것처럼 읽힌다.
     #:
-    #: ⚠️ 관대한 모델로 받는다 — 자세 어휘의 주인은 `schemas/strategy.py` 이고, 이력에서
-    #:   되읽을 때 그 어휘가 늘어 있으면 옛 행이 통째로 거부된다.
+    #: 관대한 모델로 받는다 — 자세 어휘의 주인은 `schemas/strategy.py` 이고, 엄격하게
+    #: 받으면 이력에서 되읽을 때 그 어휘가 늘어 있는 경우 옛 행이 통째로 거부된다.
     strategy_profile: PassThrough | None = None
 
 
@@ -681,19 +689,19 @@ class SalesProposalReply(BaseModel):
     recommendation: SalesRecommendation
     self_check: ProposalSelfCheck
     decision_trace: list[SalesDecisionTrace] = Field(default_factory=list)
-    #: 🔴 **세 전략의 자세를 누가 만들었는가** (§10 — 장애를 숨기지 않는다).
+    #: 세 전략의 자세를 누가 만들었는가 (§10 — 장애를 숨기지 않는다).
     #:
     #:   `LLM`               모델이 자세를 골랐다
     #:   `TEMPLATE_FALLBACK` 모델이 꺼져 있거나 실패해 규칙 템플릿이 섰다
     #:
-    #: ★ `strategy_llm_status` 와 나눠 둔다. 앞은 *"무엇이 섰나"*, 뒤는 *"모델에
-    #:   무슨 일이 있었나"* 다 — `DISABLED` 와 `FALLBACK` 은 둘 다 템플릿이지만
-    #:   하나는 설정 문제이고 하나는 그날의 사고다 (envelope §LLMStatus).
+    #: `strategy_llm_status` 와 나눠 둔다. 앞은 "무엇이 섰나", 뒤는 "모델에 무슨 일이
+    #: 있었나" 다 — `DISABLED` 와 `FALLBACK` 은 둘 다 템플릿이지만 하나는 설정 문제이고
+    #: 하나는 그날의 사고다 (envelope §LLMStatus).
     strategy_source: Literal["LLM", "TEMPLATE_FALLBACK"] = "TEMPLATE_FALLBACK"
     strategy_llm_status: LLMStatus = "DISABLED"
     #: 모델이 고른 자세를 사실이 내린 자리. 비어 있으면 깎인 것이 없다.
     strategy_clamped_reason_codes: list[str] = Field(default_factory=list)
-    #: 🔴 **전략 모델이 왜 실패했나.** 성공했거나 안 켠 날은 `None`.
+    #: 전략 모델이 왜 실패했나. 성공했거나 안 켠 날은 `None`.
     #:
     #:   ```text
     #:   HTTP_400              우리 요청이 틀렸다 - 고칠 것이 코드에 있다
@@ -702,21 +710,21 @@ class SalesProposalReply(BaseModel):
     #:   CONTRACT_VIOLATION    모델이 어휘 밖을 냈다
     #:   ```
     #:
-    #: ★ 이 칸이 없던 동안 우리 스키마 버그가 «모델이 실패했다» 뒤에 숨어
-    #:   실환경에서 Planner 가 한 번도 안 돈 채로 지나갔다 (2026-09-16).
+    #: 이 칸이 없으면 우리 스키마 버그가 «모델이 실패했다» 뒤에 숨어, 실환경에서
+    #: Planner 가 한 번도 안 돈 것이 드러나지 않는다.
     strategy_llm_failure_reason: str | None = None
-    #: 🔴 **자세는 갈렸는데 숫자가 수렴했는가** (2026-09-16).
+    #: 자세는 갈렸는데 숫자가 수렴했는가.
     #:
     #:   ```text
     #:   strategy_collapsed = true
     #:   strategy_collapse_reason_codes = ["MARGIN_FLOOR"]
     #:   ```
     #:
-    #: ★ **숫자를 억지로 벌리지 않는다.** 마진 최저선·여신·확정 재고 같은 제약
-    #:   때문에 세 전략이 같은 값에 닿는 것은 정상이다. 버그처럼 숨기지 않고
-    #:   **무엇이 묶었는지**를 남긴다.
+    #: 숫자를 억지로 벌리지 않는다. 마진 최저선·여신·확정 재고 같은 제약 때문에 세
+    #: 전략이 같은 값에 닿는 것은 정상이다. 버그처럼 숨기지 않고 무엇이 묶었는지를
+    #: 남긴다.
     #:
-    #: ⚠️ `variant_collapsed` 와 다른 사실이다. 저쪽은 *"중간 수량 안을 못 만들었다"*
-    #:   이고 이쪽은 *"자세는 달랐는데 단가가 같아졌다"* 다.
+    #: 주의: `variant_collapsed` 와 다른 사실이다. 저쪽은 "중간 수량 안을 못 만들었다"
+    #: 이고 이쪽은 "자세는 달랐는데 단가가 같아졌다" 다.
     strategy_collapsed: bool = False
     strategy_collapse_reason_codes: list[str] = Field(default_factory=list)

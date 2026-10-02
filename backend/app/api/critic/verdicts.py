@@ -5,9 +5,6 @@ Critic 은 오케 산출물을 검증만 한다 (숫자 불변). 요청 본문�
 
 HTTP 만: `master/critic/service.py` 의 검증을 `master/service/cycle_persistence.record` 로 감싸
 부른다 — 실행 이력 한 건을 그 service 가 자기 연결로 남긴다(실패는 삼킨다).
-
-★ 2026-09-30 재구성 BL-019: `app/master/critic/router.py` 에서 옮겼다 — 핸들러 이름 ·
-  docstring(OpenAPI 설명) · URL · 상태 코드 · 문구 그대로.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -40,15 +37,20 @@ def _guard(func, request, *, cycle="A"):
     summary="Critic A - 매입 T3 결과 6레이어 검증",
 )
 def critic_procurement(request: CriticProcurementRequest) -> CriticVerdictOut:
-    """부서 회신·매입 후보로 T3 를 재현하고, 대상 후보를 L0~L4 로 검증한다."""
+    """부서 회신 · 매입 후보로 T3 를 재현하고, 대상 후보를 L0~L5 로 검증한다."""
     return _guard(run_critic_procurement, request, cycle="A")
 
 
 @router.post(
     "/sales",
     response_model=CriticVerdictOut,
-    summary="Critic B - 판매 검증 (사이클 무관 계층만, L4-B 미구현)",
+    summary="Critic B - 판매 검증 (L1 · L2 · L4-B · L5)",
 )
 def critic_sales(request: CriticSalesRequest) -> CriticVerdictOut:
-    """회신 스냅샷 바인딩과 S3 전속 권한 침범을 검사한다. L4-B 는 coverage 에서 skipped."""
+    """요청 본문으로 S3 를 재현하고 대상 배분을 검증한다.
+
+    회신 스냅샷 바인딩과 S3 전속 권한 침범(L1), 룩어헤드(L2), 출고 결합 재검산(L4-B),
+    판단 근거의 논리 일관성(L5, LLM 판정)을 본다. 앞 계층에서 실패가 나오면 뒤 계층은
+    돌리지 않는다. 입력이 없어 생략된 검사는 `skipped` 에 남는다.
+    """
     return _guard(run_critic_sales, request, cycle="B")

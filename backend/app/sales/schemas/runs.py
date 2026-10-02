@@ -1,7 +1,6 @@
 """판매 실행이력 계약 — 실행 종류 · 런타임 상태 어휘와 저장 · 조회 모양.
 
-★ 2026-09-29 BL-013: `sales/schemas.py` 의 어휘 둘과 응답 모델, `sales/runs.py` 의 행 모양을
-  여기로 모았다. 저장 SQL 은 `repository/runs.py`, 조회 조립은 `readmodel/runs.py` 다.
+저장 SQL 은 `repository/runs.py`, 조회 조립은 `readmodel/runs.py` 다.
 """
 
 from datetime import date, datetime

@@ -1,22 +1,20 @@
 """가격 예측 탭 — 값을 읽어오는 곳.
 
-소유: **ML 파트 (우리)**.
+소유: ML 파트.
 
-★ **우리가 쓰던 화면(`localhost:3100`)의 예측 탭을 그대로 옮겼습니다.**
-
-★ **원본 창고(`prediction_log`)를 읽습니다.** 서비스 창고
+원본 창고(`prediction_log`)를 읽습니다. 서비스 창고
   (`haetdeul.ml_price_forecasts`)에는 실제값·채점이 없습니다.
   «얼마나 틀렸나» 를 보이려면 채점이 있어야 합니다.
 
-★ **`model_ver` 를 정확히 걸러야 합니다.**
+`model_ver` 를 정확히 걸러야 합니다.
 
       ops_auc  ops_whsl  ops_rtl        운영 (밑줄)
       ops-auc-old · ops-auc-ung · …     실험 (붙임표)
 
-  섞으면 성능이 통째로 틀립니다 — 2026-09-01 에 배추 경락가 오차를 19.7%
-  대신 **35.1%** 로 잘못 보고한 적이 있습니다.
+  섞으면 성능이 통째로 틀립니다 — 섞인 값으로 배추 경락가 오차가 19.7% 대신
+  35.1% 로 보고된 적이 있습니다(2026-09-01).
 
-★ **DB 가 안 붙어도 화면은 떠야 합니다.** 안 붙으면 예시값으로 떨어지고
+DB 가 안 붙어도 화면은 떠야 합니다. 안 붙으면 예시값으로 떨어지고
   「예시값」 딱지가 붙습니다.
 """
 
@@ -51,18 +49,16 @@ log = logging.getLogger(__name__)
 ITEMS = ("배추", "무", "양파")
 KINDS = ("auc", "whsl", "rtl")
 
-#: 운영 모델만. **붙임표(`ops-…`)는 실험이라 섞으면 안 된다.**
+#: 운영 모델만. 붙임표(`ops-…`)는 실험이라 섞으면 안 된다.
 OPS = ("ops_auc", "ops_whsl", "ops_rtl")
 
-#: 리드타임 게이트. **2026-09-09 에 껐습니다** — 0 이면 게이트 없음.
+#: 리드타임 게이트. 0 이면 게이트 없음 — 지금 꺼져 있습니다.
 #:
-#: ★ 그 전에는 `LT<3` 이면 모델 대신 앵커를 그대로 내보냈습니다. 매입이
-#:   오늘 밤 경매를 두고 판단해야 하는데 «어제값» 을 받으면 쓸 값이 없어
-#:   껐습니다. 화면도 그때 만든 자리(회색 칸 · 「어제값(게이트)」)가 남아
-#:   있었는데 같이 걷었습니다.
+#: 게이트를 켜면 `LT<3` 에서 모델 대신 앵커(어제값)를 그대로 내보냅니다. 매입은
+#:   오늘 밤 경매를 두고 판단해야 하는데 «어제값» 을 받으면 쓸 값이 없습니다.
 GATE_LEAD = 0
 
-#: 리드 0 = **기준일 그날**. 가락 경매는 그날 밤에 열리고 배치는 아침에
+#: 리드 0 = 기준일 그날. 가락 경매는 그날 밤에 열리고 배치는 아침에
 #: 도니, 당일 경매도 아직 안 일어난 일이라 예측 대상입니다.
 TODAY_LEAD = 0
 
@@ -85,12 +81,12 @@ SPEC_DESC = {
     "양파": "망/파렛트 15kg",
 }
 
-#: 봉인 개봉(2026-09-01) 실측. **우리 오차를 화면에 그대로 적는다.**
-#: ★ 오차율은 글자로 둔다 — 수로 두면 9.0 이 화면에서 «9» 로 줄어든다.
-#: ⚠️ 같은 실행의 값이 ML 질의응답 표(`app/ml/config.py::SEALED_ACCURACY`)에도 있다. 경락가 세
+#: 봉인 개봉(2026-09-01) 실측. 우리 오차를 화면에 그대로 적는다.
+#: 오차율은 글자로 둔다 — 수로 두면 9.0 이 화면에서 «9» 로 줄어든다.
+#: 주의: 같은 실행의 값이 ML 질의응답 표(`app/ml/config.py::SEALED_ACCURACY`)에도 있다. 경락가 세
 #:   칸은 값이 같고, 여기는 예측 구간(`band`) 칸이 더 있고, 저쪽은 중도매 · 소매 여섯 칸이 더
-#:   있고 곁에 조건 문장(`SEALED_SOURCE`)이 붙는다. 어느 쪽이 정본인지 정하지 않았다(2026-09-30
-#:   재구성 BL-019 · 확인 필요) — 값을 고칠 때 두 곳을 같이 본다.
+#:   있고 곁에 조건 문장(`SEALED_SOURCE`)이 붙는다. 어느 쪽이 정본인지 정하지 않았다(확인
+#:   필요) — 값을 고칠 때 두 곳을 같이 본다.
 _ACCURACY = [
     {"item": "배추", "avg": "963원", "err": "190원", "pct": "19.7", "band": "q03~q97"},
     {"item": "무", "avg": "771원", "err": "144원", "pct": "18.6", "band": "q03~q97"},
@@ -108,12 +104,11 @@ _DEMO = {
 def _fetch(read: Callable[..., list[dict]], *args: object) -> list[dict] | None:
     """원본 창고 조회. 못 읽으면 None — 부르는 쪽이 예시값으로 떨어진다.
 
-    ★ 조회 자체(SQL · 원본 창고 연결)는 ML 조회 `app/ml/readmodel/forecast_tab.py` 가 한다
-      (2026-09-29 재구성 BL-017 — 전에는 이 파일이 SQL 네 개를 들고 `app/ml/db.py` 로 실행했다).
+    조회 자체(SQL · 원본 창고 연결)는 ML 조회 `app/ml/readmodel/forecast_tab.py` 가 한다.
 
-    ★ 통째로 잡는 것이 맞습니다. 여기서 무슨 일이 나든 **화면은 떠야** 하고,
-      대신 「예시값」 딱지가 붙습니다. 예외를 골라 잡으면 안 골라낸 하나
-      때문에 화면이 통째로 죽습니다.
+    통째로 잡는 것이 맞습니다. 여기서 무슨 일이 나든 화면은 떠야 하고,
+    대신 「예시값」 딱지가 붙습니다. 예외를 골라 잡으면 안 골라낸 하나
+    때문에 화면이 통째로 뜨지 않습니다.
     """
     try:
         return read(*args)
@@ -132,8 +127,8 @@ _STEPS = (10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 5000, 10000)
 def _scale(values: list[float]) -> tuple[float, float, list[float]]:
     """값에 맞춰 세로 눈금을 잡는다.
 
-    ★ 품목마다 자리가 다르고(배추 900원대 · 무 600원대) 계절마다 크게
-      움직입니다. **고정 눈금을 쓰면 선이 화면 밖으로 나갑니다.**
+    품목마다 자리가 다르고(배추 900원대 · 무 600원대) 계절마다 크게
+    움직입니다. 고정 눈금을 쓰면 선이 화면 밖으로 나갑니다.
     """
     if not values:
         return 0.0, 100.0, [0.0, 50.0, 100.0]
@@ -279,9 +274,9 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
     )
     picked = next(d for d in dates if d.base_dt == chosen_dt)
 
-    #  ★ `prediction_log.target_kind` 는 **소문자**다 (`auc` · `whsl` · `rtl`).
+    #  `prediction_log.target_kind` 는 소문자다 (`auc` · `whsl` · `rtl`).
     #    서비스 창고(`ml_price_forecasts`)는 대문자라 헷갈리기 쉽다 —
-    #    대문자로 물으면 오류 없이 **0행**이 와서 조용히 예시값으로 떨어진다.
+    #    대문자로 물으면 오류 없이 0행이 와서 조용히 예시값으로 떨어진다.
     rows = _fetch(forecast_tab.forecast_rows, list(OPS), chosen_dt, kind, item)
     card_rows = _fetch(
         forecast_tab.card_rows, list(OPS), chosen_dt, kind, list(ITEMS), TODAY_LEAD
@@ -290,7 +285,7 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
         return _demo_tab(as_of, kind, item)
 
     # ── 카드 세 장 ────────────────────────────────────────────────────
-    #   ★ **배추 · 무 · 양파 차례로** 놓는다 (`ITEMS`). DB 가 주는 차례는
+    #   배추 · 무 · 양파 차례로 놓는다 (`ITEMS`). DB 가 주는 차례는
     #     이름순이라 «무» 가 앞에 왔다. 배추가 물량도 제일 많고 우리
     #     성적도 제일 좋은 품목이라 먼저 보이는 게 맞다.
     order = {name: i for i, name in enumerate(ITEMS)}
@@ -298,13 +293,11 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
 
     cards = []
     for r in card_rows:
-        #   ★ **자르지 말고 반올림한다** (2026-09-09 고침).
+        #   자르지 말고 반올림한다. 그래프는 화면에서 `Math.round` 로 그린다.
+        #     `int()` 로 자르면 같은 값(422.535)을 서버는 422, 그래프는 423 으로
+        #     보여 카드와 그래프가 달라진다.
         #
-        #     전에는 `int()` 였다. 그런데 그래프는 화면에서 `Math.round` 로
-        #     그린다. 같은 값(422.535)을 서버는 **422**, 그래프는 **423** 으로
-        #     보여 «카드와 그래프가 다르다» 는 말이 나왔다.
-        #
-        #     ★ 자르는 쪽은 방향까지 틀리다. 매입가는 **늘 조금씩 싸게**
+        #     자르는 쪽은 방향까지 틀리다. 매입가가 늘 조금씩 싸게
         #       보이게 되어, 사는 사람이 실제보다 싸다고 믿는다.
         p, lo, hi = (round(float(r["pred_prc"])), round(float(r["pred_lo"])),
                      round(float(r["pred_hi"])))
@@ -320,12 +313,11 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
 
     # ── 축: 대상일 그대로 ─────────────────────────────────────────────
     #
-    #  ★ **기준일을 따로 앞에 붙이지 않습니다.** 리드 0 의 대상일이 곧
-    #    기준일이라, 붙이면 같은 날이 두 칸이 됩니다. 전에는 리드가 1 부터
-    #    시작해 «기준일이 어디 갔나» 가 됐고 그래서 앵커를 맨 앞에 놓았는데,
-    #    이제 그 자리에 진짜 예측이 들어갑니다.
+    #  기준일을 따로 앞에 붙이지 않습니다. 리드 0 의 대상일이 곧
+    #    기준일이라, 붙이면 같은 날이 두 칸이 됩니다. 그 자리에는 리드 0 의 예측이
+    #    들어갑니다.
     #
-    #  ★ 회색 칸은 **모델을 안 쓴 칸**입니다. 지금은 품질 차단(`gated`)뿐이고
+    #  회색 칸은 모델을 안 쓴 칸입니다. 지금은 품질 차단(`gated`)뿐이고
     #    리드타임 게이트는 껐습니다.
     _DOW = ("월", "화", "수", "목", "금", "토", "일")
     days = []
@@ -357,7 +349,7 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
         series=[
             Series(name="예측 가격", data=pred, tone="info", end_dot=True),
             Series(name="실제 가격", data=actual, tone="warn", width=1.6, dashed=True),
-            #  ★ 출발점을 가로선으로 깐다. 모델이 여기서 위로 갔나 아래로
+            #  출발점을 가로선으로 깐다. 모델이 여기서 위로 갔나 아래로
             #    갔나가 한눈에 보인다 — 매입은 그 방향으로 판단한다.
             Series(name="출발점 (어제 가격과 최근 7일 평균을 섞은 값)",
                    data=[anchor] * len(pred) if anchor else [],
@@ -367,7 +359,7 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
         x_labels=[d.date[5:] for d in days],
     )
 
-    #  ★ 그래프가 쓰는 **원시 수치**. 표(`table`)와 같은 줄인데 글자가 아니라
+    #  그래프가 쓰는 원시 수치. 표(`table`)와 같은 줄인데 글자가 아니라
     #    수다. 표는 사람이 읽으라고 「600–855」처럼 자릿점을 찍어 두는데,
     #    그래프는 좌표를 계산해야 해서 숫자가 필요하다. 화면이 글자를 다시
     #    숫자로 되돌리게 하면 자릿점과 단위 때문에 조용히 틀린다.
@@ -401,7 +393,7 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
             {
                 "lead": r["lead_biz_d"],
                 "target": r["target_dt"].isoformat()[5:],
-                #   ★ 카드·그래프와 **같은 방식으로** 다듬는다. 한 화면 안에서
+                #   카드·그래프와 같은 방식으로 다듬는다. 한 화면 안에서
                 #     같은 값이 다르게 보이면 안 된다.
                 "pred": f"{round(float(r['pred_prc'])):,}",
                 "band": f"{round(float(r['pred_lo'])):,}–{round(float(r['pred_hi'])):,}",
@@ -415,9 +407,9 @@ def build(as_of: date, item: str, kind: str = "auc", base_dt: str | None = None)
         empty_text="선택한 조건에 해당하는 예측이 없습니다",
     )
 
-    #  ★ 「판정 근거」 는 이 조합을 써도 되는지에 대한 말이다.
+    #  「판정 근거」 는 이 조합을 써도 되는지에 대한 말이다.
     #    게이트 사유(`lead_time`)를 여기 적으면 «판정 근거 lead_time» 이 되어
-    #    읽는 사람이 무슨 말인지 모른다. 실제로 그렇게 나왔다.
+    #    읽는 사람이 무슨 말인지 모른다.
     quality_note = None
     for r in quality_rows:
         if r["kind"] == _KIND_LABEL[kind] and r["item"] == item:
