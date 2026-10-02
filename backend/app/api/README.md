@@ -5,34 +5,6 @@
 `routes.py`(주소) 로 되어 있고, 값은 부서의 `readmodel/` 이 DB 에서 읽어 줍니다.
 화면은 안 건드립니다.
 
-> ## 폴더마다 있는 `AGENTS.md` 에 대해
->
-> 주의: 여섯 `AGENTS.md` 는 지금 구조와 다른 곳이 있습니다. 화면 탭을 처음 채우던 때 만든
-> 지시서라 지금은 없는 `query.py` · 부서 `db.py` 를 안내합니다. 생성기(`_agent_docs.py`)와
-> 이 파일들을 새 구조로 다시 쓸지 없앨지는 미결정입니다. 구조는 이 README 와 코드를
-> 기준으로 보세요. 아래 인용은 그 지시서의 안내입니다.
->
-> ```
-> app/api/dashboard/AGENTS.md    마스터
-> app/api/forecast/AGENTS.md     ML
-> app/api/purchase/AGENTS.md     매입
-> app/api/finance/AGENTS.md      재무
-> app/api/logistics/AGENTS.md    물류
-> app/api/sales/AGENTS.md        판매
-> ```
->
-> 파트마다 그 파트만의 작업 지시서입니다. 응답 계약 · 읽을 표 ·
-> 그 파트만의 함정 · 검증 명령 · 완료 확인 목록이 들어 있습니다.
->
-> `AGENTS.md` 라는 이름이라 Claude Code · Cursor 가 그 폴더에서 일할 때
-> 묻지 않아도 읽습니다.
->
-> 이 README 는 사람이 전체를 훑는 개요입니다.
->
-> 여섯 `AGENTS.md` 는 `_agent_docs.py` 가 만듭니다 — 계약 표는 실제 `schema.py` 에서
-> 뽑지만, 설명 문단은 생성기 안의 글이라 구조가 바뀌면 함께 낡습니다(위 주의).
-> 생성 명령: `uv run python -m app.api._agent_docs`
-
 ---
 
 ## 0. 5분 요약
