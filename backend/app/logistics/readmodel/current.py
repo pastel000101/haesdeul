@@ -13,7 +13,7 @@
 
 이 파일은 읽는 순서와 연결을 맡는다. SQL 은 `repository/current.py`, 규칙은
 `domain/snapshot.py` · `domain/grade.py`, 모델은 `schemas/snapshot.py`. 어댑터 · 점검 · 상태
-Tool · 독립 Service 는 `read_current_logistics`(연결 없이), 화면 · 보고서는 받은 연결로
+Tool 은 `read_current_logistics`(연결 없이), 화면 · 보고서는 받은 연결로
 `get_current_logistics_read(conn, …)` 를 부른다.
 
 연결 경계: 연결 없이 부르면 읽기마다 따로 빌리고, 받은 연결이 있으면 한 벌 전체를 그
@@ -115,17 +115,11 @@ def _runtime_fixture_and_views(
     않다: `sim_run_id` 가 다른 활성 행 둘이 같은 날에 공존할 수 있어 다른 실행의
     상태를 이번 실행의 상태로 읽게 된다.
 
-    `sim_run_id` 는 선택 인자다 — 한 경로 때문이다(#345).
-
-       ```text
-       service/agent_read.load_read          봉투(ExecutionContext)로 받아 나른다   (#345)
-       service/cycle._get_snapshot_or_none   HTTP 요청에 실행 식별자가 없다         (미해결)
-       ```
-
-       독립 Service 경로가 값을 못 나르는 동안 필수로 만들면 물류가 값을 지어내야
-       하므로(그것이 곧 fail-open 이다) 축은 열어 둔다. 어댑터 경로는
-       `service/agent_read.load_read(*, as_of, sim_run_id)` 로 닫혀 있다 — 거기서는 선택이
-       아니다.
+    `sim_run_id` 는 선택 인자다(#345). 실행 식별자를 나르지 못하는 호출자 때문에 열어 둔
+       축이다 — 그런 호출자에게 필수로 만들면 물류가 값을 지어내야 하고 그것이 곧
+       fail-open 이다. 지금 앱 안의 호출(어댑터 · 화면 · 보고서 · 점검 · 상태 Tool)은 모두
+       실행 식별자를 넘긴다. 어댑터 경로는 `service/agent_read.load_read(*, as_of, sim_run_id)`
+       로 닫혀 있다 — 거기서는 선택이 아니다.
 
        안 받았다고 아무 행이나 고르지 않는다. 그 경우 실행이 둘 보이면
        `ValueError` 로 멈춘다 — "둘 중 하나를 고르지 않는다" 가 이 함수의 규율이다.
@@ -251,7 +245,7 @@ def _build_logistics_runtime_fixture(
 def get_current_inventory_logistics_snapshot(
     *, as_of: date, sim_run_id: str | None = None
 ) -> InventoryLogisticsSnapshot:
-    """Snapshot 만 필요한 소비자용 (독립 Service 경로)."""
+    """Snapshot 만 필요한 소비자용. 지금 앱 안에는 부르는 곳이 없다."""
     return read_current_logistics(as_of=as_of, sim_run_id=sim_run_id).snapshot
 
 
@@ -262,7 +256,7 @@ def get_current_logistics_read(
 
     :param conn: 빌려 쓸 커넥션. 화면(`readmodel/console.load_console_runtime`)과 마스터 보고서가
         넘긴다. `None` 이면 읽기마다 따로 빌린다(`read_current_logistics` — 어댑터 ·
-        점검 · 상태 Tool · 독립 Service 경로. 대여 표는 이 모듈 머리).
+        점검 · 상태 Tool. 대여 표는 이 모듈 머리).
 
     "한 번"이 계약이다 (정의서 §1.2-13) — 같은 호출이 같은 값을 다시 읽으면 그 사이
     원장이 바뀌어 같은 `as_of` 인데 값이 다른 상태가 성립한다.
@@ -400,7 +394,7 @@ def _delivery_route(conn: Any | None) -> tuple[str | None, bool]:
 
 
 def read_current_logistics(*, as_of: date, sim_run_id: str | None = None) -> LogisticsRead:
-    """현재 시점 물류 Fact 한 벌을 연결 없이 읽는다 — 어댑터 · 점검 · 상태 Tool · 독립 Service.
+    """현재 시점 물류 Fact 한 벌을 연결 없이 읽는다 — 어댑터 · 점검 · 상태 Tool.
 
     `get_current_logistics_read(None, …)` 와 같다 — 읽기마다 따로 빌린다(조회 연결 여섯 ·
     일정 목록 블록 하나 · 운송 계약 블록 하나, 이 모듈 머리의 표). 조회 연결 하나로 모으는

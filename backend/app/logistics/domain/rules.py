@@ -246,9 +246,8 @@ def measure_freshness_facts(
                         (폐기대기 · 살아있는 할당 없음 · 잔량 전량)
     ```
 
-    `snapshot` 은 필수다. `evaluate_*_business_signals` 가 `None` 을 받는 것은
-    독립 Service 가 스냅샷 부재에도 회신을 조립해야 해서인데, 이 함수의 호출자는
-    스냅샷을 이미 확인한 뒤다 — `None` 을 받아 빈 dict 를 돌려주면 "측정했더니
+    `snapshot` 은 필수다. `evaluate_*_business_signals` 는 스냅샷 부재(`None`)도 받지만,
+    이 함수의 호출자는 스냅샷을 이미 확인한 뒤다 — `None` 을 받아 빈 dict 를 돌려주면 "측정했더니
     아무것도 없었다" 와 "측정할 것이 없었다" 가 같아진다.
     """
     census = collect_freshness_lot_census(snapshot)
@@ -280,8 +279,7 @@ def merge_business_warnings(
 ) -> list[str]:
     """Runtime 경고 + 업무 위험 signal + 판정 스킵 사실을 한 채널로 합친다.
 
-    독립 경로(service)와 Master 어댑터가 같은 병합을 쓴다 — 두 입력의 소유 모듈인
-    여기에 두어 채널 구성이 두 곳에서 갈라지지 않게 한다 (#111).
+    두 입력의 소유 모듈인 여기에 두어 채널 구성이 호출자마다 갈라지지 않게 한다 (#111).
     """
     merged = [*rule_result["soft_warnings"], *business["signals"], *business["warnings"]]
     return list(dict.fromkeys(merged))
@@ -330,8 +328,7 @@ def derive_procurement_verdict(
 
     최악값 결합이 위 두 줄을 그대로 구현한다 — 하드 UNRESOLVED 는 전-ok 를
     REVIEW_REQUIRED 로 낮출 수 있지만, 하드 전부 PASS 가 시나리오 reject 를
-    되살리지는 못한다. `derive_logistics_verdict`(하드만)는 판매 경로와
-    이 결합의 하드 축으로 쓰인다.
+    되살리지는 못한다. `derive_logistics_verdict`(하드만)는 이 결합의 하드 축으로 쓰인다.
     """
     hard = derive_logistics_verdict(result)
     if hard is None:

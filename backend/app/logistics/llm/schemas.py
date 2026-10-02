@@ -153,12 +153,12 @@ class LLMResponseFields(BaseModel):
     #: `InterpretationResult` 와 필드 집합이 어긋나면 조용히 사라진다.
     #: `enrich_logistics_response` 는 `result.model_dump()` 를 `model_copy(update=)`
     #: 로 싣는데, 여기 없는 키는 예외 없이 `__dict__` 에만 들어갔다가
-    #: `model_dump()` 에서 빠진다 — 독립 응답과 `response_payload` 실행이력에서
-    #: 값이 소리 없이 증발한다. 두 모델의 필드 집합 동일성은
-    #: `test_logistics_context_facts.py` 의 구조 테스트가 잠근다.
+    #: `model_dump()` 에서 빠진다 — 응답 모델을 직렬화하면 값이 소리 없이 증발한다.
+    #: 두 모델의 필드 집합 동일성은 `test_logistics_context_facts.py` 의 구조 테스트가
+    #: 잠근다.
     llm_provider_elapsed_ms: int | None = Field(default=None, ge=0)
     #: 관측된 Provider 호출들의 토큰 사용량 합 (`InterpretationResult` 와 같은 뜻 · #406).
-    #: 위 경고가 이 둘에도 그대로 적용된다 — 한쪽 모델에만 넣으면 독립 응답과
-    #: `response_payload` 실행이력에서 소리 없이 사라진다.
+    #: 위 경고가 이 둘에도 그대로 적용된다 — 한쪽 모델에만 넣으면 응답 모델 직렬화에서
+    #: 소리 없이 사라진다.
     llm_observed_input_tokens: int | None = Field(default=None, ge=0)
     llm_observed_output_tokens: int | None = Field(default=None, ge=0)

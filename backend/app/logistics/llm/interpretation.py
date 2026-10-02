@@ -1,14 +1,13 @@
 """Logistics deterministic Reply projection into the optional LLM layer.
 
-두 호출자가 같은 조립기를 지난다 (#385).
-
 ```text
-독립 Service    LogisticsProcurementResponse | LogisticsSalesResponse
-                → build_logistics_context (얇은 wrapper)
 Master 어댑터   signals · measurements · preferred · missing 원재료
                 → build_sanitized_context
                                      ↘ SanitizedLLMContext — 외부 Provider 전송 경계
 ```
+
+응답 모델(`LogisticsProcurementResponse` · `LogisticsSalesResponse`)을 받는 wrapper
+`build_logistics_context` · `enrich_logistics_response` 는 지금 앱 안에 부르는 곳이 없다.
 
 Master-facing 해석은 명시적 opt-in 이다 — `master_interpretation_service` 참조.
 """
@@ -80,8 +79,8 @@ _MISSING_DATA_NAMES = {
 _UNMAPPED_MISSING_DATA = "unrecognized_missing_information"
 
 #: 이미 번역된 이름의 전체 집합 — `translate_missing_data` 가 멱등이 되는 근거다.
-#: 독립 Service 응답의 `missing_data` 는 이미 번역돼 있고 Master 어댑터는 raw 코드를
-#: 준다. 한 조립기가 둘을 다 받으려면 번역명은 그대로 통과해야 한다 (#385).
+#: 응답 모델의 `missing_data` 는 이미 번역돼 있고 Master 어댑터는 raw 코드를 준다.
+#: 한 조립기가 둘을 다 받으려면 번역명은 그대로 통과해야 한다 (#385).
 #: 코드(대문자 · `LOG-H01`)와 이름(소문자 snake)은 어휘가 겹치지 않는다.
 _TRANSLATED_MISSING_DATA_NAMES = frozenset({*_MISSING_DATA_NAMES.values(), _UNMAPPED_MISSING_DATA})
 
@@ -89,7 +88,7 @@ _TRANSLATED_MISSING_DATA_NAMES = frozenset({*_MISSING_DATA_NAMES.values(), _UNMA
 _PROCUREMENT_ALLOWED_ADJUSTMENTS = ["quantity", "timing"]
 
 #: Master-facing 해석의 명시적 opt-in 환경변수 (#385). 전역 폴백이 없다 —
-#: `LLM_ENABLED`·`LOGISTICS_LLM_ENABLED` 는 독립 `/logistics/*` 경로의 손잡이고, 그 둘은
+#: `LLM_ENABLED`·`LOGISTICS_LLM_ENABLED` 는 물류 LLM 설정(`get_llm_settings`)의 손잡이고, 그 둘은
 #: 값이 없으면 켜짐으로 읽힌다(`get_llm_settings`). 그 기본값만으로 마스터 동기
 #: 경로에 외부 호출이 얹히면 안 되므로 이 변수는 값이 없으면 꺼짐이다.
 MASTER_LLM_ENV = "LOGISTICS_MASTER_LLM_ENABLED"
@@ -261,9 +260,8 @@ def build_sanitized_context(
 ) -> tuple[SanitizedLLMContext, bool]:
     """결정론 원재료에서 LLM Context 를 조립한다. 반환은 (context, facts_incomplete).
 
-    독립 Service 와 Master 어댑터가 같은 조립기를 지난다 (#385). 응답 타입이 아니라
-    원재료를 받는 이유는 어댑터가 `AgentReply` 를 내기 때문이다 — 그것을 Service 응답으로
-    되살리면 없는 필드를 지어내게 된다.
+    응답 타입이 아니라 원재료를 받는 이유는 어댑터가 `AgentReply` 를 내기 때문이다 —
+    그것을 Service 응답으로 되살리면 없는 필드를 지어내게 된다.
 
     ```text
     signals          BUSINESS_SIGNALS 만 남긴다 — 미확정 코드는 signal 이 아니다
@@ -307,7 +305,7 @@ def build_logistics_context(
     signals 와 missing_data 는 저장 위치가 아니라 코드의 의미로 분류한다 —
     soft_warnings 안의 업무 위험(BUSINESS_SIGNALS)만 signals 로 가고, 나머지
     미확정 계열은 response.missing_data(이미 번역됨 — 번역이 멱등이라 그대로 통과)로
-    전달된다. 독립 Service 경로의 동작은 wrapper 등가 테스트가 고정한다.
+    전달된다. 동작은 wrapper 등가 테스트가 고정한다.
     """
     return build_sanitized_context(
         cycle="SALES" if isinstance(response, LogisticsSalesResponse) else "PROCUREMENT",
@@ -353,8 +351,8 @@ def enrich_logistics_response[
 def master_llm_enabled() -> bool:
     """Master-facing 해석의 opt-in 여부 — `LOGISTICS_MASTER_LLM_ENABLED` 하나만 본다.
 
-    전역 `LLM_ENABLED` 로 폴백하지 않는다. 그 값은 독립 경로가 기본 `True` 로 읽는
-    손잡이라, 폴백하면 "설정 부재" 가 곧 "마스터 경로도 켜짐" 이 된다 — 이 함수가
+    전역 `LLM_ENABLED` 로 폴백하지 않는다. 그 값은 `get_llm_settings` 가 기본 `True` 로
+    읽는 손잡이라, 폴백하면 "설정 부재" 가 곧 "마스터 경로도 켜짐" 이 된다 — 이 함수가
     막는 것이 그것이다.
     """
     return read_optional_bool(MASTER_LLM_ENV) or False
@@ -366,7 +364,7 @@ def master_interpretation_service() -> InterpretationService:
     ```text
     opt-in 없음 · 또는 물류 LLM 자체가 꺼짐   enabled=False + UnavailableProvider
                                             → 외부 클라이언트를 만들지도 않는다
-    opt-in 있음 · 물류 LLM 켜짐               독립 경로와 같은 Provider (Ollama · Gemini)
+    opt-in 있음 · 물류 LLM 켜짐               물류 LLM 설정의 Provider (Ollama · Gemini)
     ```
 
     두 조건의 AND 다. `LOGISTICS_MASTER_LLM_ENABLED` 는 마스터 경로를 추가로 여는

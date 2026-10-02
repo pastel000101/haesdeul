@@ -3,6 +3,8 @@
 from datetime import date
 from decimal import Decimal
 
+from app.contracts.envelope import AgentRequest, ExecutionContext
+from app.logistics import adapter
 from app.logistics.domain.rules import (
     CAPACITY_TIGHT,
     CAPACITY_TIGHT_POLICY_UNRESOLVED,
@@ -10,7 +12,6 @@ from app.logistics.domain.rules import (
     FRESHNESS_QUALITY_RISK,
     INVENTORY_FRESHNESS_PRESSURE,
     LOT_FRESHNESS_UNRESOLVED,
-    SALES_PRIORITY_ADJUSTMENT,
     SCENARIO_ADJUSTMENT_REQUIRED,
     evaluate_procurement_business_signals,
     evaluate_sales_business_signals,
@@ -22,40 +23,12 @@ from app.logistics.domain.tools import (
     collect_freshness_lot_census,
     collect_freshness_pressure_inputs,
 )
-from app.logistics.llm.runtime import (
-    InterpretationService,
-    LLMSettings,
-    ProviderResult,
-    UnavailableProvider,
-)
-from app.logistics.schemas.agent import (
-    LogisticsSalesRequest,
-    PurchaseAgentOutput,
-    ScenarioAdjustment,
-    ScenarioValidationResult,
-)
-from app.logistics.schemas.snapshot import InventoryLotSnapshot
-from app.logistics.service.cycle import (
-    run_logistics_procurement_with_snapshot,
-    run_logistics_sales_with_snapshot,
-)
+from app.logistics.schemas.agent import ScenarioAdjustment, ScenarioValidationResult
+from app.logistics.schemas.current import LogisticsRead
+from app.logistics.schemas.snapshot import POLICY_VERSION, InventoryLotSnapshot, LogisticsPolicy
+from tests.logistics.mode_modules import swap_in_modes
 
 AS_OF = date(2026, 8, 21)
-
-
-def _disabled_llm_service() -> InterpretationService:
-    """LLM 을 타지 않는 서비스 — 결정론 채널 검증에 Provider 가 끼지 않게 한다."""
-    return InterpretationService(
-        LLMSettings(
-            enabled=False,
-            provider="fake",
-            model="fake-model",
-            base_url="http://127.0.0.1:11434",
-            timeout_seconds=1,
-            max_retries=0,
-        ),
-        UnavailableProvider(),
-    )
 
 
 def _lot(**overrides) -> InventoryLotSnapshot:
@@ -341,116 +314,76 @@ def test_sales_freshness_risk_comes_from_ratio_not_status(complete_logistics_sna
 
 
 # ---------------------------------------------------------------------------
-# Service 조립 — soft_warnings/missing_data 채널 분리와 preferred 배선
+# 어댑터 조립 — signal 은 soft_warnings 로 나가고 M-1 missing_data 에 섞이지 않는다
 # ---------------------------------------------------------------------------
 
 
-def test_procurement_response_carries_signal_missing_and_preferred(
-    logistics_purchase_payload, complete_logistics_snapshot
+def _wire_snapshot(monkeypatch, snapshot) -> None:
+    policy = LogisticsPolicy(
+        guaranteed_capacity_kg=snapshot.guaranteed_capacity_kg,
+        burst_capacity_kg=snapshot.burst_capacity_kg,
+        inbound_lead_days=snapshot.inbound_lead_days,
+        daily_inbound_capacity_kg=snapshot.daily_inbound_capacity_kg,
+        inbound_transport_capacity_kg=snapshot.inbound_transport_capacity_kg,
+        shared_daily_outbound_capacity_kg=snapshot.shared_daily_outbound_capacity_kg,
+        cap_by_date_policy="CONFIRMED_ONLY",
+        policy_version=POLICY_VERSION,
+        usage_scope="AGENT_MVP_DEMO",
+        source_refs={},
+    )
+    swap_in_modes(
+        monkeypatch,
+        "load_read",
+        lambda *, as_of, sim_run_id: LogisticsRead(snapshot=snapshot, policy=policy),
+    )
+
+
+def _scenario_validation_request(payload) -> AgentRequest:
+    return AgentRequest(
+        context=ExecutionContext(
+            request_id="REQ-SIGNAL-0001",
+            as_of=AS_OF,
+            trigger="USER_REQUEST",
+            policy_version="POLICY-V1",
+            sim_run_id="SIM-T-SIGNAL-0001",
+        ),
+        agent="inventory",
+        mode="SCENARIO_VALIDATION",
+        payload=payload,
+    )
+
+
+def test_scenario_validation_carries_signal_and_policy_warning_not_missing_data(
+    monkeypatch, logistics_purchase_payload, complete_logistics_snapshot
 ):
-    request = PurchaseAgentOutput.model_validate(logistics_purchase_payload)
     snapshot = complete_logistics_snapshot.model_copy(
         update={
             "on_hand_by_lot": [_lot(remaining_freshness_days=2, effective_freshness_limit_days=10)],
             "used_capacity_kg": Decimal(500),
             "freshness_pressure_ratio": Decimal("0.30"),
-            # capacity_tight_ratio 미등록 → 경고가 missing_data 번역으로 나가야 한다
+            # capacity_tight_ratio 미등록 → 판정 스킵 사실이 경고로 나가야 한다
             "capacity_tight_ratio": None,
         }
     )
+    _wire_snapshot(monkeypatch, snapshot)
 
-    response = run_logistics_procurement_with_snapshot(request, snapshot, _disabled_llm_service())
+    reply, _meta = adapter.logistics_port(_scenario_validation_request(logistics_purchase_payload))
 
-    assert INVENTORY_FRESHNESS_PRESSURE in response.soft_warnings
-    assert CAPACITY_TIGHT_POLICY_UNRESOLVED in response.soft_warnings
-    # 번역 채널 — 원본 코드가 아니라 무숫자 이름이 실린다
-    assert "capacity_tight_policy" in response.missing_data
-    assert CAPACITY_TIGHT_POLICY_UNRESOLVED not in response.missing_data
-    # 업무 위험은 미확정이 아니다 — missing_data 에 섞이지 않는다
-    assert all("FRESHNESS" not in name for name in response.missing_data)
-
-
-def test_sales_response_sets_priority_preferred_when_risk_fires(
-    logistics_sales_payload, complete_logistics_snapshot
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={
-            "on_hand_by_lot": [_lot(remaining_freshness_days=2, effective_freshness_limit_days=10)],
-            "freshness_pressure_ratio": Decimal("0.30"),
-        }
+    assert reply.runtime_status == "READY"
+    warnings = reply.payload["soft_warnings"]
+    assert INVENTORY_FRESHNESS_PRESSURE in warnings
+    assert CAPACITY_TIGHT_POLICY_UNRESOLVED in warnings
+    # M-1 missing_data 는 마스터가 사용자에게 달라고 할 필드 이름이다 — 업무 위험 signal 도,
+    # 맨 경고 코드도 섞이지 않는다.
+    assert all(
+        code not in name
+        for name in reply.missing_data
+        for code in (INVENTORY_FRESHNESS_PRESSURE, CAPACITY_TIGHT_POLICY_UNRESOLVED)
     )
 
-    response = run_logistics_sales_with_snapshot(request, snapshot, _disabled_llm_service())
 
-    assert FRESHNESS_QUALITY_RISK in response.soft_warnings
-    # Rule 이 우선출고를 preferred 로 지정한다 — 이게 없으면 검증기의 preferred 강제와
-    # 결합해 판매 추천이 영구 봉쇄된다.
-    assert response.preferred_adjustment == SALES_PRIORITY_ADJUSTMENT
-
-
-def test_sales_wiring_carries_rule_measurements_to_llm_context_facts(
-    logistics_sales_payload, complete_logistics_snapshot
-):
-    """Rule 판정 수치 → Service 전달 → llm_context_facts 까지 실제 배선 검증.
-
-    수치를 테스트가 만들어 넣지 않고 Snapshot 에서 Rule 이 계산한 값이 응답까지
-    도달하는지를 본다 — Service 전달 실수(fact 누락)는 단위 테스트로 못 잡는다.
-    """
-    import json
-
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
-    snapshot = complete_logistics_snapshot.model_copy(
-        update={
-            "on_hand_by_lot": [_lot(remaining_freshness_days=2, effective_freshness_limit_days=10)],
-            "freshness_pressure_ratio": Decimal("0.30"),
-        }
-    )
-
-    class _ValidProvider:
-        def generate(self, context, *, retry_guidance=None):
-            del context, retry_guidance
-            return ProviderResult(
-                text=json.dumps(
-                    {
-                        "summary": "재고의 우선 출고와 품질 위험 검토가 필요합니다.",
-                        "risks": ["FRESHNESS_QUALITY_RISK"],
-                        "suggested_adjustment": SALES_PRIORITY_ADJUSTMENT,
-                    },
-                    ensure_ascii=False,
-                )
-            )
-
-    service = InterpretationService(
-        LLMSettings(
-            enabled=True,
-            provider="fake",
-            model="fake-model",
-            base_url="http://127.0.0.1:11434",
-            timeout_seconds=1,
-            max_retries=0,
-        ),
-        _ValidProvider(),
-    )
-
-    response = run_logistics_sales_with_snapshot(request, snapshot, service)
-
-    assert response.llm_status == "SUCCESS"
-    # Rule 이 Snapshot 에서 계산한 값(위험 Lot 1개 · 잔여비율 2/10)이 formatter 를
-    # 거쳐 그대로 도달한다 — 테스트가 수치를 주입하지 않았다.
-    assert [(f.fact_id, f.display_value) for f in response.llm_context_facts] == [
-        ("freshness_risk_lot_count", "1개"),
-        ("freshness_min_remaining_ratio", "20.0% (임계 30%)"),
-    ]
-    # response_payload 실행이력 자동 기록의 전제 — 직렬화에 facts 가 실린다.
-    dumped = response.model_dump(mode="json")
-    assert dumped["llm_context_facts"][0]["display_value"] == "1개"
-
-
-def test_sales_response_without_risk_has_no_preferred(
-    logistics_sales_payload, complete_logistics_snapshot
-):
-    request = LogisticsSalesRequest.model_validate(logistics_sales_payload)
+def test_sales_signal_stays_off_when_lot_is_fresh(complete_logistics_snapshot):
+    """잔여 9/10 Lot 은 판매 신선도 위험이 아니다 — 비율 임계 30% 위."""
     snapshot = complete_logistics_snapshot.model_copy(
         update={
             "on_hand_by_lot": [_lot(remaining_freshness_days=9, effective_freshness_limit_days=10)],
@@ -458,10 +391,9 @@ def test_sales_response_without_risk_has_no_preferred(
         }
     )
 
-    response = run_logistics_sales_with_snapshot(request, snapshot, _disabled_llm_service())
+    result = evaluate_sales_business_signals(snapshot=snapshot)
 
-    assert FRESHNESS_QUALITY_RISK not in response.soft_warnings
-    assert response.preferred_adjustment is None
+    assert FRESHNESS_QUALITY_RISK not in result["signals"]
 
 
 # ---------------------------------------------------------------------------

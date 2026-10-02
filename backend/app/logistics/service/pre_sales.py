@@ -74,20 +74,11 @@ def pre_sales_reply(request: AgentRequest) -> tuple[AgentReply, ExecutionMetadat
     새 판매가능량 엔진이 아니다. 숫자는 전부 `tools` · `rules` 의 결정론 함수가
     만들고 여기는 번역만 한다 (이 파일의 다른 handler 와 같은 규율).
 
-    기존 `/logistics/sales` 경로를 부르지 않는다 (#346 분석 결과). 닮은 이름이라
-    재사용처럼 보이지만 목적이 다른 사이클이다.
-
-    ```text
-    /logistics/sales   H1 승인 매입을 미래 입고로 Overlay 한 뒤의 창고 판정
-    PRE_SALES          판매 제안 전의 초기 컨텍스트 — 승인 매입이 아직 없다
-    ```
-
-      셋이 각각 다른 이유로 막힌다.
+    판매 사이클(B)의 판정 함수를 부르지 않는다 (#346 분석 결과). 닮은 이름이라 재사용처럼
+    보이지만 목적이 다르다 — 그 함수들은 H1 승인 매입을 미래 입고로 Overlay 한 뒤의 창고
+    판정이고, PRE_SALES 는 승인 매입이 아직 없는 판매 제안 전의 초기 컨텍스트다.
 
       ```text
-      run_logistics_sales()               _get_snapshot_or_none(as_of) → sim_run_id 축 소실
-                                          + save_logistics_agent_run() → DB write
-      run_logistics_sales_with_snapshot()  enrich_logistics_response() → LLM 경로
       run_logistics_sales_scenario()       request.approved_purchase 를 반드시 읽는다
       evaluate_sales_rules()               future_occupancy_by_date(=Overlay 산출)를 전제한다
       ```

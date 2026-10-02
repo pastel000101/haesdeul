@@ -33,12 +33,11 @@ def load_read(*, as_of: date, sim_run_id: str) -> LogisticsRead | None:
 
     선택 인자로 두지 않는다. 어댑터 경로에는 값이 없는 경우가 없다 — `logistics_port` 의
     문이 이미 막는다(`no_run_axis_reply`). 여기에 `None` 을 남기면 "안 주면 조용히
-    넓어지는" 자리가 다시 생긴다. Repository 쪽 `sim_run_id=None` 은 독립 Service 경로
-    (`service/cycle._get_snapshot_or_none`) 때문에 남는 것이지 어댑터 때문이 아니다.
+    넓어지는" 자리가 다시 생긴다. Repository 쪽 `sim_run_id` 가 선택 인자인 이유는
+    `readmodel/current._runtime_fixture_and_views` 설명에 있다.
 
     Repository 예외 계약 — 정상적인 "데이터 없음/미확정"은 LookupError 둘이다(runtime
-    fixture 0건 · 필수 정책 미등재). 독립 Service 경로(`service/cycle._get_snapshot_or_none`)
-    가 같은 기준선이다.
+    fixture 0건 · 필수 정책 미등재).
 
     그 외 — ValueError/TypeError(데이터는 있는데 모양이 깨졌거나 활성 fixture 가 중복인
     무결성 위반), RuntimeError(env 부재), psycopg 오류(DB 장애) — 는 회사 상태가 아니라
@@ -50,8 +49,8 @@ def load_read(*, as_of: date, sim_run_id: str) -> LogisticsRead | None:
     어휘에서 부재로 읽는다 — 부재는 `remaining_freshness_days=None` 으로 나와
     `evaluate_sales_rules` 의 `N17-LOT`(`N17_LOT_FRESHNESS_UNRESOLVED`)이 받는다. 여기서
     TypeError 만 걸러내면 "어떤 TypeError 는 상태" 라는 예외의 예외가 생기고, 같은 NULL 을
-    읽는 독립 Service 경로는 그대로 실패한다. 없는 사실은 UNRESOLVED 로, 실행 실패만
-    ERROR 로 가른다.
+    읽는 다른 경로는 그대로 실패한다. 없는 사실은 UNRESOLVED 로, 실행 실패만 ERROR 로
+    가른다.
     """
     try:
         return read_current_logistics(as_of=as_of, sim_run_id=sim_run_id)
