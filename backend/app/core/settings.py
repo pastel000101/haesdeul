@@ -4,12 +4,16 @@ SQL 이 쓸 스키마 이름, 화면이 보는 실행과 기준일(발표용 고
 부서들이 함께 쓰는 접속 설정을 한 자리에 둔다.
 
 ```text
-.env 위치      backend/.env
+.env 위치      backend/.env — 앱이 읽는 로컬 설정 파일은 이것 하나다(실행 디렉터리와 무관)
 읽는 시점      호출할 때마다 load_dotenv — 기본값. 이미 있는 환경변수는 덮지 않는다
+               파일이 없으면 아무것도 적재하지 않고 주입된 환경변수만 본다
 값             적재 뒤 os.getenv 로 매번 읽는다 → 검사가 환경변수를 바꾸면 그대로 따라간다
 빠진 값        MissingDatabaseEnvironment("Missing required database environment variables: …")
                (RuntimeError 의 하위 종류)
 ```
+
+DB 설정뿐 아니라 부서 LLM 설정(`app/*/llm/` · 매입 기능 플래그)과 ML 콘솔 주소도 이 적재
+함수를 부른다 — 파일 위치와 적재 구현은 여기 한 자리다. 값을 읽고 해석하는 규칙은 부서에 있다.
 
 읽는 시점은 부서가 고른다. 물류는 `.env` 를 프로세스에서 한 번만 읽는다
   (`load_env_file_once` · 물류 스키마 이름 `app/logistics/repository/rows.py` — 대시보드 한 요청에

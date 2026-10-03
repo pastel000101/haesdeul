@@ -91,7 +91,7 @@ def test_finance_fail_candidate_is_never_recommended(monkeypatch):
 
 
 def test_sales_gemini_model_does_not_inherit_common_ollama_model(monkeypatch):
-    monkeypatch.setattr("app.sales.llm.runtime._load_environment", lambda: None)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
     monkeypatch.delenv("SALES_LLM_MODEL", raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "ollama")
     monkeypatch.setenv("LLM_MODEL", "gemma3:4b")

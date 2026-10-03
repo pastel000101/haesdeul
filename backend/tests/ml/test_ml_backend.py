@@ -31,7 +31,7 @@ ORIGIN = "http://ml.test:8102"
 @pytest.fixture(autouse=True)
 def _origin(monkeypatch: pytest.MonkeyPatch) -> None:
     """`.env` 를 읽지 않고 주소를 환경변수로 준다."""
-    monkeypatch.setattr(ml_backend, "load_dotenv", lambda *_a, **_k: False)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
     monkeypatch.setenv("ML_CONSOLE_ORIGIN", ORIGIN + "/")
 
 
@@ -163,15 +163,16 @@ def test_the_origin_falls_back_to_the_local_default_and_says_so(monkeypatch):
 
 
 def test_the_origin_is_read_from_the_backend_env_file(monkeypatch):
-    """`.env` 는 요청마다 `backend/.env` 를 읽는다 (옛 `console_proxy._ENV_FILE` 과 같은 파일)."""
+    """`.env` 는 요청마다 공통 적재(`app.core.settings.load_env_file` · `backend/.env`)로 읽는다."""
     from app.core.settings import ENV_FILE
 
     read: list[object] = []
-    monkeypatch.setattr(ml_backend, "load_dotenv", lambda path, **kw: read.append((path, kw)))
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda path: read.append(path))
 
     ml_backend.console_origin()
+    ml_backend.console_origin()
 
-    assert read == [(ENV_FILE, {"override": False})]
+    assert read == [ENV_FILE, ENV_FILE]
     assert ENV_FILE.parent.name == "backend"
 
 

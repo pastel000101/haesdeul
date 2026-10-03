@@ -22,9 +22,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from dotenv import load_dotenv
 
-from app.core.settings import ENV_FILE
+from app.core.settings import load_env_file
 
 #: 같은 컴퓨터에서 돌 때의 기본값.
 _DEFAULT_ORIGIN = "http://127.0.0.1:8102"
@@ -43,10 +42,9 @@ def console_origin() -> tuple[str, str]:
     서버가 다른 컴퓨터에 있을 때 자기 안에서 찾다가 502 가 난다. 같은 컴퓨터에서 돌릴
     때는 기본값이 우연히 맞아 증상이 없으므로, 다른 컴퓨터를 붙여야 드러난다.
 
-    요청마다 읽는다. `load_dotenv` 는 이미 있는 환경변수를 덮지 않고,
-    한 번 읽은 뒤로는 값이 환경에 남으므로 파일을 매번 훑지 않는다.
+    요청마다 `load_env_file`(`backend/.env`)로 적재한다. 이미 있는 환경변수는 덮지 않는다.
     """
-    load_dotenv(ENV_FILE, override=False)
+    load_env_file()
     got = os.getenv("ML_CONSOLE_ORIGIN")
     if got:
         return got.rstrip("/"), "이 주소는 backend/.env 의 ML_CONSOLE_ORIGIN 에서 왔습니다."

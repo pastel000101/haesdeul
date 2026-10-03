@@ -39,7 +39,8 @@ from app.core.llm.providers import (
     gemini_request,
     send_json,
 )
-from app.core.llm.runtime import ENV_FILES, gemini_api_key, load_env_files
+from app.core.llm.runtime import gemini_api_key
+from app.core.settings import load_env_file
 from app.ml.schemas.qa import QA_ITEMS, QA_KINDS
 
 _ENV_PREFIX = "ML_"
@@ -340,9 +341,9 @@ def model() -> str:
 
 
 def _api_key() -> str:
-    """`ML_GEMINI_API_KEY` → `GEMINI_API_KEY` (앞뒤 공백을 뗀다). `.env` 는 있는 파일만 읽는다
-    (`backend/.env` · 저장소 루트 — 부를 때마다)."""
-    load_env_files(path for path in ENV_FILES if path.exists())
+    """`ML_GEMINI_API_KEY` → `GEMINI_API_KEY` (앞뒤 공백을 뗀다). `.env`(`backend/.env`)는
+    부를 때마다 적재한다 — 파일이 없으면 환경변수만 본다."""
+    load_env_file()
     return (gemini_api_key(_ENV_PREFIX) or "").strip()
 
 

@@ -119,7 +119,7 @@ def _pin_to_code_defaults(monkeypatch) -> None:
     ⚠️ ``conftest``가 건 차단만 남긴다. 그것까지 쓸어내면 설정이 켜지고 테스트가 실
     프로바이더를 탄다 — 이 파일이 막으려는 것과 정반대다.
     """
-    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *a, **k: False)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *a, **k: False)
     swept = [
         key
         for key in os.environ
@@ -1014,7 +1014,7 @@ def test_load_dotenv_cannot_resurrect_a_cleared_key(monkeypatch, tmp_path) -> No
 
     env_file = tmp_path / ".env"
     env_file.write_text("ANTHROPIC_API_KEY=sk-ant-from-dotenv\n", encoding="utf-8")
-    monkeypatch.setattr(runtime, "ENV_FILES", (env_file,))
+    monkeypatch.setattr("app.core.settings.ENV_FILE", env_file)
 
     # conftest가 하는 것과 같은 처리: 빈 문자열로 둔다
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")

@@ -22,7 +22,8 @@
 (``app.core.llm.runtime.read_bool``).
 """
 
-from app.core.llm.runtime import ENV_FILES, load_env_files, read_bool
+from app.core.llm.runtime import read_bool
+from app.core.settings import load_env_file
 from app.purchase_agent.llm.runtime import ENV_PREFIX
 
 #: 구조화 요청만 켠다 — 고지는 이 값과 무관하다 (위 머리말).
@@ -40,5 +41,5 @@ def enabled(key: str, *, default: bool = False) -> bool:
     기본이 거짓이다. 설정을 못 읽었을 때 켜져 있으면, 못 읽은 것과 켠 것을
     구분할 수 없다 (규칙 3 과 같은 결).
     """
-    load_env_files(ENV_FILES)
+    load_env_file()
     return read_bool(key, prefix=ENV_PREFIX, default=default)

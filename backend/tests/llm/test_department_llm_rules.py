@@ -46,7 +46,7 @@ _KEYS = (
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
-    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *_a, **_k: False)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
     for prefix in _PREFIXES:
         for key in _KEYS:
             monkeypatch.delenv(f"{prefix}{key}", raising=False)

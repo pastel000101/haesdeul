@@ -31,16 +31,15 @@ from app.core.llm.providers import (
     send_json,
 )
 from app.core.llm.runtime import (
-    ENV_FILES,
     OLLAMA_BASE_URL,
     float_env,
     gemini_api_key,
     int_env,
-    load_env_files,
     read_bool,
     resolve_provider_model,
     scoped_env,
 )
+from app.core.settings import load_env_file
 from app.logistics.llm.schemas import (
     AgentInterpretation,
     ContextFact,
@@ -550,7 +549,7 @@ def get_llm_settings() -> LLMSettings:
     상속하면 Gemini 가 존재하지 않는 모델로 호출돼 400 이 난다(실호출 검증 사례). 그 경우에만
     전역 모델을 건너뛴다(`resolve_provider_model` · 마스터 · Critic 과 같은 규칙).
     """
-    load_env_files(ENV_FILES)
+    load_env_file()
     provider, model = resolve_provider_model(
         _ENV_PREFIX, default_provider="ollama", default_models=_DEFAULT_MODELS
     )

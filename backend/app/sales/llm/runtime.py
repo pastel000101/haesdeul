@@ -24,7 +24,8 @@ from app.core.llm.providers import (
     gemini_safe_schema,
     send_json,
 )
-from app.core.llm.runtime import ENV_FILES, gemini_api_key, load_env_files, read_optional_bool
+from app.core.llm.runtime import gemini_api_key, read_optional_bool
+from app.core.settings import load_env_file
 from app.sales.schemas.proposal import SalesCandidate, SalesRecommendation
 from app.sales.schemas.strategy import StrategyProfile
 
@@ -303,7 +304,7 @@ def load_settings() -> LLMSettings:
     다른 부서(기본 켬)와 다르다. provider 는 `SALES_LLM_PROVIDER` 만 보고(기본 gemini),
     timeout 은 공용 `LLM_TIMEOUT_SECONDS` 만 본다(잘못된 값이면 예외).
     """
-    _load_environment()
+    load_env_file()
     enabled = read_optional_bool("SALES_LLM_ENABLED")
     if enabled is None:
         enabled = read_optional_bool("LLM_ENABLED")
@@ -455,7 +456,3 @@ def _fallback(
         llm_attempts=attempts,
         llm_fallback_used=status == "FALLBACK",
     )
-
-
-def _load_environment() -> None:
-    load_env_files(ENV_FILES, override=False)

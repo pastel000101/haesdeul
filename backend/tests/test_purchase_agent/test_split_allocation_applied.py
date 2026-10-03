@@ -286,7 +286,7 @@ def test_승인만으로는_판단자를_부르지_않는다(monkeypatch: pytest
     """
     for key in (FLAG, features.SPLIT_ALLOCATION):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setattr(features, "ENV_FILES", ())
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
     assert features.enabled(features.SPLIT_ALLOCATION) is False, "전제 — 기본은 꺼짐"
 
     provider = 세는_프로바이더("FRONT_LOADED")

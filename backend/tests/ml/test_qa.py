@@ -1958,15 +1958,18 @@ def test_지시문이_지난_날을_어떻게_고를지_말해_준다():
         assert 낱말 in prompt, 낱말
 
 
-def test_interpreter_reads_the_backend_env_then_the_repo_root_env():
-    """★ 해석기 파일이 `app/ml/llm/qa.py` 로 한 단 깊어졌다 (2026-09-29 재구성 BL-017).
+def test_interpreter_reads_the_backend_env_through_the_shared_loader(monkeypatch):
+    """키를 읽을 때마다 공통 적재(`app.core.settings.load_env_file`)로 `backend/.env` 를 읽는다.
 
-    `.env` 두 자리가 옮기기 전과 같은 파일(`backend/.env` → 저장소 루트 `.env`)인지 잰다 —
-    어긋나면 키를 못 찾고 조용히 «해석 못 함» 이 된다. 2026-09-30 BL-020 부터 두 자리는
-    `app.core.llm.runtime.ENV_FILES` 이고, 해석기는 그중 **있는 파일만** 읽는다.
+    2026-10-03 재구성 BL-030: 종전에는 `backend/.env` · 저장소 루트 `.env` 두 자리 중 있는
+    파일을 읽었다. 이제 앱이 읽는 로컬 파일은 `backend/.env` 하나다.
     """
-    from app.core.llm import runtime as llm_runtime
     from app.core.settings import ENV_FILE
 
-    assert llm_runtime.ENV_FILES == (ENV_FILE, ENV_FILE.parent.parent / ".env")
-    assert qa_llm.ENV_FILES is llm_runtime.ENV_FILES
+    read: list[object] = []
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda path: read.append(path))
+    monkeypatch.setenv("ML_GEMINI_API_KEY", " key ")
+
+    assert qa_llm._api_key() == "key"
+    assert read == [ENV_FILE]
+    assert ENV_FILE.parent.name == "backend"

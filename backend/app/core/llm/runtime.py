@@ -3,7 +3,6 @@
 ```text
 run_with_fallback       켜짐 → 부를 조건 → 호출 · 검증 → 재시도 → 기본안
                         (마스터 · Critic · 매입)
-ENV_FILES · load_env_files     `.env` 두 자리와 적재
 scoped_env · read_bool · read_optional_bool · int_env · float_env
                         `<PREFIX>_` 우선 읽기
 resolve_provider_model  provider 와 모델 고르기                        (마스터 · Critic · 물류)
@@ -22,28 +21,23 @@ provider      재무 · 판매는 전역 LLM_PROVIDER 를 상속하지 않는다
 켜짐          재무 · 판매는 read_optional_bool 로 사슬을 직접 잇는다(빈 값 = 꺼짐)
               ML 은 자기 규칙
 숫자 설정     Critic 은 잘못된 값에 예외를 낸다 — int_env · float_env 를 쓰지 않는다
-.env 위치     Critic(`app/.env`) · 재무(`app/.env` · `backend/.env`)는 다른 파일을 읽는다
 ```
+
+`.env` 는 여기서 읽지 않는다. 부서 설정 함수가 `app.core.settings.load_env_file`(`backend/.env`
+한 곳)을 부른 뒤 여기 함수로 값을 읽는다.
 """
 
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Iterable, Mapping
-from pathlib import Path
-
-from dotenv import load_dotenv
-
-from app.core.settings import ENV_FILE
+from collections.abc import Callable, Mapping
 
 __all__ = [
-    "ENV_FILES",
     "OLLAMA_BASE_URL",
     "TRUE_VALUES",
     "float_env",
     "gemini_api_key",
     "int_env",
-    "load_env_files",
     "read_bool",
     "read_optional_bool",
     "resolve_provider_model",
@@ -56,21 +50,6 @@ TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 
 #: Ollama 기본 주소. `LLM_BASE_URL` 이 없을 때의 값이다.
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-
-#: `backend/.env` 와 저장소 루트 `.env` — 이 순서로 읽는다(없는 파일은 건너뛴다).
-#: 팀 환경에서 `.env` 가 루트에 있는 경우 `backend/` 만 보면 키를 못 찾는다.
-#: 마스터 · 물류 · 매입 · 판매 · ML 이 이 두 자리를 읽는다.
-ENV_FILES: tuple[Path, ...] = (ENV_FILE, ENV_FILE.parent.parent / ".env")
-
-
-def load_env_files(paths: Iterable[Path], *, override: bool = False) -> None:
-    """`.env` 파일들을 차례로 적재한다. 이미 있는 환경변수는 덮지 않는다(`override=False`).
-
-    부르는 시점은 부서가 고른다 — 설정을 읽을 때마다 부른다.
-    """
-    for path in paths:
-        load_dotenv(path, override=override)
-
 
 def scoped_env(prefix: str, key: str, default: str) -> str:
     """`<PREFIX><KEY>` → `<KEY>` → `default`. 빈 문자열은 없는 것으로 본다(다음 자리로 간다)."""

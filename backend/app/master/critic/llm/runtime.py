@@ -13,7 +13,6 @@ import json
 import re
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 from typing import Protocol
 
 from pydantic import ValidationError
@@ -34,22 +33,18 @@ from app.core.llm.providers import (
 from app.core.llm.runtime import (
     OLLAMA_BASE_URL,
     gemini_api_key,
-    load_env_files,
     read_bool,
     resolve_provider_model,
     run_with_fallback,
     scoped_env,
 )
+from app.core.settings import load_env_file
 from app.master.critic.llm.schemas import (
     InterpretationResult,
     JudgeInterpretation,
     SanitizedLLMContext,
 )
 
-#: 주의: `backend/app/.env` 한 곳만 읽는다 — 다른 부서(예: 재무는 `backend/.env` · 저장소
-#:   루트)와 다르다. 부모 단계 수(`parent` 넷)가 의도한 위치인지는 확인되지 않았다 —
-#:   확인 필요.
-_ENV_FILE = Path(__file__).resolve().parent.parent.parent.parent / ".env"
 # 에이전트 전용 설정 접두사 — `CRITIC_LLM_MODEL` 로 판정 모델을 생성 모델과 분리한다 (§6.4).
 _ENV_PREFIX = "CRITIC_"
 _NUMERIC_PATTERN = re.compile(r"\d")
@@ -313,7 +308,7 @@ def get_llm_settings() -> LLMSettings:
     주의: timeout · 재시도 횟수가 숫자가 아니면 예외다 — 마스터 · 물류 · 매입(기본값으로
     되돌림)과 다르다.
     """
-    load_env_files((_ENV_FILE,))
+    load_env_file()
     provider, model = resolve_provider_model(
         _ENV_PREFIX, default_provider="ollama", default_models=_DEFAULT_MODELS
     )

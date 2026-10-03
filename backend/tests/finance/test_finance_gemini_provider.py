@@ -9,6 +9,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from dotenv import load_dotenv
 
 from app.contracts.envelope import AgentRequest, ExecutionContext
 from app.finance.domain import messages
@@ -17,7 +18,6 @@ from app.finance.llm.client import (
     DEFAULT_MODELS,
     _gemini_response_text,
     _is_gemini_availability_failure,
-    _load_finance_environment,
     finance_model,
     finance_planner_model,
     finance_provider_name,
@@ -154,7 +154,7 @@ class _FallbackPlanner:
 
 @pytest.fixture(autouse=True)
 def _prevent_real_finance_env_loading(monkeypatch):
-    monkeypatch.setattr("app.finance.llm.client._load_finance_environment", lambda: None)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
 
 
 def _request() -> AgentRequest:
@@ -293,10 +293,8 @@ def test_finance_settings_load_env_independent_of_working_directory(tmp_path, mo
     )
     unrelated_directory = tmp_path / "unrelated"
     unrelated_directory.mkdir()
-    monkeypatch.setattr("app.finance.llm.client._ENV_FILES", (env_file,))
-    monkeypatch.setattr(
-        "app.finance.llm.client._load_finance_environment", _load_finance_environment
-    )
+    monkeypatch.setattr("app.core.settings.ENV_FILE", env_file)
+    monkeypatch.setattr("app.core.settings.load_dotenv", load_dotenv)
     monkeypatch.chdir(unrelated_directory)
 
     with patch.dict(os.environ, {}, clear=True):
@@ -313,10 +311,8 @@ def test_finance_env_file_does_not_override_process_environment(tmp_path, monkey
         "FINANCE_LLM_PROVIDER=gemini\nFINANCE_LLM_MODEL=dotenv-model\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("app.finance.llm.client._ENV_FILES", (env_file,))
-    monkeypatch.setattr(
-        "app.finance.llm.client._load_finance_environment", _load_finance_environment
-    )
+    monkeypatch.setattr("app.core.settings.ENV_FILE", env_file)
+    monkeypatch.setattr("app.core.settings.load_dotenv", load_dotenv)
 
     process_environment = {
         "FINANCE_LLM_PROVIDER": "ollama",
