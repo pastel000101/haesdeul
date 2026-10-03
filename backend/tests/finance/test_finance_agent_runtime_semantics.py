@@ -228,7 +228,7 @@ def _no_persistence():
 @pytest.fixture(autouse=True)
 def _no_env_file(monkeypatch):
     """`.env` 가 테스트 결과를 바꾸지 않게 한다 — 설정 의미만 본다."""
-    monkeypatch.setattr("app.finance.llm.client._load_finance_environment", lambda: None)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: False)
 
 
 # ---------------------------------------------------------------------------

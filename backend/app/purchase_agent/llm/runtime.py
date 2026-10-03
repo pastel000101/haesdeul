@@ -54,16 +54,15 @@ from app.core.llm.providers import (
     send_json,
 )
 from app.core.llm.runtime import (
-    ENV_FILES,
     OLLAMA_BASE_URL,
     float_env,
     gemini_api_key,
     int_env,
-    load_env_files,
     read_bool,
     run_with_fallback,
     scoped_env,
 )
+from app.core.settings import load_env_file
 from app.purchase_agent.config import load_constraints
 from app.purchase_agent.llm.schemas import (
     MIX_PRECEDENCE_SIGNAL,
@@ -598,7 +597,7 @@ def get_llm_settings() -> LLMSettings:
     경우 설정값의 두 배를 넘을 수 있다. 총 deadline이 필요해지면
     별도 장치가 있어야 하고, 이 값 하나로는 보장되지 않는다.
     """
-    load_env_files(ENV_FILES)
+    load_env_file()
     # 주의: provider 가 전역과 달라도 전역 ``LLM_MODEL`` 을 그대로 상속한다 — 마스터 ·
     # Critic · 물류(``resolve_provider_model`` — 그때는 전역 모델을 건너뛴다)와 다르다.
     provider = scoped_env(ENV_PREFIX, "LLM_PROVIDER", "anthropic").strip().lower()

@@ -23,7 +23,6 @@
 import json
 import os
 import urllib.error
-from pathlib import Path
 from typing import Any
 
 from app.core.llm.providers import (
@@ -42,9 +41,9 @@ from app.core.llm.providers import (
 from app.core.llm.runtime import (
     OLLAMA_BASE_URL,
     gemini_api_key,
-    load_env_files,
     read_optional_bool,
 )
+from app.core.settings import load_env_file
 
 # ---------------------------------------------------------------------------
 # Finance LLM 설정
@@ -73,23 +72,11 @@ _DEFAULT_OLLAMA_TOOL_CALLING_MODEL = "llama3.2:3b"
 
 def ollama_tool_calling_model() -> str:
     """Ollama Planner 모델. 설치된 모델은 배포마다 다르므로 재무 키로 덮을 수 있다."""
-    _load_finance_environment()
+    load_env_file()
     return (
         os.getenv("FINANCE_OLLAMA_PLANNER_MODEL")
         or _DEFAULT_OLLAMA_TOOL_CALLING_MODEL
     )
-
-
-#: 주의: `backend/app/.env` · `backend/.env` 를 읽는다 — 다른 부서(`backend/.env` · 저장소
-#: 루트)와 다르다. 의도한 차이인지는 확인 필요.
-_ENV_FILES = (
-    Path(__file__).resolve().parents[2] / ".env",
-    Path(__file__).resolve().parents[3] / ".env",
-)
-
-
-def _load_finance_environment() -> None:
-    load_env_files(_ENV_FILES, override=False)
 
 
 def finance_llm_enabled() -> bool:
@@ -101,7 +88,7 @@ def finance_llm_enabled() -> bool:
     주의: 빈 값은 꺼짐이다(미설정이 아니다 — `read_optional_bool`). 마스터 · 물류처럼 전용 키가
     비었을 때 전역으로 넘어가지 않는다.
     """
-    _load_finance_environment()
+    load_env_file()
     finance = read_optional_bool("FINANCE_LLM_ENABLED")
     if finance is not None:
         return finance
@@ -118,7 +105,7 @@ def finance_provider_name() -> str:
     둔 배포에서 재무 Agent 가 조용히 Gemini 를 떠난다 — 재무 Provider 정책은 재무
     키로만 정해진다.
     """
-    _load_finance_environment()
+    load_env_file()
     provider = (
         os.getenv("FINANCE_LLM_PROVIDER")
         or "gemini"
@@ -129,7 +116,7 @@ def finance_provider_name() -> str:
 
 
 def finance_model(provider: str) -> str:
-    _load_finance_environment()
+    load_env_file()
     explicit = os.getenv("FINANCE_LLM_MODEL")
     if explicit:
         return explicit
@@ -150,7 +137,7 @@ def finance_planner_model(provider: str) -> str:
     않는다)이 쓰는 값이고, 그것을 Planner 가 상속하면 tool 을 지원하지 않는 모델로 tool calling
     을 시도하게 된다.
     """
-    _load_finance_environment()
+    load_env_file()
     explicit = os.getenv("FINANCE_LLM_MODEL")
     if explicit:
         return explicit
@@ -187,7 +174,7 @@ def _gemini_key() -> str:
 
     없으면 가용성 판별이 `API_KEY_MISSING` 으로 읽는 문장을 낸다(문장이 계약이다).
     """
-    _load_finance_environment()
+    load_env_file()
     api_key = gemini_api_key("FINANCE_")
     if not api_key:
         raise RuntimeError("Finance Gemini API key is not set")

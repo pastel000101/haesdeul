@@ -253,7 +253,7 @@ def env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     `load_dotenv` 는 os.environ 에 없는 키를 채우므로, 지운 변수를 다시 살려 낸다 —
     그러면 이 검사들이 **개발자 기계의 `.env` 에 따라 결과가 달라진다.**
     """
-    monkeypatch.setattr("app.core.llm.runtime.load_dotenv", lambda *_a, **_k: None)
+    monkeypatch.setattr("app.core.settings.load_dotenv", lambda *_a, **_k: None)
     for key in (
         "LLM_PROVIDER",
         "LLM_MODEL",

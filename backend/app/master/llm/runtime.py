@@ -44,17 +44,16 @@ from app.core.llm.providers import (
     send_json,
 )
 from app.core.llm.runtime import (
-    ENV_FILES,
     OLLAMA_BASE_URL,
     float_env,
     gemini_api_key,
     int_env,
-    load_env_files,
     read_bool,
     resolve_provider_model,
     run_with_fallback,
     scoped_env,
 )
+from app.core.settings import load_env_file
 from app.master.llm.schemas import Intent, IntentResult
 
 #: 분류가 왜 실패했는지를 남기는 자리다. 모듈 이름으로 받아 두고 삼킨 예외의 종류와
@@ -258,7 +257,7 @@ def get_llm_settings() -> LLMSettings:
     모델을 요청해 404 가 난다 — 그 경우에만 전역 모델을 건너뛴다(`resolve_provider_model` ·
     물류 · Critic 과 같은 규칙).
     """
-    load_env_files(ENV_FILES)
+    load_env_file()
     provider, model = resolve_provider_model(
         _ENV_PREFIX, default_provider="anthropic", default_models=_DEFAULT_MODELS
     )

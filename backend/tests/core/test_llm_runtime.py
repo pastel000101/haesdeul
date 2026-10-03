@@ -13,13 +13,11 @@ from typing import Any
 import pytest
 
 from app.contracts.envelope import LLM_STATUSES
-from app.core.llm import runtime
 from app.core.llm.runtime import (
     TRUE_VALUES,
     float_env,
     gemini_api_key,
     int_env,
-    load_env_files,
     read_bool,
     read_optional_bool,
     resolve_provider_model,
@@ -216,19 +214,3 @@ def test_gemini_api_key_prefers_the_scoped_key(monkeypatch):
     assert gemini_api_key("P_") == "shared"
     _env(monkeypatch, P_GEMINI_API_KEY="scoped", GEMINI_API_KEY="shared")
     assert gemini_api_key("P_") == "scoped"
-
-
-def test_load_env_files_loads_in_order_without_overriding(monkeypatch, tmp_path):
-    seen = []
-    monkeypatch.setattr(
-        runtime, "load_dotenv", lambda path, override: seen.append((path, override))
-    )
-    first, second = tmp_path / "a.env", tmp_path / "b.env"
-    load_env_files((first, second))
-    assert seen == [(first, False), (second, False)]
-
-
-def test_env_files_are_backend_then_repository_root():
-    from app.core.settings import ENV_FILE
-
-    assert runtime.ENV_FILES == (ENV_FILE, ENV_FILE.parent.parent / ".env")
