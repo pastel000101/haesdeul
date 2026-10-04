@@ -19,7 +19,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
@@ -30,6 +32,34 @@ from app.master.domain.request_ids import LEDGER_GAP_REQUEST_LIKE
 from app.master.domain.runs import null_if_blank
 
 _TABLE = "master_agent_runs"
+
+
+def _json_safe(value: Any) -> str:
+    """이력 payload 에 실을 수 없는 값을 아는 것만 편다.
+
+    조회(STATUS) 적재는 `plan` 을 `asdict(ExecutionStep)` 로, 부서 답을 봉투 payload 그대로
+    싣는다(`service/persistence.py`). 그래서 `observed_at` 이 `date` 로, 예측값이 `Decimal` 로
+    올 수 있고, 기본 `json.dumps` 는 둘을 싣지 못한다.
+
+    저장소 관례인 `model_dump(mode="json")` 과 같은 결로 편다 — 날짜는 ISO 문자열, `Decimal` 은
+    정밀도를 그대로 둔 문자열(`float` 로 바꾸지 않는다), `UUID` 는 문자열. 읽는 쪽은
+    `Decimal(text)` 로 되돌릴 수 있다. 판매 이력(`sales/repository/runs.py` `_json_safe`)과
+    같은 규칙이다.
+
+    지원하지 않는 타입은 `TypeError` 로 거부한다. `default=str` 로 통째로 접으면 어떤 타입이든
+    조용히 문자열이 되고 그 손실이 이력에만 남는다.
+    """
+    if isinstance(value, date):  # datetime 도 date 다
+        return value.isoformat()
+    if isinstance(value, (Decimal, UUID)):
+        return str(value)
+    raise TypeError(f"이력 payload 에 실을 수 없는 값이다: {type(value).__name__}")
+
+
+def _payload(value: object) -> Jsonb:
+    """이력 payload 하나. `Jsonb` 를 만드는 자리는 여기 하나다."""
+    return Jsonb(value, dumps=lambda obj: json.dumps(obj, default=_json_safe))
+
 
 _COLUMNS = (
     "run_id",
@@ -120,9 +150,9 @@ def insert_run(
                 coverage_ran,
                 coverage_total,
                 elapsed_ms,
-                None if plan is None else Jsonb(plan),
-                Jsonb(request_payload),
-                Jsonb(response_payload),
+                None if plan is None else _payload(plan),
+                _payload(request_payload),
+                _payload(response_payload),
                 null_if_blank(sim_run_id),
             ),
         )

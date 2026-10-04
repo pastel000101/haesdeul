@@ -19,6 +19,7 @@ import ast
 import inspect
 import logging
 from datetime import date
+from typing import Self
 
 import pytest
 
@@ -433,3 +434,132 @@ def test_미등록이_없는_정상_경로도_적재한다(monkeypatch):
 
     assert called, "미등록이 없는 경로에서 적재를 건너뛰었다"
     assert called["request_id"] == "REQ-20251231-0001"
+
+
+# ── ④ payload 가 JSON 으로 실리는가 ──────────────────────────────────────────
+
+
+class _Cursor:
+    """INSERT 의 인자만 받아 둔다. DB 는 없다."""
+
+    def __init__(self, sink: list[tuple[object, ...]]) -> None:
+        self._sink = sink
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+    def execute(self, _query: object, params: tuple[object, ...]) -> None:
+        self._sink.append(params)
+
+    def fetchone(self) -> dict[str, object]:
+        return {"run_id": "stub"}
+
+
+class _Conn:
+    def __init__(self) -> None:
+        self.params: list[tuple[object, ...]] = []
+
+    def cursor(self) -> _Cursor:
+        return _Cursor(self.params)
+
+
+def _insert_with(conn: _Conn, *, plan, response_payload) -> list[str]:
+    """`insert_run` 을 가짜 연결로 돌리고, 실린 JSONB 셋을 psycopg 가 하듯 문자열로 편다."""
+    from uuid import uuid4
+
+    runs.insert_run(
+        conn,
+        schema="haetdeul",
+        run_id=uuid4(),
+        cycle="STATUS",
+        as_of=date(2026, 9, 18),
+        request_payload={"as_of": "2026-09-18", "intent": {"action": "STATUS_QUERY"}},
+        response_payload=response_payload,
+        request_id="REQ-20260918-0001",
+        run_seq=1,
+        item=None,
+        end_code="S1_ANSWERED",
+        runtime_status="READY",
+        coverage_ran=None,
+        coverage_total=None,
+        elapsed_ms=1,
+        plan=plan,
+        sim_run_id=None,
+    )
+    (params,) = conn.params
+    jsonb = [p for p in params if isinstance(p, runs.Jsonb)]
+    assert len(jsonb) == 3, "plan · request · response 셋이 JSONB 로 실려야 한다"
+    return [p.dumps(p.obj) for p in jsonb]
+
+
+def test_날짜와_Decimal_이_실린_조회_이력이_JSON_으로_직렬화된다():
+    """조회 적재의 `plan` 은 `asdict(ExecutionStep)` 라 `observed_at` 이 `date` 로, ML 답의
+    `forecasts[]` 는 봉투 payload 그대로라 `Decimal` 로 온다.
+
+    날짜는 ISO 문자열, `Decimal` 은 정밀도를 그대로 둔 문자열이어야 한다 — `float` 로 바꾸면
+    `3281.5000` 의 자릿수가 사라진다.
+    """
+    import json
+    from decimal import Decimal
+
+    plan_text, _request_text, response_text = _insert_with(
+        _Conn(),
+        plan=[{"seq": 1, "agent": "ml", "observed_at": date(2026, 9, 18)}],
+        response_payload={
+            "answers": {
+                "ml": {
+                    "forecasts": [
+                        {
+                            "target_dt": "2026-09-19",
+                            "predicted": Decimal("3281.5000"),
+                            "lower": Decimal("2990.1250"),
+                            "upper": Decimal("3572.8750"),
+                        }
+                    ]
+                }
+            }
+        },
+    )
+
+    assert json.loads(plan_text)[0]["observed_at"] == "2026-09-18"
+    forecast = json.loads(response_text)["answers"]["ml"]["forecasts"][0]
+    assert forecast["predicted"] == "3281.5000", "자릿수를 그대로 둔 문자열이어야 한다"
+    assert Decimal(forecast["lower"]) == Decimal("2990.1250")
+    assert Decimal(forecast["upper"]) == Decimal("3572.8750")
+
+
+def test_조회_적재_payload_가_그대로_직렬화된다():
+    """`record_status` 가 만드는 모양 그대로 — `status_plan_rows` 의 `observed_at` 포함."""
+    import json
+
+    from app.master.domain.plan import ExecutionStep
+
+    outcome = _status_outcome()
+    outcome.plan.steps.append(
+        ExecutionStep(
+            seq=1,
+            agent="ml",
+            mode="STATUS_QUERY",
+            call_seq=1,
+            run_id="ML-1",
+            runtime_status="READY",
+            business_status="ok",
+            observed_at=date(2026, 9, 18),
+        )
+    )
+    plan_text, _request_text, _response_text = _insert_with(
+        _Conn(),
+        plan=service_persistence.status_plan_rows(outcome.plan),
+        response_payload={"answers": {k: dict(v) for k, v in outcome.answers.items()}},
+    )
+
+    assert json.loads(plan_text)[0]["observed_at"] == "2026-09-18"
+
+
+def test_모르는_타입은_문자열로_뭉개지_않는다():
+    """지원하지 않는 타입은 `TypeError` 로 거부한다 — 조용히 문자열로 접지 않는다."""
+    with pytest.raises(TypeError):
+        _insert_with(_Conn(), plan=[], response_payload={"answers": {"x": object()}})
