@@ -41,11 +41,10 @@ from app.core.llm.providers import (
     GEMINI_BASE_URL,
     anthropic_json,
     chat_messages,
-    first_text,
     gemini_json_request,
-    gemini_parts,
     gemini_request,
     gemini_response_schema,
+    gemini_text,
     ollama_chat_request,
     ollama_request,
     ollama_text,
@@ -276,14 +275,13 @@ class OllamaProvider:
 
 
 def _gemini_text(document: dict[str, Any]) -> str:
-    """응답에서 첫 텍스트 조각을 집는다 — 공백뿐인 조각과 dict 가 아닌 조각은 건너뛴다.
+    """응답의 답 글자 — 사고(``thought``) 조각과 글자 없는 조각을 빼고 글자 조각을 이어붙인다
+    (``core.llm.providers.gemini_text`` — 부서 공통 규칙).
 
-    주의: 사고(``thought``) 조각을 따로 건너뛰지 않는다 — 글자가 없는 사고 조각은 위 규칙으로
-    넘어가지만, 글자가 있는 사고 조각은 그대로 집는다. 마스터 · Critic · 재무와 다르다.
-    첫 조각만 읽으면 ``text``가 없어 터지고, 그러면 호출은 성공했는데 FALLBACK으로
-    떨어진다(마스터 실측 12번 중 11번).
+    글자가 없으면 ``TypeError`` — 빈 문자열로 돌려주면 검증이 «스키마 위반» 으로 읽어 사유가
+    흐려진다.
     """
-    text = first_text([part for part in gemini_parts(document) if isinstance(part, dict)])
+    text = gemini_text(document)
     if text is None:
         raise TypeError("Gemini response contained no text part")
     return text

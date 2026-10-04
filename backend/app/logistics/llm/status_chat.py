@@ -32,6 +32,7 @@ from typing import Any
 from app.core.llm.providers import (
     gemini_parts,
     gemini_request,
+    gemini_text,
     gemini_tool_request,
     ollama_chat_request,
     ollama_message,
@@ -202,8 +203,11 @@ def _gemini_chat(
     ]
     if calls:
         return AssistantTurn(tool_calls=calls, text=None)
-    text = "".join(str(part.get("text", "")) for part in parts if "text" in part)
-    return AssistantTurn(tool_calls=[], text=text)
+    # 사용자에게 보여주는 최종 답 — 사고(`thought`) 조각을 빼고 글자 조각을 이어붙인다
+    # (`gemini_text` — 부서 공통 규칙). 글자가 없으면 빈 문자열이다
+    # (종전과 같다 — 부르는 쪽이 `turn.text or ""` 로 받는다). 다음 턴에 되돌려주는 것은
+    # 위 `raw` 조각이지 이 글자가 아니다.
+    return AssistantTurn(tool_calls=[], text=gemini_text(document) or "")
 
 
 def build_chat() -> Chat:

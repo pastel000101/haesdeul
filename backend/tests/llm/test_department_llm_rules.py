@@ -8,7 +8,9 @@
 ```text
 1. 환경변수 표     켜짐 기본값 · 빈 전용 값의 뜻 · provider 기본 · 모델 상속
                    · timeout 기본 · 잘못된 값
-2. 응답 글자       Gemini thought 조각을 건너뛰나 · 공백뿐인 조각을 받나 · 앞뒤 공백을 떼나
+2. 응답 글자       2026-10-04 BL-033 결정으로 읽는 규칙은 하나(`gemini_text`)다 — 여기서는 부서가
+                   정하는 나머지(없을 때의 예외 종류 · 문장, 합친 글자의 strip)만 잠근다.
+                   읽기 규칙 자체는 `tests/llm/test_gemini_text_by_department.py`
 3. 전송 세부       본문 인코딩 · 주소 환경변수 · 요청을 만들 때의 오류 · 전송 실패를 다시 묻나
 ```
 
@@ -151,13 +153,14 @@ def test_ml_switch_and_key(clean_env):
 
 
 # ---------------------------------------------------------------------------
-# 2. Gemini 응답 글자 — 부서마다 다르다
+# 2. Gemini 응답 글자 — 읽기 규칙은 하나, 없을 때의 처리와 strip 은 부서가 정한다
 # ---------------------------------------------------------------------------
 
 _THOUGHT_FIRST = {
     "candidates": [{"content": {"parts": [{"thought": True, "text": "사고"}, {"text": " 답 "}]}}]
 }
 _BLANK_FIRST = {"candidates": [{"content": {"parts": [{"text": "   "}, {"text": "답"}]}}]}
+_BLANK_ONLY = {"candidates": [{"content": {"parts": [{"text": " "}]}}]}
 
 
 def _gemini_reply(clean_env, document: dict[str, Any]) -> list[dict[str, Any]]:
@@ -185,39 +188,50 @@ class _Response:
         return self._body
 
 
-def test_master_skips_thought_parts_and_keeps_whitespace(clean_env):
+def test_master_keeps_the_joined_text_as_is_and_fails_on_blank(clean_env):
+    """마스터는 합친 글자를 그대로 넘긴다(strip 없음). 글자가 없으면 `TypeError`."""
     clean_env.setenv("GEMINI_API_KEY", "k")
     settings = dataclasses.replace(master_runtime.get_llm_settings(), provider="gemini", model="m")
     _gemini_reply(clean_env, _THOUGHT_FIRST)
     assert master_runtime.GeminiProvider(settings).generate("s", "u", {}) == " 답 "
     _gemini_reply(clean_env, _BLANK_FIRST)
-    assert master_runtime.GeminiProvider(settings).generate("s", "u", {}) == "   "
+    assert master_runtime.GeminiProvider(settings).generate("s", "u", {}) == "   답"
+    _gemini_reply(clean_env, _BLANK_ONLY)
+    with pytest.raises(TypeError, match="did not contain text content"):
+        master_runtime.GeminiProvider(settings).generate("s", "u", {})
 
 
-def test_finance_skips_thought_parts_and_strips(clean_env):
+def test_finance_strips_the_joined_text_and_fails_on_blank(clean_env):
     assert finance_client._gemini_response_text(_THOUGHT_FIRST) == "답"
     assert finance_client._gemini_response_text(_BLANK_FIRST) == "답"
+    with pytest.raises(TypeError, match="Finance Gemini response did not contain text content"):
+        finance_client._gemini_response_text(_BLANK_ONLY)
 
 
-def test_purchase_does_not_skip_thought_parts(clean_env):
-    assert purchase_runtime._gemini_text(_THOUGHT_FIRST) == "사고"
-    assert purchase_runtime._gemini_text(_BLANK_FIRST) == "답"
+def test_purchase_keeps_the_joined_text_as_is_and_fails_on_blank(clean_env):
+    assert purchase_runtime._gemini_text(_THOUGHT_FIRST) == " 답 "
+    assert purchase_runtime._gemini_text(_BLANK_FIRST) == "   답"
+    with pytest.raises(TypeError, match="contained no text part"):
+        purchase_runtime._gemini_text(_BLANK_ONLY)
 
 
-def test_sales_does_not_skip_thought_parts_and_strips(clean_env):
-    assert sales_runtime._gemini_response_text(_THOUGHT_FIRST) == "사고"
+def test_sales_strips_the_joined_text_and_raises_value_error_on_blank(clean_env):
+    assert sales_runtime._gemini_response_text(_THOUGHT_FIRST) == "답"
     with pytest.raises(ValueError, match="empty Gemini response"):
-        sales_runtime._gemini_response_text(
-            {"candidates": [{"content": {"parts": [{"text": " "}]}}]}
-        )
+        sales_runtime._gemini_response_text(_BLANK_ONLY)
 
 
-def test_logistics_reads_the_first_part_as_is(clean_env):
+def test_logistics_keeps_the_joined_text_as_is_and_raises_type_error_on_blank(clean_env):
+    """물류는 `TypeError` 로 올린다 — `classify_llm_error` 가 INVALID_RESPONSE 로 분류한다."""
     clean_env.setenv("LOGISTICS_GEMINI_API_KEY", "k")
     _gemini_reply(clean_env, _THOUGHT_FIRST)
     settings = logistics_runtime.get_llm_settings()
     result = logistics_runtime.GeminiProvider(settings).generate(_logistics_context())
-    assert result.text == "사고"
+    assert result.text == " 답 "
+    _gemini_reply(clean_env, _BLANK_ONLY)
+    with pytest.raises(TypeError, match="did not contain text content") as raised:
+        logistics_runtime.GeminiProvider(settings).generate(_logistics_context())
+    assert logistics_runtime.classify_llm_error(raised.value) == (True, "INVALID_RESPONSE")
 
 
 def _logistics_context():

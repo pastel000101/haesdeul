@@ -7,7 +7,7 @@
             send_json                                            urlopen 한 곳
             anthropic_json · openai_json                         SDK 한 곳 (지연 import)
 요청 본문   chat_messages · ollama_request · gemini_json_request · gemini_tool_request
-응답 읽기   ollama_message · ollama_text · gemini_parts · first_text · gemini_first_part_text
+응답 읽기   ollama_message · ollama_text · gemini_parts · gemini_text
 스키마      gemini_strict_schema (마스터) · gemini_response_schema (매입) ·
             gemini_safe_schema (판매 · 재무는 inline_refs=False)
 ```
@@ -29,7 +29,8 @@
 오류 감싸기     Gemini 는 HTTPError 를 감싸지 않고(상태 코드 보존) 나머지만 감싼다.
                 Ollama 는 HTTPError 까지 감싼다. 감싸지 않는 부서도 있다(물류 Gemini · 판매 ·
                 ML · 재무 Ollama · 물류 status_chat).
-응답 글자       thought 조각을 건너뛰나 · 공백뿐인 조각을 받나 · 앞뒤 공백을 떼나가 부서마다 다르다
+응답 글자       읽는 규칙은 하나다(`gemini_text`). 없을 때의 예외 종류 · 문장과 합친 글자의 앞뒤
+                공백을 떼나는 부서가 정한다
 본문 인코딩     물류 status_chat 만 ensure_ascii=False · default=str 로 보낸다
 스키마 변환     부서마다 한 벌씩이던 변환을 결과 · 예외가 같게 셋으로 둔다 — 참조 펴기 · anyOf ·
                 버리는 칸 · 예외가 부서마다 다르다(아래 «Gemini 스키마 변환» 절)
@@ -42,21 +43,20 @@ import json
 import os
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from typing import Any
 
 __all__ = [
     "GEMINI_BASE_URL",
     "anthropic_json",
     "chat_messages",
-    "first_text",
-    "gemini_first_part_text",
     "gemini_json_request",
     "gemini_parts",
     "gemini_request",
     "gemini_response_schema",
     "gemini_safe_schema",
     "gemini_strict_schema",
+    "gemini_text",
     "gemini_tool_request",
     "json_request",
     "ollama_chat_request",
@@ -338,38 +338,32 @@ def gemini_parts(document: Mapping[str, Any]) -> list[Any]:
     return ((candidates[0] if candidates else {}).get("content") or {}).get("parts") or []
 
 
-def first_text(
-    parts: Sequence[Any],
-    *,
-    skip_thoughts: bool = False,
-    allow_whitespace: bool = False,
-) -> str | None:
-    """조각들 가운데 처음 나오는 글자. 없으면 `None` — 없을 때 무엇을 할지는 부서가 정한다.
+def gemini_text(document: Mapping[str, Any]) -> str | None:
+    """첫 후보의 답 글자 — 사고(`thought: true`) 조각과 글자가 없는 조각을 빼고, 남은 글자
+    조각을 **원문 그대로 순서대로 이어붙인다.** 이어붙인 결과가 비었거나 공백뿐이면 `None`.
 
-    :param skip_thoughts: `thought: true` 조각을 건너뛴다. `parts[0]` 만 보면 사고 조각에
-        글자가 없어 실패하고, 호출은 성공했는데 FALLBACK 으로 떨어진다(마스터 실측 12번 중 11번).
-    :param allow_whitespace: 공백뿐인 글자도 받는다(빈 문자열은 늘 건너뛴다).
+    없을 때 무엇을 할지(예외 종류 · 문장 · 대체)와 합친 글자의 앞뒤 공백을 뗄지는 부서가 정한다.
 
-    주의: 조각을 `.get` 으로 읽는다 — dict 가 아닌 조각은 `AttributeError` 다. 그런 조각을
-    건너뛰는 부서(매입)는 거른 목록을 넘긴다.
+    - 조각마다 trim 하지 않고 구분자도 넣지 않는다 — 답이 `{"a": ` · `"b c"}` 처럼 나뉘어 오면
+      JSON 문자열 안의 공백이 조각 경계에 걸릴 수 있다. 공백 판정은 합친 결과에만 한다.
+    - `parts[0]` 만 보지 않는다 — 사고 조각이 앞에 오는 모델이 있어, 첫 조각만 보면 호출이
+      성공했는데 글자가 없다고 읽는다. 글자가 있는 사고 조각도 답이 아니다.
+    - `thoughtSignature` 가 붙은 글자 조각은 사고 조각이 아니다 — 그대로 답이다.
+    - dict 가 아닌 조각 · `text` 가 문자열이 아닌 조각은 글자가 없는 조각으로 본다.
+
+    부서 일곱(마스터 · Critic · 재무 Finalizer · 매입 · 판매 · 물류 해석기 · ML)과 status_chat 의
+    표시 글자가 이 한 규칙을 쓴다. `functionCall` 조각을 모으는 재무 Planner · status_chat 도구
+    호출은 이 함수와 무관하다.
     """
-    for part in parts:
-        if skip_thoughts and part.get("thought"):
-            continue
-        text = part.get("text")
-        if not isinstance(text, str):
-            continue
-        if text if allow_whitespace else text.strip():
-            return text
-    return None
-
-
-def gemini_first_part_text(document: Mapping[str, Any]) -> Any:
-    """`candidates[0].content.parts[0].text` 를 그대로 꺼낸다(물류 해석기 · ML).
-
-    빠진 칸은 `KeyError` · `IndexError` · `TypeError` 로 그대로 올린다 — 부르는 쪽이 감싼다.
-    """
-    return document["candidates"][0]["content"]["parts"][0]["text"]
+    pieces = [
+        part["text"]
+        for part in gemini_parts(document)
+        if isinstance(part, Mapping)
+        and not part.get("thought")
+        and isinstance(part.get("text"), str)
+    ]
+    joined = "".join(pieces)
+    return joined if joined.strip() else None
 
 
 # ── Gemini 스키마 변환 ───────────────────────────────────────────────────────

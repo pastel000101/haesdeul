@@ -22,9 +22,9 @@ from app.contracts.envelope import LLMStatus
 from app.core.llm.providers import (
     GEMINI_BASE_URL,
     chat_messages,
-    gemini_first_part_text,
     gemini_json_request,
     gemini_request,
+    gemini_text,
     ollama_chat_request,
     ollama_request,
     ollama_text,
@@ -256,7 +256,9 @@ class GeminiProvider:
     올린다 — 분류는 classify_llm_error 한 곳이 한다(여기서 삼키면 재시도 정책이 눈을 잃는다).
     주소는 `LOGISTICS_GEMINI_BASE_URL` 로만 바꾼다(공용 `GEMINI_BASE_URL` 은 보지 않는다 —
     마스터 · Critic · 매입과 다르다). `LLM_BASE_URL` 은 Ollama 로컬 주소라 뜻이 다르다.
-    응답 글자는 `parts[0].text` 를 그대로 읽는다(사고 조각을 건너뛰지 않는다 — 마스터와 다르다).
+    응답 글자는 사고 조각을 빼고 글자 조각을 이어붙여 읽는다(`core.llm.providers.gemini_text`
+    — 부서 공통 규칙). 글자가 없으면 `TypeError` 로 올린다 —
+    `classify_llm_error` 가 INVALID_RESPONSE 로 분류한다.
     자체 재시도는 없다 — 재시도는 InterpretationService 가 소유한다.
     """
 
@@ -282,12 +284,9 @@ class GeminiProvider:
             base_url=os.getenv(f"{_ENV_PREFIX}GEMINI_BASE_URL") or GEMINI_BASE_URL,
         )
         document = send_json(request, timeout=self.settings.timeout_seconds)
-        try:
-            content = gemini_first_part_text(document)
-        except (KeyError, IndexError, TypeError) as error:
-            raise TypeError("Gemini response did not contain text content") from error
-        if not isinstance(content, str):
-            raise TypeError("Gemini response text content was not a string")
+        content = gemini_text(document)
+        if content is None:
+            raise TypeError("Gemini response did not contain text content")
         # `usageMetadata` 는 공식 레퍼런스상 Optional 이다 — 200 인데 통째로 없을 수
         # 있다. 없으면 없는 것이지 오류가 아니므로 예외로 만들지 않는다 (#406).
         # `totalTokenCount` 는 읽지 않는다 (prompt + thoughts + candidates 라 의미가

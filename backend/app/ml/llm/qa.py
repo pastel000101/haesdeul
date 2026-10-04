@@ -34,9 +34,9 @@ from typing import Any
 
 from app.core.llm.providers import (
     GEMINI_BASE_URL,
-    gemini_first_part_text,
     gemini_json_request,
     gemini_request,
+    gemini_text,
     send_json,
 )
 from app.core.llm.runtime import gemini_api_key
@@ -390,8 +390,9 @@ def interpret(question: str, base_dt: date) -> dict[str, Any] | None:
     )
     try:
         document = send_json(request, timeout=_TIMEOUT_SECONDS)
-        text = gemini_first_part_text(document)
-        chosen = json.loads(text)
+        #   사고 조각을 빼고 글자 조각을 이어붙인다(부서 공통 규칙). 글자가 없으면 `None` 이고
+        #   `json.loads` 가 터져 아래 `except` 로 — 못 읽으면 `None` 이라는 계약은 그대로다.
+        chosen = json.loads(gemini_text(document) or "")
     except Exception:                                        # noqa: BLE001
         #   오류 문구를 밖으로 흘리지 않는다. 접속 정보가 오류에 실려 나올 수 있다.
         return None
