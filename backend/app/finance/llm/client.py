@@ -27,11 +27,11 @@ from typing import Any
 
 from app.core.llm.providers import (
     chat_messages,
-    first_text,
     gemini_json_request,
     gemini_parts,
     gemini_request,
     gemini_safe_schema,
+    gemini_text,
     gemini_tool_request,
     ollama_chat_request,
     ollama_message,
@@ -162,8 +162,9 @@ def llm_timeout_seconds() -> float:
 
 
 def _gemini_response_text(document: dict[str, Any]) -> str:
-    """사고(`thought`) 조각 · 공백뿐인 조각을 건너뛴 첫 글자를 앞뒤 공백을 떼어 돌려준다."""
-    text = first_text(gemini_parts(document), skip_thoughts=True)
+    """사고(`thought`) 조각을 뺀 글자 조각을 이어붙여(`gemini_text` — 부서 공통 규칙) 앞뒤
+    공백을 떼어 돌려준다. 글자가 없으면 `TypeError`(문장이 가용성 판별 계약이다)."""
+    text = gemini_text(document)
     if text is None:
         raise TypeError("Finance Gemini response did not contain text content")
     return text.strip()

@@ -31,11 +31,10 @@ from app.core.llm.providers import (
     GEMINI_BASE_URL,
     anthropic_json,
     chat_messages,
-    first_text,
     gemini_json_request,
-    gemini_parts,
     gemini_request,
     gemini_strict_schema,
+    gemini_text,
     ollama_chat_request,
     ollama_request,
     ollama_text,
@@ -370,8 +369,9 @@ class GeminiProvider:
 
     `parts[0]` 만 보지 않는다 — 사고 조각이 앞에 오는 모델이 있다.
     `gemini-3.5-flash-lite` 는 `thought: true` 조각을 앞에 붙이므로, 첫 조각만 보면 호출은
-    성공했는데 FALLBACK 으로 떨어진다(관측: `SELECT_SCENARIO` 12번 중 11번). 사고 조각은
-    건너뛰고 빈 문자열이 아닌 첫 글자를 쓴다(공백뿐인 글자도 받는다 — 검증이 되묻는다).
+    성공했는데 FALLBACK 으로 떨어진다(관측: `SELECT_SCENARIO` 12번 중 11번). 사고 조각을
+    빼고 글자 조각을 이어붙여 읽는다(`core.llm.providers.gemini_text` — 부서 공통 규칙).
+    글자가 없으면 `TypeError` 로 터뜨린다 — 빈 답을 통과시키면 답이 조용히 사라진다.
 
     응답 스키마는 `gemini_strict_schema` 로 낮춘다 — `X | null` 이 아닌 anyOf 는 조용히
     흘리지 않고 터뜨린다(Gemini 400 이 호출 실패로만 보인다). 길이 제약은 남기고, 못 편
@@ -404,7 +404,7 @@ class GeminiProvider:
             failure_message="Master Gemini request failed",
             keep_http_errors=True,
         )
-        text = first_text(gemini_parts(document), skip_thoughts=True, allow_whitespace=True)
+        text = gemini_text(document)
         if text is None:
             raise TypeError("Gemini response did not contain text content")
         return text

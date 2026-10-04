@@ -24,13 +24,13 @@ import pytest
 from app.core.llm import providers
 from app.core.llm.providers import (
     GEMINI_BASE_URL,
-    first_text,
     gemini_json_request,
     gemini_parts,
     gemini_request,
     gemini_response_schema,
     gemini_safe_schema,
     gemini_strict_schema,
+    gemini_text,
     gemini_tool_request,
     json_request,
     ollama_chat_request,
@@ -234,30 +234,35 @@ def test_gemini_parts_tolerates_missing_candidates():
 _THOUGHT = {"thought": True, "text": "thinking"}
 
 
+def _doc(parts: list[Any]) -> dict[str, Any]:
+    return {"candidates": [{"content": {"parts": parts}}]}
+
+
 @pytest.mark.parametrize(
-    ("parts", "skip_thoughts", "allow_whitespace", "expected"),
+    ("parts", "expected"),
     [
-        ([_THOUGHT, {"text": "답"}], True, True, "답"),
-        ([_THOUGHT, {"text": "답"}], False, False, "thinking"),
-        ([{"text": "   "}, {"text": "답"}], True, True, "   "),
-        ([{"text": "   "}, {"text": "답"}], True, False, "답"),
-        ([{"text": ""}, {"text": "답"}], True, True, "답"),
-        ([{"thought": True}], False, False, None),
-        ([{"functionCall": {}}], True, True, None),
-        ([], True, True, None),
+        ([_THOUGHT, {"text": "답"}], "답"),  # 글자가 있는 사고 조각도 답이 아니다
+        ([{"thought": True}, {"text": "답"}], "답"),
+        ([{"thoughtSignature": "sig"}, {"text": "답"}], "답"),  # text 없는 조각
+        ([{"text": "답", "thoughtSignature": "sig"}], "답"),  # 서명 붙은 답은 사고 조각이 아니다
+        ([{"text": "   "}, {"text": "답"}], "   답"),  # 조각별 trim 없음
+        ([{"text": ""}, {"text": "답"}], "답"),
+        ([{"text": '{"a":'}, _THOUGHT, {"text": " 1}"}], '{"a": 1}'),  # 순서대로 · 구분자 없음
+        ([{"text": '{"s": "두 '}, {"text": '단어"}'}], '{"s": "두 단어"}'),  # 경계의 공백 보존
+        (["junk", {"text": 5}, {"text": "답"}], "답"),  # dict 아닌 조각 · 문자열 아닌 text
+        ([_THOUGHT], None),
+        ([{"text": "   "}, {"text": ""}], None),  # 합친 결과가 공백뿐
+        ([{"functionCall": {}}], None),
+        ([], None),
     ],
 )
-def test_first_text_flags(parts, skip_thoughts, allow_whitespace, expected):
-    assert (
-        first_text(parts, skip_thoughts=skip_thoughts, allow_whitespace=allow_whitespace)
-        == expected
-    )
+def test_gemini_text_joins_non_thought_text_parts_verbatim(parts, expected):
+    assert gemini_text(_doc(parts)) == expected
 
 
-def test_first_text_does_not_strip_and_rejects_non_dict_parts():
-    assert first_text([{"text": "  답  "}]) == "  답  "
-    with pytest.raises(AttributeError):
-        first_text(["junk", {"text": "답"}])
+def test_gemini_text_tolerates_missing_candidates():
+    assert gemini_text({}) is None
+    assert gemini_text({"candidates": [{}]}) is None
 
 
 # ── SDK: 재시도를 끄고, 키 → 모델 순서로 확인한다 ────────────────────────────

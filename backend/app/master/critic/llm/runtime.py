@@ -21,10 +21,9 @@ from app.contracts.envelope import LLMStatus
 from app.core.llm.providers import (
     GEMINI_BASE_URL,
     chat_messages,
-    first_text,
     gemini_json_request,
-    gemini_parts,
     gemini_request,
+    gemini_text,
     ollama_chat_request,
     ollama_request,
     ollama_text,
@@ -161,7 +160,8 @@ class GeminiProvider:
 
     `parts[0]` 만 읽지 않는다 — 사고 조각이 앞에 오는 모델이 있다. 앞 조각만 읽으면
     호출이 성공해도 FALLBACK 으로 떨어지고, 판정에서는 검증이 조용히 안 돈다 — 그게
-    이 프로젝트에서 가장 나쁜 실패다.
+    이 프로젝트에서 가장 나쁜 실패다. 사고 조각을 빼고 글자 조각을 이어붙여 읽는다
+    (`core.llm.providers.gemini_text` — 부서 공통 규칙).
     """
 
     def __init__(self, settings: LLMSettings):
@@ -191,7 +191,7 @@ class GeminiProvider:
             failure_message="Critic Gemini request failed",
             keep_http_errors=True,
         )
-        text = first_text(gemini_parts(document), skip_thoughts=True, allow_whitespace=True)
+        text = gemini_text(document)
         if text is None:
             raise TypeError("Critic Gemini response did not contain text content")
         return text

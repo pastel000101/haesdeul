@@ -17,11 +17,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.llm.providers import (
-    first_text,
     gemini_json_request,
-    gemini_parts,
     gemini_request,
     gemini_safe_schema,
+    gemini_text,
     send_json,
 )
 from app.core.llm.runtime import gemini_api_key, read_optional_bool
@@ -392,11 +391,9 @@ def _gemini_structured(
 
 
 def _gemini_response_text(document: dict[str, Any]) -> str:
-    """공백이 아닌 첫 글자 조각을 앞뒤 공백을 떼어 돌려준다. 없으면 `ValueError`.
-
-    주의: 사고(`thought`) 조각을 따로 건너뛰지 않는다 — 마스터 · Critic · 재무와 다르다.
-    """
-    text = first_text(gemini_parts(document))
+    """사고(`thought`) 조각을 뺀 글자 조각을 이어붙여(`gemini_text` — 부서 공통 규칙) 앞뒤
+    공백을 떼어 돌려준다. 글자가 없으면 `ValueError`(판매 fallback 이 이 예외를 받는다)."""
+    text = gemini_text(document)
     if text is None:
         raise ValueError("empty Gemini response")
     return text.strip()
