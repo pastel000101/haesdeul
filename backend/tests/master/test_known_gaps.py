@@ -191,6 +191,46 @@ def test_건고추_질문도_대상이_아니라고_말한다():
     assert "알아듣지 못했습니다" not in 말
 
 
+# ── 출고 · 납품한 판매의 집계는 자리가 없다고 말한다 ────────────────────
+#
+# ★ 분류 결과를 지어 넣는다. 출고 질문을 UNKNOWN 으로 보내는 것은 지시문이 하는 일이라
+#   실측으로 본다. 여기서 재는 것은 *"UNKNOWN 으로 왔을 때 무슨 말이 나가는가"* 와
+#   *"확정 판매 · 출고 예정 질문에 이 안내가 번지지 않는가"* 다.
+
+
+def test_출고한_판매_집계_질문은_자리가_없다고_말한다():
+    말 = _clarification(_UNKNOWN, "9월 18일 출고한 판매는 몇 건이고 총 몇 kg이야?")
+
+    assert "집계는 현재 조회에 없습니다" in 말
+    assert "알아듣지 못했습니다" not in 말, "못 알아들은 것이 아니라 자리가 없는 것이다"
+
+
+def test_확정_판매_질문과_출고_예정_질문에는_번지지_않는다():
+    """확정된 판매 조회와 물류의 출고 예정 상태 조회는 그대로 답하는 자리다."""
+    assert _known_gap("9월 18일 새로 확정된 판매는 몇 건이야?") is None
+    assert _known_gap("내일 출고 예정인 배추는 얼마나 돼?") is None
+
+
+def test_확정_판매_질문은_되묻지_않는다():
+    """회귀 — 출고 집계 규칙이 확정 판매 조회에 번지면 안 된다."""
+    result = service(
+        payload(action="DOMAIN_ACTION", domain_action="SALES_CONFIRMED_TODAY", confidence="HIGH")
+    ).classify("9월 18일 새로 확정된 판매는 몇 건이야?")
+
+    assert result.intent.domain_action == "SALES_CONFIRMED_TODAY"
+    # 조회 DOMAIN_ACTION 의 실행 여부는 `service/ask.py` 가 가른다 — 여기서 재는 것은 출고
+    # 집계 안내가 이 의도의 되묻는 말에 섞이지 않는 것이다.
+    assert "집계는 현재 조회에 없습니다" not in (result.clarification or "")
+
+
+def test_분류_지시문에도_출고_집계_구분_규칙이_있다():
+    """지시문과 되묻는 말이 같은 사실을 말하는지 대조한다."""
+    assert "SALES_CONFIRMED_TODAY 는 **그날 확정된 판매**만 센다" in SYSTEM_PROMPT
+    assert '"9월 18일 출고한 판매는 몇 건이고 총 몇 kg이야?"  → UNKNOWN' in SYSTEM_PROMPT
+    assert '"9월 18일 새로 확정된 판매는 몇 건이야?"' in SYSTEM_PROMPT
+    assert "→ SALES_CONFIRMED_TODAY" in SYSTEM_PROMPT
+
+
 def test_제외_품목이_없으면_빈자리로_이름_붙이지_않는다():
     """목록에 없는 말은 종전 안내로 간다 — 목록을 늘려 가며 맞히는 것이 아니다."""
     assert _known_gap("배추 재고 얼마나 남았어?") is None
